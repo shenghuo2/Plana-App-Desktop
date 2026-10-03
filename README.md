@@ -1,3 +1,5 @@
+> Desktop 测试分支：基于 [LingXia979 的图库改进分支](https://github.com/LingXia979/Plana-App-for-windows/tree/Plana-app-for-windows)，补充 macOS 支持。差异与测试说明见 [docs/desktop-comparison.md](docs/desktop-comparison.md)。
+
 <div align="center">
 
 <img src="assets/app_icon.png" width="96" alt="Plana App">

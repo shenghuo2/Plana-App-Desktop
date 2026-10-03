@@ -10,7 +10,34 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 ///
 /// 直接暴露常量是给 `main()` 用的:`loadThemeSettings()` 在 ProviderScope
 /// 建立之前就要读盘,拿不到 ref。
-const kSecureStorage = FlutterSecureStorage();
+///
+/// macOS 的公开构建使用 ad-hoc 签名,不能携带 Data Protection Keychain 所需的
+/// Keychain Sharing entitlement。这里显式改走传统登录钥匙串:内容仍由 macOS
+/// Keychain 加密保管,但不再要求 Developer ID 或 provisioning profile。
+const kMacOsSecureStorageService = 'com.sora214.plana.app.secure-storage';
+const kSecureStorage = FlutterSecureStorage(
+  mOptions: MacOsOptions(
+    accountName: kMacOsSecureStorageService,
+    usesDataProtectionKeychain: false,
+  ),
+);
+
+/// CI 启动打包后的 App 时使用。测试值不是凭据,写入后会立即删除。
+const kMacOsKeychainSmokeTestEnvironment = 'PLANA_MACOS_KEYCHAIN_SMOKE_TEST';
+
+Future<void> runMacOsKeychainSmokeTest() async {
+  const key = '__plana_macos_keychain_smoke_test__';
+  final value = DateTime.now().microsecondsSinceEpoch.toString();
+  await kSecureStorage.write(key: key, value: value);
+  try {
+    final stored = await kSecureStorage.read(key: key);
+    if (stored != value) {
+      throw StateError('macOS Keychain returned an unexpected value');
+    }
+  } finally {
+    await kSecureStorage.delete(key: key);
+  }
+}
 
 /// ProviderScope 内的读写统一走这里。
 final secureStorageProvider = Provider<FlutterSecureStorage>(

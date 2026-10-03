@@ -1,8 +1,11 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'core/app_info.dart';
 import 'core/auth/auth_mode.dart';
+import 'core/auth/secure_storage.dart';
 import 'core/store/app_stores.dart';
 import 'core/store/gen_settings.dart';
 import 'core/theme/app_theme.dart';
@@ -15,6 +18,19 @@ import 'features/editor/data/local_tag_db.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  if (Platform.isMacOS &&
+      Platform.environment[kMacOsKeychainSmokeTestEnvironment] == '1') {
+    try {
+      await runMacOsKeychainSmokeTest();
+      stdout.writeln('macOS Keychain smoke test passed.');
+      exit(0);
+    } catch (error, stackTrace) {
+      stderr
+        ..writeln('macOS Keychain smoke test failed: $error')
+        ..writeln(stackTrace);
+      exit(1);
+    }
+  }
   // 离线词库索引与存档并行读:它不压缩存、引擎直接 mmap,几毫秒就好。装好后
   // 注音 / 热度反查从第一帧起就是同步可用的,不再有开机「灌注」这一步。
   final tagDb = LocalTagDb();

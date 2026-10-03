@@ -1,0 +1,202 @@
+name: Build desktop
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - 'desktop/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PUB_HOSTED_URL: https://pub.flutter-io.cn
+
+jobs:
+  quality:
+    name: Analyze and test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44.2'
+          channel: stable
+          cache: true
+
+      - name: Resolve locked dependencies
+        run: flutter pub get --enforce-lockfile
+
+      - name: Analyze
+        run: flutter analyze --no-pub
+
+      - name: Test
+        run: flutter test --no-pub
+
+  macos:
+    name: Build macOS
+    needs: quality
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44.2'
+          channel: stable
+          cache: true
+
+      - name: Resolve locked dependencies
+        run: flutter pub get --enforce-lockfile
+
+      - name: Build release app
+        run: flutter build macos --release --no-pub
+
+      - name: Validate macOS application
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          app_path="build/macos/Build/Products/Release/Plana App.app"
+          plist_path="$app_path/Contents/Info.plist"
+          entitlements_path="$RUNNER_TEMP/plana-release-entitlements.plist"
+          executable_name="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$plist_path")"
+          executable_path="$app_path/Contents/MacOS/$executable_name"
+
+          # Disk images retain POSIX modes. Keep the bundle usable when the
+          # mounted volume's numeric owner differs from the local macOS user.
+          chmod -R a+rX "$app_path"
+
+          while IFS= read -r -d '' candidate; do
+            if file "$candidate" | grep -q 'Mach-O'; then
+              chmod a+x "$candidate"
+              architectures="$(lipo -archs "$candidate")"
+              echo "$candidate: $architectures"
+              grep -qw arm64 <<<"$architectures"
+            fi
+          done < <(find "$app_path" -type f -print0)
+
+          # GitHub-hosted builds have no Developer ID certificate. Release is
+          # intentionally non-sandboxed and uses the classic login Keychain,
+          # so the downloadable build can use an entitlement-free ad-hoc
+          # signature without losing credential storage.
+          codesign --force --sign - "$app_path"
+
+          test -x "$executable_path"
+          test "$executable_name" = "Plana App"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "$plist_path")" = "14.0"
+          codesign --verify --deep --strict --verbose=4 "$app_path"
+          codesign --display --entitlements "$entitlements_path" "$app_path" || true
+          if [[ -s "$entitlements_path" ]]; then
+            cat "$entitlements_path"
+          else
+            echo 'Ad-hoc test signature contains no entitlements.'
+          fi
+
+          for forbidden_entitlement in \
+            com.apple.security.get-task-allow \
+            com.apple.security.app-sandbox; do
+            entitlement_value="$(
+              /usr/libexec/PlistBuddy \
+                -c "Print :$forbidden_entitlement" \
+                "$entitlements_path" 2>/dev/null || true
+            )"
+            if [[ "$entitlement_value" == "true" ]]; then
+              echo "::error::Ad-hoc signature contains $forbidden_entitlement=true"
+              exit 1
+            fi
+          done
+
+          keychain_smoke_log="$RUNNER_TEMP/plana-keychain-smoke.log"
+          PLANA_MACOS_KEYCHAIN_SMOKE_TEST=1 \
+            "$executable_path" >"$keychain_smoke_log" 2>&1 &
+          keychain_smoke_pid=$!
+          (
+            sleep 20
+            kill -TERM "$keychain_smoke_pid" 2>/dev/null || true
+          ) &
+          keychain_watchdog_pid=$!
+
+          keychain_smoke_status=0
+          wait "$keychain_smoke_pid" || keychain_smoke_status=$?
+          kill "$keychain_watchdog_pid" 2>/dev/null || true
+          wait "$keychain_watchdog_pid" 2>/dev/null || true
+          cat "$keychain_smoke_log"
+          if [[ "$keychain_smoke_status" -ne 0 ]]; then
+            echo "::error::macOS Keychain smoke test failed with status $keychain_smoke_status"
+            exit 1
+          fi
+
+      - name: Create ad-hoc DMG
+        run: >-
+          hdiutil create
+          -volname "Plana App"
+          -srcfolder "build/macos/Build/Products/Release/Plana App.app"
+          -ov
+          -format UDZO
+          "Plana-macOS.dmg"
+
+      - name: Validate packaged macOS image
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mount_point="$(mktemp -d)"
+          smoke_log="$RUNNER_TEMP/plana-macos-smoke.log"
+          cleanup() {
+            hdiutil detach "$mount_point" || true
+            rmdir "$mount_point" || true
+          }
+          trap cleanup EXIT
+
+          hdiutil attach -readonly -nobrowse -mountpoint "$mount_point" "Plana-macOS.dmg"
+          app_path="$mount_point/Plana App.app"
+          plist_path="$app_path/Contents/Info.plist"
+          executable_name="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$plist_path")"
+          executable_path="$app_path/Contents/MacOS/$executable_name"
+
+          test -x "$executable_path"
+          file "$executable_path"
+          lipo -archs "$executable_path" | grep -qw arm64
+          codesign --verify --deep --strict --verbose=4 "$app_path"
+
+          open -n -W -g "$app_path" >"$smoke_log" 2>&1 &
+          open_pid=$!
+          sleep 8
+          if ! kill -0 "$open_pid" 2>/dev/null; then
+            cat "$smoke_log"
+            log show --last 2m --style compact \
+              --predicate 'process == "Plana App" OR eventMessage CONTAINS[c] "com.sora214.plana.app"' \
+              | tail -200 || true
+            exit 1
+          fi
+
+          app_pid="$(pgrep -x "$executable_name" | head -1)"
+          test -n "$app_pid"
+          kill "$app_pid"
+          for _ in {1..20}; do
+            if ! kill -0 "$app_pid" 2>/dev/null; then
+              break
+            fi
+            sleep 0.25
+          done
+          kill -9 "$app_pid" 2>/dev/null || true
+          wait "$open_pid" || true
+
+      - name: Upload macOS image
+        uses: actions/upload-artifact@v7
+        with:
+          name: Plana-macOS-ad-hoc
+          path: Plana-macOS.dmg
+          if-no-files-found: error
