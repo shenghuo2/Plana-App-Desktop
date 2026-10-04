@@ -26,6 +26,8 @@ bool FlutterWindow::OnCreate() {
   }
   RegisterPlugins(flutter_controller_->engine());
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
+  clipboard_channel_ = std::make_unique<ClipboardChannel>(
+      GetHandle(), flutter_controller_->engine()->messenger());
   image_drop_window_ = flutter_controller_->view()->GetNativeWindow();
   image_drop_target_ = new ImageDropTarget(
       image_drop_window_, flutter_controller_->engine()->messenger());

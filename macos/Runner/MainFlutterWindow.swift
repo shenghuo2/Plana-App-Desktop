@@ -80,6 +80,8 @@ class MainFlutterWindow: NSWindow {
     self.center()
 
     RegisterGeneratedPlugins(registry: flutterViewController)
+    // 剪贴板图片读写:Flutter 自带的 Clipboard 只有文本,见 ClipboardChannel.swift。
+    ClipboardChannel.register(with: flutterViewController.engine.binaryMessenger)
     super.awakeFromNib()
   }
 }

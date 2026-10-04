@@ -19,10 +19,13 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/platform/desktop.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../desktop/desktop_image_viewer.dart' show showDesktopImageViewer;
 import '../../gallery/gallery_state.dart'
     show galleryImageProvider, galleryProvider, galleryThumbProvider;
 import '../../gallery/models.dart' show ResultImage;
+import '../../gallery/result_clipboard.dart' show copyResultToClipboard;
 import '../../generate/gen_jobs.dart' show GenJob;
 import '../../generate/generation_controller.dart' show generationProvider;
 import '../../generate/widgets/common.dart' show StripeThumb;
@@ -149,12 +152,24 @@ class _Done extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final size = _box(result.width, result.height, maxW);
     final bytes = _bytesOf(ref, result);
+    final desktop = ref.watch(desktopModeProvider);
     return GestureDetector(
-      // 点开切去图库看大图 —— 放大、超分、存盘那些都在那边。
-      onTap: () {
-        ref.read(galleryProvider.notifier).select(result.id);
-        ref.read(shellIndexProvider.notifier).select(kTabGallery);
-      },
+      key: ValueKey('assistant-inline-image-${result.id}'),
+      // 桌面端:点开就是这张图本身(桌面看图浮层,放大 / 复制 / 保存 / 超分
+      // 都在里面)。**不再切去图库** —— 切过去的只是图库页,连图都不给你选中,
+      // 想在对话里核对一眼还得自己找回去。
+      //
+      // 移动端照旧:那边看图、存盘、超分全在图库,浮层是桌面才有的东西。
+      onTap: () => desktop
+          ? _openViewer(context, ref)
+          : () {
+              ref.read(galleryProvider.notifier).select(result.id);
+              ref.read(shellIndexProvider.notifier).select(kTabGallery);
+            },
+      // 右键:不打开也能直接复制走。桌面端专有 —— 触屏没有右键这一下。
+      onSecondaryTapUp: desktop
+          ? (details) => _menu(context, ref, details.globalPosition)
+          : null,
       child: _frame(context, size, [
         if (bytes != null)
           _Bitmap(bytes: bytes, size: size)
@@ -165,6 +180,44 @@ class _Done extends ConsumerWidget {
         Positioned(right: 10, bottom: 10, child: _AgainButton(msgId: msgId)),
       ]),
     );
+  }
+
+  /// 在桌面看图浮层里打开这张图。
+  ///
+  /// 传整库 + 这张的下标,而不是只传它自己:箭头能顺着往下翻,「作品 N / M」
+  /// 也说得清它在库里的位置 —— 这正是原来「切去图库」缺的那一步。
+  void _openViewer(BuildContext context, WidgetRef ref) {
+    final all = ref.read(galleryProvider).results;
+    final index = all.indexWhere((r) => r.id == result.id);
+    if (index < 0) return; // 库里已经删了,浮层没有可翻的上下文
+    showDesktopImageViewer(
+      context,
+      images: all,
+      index: index,
+      libraryName: '全部作品',
+    );
+  }
+
+  Future<void> _menu(BuildContext context, WidgetRef ref, Offset at) async {
+    final overlay = Overlay.of(context).context.findRenderObject() as RenderBox?;
+    if (overlay == null) return;
+    final picked = await showMenu<String>(
+      context: context,
+      position: RelativeRect.fromRect(
+        at & const Size(1, 1),
+        Offset.zero & overlay.size,
+      ),
+      items: const [
+        PopupMenuItem(value: 'open', child: Text('打开大图')),
+        PopupMenuItem(value: 'copy', child: Text('复制图片')),
+      ],
+    );
+    if (!context.mounted || picked == null) return;
+    if (picked == 'copy') {
+      await copyResultToClipboard(context, ref, result);
+      return;
+    }
+    _openViewer(context, ref);
   }
 }
 

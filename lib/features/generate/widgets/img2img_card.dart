@@ -216,6 +216,7 @@ class _Img2ImgCardState extends ConsumerState<Img2ImgCard> {
     return ref.watch(desktopModeProvider)
         ? ImageDropRegion(
             label: '用作图生图底图',
+            acceptPaste: true,
             onDrop: (images, _) =>
                 setImg2ImgFromImage(context, ref, images.single.bytes),
             child: card,

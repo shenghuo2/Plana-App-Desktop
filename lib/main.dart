@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'core/app_info.dart';
 import 'core/auth/auth_mode.dart';
 import 'core/auth/secure_storage.dart';
+import 'core/platform/clipboard_image.dart';
 import 'core/platform/desktop.dart';
 import 'core/store/app_stores.dart';
 import 'core/store/gen_settings.dart';
@@ -30,6 +31,20 @@ Future<void> main() async {
     } catch (error, stackTrace) {
       stderr
         ..writeln('macOS Keychain smoke test failed: $error')
+        ..writeln(stackTrace);
+      exit(1);
+    }
+  }
+  // 剪贴板那条原生通道同理:没注册上时构建和启动都正常,只有用户按 ⌘V 才发现。
+  if (Platform.isMacOS &&
+      Platform.environment[kMacOsClipboardSmokeTestEnvironment] == '1') {
+    try {
+      await runMacOsClipboardSmokeTest();
+      stdout.writeln('macOS clipboard smoke test passed.');
+      exit(0);
+    } catch (error, stackTrace) {
+      stderr
+        ..writeln('macOS clipboard smoke test failed: $error')
         ..writeln(stackTrace);
       exit(1);
     }

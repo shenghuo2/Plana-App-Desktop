@@ -8,6 +8,7 @@ import '../../core/theme/app_theme.dart';
 import '../gallery/gallery_state.dart';
 import '../gallery/albums/gallery_transfer_dialog.dart';
 import '../gallery/models.dart';
+import '../gallery/result_clipboard.dart';
 import '../gallery/widgets/result_canvas.dart';
 import '../generate/models.dart';
 import '../shell/shell_state.dart';
@@ -281,6 +282,15 @@ class _DesktopImageViewerState extends ConsumerState<_DesktopImageViewer> {
               icon: const Icon(Icons.copy_outlined, size: 16),
               onPressed: () =>
                   Clipboard.setData(ClipboardData(text: '${result.seed}')),
+            ),
+            // 复制图片。**图标而不是带字的按钮**:这一栏就 260~340px 宽,下面那排
+            // 「重绘 / 放大 / 超分辨率 / 保存」已经要折三四行,再加一颗带字的
+            // 直接把这一列顶出屏幕;种子那颗复制也在这行,凑成一处「复制」。
+            IconButton(
+              key: const ValueKey('desktop-image-copy-image'),
+              tooltip: '复制图片到剪贴板',
+              icon: const Icon(Icons.content_copy, size: 16),
+              onPressed: () => copyResultToClipboard(context, ref, result),
             ),
           ],
         ),

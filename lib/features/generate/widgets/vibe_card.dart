@@ -250,6 +250,7 @@ class _VibeCardState extends ConsumerState<VibeCard> {
         ? ImageDropRegion(
             label: '加入 Vibe 参考',
             multiple: true,
+            acceptPaste: true,
             onDrop: (images, _) => _addImages(images),
             child: card,
           )

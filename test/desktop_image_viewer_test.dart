@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
+import 'package:plana_app/core/platform/clipboard_image.dart';
 import 'package:plana_app/core/platform/desktop.dart';
 import 'package:plana_app/core/store/app_stores.dart';
 import 'package:plana_app/core/theme/app_theme.dart';
@@ -372,4 +373,34 @@ void main() {
       await tester.pumpWidget(const SizedBox());
     },
   );
+
+  testWidgets('看图浮层能把当前这张复制到系统剪贴板', (tester) async {
+    final writes = <Uint8List>[];
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(DesktopClipboard.channel, (call) async {
+          if (call.method == 'write') {
+            final args = (call.arguments as Map).cast<String, Object?>();
+            writes.add(args['image']! as Uint8List);
+            return true;
+          }
+          return null;
+        });
+    addTearDown(
+      () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(DesktopClipboard.channel, null),
+    );
+
+    // comparison 那一版才把字节随身带着(其余几张故意留空,好验懒读),
+    // 复制要的正是「内存里就有」这条路径。
+    await mount(tester, comparison: true);
+    await tester.tap(key('desktop-image-copy-image'));
+    await advance(tester);
+    await tester.pumpAndSettle();
+
+    // 内存里本来就有字节:交出去的就是原样那份,不重新编码。
+    expect(writes, [pixels[0]]);
+    expect(find.text('图片已复制到剪贴板'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+  });
 }

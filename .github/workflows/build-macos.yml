@@ -134,6 +134,28 @@ jobs:
             exit 1
           fi
 
+          # 剪贴板通道同理:Swift 文件漏进工程,构建和启动都不会报错,只有用户
+          # 按 ⌘V 才发现。这一步真往系统剪贴板写一张 2×2 的图再读回来。
+          clipboard_smoke_log="$RUNNER_TEMP/plana-clipboard-smoke.log"
+          PLANA_MACOS_CLIPBOARD_SMOKE_TEST=1 \
+            "$executable_path" >"$clipboard_smoke_log" 2>&1 &
+          clipboard_smoke_pid=$!
+          (
+            sleep 20
+            kill -TERM "$clipboard_smoke_pid" 2>/dev/null || true
+          ) &
+          clipboard_watchdog_pid=$!
+
+          clipboard_smoke_status=0
+          wait "$clipboard_smoke_pid" || clipboard_smoke_status=$?
+          kill "$clipboard_watchdog_pid" 2>/dev/null || true
+          wait "$clipboard_watchdog_pid" 2>/dev/null || true
+          cat "$clipboard_smoke_log"
+          if [[ "$clipboard_smoke_status" -ne 0 ]]; then
+            echo "::error::macOS clipboard smoke test failed with status $clipboard_smoke_status"
+            exit 1
+          fi
+
       - name: Create ad-hoc DMG
         run: >-
           hdiutil create

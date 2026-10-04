@@ -33,6 +33,7 @@ import '../gallery_state.dart';
 import '../models.dart';
 import '../save_pipeline.dart';
 import '../phone_gallery_save.dart';
+import '../result_clipboard.dart';
 import '../save_settings.dart';
 import '../desktop_image_save.dart';
 import '../upscale_model.dart';
@@ -715,6 +716,15 @@ class _ActionRailState extends ConsumerState<ResultActions> {
                       onPressed: canAct ? () => _import(context, ref) : null,
                       icon: const Icon(Icons.input, size: 18),
                       label: const Text('导入'),
+                    ),
+                    TextButton.icon(
+                      key: const ValueKey('canvas-copy-image'),
+                      style: style,
+                      onPressed: canAct
+                          ? () => copyResultToClipboard(context, ref, result)
+                          : null,
+                      icon: const Icon(Icons.content_copy, size: 18),
+                      label: const Text('复制图片'),
                     ),
                     _baseImageButton(style: style, enabled: canAct),
                   ],

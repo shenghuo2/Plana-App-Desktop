@@ -16,12 +16,14 @@ library;
 
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show defaultTargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/store/app_stores.dart';
+import '../../core/platform/clipboard_image.dart';
 import '../../core/platform/desktop.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/ui/image_drop.dart';
@@ -212,6 +214,25 @@ class _AssistantPageState extends ConsumerState<AssistantPage> {
     }
   }
 
+  /// 从剪贴板取图加进附件。
+  ///
+  /// 和 ⌘V 那条路的分工:快捷键走 [ImageDropRegion],剪贴板里**同时有文本就不
+  /// 抢**(焦点在输入框里,用户多半想粘文字);这颗按钮是明确的「我要图」,
+  /// 所以 [DesktopClipboard.readImage] 传 preferImage —— 有没有文本都要图。
+  Future<void> _pasteImage() async {
+    final image = await DesktopClipboard.readImage(preferImage: true);
+    if (!mounted) return;
+    if (image == null) {
+      hintSnack(context, '剪贴板里没有图片', icon: Icons.error_outline);
+      return;
+    }
+    _addImages([PickedImage(image.name ?? kClipboardImageName, image.bytes)]);
+  }
+
+  /// 快捷键提示按平台写:macOS 是 ⌘V,Windows / Linux 是 Ctrl+V。
+  String get _pasteShortcutLabel =>
+      defaultTargetPlatform == TargetPlatform.macOS ? '⌘V' : 'Ctrl+V';
+
   void _addImages(List<PickedImage> images) {
     // A picker or drop started before Send may finish reading afterwards.
     // Keep those late attachments for the next message.
@@ -294,6 +315,7 @@ class _AssistantPageState extends ConsumerState<AssistantPage> {
       key: const ValueKey('assistant-image-drop'),
       label: '将图片添加到对话框',
       multiple: true,
+      acceptPaste: true,
       enabled:
           ref.watch(desktopModeProvider) &&
           usable &&
@@ -951,6 +973,15 @@ class _AssistantPageState extends ConsumerState<AssistantPage> {
       onPressed: !enabled || running || _choosingHistory ? null : _pickHistory,
       icon: const Icon(Icons.photo_library_outlined),
     );
+    // 桌面端专有:截图 / 网页里复制来的图直接进附件,不用先存成文件。
+    // 快捷键本身由 [ImageDropRegion] 兜着(焦点在对话框里就行),这颗是给它
+    // 一个看得见的入口 —— 光有快捷键的功能等于没有。
+    final pasteAttachment = IconButton(
+      key: const ValueKey('assistant-paste-image'),
+      tooltip: '从剪贴板粘贴图片 ($_pasteShortcutLabel)',
+      onPressed: !enabled || running ? null : _pasteImage,
+      icon: const Icon(Icons.content_paste),
+    );
     final input = TextField(
       controller: _input,
       focusNode: _inputFocus,
@@ -1079,6 +1110,7 @@ class _AssistantPageState extends ConsumerState<AssistantPage> {
                       children: [
                         attachment,
                         historyAttachment,
+                        pasteAttachment,
                         Expanded(
                           child: Align(
                             alignment: Alignment.centerRight,
@@ -1105,6 +1137,9 @@ class _AssistantPageState extends ConsumerState<AssistantPage> {
               children: [
                 attachment,
                 historyAttachment,
+                // 嵌在工作台右栏时走的正是这一支 —— 那才是桌面端最常见的样子,
+                // 粘贴这颗不能只在整页那条分支里露脸。
+                if (ref.watch(desktopModeProvider)) pasteAttachment,
                 const SizedBox(width: 1),
                 Expanded(child: input),
                 const SizedBox(width: 8),

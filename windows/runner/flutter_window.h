@@ -7,6 +7,7 @@
 #include <memory>
 
 #include "win32_window.h"
+#include "clipboard_channel.h"
 #include "image_drop_target.h"
 
 // A window that does nothing but host a Flutter view.
@@ -31,6 +32,8 @@ class FlutterWindow : public Win32Window {
   std::unique_ptr<flutter::FlutterViewController> flutter_controller_;
   ImageDropTarget* image_drop_target_ = nullptr;
   HWND image_drop_window_ = nullptr;
+  // 剪贴板图片读写(Flutter 自带的 Clipboard 只有文本),见 clipboard_channel.h。
+  std::unique_ptr<ClipboardChannel> clipboard_channel_;
 };
 
 #endif  // RUNNER_FLUTTER_WINDOW_H_

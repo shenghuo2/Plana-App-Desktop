@@ -216,6 +216,7 @@ class _KreaStyleRefCardState extends ConsumerState<KreaStyleRefCard> {
         ? ImageDropRegion(
             label: '加入风格参考',
             multiple: true,
+            acceptPaste: true,
             onDrop: (images, _) => _addImages(images),
             child: card,
           )

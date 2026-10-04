@@ -5,8 +5,11 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as p;
 
+import '../platform/clipboard_image.dart';
+import '../platform/desktop.dart';
 import '../util/image_ops.dart';
 import '../util/image_pick.dart';
 
@@ -76,7 +79,7 @@ typedef ImageDropCallback =
 /// Flutter's drag target arbitration also selects the innermost native target.
 /// Hit testing (rather than rectangle registration) excludes obscured/offstage
 /// pages and prevents drops through modal barriers.
-class ImageDropRegion extends StatefulWidget {
+class ImageDropRegion extends ConsumerStatefulWidget {
   const ImageDropRegion({
     super.key,
     required this.label,
@@ -85,6 +88,7 @@ class ImageDropRegion extends StatefulWidget {
     this.multiple = false,
     this.enabled = true,
     this.acceptInternal = true,
+    this.acceptPaste = false,
     this.accept,
   });
 
@@ -94,13 +98,21 @@ class ImageDropRegion extends StatefulWidget {
   final bool multiple;
   final bool enabled;
   final bool acceptInternal;
+
+  /// 桌面端 ⌘/Ctrl+V 也能把剪贴板里的图送进这块(焦点在这块里就行)。
+  ///
+  /// 落点和拖入同一套仲裁:焦点在哪块里,图就归哪块,**最里面那块说了算**。
+  /// 剪贴板里没图、或者同时躺着能用的文本(用户多半想粘文字),一律放手给系统
+  /// 原本的文本粘贴 —— 这个动作一次都不该被吞掉。
+  final bool acceptPaste;
+
   final bool Function(ImageDropPayload)? accept;
 
   @override
-  State<ImageDropRegion> createState() => _ImageDropRegionState();
+  ConsumerState<ImageDropRegion> createState() => _ImageDropRegionState();
 }
 
-class _ImageDropRegionState extends State<ImageDropRegion> {
+class _ImageDropRegionState extends ConsumerState<ImageDropRegion> {
   bool _externalHover = false;
   bool _busy = false;
   bool get _enabled => widget.enabled && !_busy;
@@ -138,55 +150,124 @@ class _ImageDropRegionState extends State<ImageDropRegion> {
     }
   }
 
+  /// ⌘/Ctrl+V 落到这块上。
+  ///
+  /// **先问剪贴板,再决定吞不吞**:这一下是同步认领的(剪贴板是异步读的,等读完
+  /// 再决定就轮不到自己了),所以读不到图时必须把文本粘贴原样补回去 —— 补的是
+  /// [PasteTextIntent],走的是当前焦点自己那套粘贴,行为与没拦过一模一样。
+  Future<void> _paste() async {
+    final image = await DesktopClipboard.readImage();
+    if (!mounted) return;
+    if (image == null || !_enabled) {
+      await _pasteText();
+      return;
+    }
+    final payload = ImageDropPayload.image(
+      // 落到各块区域里就叫这个名字(附件列表、导入面板首行都会显示它),
+      // 和上传时的默认名保持一致。
+      name: image.name ?? kClipboardImageName,
+      load: () async => image.bytes,
+    );
+    if (!_accepts(payload)) {
+      await _pasteText();
+      return;
+    }
+    await _receive(payload);
+  }
+
+  Future<void> _pasteText() async {
+    final target = FocusManager.instance.primaryFocus?.context;
+    if (target == null || !target.mounted) return;
+    Actions.maybeInvoke(
+      target,
+      const PasteTextIntent(SelectionChangedCause.keyboard),
+    );
+  }
+
+  /// 桌面端才拦 ⌘/Ctrl+V:移动端这一下没有键盘,拦了只会挡住系统自己的粘贴。
+  ///
+  /// 走 [desktopModeProvider] 而不是直接看平台:这张开关在测试里能换,
+  /// 桌面那套分支才跑得起来(和全 app 其余桌面分支同一个判据)。
+  bool get _pasteEnabled =>
+      widget.acceptPaste && ref.watch(desktopModeProvider);
+
   @override
   Widget build(BuildContext context) => MetaData(
     metaData: this,
     behavior: HitTestBehavior.translucent,
-    child: DragTarget<ImageDropPayload>(
-      onWillAcceptWithDetails: (details) => _accepts(details.data),
-      onAcceptWithDetails: (details) => unawaited(_receive(details.data)),
-      builder: (context, candidates, rejected) {
-        final hover = _enabled && (_externalHover || candidates.isNotEmpty);
-        return Stack(
-          fit: StackFit.passthrough,
-          children: [
-            widget.child,
-            if (hover)
-              Positioned.fill(
-                child: IgnorePointer(
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      color: Theme.of(
-                        context,
-                      ).colorScheme.primary.withValues(alpha: .08),
-                      border: Border.all(
-                        color: Theme.of(context).colorScheme.primary,
-                        width: 2,
-                      ),
-                      borderRadius: BorderRadius.circular(10),
+    child: _pasteEnabled
+        ? Shortcuts(
+            shortcuts: const {
+              SingleActivator(LogicalKeyboardKey.keyV, meta: true):
+                  _PasteImageIntent(),
+              SingleActivator(LogicalKeyboardKey.keyV, control: true):
+                  _PasteImageIntent(),
+            },
+            child: Actions(
+              actions: {
+                _PasteImageIntent: CallbackAction<_PasteImageIntent>(
+                  onInvoke: (_) {
+                    unawaited(_paste());
+                    return null;
+                  },
+                ),
+              },
+              child: _target(context),
+            ),
+          )
+        : _target(context),
+  );
+
+  Widget _target(BuildContext context) => DragTarget<ImageDropPayload>(
+    onWillAcceptWithDetails: (details) => _accepts(details.data),
+    onAcceptWithDetails: (details) => unawaited(_receive(details.data)),
+    builder: (context, candidates, rejected) {
+      final hover = _enabled && (_externalHover || candidates.isNotEmpty);
+      return Stack(
+        fit: StackFit.passthrough,
+        children: [
+          widget.child,
+          if (hover)
+            Positioned.fill(
+              child: IgnorePointer(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: Theme.of(
+                      context,
+                    ).colorScheme.primary.withValues(alpha: .08),
+                    border: Border.all(
+                      color: Theme.of(context).colorScheme.primary,
+                      width: 2,
                     ),
-                    child: Align(
-                      alignment: Alignment.topCenter,
-                      child: Material(
-                        color: Theme.of(context).colorScheme.primaryContainer,
-                        borderRadius: BorderRadius.circular(8),
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 6,
-                          ),
-                          child: Text('松开以${widget.label}'),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Align(
+                    alignment: Alignment.topCenter,
+                    child: Material(
+                      color: Theme.of(context).colorScheme.primaryContainer,
+                      borderRadius: BorderRadius.circular(8),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 6,
                         ),
+                        child: Text('松开以${widget.label}'),
                       ),
                     ),
                   ),
                 ),
               ),
-          ],
-        );
-      },
-    ),
+            ),
+        ],
+      );
+    },
   );
+}
+
+/// 「把剪贴板里的图贴到这块里」。内容由 [_ImageDropRegionState._paste] 定,
+/// 这里只是个认领键盘事件的由头。
+class _PasteImageIntent extends Intent {
+  const _PasteImageIntent();
 }
 
 class DesktopImageDropHost extends StatefulWidget {

@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
+import 'package:plana_app/core/platform/clipboard_image.dart';
 import 'package:plana_app/core/platform/desktop.dart';
 import 'package:plana_app/core/store/app_stores.dart';
 import 'package:plana_app/core/ui/image_drop.dart';
@@ -22,6 +23,7 @@ import 'package:plana_app/features/gallery/gallery_state.dart';
 import 'package:plana_app/features/gallery/models.dart';
 import 'package:plana_app/features/generate/generate_state.dart';
 import 'package:plana_app/features/generate/models.dart';
+import 'package:plana_app/features/shell/shell_state.dart';
 
 class _Canvas extends GenerateNotifier {
   @override
@@ -669,5 +671,154 @@ void main() {
     expect(key('assistant-pending-images'), findsNothing);
     expect(recorder().sent, isEmpty);
     expect(tester.takeException(), isNull);
+  });
+
+  group('桌面端剪贴板', () {
+    late Map<String, Object?> clipboard;
+    late List<Uint8List> clipboardWrites;
+
+    setUp(() {
+      clipboard = {'image': pngB, 'format': 'png'};
+      clipboardWrites = [];
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(DesktopClipboard.channel, (call) async {
+            if (call.method == 'read') return clipboard;
+            if (call.method == 'write') {
+              final args = (call.arguments as Map).cast<String, Object?>();
+              clipboardWrites.add(args['image']! as Uint8List);
+              return true;
+            }
+            return null;
+          });
+    });
+
+    tearDown(() {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(DesktopClipboard.channel, null);
+    });
+
+    /// 帮 ⌘/Ctrl+V 按下去。两个修饰键都发:macOS 是 ⌘,Windows 是 Ctrl,
+    /// 这条通道两边都得通。
+    Future<void> pressPaste(
+      WidgetTester tester, {
+      bool control = false,
+    }) async {
+      final modifier = control
+          ? LogicalKeyboardKey.controlLeft
+          : LogicalKeyboardKey.metaLeft;
+      await tester.sendKeyDownEvent(modifier);
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.keyV);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.keyV);
+      await tester.sendKeyUpEvent(modifier);
+      await settle(tester);
+    }
+
+    testWidgets('粘贴按钮把剪贴板里的图加进附件', (tester) async {
+      await mount(tester, embedded: true);
+      await tester.tap(key('assistant-paste-image'));
+      await settle(tester);
+      await tester.pumpAndSettle();
+
+      expect(find.text('已添加 1 张图片'), findsOneWidget);
+      expect(find.byTooltip('移除图片 1：剪贴板图片.png'), findsOneWidget);
+      expect(recorder().sent, isEmpty);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('剪贴板里没有图时如实说一声,附件不动', (tester) async {
+      clipboard = {'text': '只有文字'};
+      await mount(tester, embedded: true);
+      await tester.tap(key('assistant-paste-image'));
+      await settle(tester);
+      await tester.pumpAndSettle();
+
+      expect(find.text('剪贴板里没有图片'), findsOneWidget);
+      expect(key('assistant-pending-images'), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('⌘V 在对话框里把剪贴板里的图加进附件', (tester) async {
+      await mount(tester, embedded: true);
+      await tester.showKeyboard(
+        find.widgetWithText(TextField, '想画什么、想改哪里…'),
+      );
+      await tester.pumpAndSettle();
+      await pressPaste(tester);
+      await tester.pumpAndSettle();
+
+      expect(find.text('已添加 1 张图片'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('对话里的图:桌面端点开是桌面看图浮层,不再跳去图库', (tester) async {
+      stores.gallery.initialResults = [
+        ResultImage(id: 'gen7', width: 16, height: 24, seed: 7, bytes: pngA),
+      ];
+      recorder().seed(
+        const AssistantState(
+          msgs: [
+            AssistantMsg(
+              id: 'shot',
+              role: MsgRole.ai,
+              text: '画好了',
+              at: 3,
+              imageIds: ['gen7'],
+            ),
+          ],
+        ),
+      );
+      await mount(tester, embedded: true);
+      await settle(tester);
+      final tabBefore = container.read(shellIndexProvider);
+
+      await tester.tap(key('assistant-inline-image-gen7'));
+      await settle(tester);
+      await tester.pumpAndSettle();
+
+      expect(key('desktop-image-viewer'), findsOneWidget);
+      expect(container.read(shellIndexProvider), tabBefore);
+      expect(tester.takeException(), isNull);
+
+      await tester.tap(key('desktop-image-close'));
+      await tester.pumpAndSettle();
+      expect(key('desktop-image-viewer'), findsNothing);
+    });
+
+    testWidgets('对话里的图:右键就能复制,不必先打开', (tester) async {
+      stores.gallery.initialResults = [
+        ResultImage(id: 'gen8', width: 16, height: 24, seed: 8, bytes: pngA),
+      ];
+      recorder().seed(
+        const AssistantState(
+          msgs: [
+            AssistantMsg(
+              id: 'shot',
+              role: MsgRole.ai,
+              text: '画好了',
+              at: 3,
+              imageIds: ['gen8'],
+            ),
+          ],
+        ),
+      );
+      await mount(tester, embedded: true);
+      await settle(tester);
+
+      await tester.tapAt(
+        tester.getCenter(key('assistant-inline-image-gen8')),
+        buttons: kSecondaryMouseButton,
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('复制图片'), findsOneWidget);
+
+      await tester.tap(find.text('复制图片'));
+      await settle(tester);
+      await tester.pumpAndSettle();
+
+      expect(clipboardWrites, [pngA]);
+      expect(find.text('图片已复制到剪贴板'), findsOneWidget);
+      expect(key('desktop-image-viewer'), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
   });
 }

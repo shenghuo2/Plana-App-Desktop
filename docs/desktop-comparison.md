@@ -14,3 +14,14 @@
 最低 macOS 14；GitHub Actions 构建 DMG，验证签名、钥匙串和挂载启动。测试包为 ad-hoc 签名，未经 Apple 公证。真实账号生成、Finder 拖图及系统权限弹窗仍需实机交互验收。
 
 不包含另一个 fork 整合版的云存储推送、代理和 Android 应用内更新功能。
+
+## 剪贴板图片（桌面端专有）
+
+Flutter 自带的 `Clipboard` 只有文本，图片这半截走原生通道 `plana/clipboard`：macOS 是 `NSPasteboard`（`macos/Runner/ClipboardChannel.swift`），Windows 是剪贴板 API（`windows/runner/clipboard_channel.cpp`），Dart 门面在 `lib/core/platform/clipboard_image.dart`，落点复用既有的图片拖放区域（`ImageDropRegion.acceptPaste`）。
+
+- **贴进来**：⌘/Ctrl+V 把剪贴板里的图交给**焦点所在的那块区域**（对话框附件、导入面板、图生图底图、Vibe／角色／风格参考）。对话输入框另有一颗粘贴按钮，走的是「明确要图」那条路。
+- **不抢文本**：剪贴板里同时有能用的文本时不取图，原样交给系统那套文本粘贴；从访达／资源管理器「复制文件」时例外 —— 那时剪贴板里的文本只是文件名。
+- **复制出去**：作品画布顶栏「复制图片」、看图浮层信息栏的复制按钮、图库缩略图右键「复制到剪贴板」、对话里那张图的右键菜单。macOS 同时写 PNG 与 TIFF，Windows 写 PNG 格式与 CF_DIB，兼顾新老程序。
+- **对话里的图**：桌面端点开的是桌面看图浮层（放大／复制／保存／超分都在里面，并给出它在库里的位置），不再切去图库页；移动端维持原行为。
+
+原生通道由 CI 的 clipboard smoke 验证（启动应用，真往系统剪贴板写一张 2×2 的图再读回来）—— Swift 文件漏进 Xcode 工程这类事，构建和启动都看不出问题，只有用户按 ⌘V 才会发现。Windows 那份 C++ 没有 CI 覆盖，首次在 Windows 上使用请以实机为准。

@@ -74,6 +74,8 @@ class DesktopImportRegion extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) => ImageDropRegion(
     label: '导入图片',
     acceptInternal: acceptInternal,
+    // 剪贴板里复制来的图,和从外面拖进来的是同一件事 —— 落点也同一套。
+    acceptPaste: true,
     accept: (payload) => !canvas || payload.source != 'canvas',
     onDrop: (images, payload) async {
       final result = ref
