@@ -13,9 +13,6 @@ concurrency:
   group: desktop-${{ github.ref }}
   cancel-in-progress: true
 
-env:
-  PUB_HOSTED_URL: https://pub.flutter-io.cn
-
 jobs:
   quality:
     name: Analyze and test
