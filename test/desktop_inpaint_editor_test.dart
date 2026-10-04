@@ -324,18 +324,22 @@ void main() {
       final crop = painter(tester).crop as IntRect;
       await tester.tap(find.text('保存遮罩'));
       await tester.pump();
-      for (
-        var i = 0;
-        i < 200 &&
-            container.read(generateProvider).inpaint?.paste?.focus == null;
-        i++
-      ) {
+      // Image encoding runs outside the fake clock; slower CI runners need a
+      // wall-clock deadline rather than a fixed two-second polling budget.
+      final processing = Stopwatch()..start();
+      while (container.read(generateProvider).inpaint?.paste?.focus == null &&
+          processing.elapsed < const Duration(seconds: 30)) {
         await tester.runAsync(
           () => Future<void>.delayed(const Duration(milliseconds: 10)),
         );
         await tester.pump(const Duration(milliseconds: 20));
       }
       final job = container.read(generateProvider).inpaint!;
+      expect(
+        job.paste?.focus,
+        isNotNull,
+        reason: 'Crop processing must finish',
+      );
       expect(job.strength, .43);
       expect(job.paste!.sendX, crop.x);
       expect(job.paste!.sendY, crop.y);

@@ -40,7 +40,6 @@ jobs:
 
   macos:
     name: Build macOS
-    needs: quality
     runs-on: macos-15
     timeout-minutes: 45
     steps:
