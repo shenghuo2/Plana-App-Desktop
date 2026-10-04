@@ -61,6 +61,12 @@ class TagLibrary extends AsyncNotifier<TagLibraryState> {
   late File _file;
   Future<void> _writes = Future.value();
 
+  /// 最近一次落盘写完(成功与否都算写完)。
+  ///
+  /// 变更先改状态、再排队落盘,所以「状态里有了」不等于「盘上有了」。测试等
+  /// 这一步:等固定时长在慢盘上必翻车(见 desktop_profile_inspiration_test)。
+  Future<void> get settled => _writes;
+
   @override
   Future<TagLibraryState> build() async {
     final sup = await getApplicationSupportDirectory();

@@ -149,6 +149,23 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  /// 边等真时间边喂帧,直到 [done] 成立。用于「改了状态、落盘是异步的」那类等待:
+  /// 只跑 runAsync 不喂帧,挂在 provider 上的界面不会更新;只 pump 又碰不到真 IO。
+  Future<void> drain(
+    WidgetTester tester,
+    bool Function() done, {
+    int rounds = 200,
+  }) async {
+    for (var i = 0; i < rounds && !done(); i++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 10)),
+      );
+      await tester.pump(const Duration(milliseconds: 20));
+    }
+    expect(done(), isTrue);
+    await tester.pumpAndSettle();
+  }
+
   Widget library() => Align(
     alignment: Alignment.topRight,
     child: SizedBox(
@@ -398,11 +415,16 @@ void main() {
       expect(panel.right, lessThanOrEqualTo(1268));
       expect(panel.top, closeTo(anchor.bottom + 8, 1));
       expect(find.byType(BottomSheet), findsNothing);
+      final input = tester.widget<TextField>(
+        find.byType(TextField),
+      ).controller!;
       await tester.enterText(find.byType(TextField), '喜欢的角色');
-      await tester.runAsync(() async {
-        await tester.tap(find.text('添加'));
-        await Future<void>.delayed(const Duration(milliseconds: 100));
-      });
+      await tester.tap(find.text('添加'));
+      // 等的是**写入真正落完**,不是「大概过去了 100 毫秒」:状态是同步改的,
+      // 清输入框要等落盘返回,而那是真文件 IO。跑在慢盘上的 CI 只要超过那 100
+      // 毫秒,输入框里就还留着刚打的字,下面 findsOneWidget 会数到两个「喜欢的
+      // 角色」(本机复现过 2/6)。drain 边等真时间边喂帧,两条都照顾到。
+      await drain(tester, () => input.text.isEmpty);
       await tester.pumpAndSettle();
       expect(
         c.read(tagLibraryProvider).value!.poolOf(TagCategory.character),
