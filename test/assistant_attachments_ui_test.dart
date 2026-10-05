@@ -737,7 +737,7 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('⌘V 在对话框里把剪贴板里的图加进附件', (tester) async {
+    testWidgets('⌘V 在对话框里(光标停在对话区)把剪贴板里的图加进附件', (tester) async {
       await mount(tester, embedded: true);
       await tester.showKeyboard(
         find.widgetWithText(TextField, '想画什么、想改哪里…'),

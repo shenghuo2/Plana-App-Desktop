@@ -67,8 +67,12 @@ const _suggests = <({String text, bool canvas})>[
 ];
 
 class AssistantPage extends ConsumerStatefulWidget {
-  const AssistantPage({super.key, this.embedded = false});
+  const AssistantPage({super.key, this.embedded = false, this.imageDropKey});
   final bool embedded;
+
+  /// 这块粘贴接收区的 key,供 [ImagePasteProxy] 把标签栏那一行也指过来
+  /// (嵌在工作台右栏时用,见 desktop_workspace.dart)。
+  final GlobalKey? imageDropKey;
 
   @override
   ConsumerState<AssistantPage> createState() => _AssistantPageState();
@@ -312,7 +316,7 @@ class _AssistantPageState extends ConsumerState<AssistantPage> {
     );
 
     return ImageDropRegion(
-      key: const ValueKey('assistant-image-drop'),
+      key: widget.imageDropKey ?? const ValueKey('assistant-image-drop'),
       label: '将图片添加到对话框',
       multiple: true,
       acceptPaste: true,

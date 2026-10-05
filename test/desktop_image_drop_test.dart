@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:plana_app/core/ui/image_drop.dart';
 
 void main() {
@@ -58,24 +59,26 @@ void main() {
       final path = File('${dir.path}/中文图片.png')..writeAsBytesSync(bytes);
       var inner = 0, outer = 0;
       await tester.pumpWidget(
-        MaterialApp(
-          builder: (_, child) => DesktopImageDropHost(child: child!),
-          home: Scaffold(
-            body: ImageDropRegion(
-              label: '全局导入',
-              onDrop: (_, _) async => outer++,
-              child: Center(
-                child: ImageDropRegion(
-                  label: '加入参考',
-                  onDrop: (images, _) async {
-                    expect(images.single.name, '中文图片.png');
-                    expect(images.single.bytes, bytes);
-                    inner++;
-                  },
-                  child: const SizedBox(
-                    key: ValueKey('target'),
-                    width: 200,
-                    height: 120,
+        ProviderScope(
+          child: MaterialApp(
+            builder: (_, child) => DesktopImageDropHost(child: child!),
+            home: Scaffold(
+              body: ImageDropRegion(
+                label: '全局导入',
+                onDrop: (_, _) async => outer++,
+                child: Center(
+                  child: ImageDropRegion(
+                    label: '加入参考',
+                    onDrop: (images, _) async {
+                      expect(images.single.name, '中文图片.png');
+                      expect(images.single.bytes, bytes);
+                      inner++;
+                    },
+                    child: const SizedBox(
+                      key: ValueKey('target'),
+                      width: 200,
+                      height: 120,
+                    ),
                   ),
                 ),
               ),
@@ -101,22 +104,25 @@ void main() {
   testWidgets('modal barrier blocks underlying native target', (tester) async {
     var imports = 0;
     await tester.pumpWidget(
-      MaterialApp(
-        builder: (_, child) => DesktopImageDropHost(child: child!),
-        home: Scaffold(
-          body: ImageDropRegion(
-            label: '导入',
-            onDrop: (_, _) async => imports++,
-            child: Builder(
-              builder: (context) => Center(
-                child: TextButton(
-                  onPressed: () {
-                    showDialog<void>(
-                      context: context,
-                      builder: (_) => const AlertDialog(title: Text('dialog')),
-                    );
-                  },
-                  child: const Text('open'),
+      ProviderScope(
+        child: MaterialApp(
+          builder: (_, child) => DesktopImageDropHost(child: child!),
+          home: Scaffold(
+            body: ImageDropRegion(
+              label: '导入',
+              onDrop: (_, _) async => imports++,
+              child: Builder(
+                builder: (context) => Center(
+                  child: TextButton(
+                    onPressed: () {
+                      showDialog<void>(
+                        context: context,
+                        builder: (_) =>
+                            const AlertDialog(title: Text('dialog')),
+                      );
+                    },
+                    child: const Text('open'),
+                  ),
                 ),
               ),
             ),
@@ -146,19 +152,21 @@ void main() {
       var multiple = true;
       late StateSetter update;
       await tester.pumpWidget(
-        MaterialApp(
-          builder: (_, child) => DesktopImageDropHost(child: child!),
-          home: Scaffold(
-            body: StatefulBuilder(
-              builder: (_, setState) {
-                update = setState;
-                return ImageDropRegion(
-                  label: '导入',
-                  multiple: multiple,
-                  onDrop: (_, _) async => calls++,
-                  child: const SizedBox.expand(key: ValueKey('target')),
-                );
-              },
+        ProviderScope(
+          child: MaterialApp(
+            builder: (_, child) => DesktopImageDropHost(child: child!),
+            home: Scaffold(
+              body: StatefulBuilder(
+                builder: (_, setState) {
+                  update = setState;
+                  return ImageDropRegion(
+                    label: '导入',
+                    multiple: multiple,
+                    onDrop: (_, _) async => calls++,
+                    child: const SizedBox.expand(key: ValueKey('target')),
+                  );
+                },
+              ),
             ),
           ),
         ),

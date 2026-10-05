@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/store/app_stores.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/ui/image_drop.dart';
 import '../assistant/assistant_page.dart';
 import '../gallery/gallery_page.dart';
 import '../generate/gen_modules.dart';
@@ -40,6 +41,11 @@ class _DesktopWorkspaceState extends ConsumerState<DesktopWorkspace>
   int tool = 0;
   bool compactTool = false;
   final toolKey = GlobalKey();
+
+  /// 助手页那块粘贴接收区。右栏的标签栏在助手页外面,靠它把那一行的粘贴
+  /// 也指回助手(见 [ImagePasteProxy])。
+  final assistantDropKey = GlobalKey();
+
   final shortcutFocus = FocusNode(debugLabel: 'Desktop workspace');
   static const _leftWidthKey = 'desktop_left_pane_width';
   static const _rightWidthKey = 'desktop_right_pane_width';
@@ -190,9 +196,9 @@ class _DesktopWorkspaceState extends ConsumerState<DesktopWorkspace>
       child: IndexedStack(
         key: toolKey,
         index: tool,
-        children: const [
-          AssistantPage(embedded: true),
-          InspirationPage(embedded: true),
+        children: [
+          AssistantPage(embedded: true, imageDropKey: assistantDropKey),
+          const InspirationPage(embedded: true),
         ],
       ),
     ),
@@ -255,7 +261,14 @@ class _DesktopWorkspaceState extends ConsumerState<DesktopWorkspace>
                 Expanded(
                   child: Column(
                     children: [
-                      if (!wide) _tabs(compact: true),
+                      // 窄窗口时工具区挤在画布上方,这一行标签栏也归助手管:
+                      // 光标停在上面按 ⌘V 该贴进助手,而不是掉到助手页外面去。
+                      if (!wide)
+                        ImagePasteProxy(
+                          target: assistantDropKey,
+                          enabled: compactTool && tool == 0,
+                          child: _tabs(compact: true),
+                        ),
                       Expanded(
                         child: Row(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -311,7 +324,11 @@ class _DesktopWorkspaceState extends ConsumerState<DesktopWorkspace>
                                   color: context.scheme.surfaceContainerLow,
                                   child: Column(
                                     children: [
-                                      _tabs(),
+                                      ImagePasteProxy(
+                                        target: assistantDropKey,
+                                        enabled: tool == 0,
+                                        child: _tabs(),
+                                      ),
                                       const Divider(height: 1),
                                       Expanded(child: _tools()),
                                     ],

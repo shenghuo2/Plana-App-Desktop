@@ -79,7 +79,7 @@ typedef ImageDropCallback =
 /// Flutter's drag target arbitration also selects the innermost native target.
 /// Hit testing (rather than rectangle registration) excludes obscured/offstage
 /// pages and prevents drops through modal barriers.
-class ImageDropRegion extends ConsumerStatefulWidget {
+class ImageDropRegion extends StatefulWidget {
   const ImageDropRegion({
     super.key,
     required this.label,
@@ -99,9 +99,12 @@ class ImageDropRegion extends ConsumerStatefulWidget {
   final bool enabled;
   final bool acceptInternal;
 
-  /// 桌面端 ⌘/Ctrl+V 也能把剪贴板里的图送进这块(焦点在这块里就行)。
+  /// 这块接收区参不参与桌面端的 ⌘/Ctrl+V 粘贴分发。
   ///
-  /// 落点和拖入同一套仲裁:焦点在哪块里,图就归哪块,**最里面那块说了算**。
+  /// 落点由 [DesktopImageDropHost] 统一裁:**鼠标底下**那块优先,鼠标没落在任何
+  /// 一块上时退回焦点所在的那块 —— 鼠标点过的位置就是你正在看的地方,比键盘焦点
+  /// 更接近意图(点过提示词框之后鼠标停在哪张卡上,图就该进哪张卡)。
+  ///
   /// 剪贴板里没图、或者同时躺着能用的文本(用户多半想粘文字),一律放手给系统
   /// 原本的文本粘贴 —— 这个动作一次都不该被吞掉。
   final bool acceptPaste;
@@ -109,16 +112,21 @@ class ImageDropRegion extends ConsumerStatefulWidget {
   final bool Function(ImageDropPayload)? accept;
 
   @override
-  ConsumerState<ImageDropRegion> createState() => _ImageDropRegionState();
+  State<ImageDropRegion> createState() => _ImageDropRegionState();
 }
 
-class _ImageDropRegionState extends ConsumerState<ImageDropRegion> {
+class _ImageDropRegionState extends State<ImageDropRegion> {
   bool _externalHover = false;
   bool _busy = false;
   bool get _enabled => widget.enabled && !_busy;
   bool _accepts(ImageDropPayload payload) =>
       _enabled &&
-      (widget.acceptInternal || payload.paths.isNotEmpty) &&
+      // 剪贴板来的图没有 paths,`acceptInternal: false` 那道闸对它不成立 ——
+      // 否则「应用级导入区收外部拖入、但不收应用内拖拽」这种配置会把 ⌘V 也一起
+      // 挡在外面(它本来就没打算管那条路)。
+      (widget.acceptInternal ||
+          payload.paths.isNotEmpty ||
+          payload.source == _kClipboardSource) &&
       (widget.accept?.call(payload) ?? true);
 
   void _hover(bool value) {
@@ -150,72 +158,29 @@ class _ImageDropRegionState extends ConsumerState<ImageDropRegion> {
     }
   }
 
-  /// ⌘/Ctrl+V 落到这块上。
+  /// 把剪贴板里的图贴到这块里。由 [DesktopImageDropHost] 按鼠标/焦点选中后调用。
   ///
-  /// **先问剪贴板,再决定吞不吞**:这一下是同步认领的(剪贴板是异步读的,等读完
-  /// 再决定就轮不到自己了),所以读不到图时必须把文本粘贴原样补回去 —— 补的是
-  /// [PasteTextIntent],走的是当前焦点自己那套粘贴,行为与没拦过一模一样。
-  Future<void> _paste() async {
+  /// 返回 false = 这块不收(或正忙),调用方据此把这一下还给文本粘贴。
+  Future<bool> pasteFromClipboard() async {
     final image = await DesktopClipboard.readImage();
-    if (!mounted) return;
-    if (image == null || !_enabled) {
-      await _pasteText();
-      return;
-    }
+    if (!mounted || image == null || !_enabled) return false;
     final payload = ImageDropPayload.image(
       // 落到各块区域里就叫这个名字(附件列表、导入面板首行都会显示它),
       // 和上传时的默认名保持一致。
       name: image.name ?? kClipboardImageName,
+      source: _kClipboardSource,
       load: () async => image.bytes,
     );
-    if (!_accepts(payload)) {
-      await _pasteText();
-      return;
-    }
+    if (!_accepts(payload)) return false;
     await _receive(payload);
+    return true;
   }
-
-  Future<void> _pasteText() async {
-    final target = FocusManager.instance.primaryFocus?.context;
-    if (target == null || !target.mounted) return;
-    Actions.maybeInvoke(
-      target,
-      const PasteTextIntent(SelectionChangedCause.keyboard),
-    );
-  }
-
-  /// 桌面端才拦 ⌘/Ctrl+V:移动端这一下没有键盘,拦了只会挡住系统自己的粘贴。
-  ///
-  /// 走 [desktopModeProvider] 而不是直接看平台:这张开关在测试里能换,
-  /// 桌面那套分支才跑得起来(和全 app 其余桌面分支同一个判据)。
-  bool get _pasteEnabled =>
-      widget.acceptPaste && ref.watch(desktopModeProvider);
 
   @override
   Widget build(BuildContext context) => MetaData(
     metaData: this,
     behavior: HitTestBehavior.translucent,
-    child: _pasteEnabled
-        ? Shortcuts(
-            shortcuts: const {
-              SingleActivator(LogicalKeyboardKey.keyV, meta: true):
-                  _PasteImageIntent(),
-              SingleActivator(LogicalKeyboardKey.keyV, control: true):
-                  _PasteImageIntent(),
-            },
-            child: Actions(
-              actions: {
-                _PasteImageIntent: CallbackAction<_PasteImageIntent>(
-                  onInvoke: (_) {
-                    unawaited(_paste());
-                    return null;
-                  },
-                ),
-              },
-              child: _target(context),
-            ),
-          )
-        : _target(context),
+    child: _target(context),
   );
 
   Widget _target(BuildContext context) => DragTarget<ImageDropPayload>(
@@ -264,24 +229,69 @@ class _ImageDropRegionState extends ConsumerState<ImageDropRegion> {
   );
 }
 
-/// 「把剪贴板里的图贴到这块里」。内容由 [_ImageDropRegionState._paste] 定,
-/// 这里只是个认领键盘事件的由头。
+/// 剪贴板来的图的来源标记:接收区据此把它和「应用内拖拽」区分开
+/// ([ImageDropPayload.source] 的其余取值是 `canvas` / `history`)。
+const _kClipboardSource = 'clipboard';
+
+/// 把一块接收区的**粘贴范围**扩到它自己盖不到的地方。
+///
+/// 工作台右栏就是这个情形:助手页占着标签栏底下那一块,而标签栏在它外面 ——
+/// 鼠标停在「AI 助手 / 灵感」那一行上按 ⌘V,本该贴进助手,却因为光标底下没有
+/// 接收区而落空。把标签栏包进这个 proxy 指回助手那块接收区,这一行才归它管。
+///
+/// **只影响粘贴**:拖入仍然按最里层的接收区裁决,标签栏不会变成拖放目标。
+class ImagePasteProxy extends StatelessWidget {
+  const ImagePasteProxy({
+    super.key,
+    required this.target,
+    required this.child,
+    this.enabled = true,
+  });
+
+  /// 指向那块接收区的 [GlobalKey](`ImageDropRegion` 上的)。
+  final GlobalKey target;
+
+  /// 这块代理现在算不算数 —— 比如助手不在前台时,这一行不该把粘贴截走。
+  final bool enabled;
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => MetaData(
+    metaData: this,
+    behavior: HitTestBehavior.translucent,
+    child: child,
+  );
+}
+
+/// 「把剪贴板里的图贴到鼠标/焦点所在的那块接收区」。派发在 [DesktopImageDropHost]。
 class _PasteImageIntent extends Intent {
   const _PasteImageIntent();
 }
 
-class DesktopImageDropHost extends StatefulWidget {
+class DesktopImageDropHost extends ConsumerStatefulWidget {
   const DesktopImageDropHost({super.key, required this.child});
   final Widget child;
   static const channel = MethodChannel('plana/image_drop');
 
   @override
-  State<DesktopImageDropHost> createState() => _DesktopImageDropHostState();
+  ConsumerState<DesktopImageDropHost> createState() =>
+      _DesktopImageDropHostState();
 }
 
-class _DesktopImageDropHostState extends State<DesktopImageDropHost> {
+class _DesktopImageDropHostState extends ConsumerState<DesktopImageDropHost> {
   _ImageDropRegionState? _hovered;
   bool _receiving = false;
+
+  /// 鼠标在窗口里的位置(逻辑像素),没进过窗口就是 null。
+  ///
+  /// 自己记而不是问 Flutter:引擎那层「最后一次指针事件」不会随窗口一起清 ——
+  /// 鼠标移出去之后它还停在边界值上,拿它当「鼠标底下是哪块」会把窗口边缘那张
+  /// 卡一直当成悬停目标。这里用 MouseRegion 的进出事件把这笔账算准。
+  Offset? _pointer;
+
+  /// 粘贴那一趟正在读剪贴板,挡住连按。
+  bool _pasting = false;
 
   @override
   void initState() {
@@ -289,14 +299,18 @@ class _DesktopImageDropHostState extends State<DesktopImageDropHost> {
     DesktopImageDropHost.channel.setMethodCallHandler(_nativeEvent);
   }
 
-  _ImageDropRegionState? _at(Offset position) {
+  HitTestResult _hitAt(Offset position) {
     final hit = HitTestResult();
     WidgetsBinding.instance.hitTestInView(
       hit,
       position,
       View.of(context).viewId,
     );
-    for (final entry in hit.path) {
+    return hit;
+  }
+
+  _ImageDropRegionState? _at(Offset position) {
+    for (final entry in _hitAt(position).path) {
       final target = entry.target;
       if (target is RenderMetaData &&
           target.metaData is _ImageDropRegionState) {
@@ -306,6 +320,122 @@ class _DesktopImageDropHostState extends State<DesktopImageDropHost> {
       }
     }
     return null;
+  }
+
+  /// 贴图落点:**鼠标底下**那块优先,鼠标不在任何一块上时才看焦点。
+  ///
+  /// 为什么鼠标优先:用户刚点过提示词框(焦点在那边),接着把鼠标挪到图生图卡片上
+  /// 按 ⌘V —— 他要的是「贴进我正看着的这张卡」。只看焦点的话这一下哪儿都不去,
+  /// 白按。焦点兜底留着,是为了鼠标不在窗口里(纯键盘操作、或刚切回来的窗口)时
+  /// 还能贴到正在编辑的那块上。
+  _ImageDropRegionState? _pasteTarget() {
+    final at = _pointer;
+    if (at != null) {
+      final under = _pasteRegionAt(at);
+      // 鼠标底下明确摆着一块接收区时,成不成都是它说了算:它正忙就这一下不动,
+      // 不越过它去贴用户没在看着的下一层 —— 贴哪儿和看着哪儿对不上比不贴更糟。
+      if (under != null) return under._enabled ? under : null;
+    }
+    return _focusedPasteRegion();
+  }
+
+  /// 命中路径上第一块**参与粘贴**的接收区,或一个指回接收区的 [ImagePasteProxy]。
+  ///
+  /// 不参与粘贴的区域([ImageDropRegion.acceptPaste] 为 false)对粘贴来说等于
+  /// 不存在:既不接收,也不挡住后面那些(素材库这类页面收不了图,鼠标停在上头
+  /// 时该落到它外面那层通用导入区,而不是什么都不发生)。
+  _ImageDropRegionState? _pasteRegionAt(Offset position) {
+    for (final entry in _hitAt(position).path) {
+      final target = entry.target;
+      if (target is! RenderMetaData) continue;
+      final data = target.metaData;
+      if (data is _ImageDropRegionState) {
+        if (data.widget.acceptPaste) return data;
+        continue;
+      }
+      if (data is ImagePasteProxy && data.enabled) {
+        return data.target.currentState as _ImageDropRegionState?;
+      }
+    }
+    return null;
+  }
+
+  /// 焦点所在的那块粘贴接收区 —— 只认最近的,再往外的层不顶替。
+  _ImageDropRegionState? _focusedPasteRegion() {
+    _ImageDropRegionState? candidate;
+    FocusManager.instance.primaryFocus?.context?.visitAncestorElements((
+      element,
+    ) {
+      if (element is StatefulElement &&
+          element.state is _ImageDropRegionState) {
+        final region = element.state as _ImageDropRegionState;
+        if (region.widget.acceptPaste) {
+          candidate = region;
+          return false; // 最近那块说了算
+        }
+      }
+      return true;
+    });
+    if (candidate == null || !candidate!._enabled || !_visible(candidate!)) {
+      return null;
+    }
+    return candidate;
+  }
+
+  /// 这块接收区现在**真的露在界面上**吗。
+  ///
+  /// 判据是「在它中心打一发命中测试,能不能打到它」——**不是**「它在树里有尺寸」。
+  /// 保活的页面(工作台右栏是 IndexedStack、助手页切走了也还在树里)照样有尺寸,
+  /// 用后者会把一次 ⌘V 贴进一个用户正眼都看不到的页面。命中测试走的就是绘制
+  /// 那份可见性:IndexedStack 只命中当前那一页,被挡住的、离屏的一律打不到。
+  bool _visible(_ImageDropRegionState region) {
+    if (!region.mounted || ModalRoute.of(region.context)?.isCurrent == false) {
+      return false;
+    }
+    final box = region.context.findRenderObject();
+    if (box is! RenderBox ||
+        !box.attached ||
+        !box.hasSize ||
+        box.size.isEmpty) {
+      return false;
+    }
+    final center = box.localToGlobal(box.size.center(Offset.zero));
+    for (final entry in _hitAt(center).path) {
+      final target = entry.target;
+      if (target is RenderMetaData && target.metaData == region) return true;
+    }
+    return false;
+  }
+
+  /// ⌘/Ctrl+V:先当作「贴图」试一遍,不成再把文本粘贴原样还回去。
+  ///
+  /// **一次都不吞**:剪贴板里没图、没有接收区、那块不收或正忙 —— 每一条都落到
+  /// [_pasteText],行为与没拦过这一下完全一致。
+  Future<void> _paste() async {
+    if (_pasting) return;
+    _pasting = true;
+    try {
+      final target = _pasteTarget();
+      if (target == null || !target.mounted) {
+        await _pasteText();
+        return;
+      }
+      final handled = await target.pasteFromClipboard();
+      if (!handled) await _pasteText();
+    } finally {
+      _pasting = false;
+    }
+  }
+
+  /// 把这一下还给当前的文本粘贴。焦点还在这块接收区里(用户多半刚点过输入框),
+  /// 走的就是系统那套 PasteTextIntent —— 和没拦过一模一样。
+  Future<void> _pasteText() async {
+    final target = FocusManager.instance.primaryFocus?.context;
+    if (target == null || !target.mounted) return;
+    Actions.maybeInvoke(
+      target,
+      const PasteTextIntent(SelectionChangedCause.keyboard),
+    );
   }
 
   Future<void> _nativeEvent(MethodCall call) async {
@@ -348,8 +478,41 @@ class _DesktopImageDropHostState extends State<DesktopImageDropHost> {
     super.dispose();
   }
 
+  /// 只有桌面端才拦 ⌘/Ctrl+V:移动端没有这一步。
+  ///
+  /// 走 [desktopModeProvider] 而不是直接看平台:这张开关在测试里能换,桌面那套
+  /// 分支才跑得起来(全 app 其余桌面分支同一个判据)。
   @override
-  Widget build(BuildContext context) => widget.child;
+  Widget build(BuildContext context) {
+    final child = MouseRegion(
+      // opaque:整窗都要收到进出事件,不然鼠标一进工具栏就断了追踪。
+      opaque: true,
+      onEnter: (event) => _pointer = event.position,
+      onHover: (event) => _pointer = event.position,
+      onExit: (_) => _pointer = null,
+      child: widget.child,
+    );
+    if (!ref.watch(desktopModeProvider)) return child;
+    return Shortcuts(
+      shortcuts: const {
+        SingleActivator(LogicalKeyboardKey.keyV, meta: true):
+            _PasteImageIntent(),
+        SingleActivator(LogicalKeyboardKey.keyV, control: true):
+            _PasteImageIntent(),
+      },
+      child: Actions(
+        actions: {
+          _PasteImageIntent: CallbackAction<_PasteImageIntent>(
+            onInvoke: (_) {
+              unawaited(_paste());
+              return null;
+            },
+          ),
+        },
+        child: child,
+      ),
+    );
+  }
 }
 
 /// Mouse drags move images; touch keeps the child's existing gestures.
