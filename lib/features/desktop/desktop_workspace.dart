@@ -45,7 +45,6 @@ class _DesktopWorkspaceState extends ConsumerState<DesktopWorkspace>
   /// 助手页那块粘贴接收区。右栏的标签栏在助手页外面,靠它把那一行的粘贴
   /// 也指回助手(见 [ImagePasteProxy])。
   final assistantDropKey = GlobalKey();
-
   final shortcutFocus = FocusNode(debugLabel: 'Desktop workspace');
   static const _leftWidthKey = 'desktop_left_pane_width';
   static const _rightWidthKey = 'desktop_right_pane_width';

@@ -1,6 +1,7 @@
 #include "flutter_window.h"
 
 #include <optional>
+#include <flutter/standard_method_codec.h>
 
 #include "flutter/generated_plugin_registrant.h"
 
@@ -28,6 +29,34 @@ bool FlutterWindow::OnCreate() {
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
   clipboard_channel_ = std::make_unique<ClipboardChannel>(
       GetHandle(), flutter_controller_->engine()->messenger());
+  // 原生拦 Ctrl+V 之后,图经 plana/image_drop 的 `paste` 推给 Dart ——
+  // 落点仍由 Dart 侧按光标/焦点裁(见 lib/core/ui/image_drop.dart)。
+  paste_channel_ =
+      std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
+          flutter_controller_->engine()->messenger(), "plana/image_drop",
+          &flutter::StandardMethodCodec::GetInstance());
+  image_clipboard_ = std::make_unique<ImageClipboard>(
+      flutter_controller_->view()->GetNativeWindow(),
+      [this](ClipboardImage image) {
+        flutter::EncodableMap args;
+        args[flutter::EncodableValue("x")] =
+            flutter::EncodableValue(static_cast<double>(image.position.x));
+        args[flutter::EncodableValue("y")] =
+            flutter::EncodableValue(static_cast<double>(image.position.y));
+        args[flutter::EncodableValue("bytes")] =
+            flutter::EncodableValue(std::move(image.bytes));
+        args[flutter::EncodableValue("bitmap")] =
+            flutter::EncodableValue(image.bitmap);
+        args[flutter::EncodableValue("error")] =
+            flutter::EncodableValue(image.error);
+        flutter::EncodableList paths;
+        for (auto& path : image.paths) paths.emplace_back(std::move(path));
+        args[flutter::EncodableValue("paths")] =
+            flutter::EncodableValue(std::move(paths));
+        paste_channel_->InvokeMethod(
+            "paste",
+            std::make_unique<flutter::EncodableValue>(std::move(args)));
+      });
   image_drop_window_ = flutter_controller_->view()->GetNativeWindow();
   image_drop_target_ = new ImageDropTarget(
       image_drop_window_, flutter_controller_->engine()->messenger());
@@ -50,6 +79,9 @@ bool FlutterWindow::OnCreate() {
 }
 
 void FlutterWindow::OnDestroy() {
+  image_clipboard_.reset();
+  paste_channel_.reset();
+  clipboard_channel_.reset();
   if (image_drop_target_) {
     RevokeDragDrop(image_drop_window_);
     image_drop_target_->Release();

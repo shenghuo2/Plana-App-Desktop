@@ -136,7 +136,7 @@ Uint8List? _bytesOf(WidgetRef ref, ResultImage r) =>
     ref.watch(galleryImageProvider(r.id)).value ??
     ref.watch(galleryThumbProvider(r.id)).value;
 
-class _Done extends ConsumerWidget {
+class _Done extends ConsumerStatefulWidget {
   const _Done({
     super.key,
     required this.msgId,
@@ -149,8 +149,17 @@ class _Done extends ConsumerWidget {
   final double maxW;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final size = _box(result.width, result.height, maxW);
+  ConsumerState<_Done> createState() => _DoneState();
+}
+
+class _DoneState extends ConsumerState<_Done> {
+  /// 浮层已经开着:连点不重复弹(取上游 windows.45 的那道闸)。
+  bool _previewOpen = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final result = widget.result;
+    final size = _box(result.width, result.height, widget.maxW);
     final bytes = _bytesOf(ref, result);
     final desktop = ref.watch(desktopModeProvider);
     return GestureDetector(
@@ -160,12 +169,7 @@ class _Done extends ConsumerWidget {
       // 想在对话里核对一眼还得自己找回去。
       //
       // 移动端照旧:那边看图、存盘、超分全在图库,浮层是桌面才有的东西。
-      onTap: () => desktop
-          ? _openViewer(context, ref)
-          : () {
-              ref.read(galleryProvider.notifier).select(result.id);
-              ref.read(shellIndexProvider.notifier).select(kTabGallery);
-            },
+      onTap: _openImage,
       // 右键:不打开也能直接复制走。桌面端专有 —— 触屏没有右键这一下。
       onSecondaryTapUp: desktop
           ? (details) => _menu(context, ref, details.globalPosition)
@@ -177,20 +181,40 @@ class _Done extends ConsumerWidget {
           StripeThumb(width: size.width, height: size.height, radius: 0),
         // 跑着的时候框里换成了进度,这颗跟着一起不在 —— 同一条消息连投两单,
         // 进度条只跟得住一单。
-        Positioned(right: 10, bottom: 10, child: _AgainButton(msgId: msgId)),
+        Positioned(
+          right: 10,
+          bottom: 10,
+          child: _AgainButton(msgId: widget.msgId),
+        ),
       ]),
     );
+  }
+
+  Future<void> _openImage() async {
+    if (!ref.read(desktopModeProvider)) {
+      ref.read(galleryProvider.notifier).select(widget.result.id);
+      ref.read(shellIndexProvider.notifier).select(kTabGallery);
+      return;
+    }
+    if (_previewOpen) return;
+    _previewOpen = true;
+    try {
+      await _openViewer(context, ref);
+    } finally {
+      _previewOpen = false;
+    }
   }
 
   /// 在桌面看图浮层里打开这张图。
   ///
   /// 传整库 + 这张的下标,而不是只传它自己:箭头能顺着往下翻,「作品 N / M」
-  /// 也说得清它在库里的位置 —— 这正是原来「切去图库」缺的那一步。
-  void _openViewer(BuildContext context, WidgetRef ref) {
+  /// 也说得清它在库里的位置 —— 这正是原来「切去图库」缺的那一步。原图交给浮层
+  /// 自己懒读:它本来就处理了「缩略图先到、原图后到」那一段。
+  Future<void> _openViewer(BuildContext context, WidgetRef ref) async {
     final all = ref.read(galleryProvider).results;
-    final index = all.indexWhere((r) => r.id == result.id);
+    final index = all.indexWhere((r) => r.id == widget.result.id);
     if (index < 0) return; // 库里已经删了,浮层没有可翻的上下文
-    showDesktopImageViewer(
+    await showDesktopImageViewer(
       context,
       images: all,
       index: index,
@@ -214,10 +238,10 @@ class _Done extends ConsumerWidget {
     );
     if (!context.mounted || picked == null) return;
     if (picked == 'copy') {
-      await copyResultToClipboard(context, ref, result);
+      await copyResultToClipboard(context, ref, widget.result);
       return;
     }
-    _openViewer(context, ref);
+    await _openViewer(context, ref);
   }
 }
 
@@ -313,7 +337,7 @@ class _Running extends ConsumerWidget {
 ///
 /// 摆图里而不是图下面:一颗按钮单独占一行,而它跟这张图是绑死的 —— 浮进去
 /// 既省一行,也说清楚了「重出的是这张」。底色带半透明,压在深色浅色图上都看得见。
-/// 48 见方:它压在一整张可点的图上,点偏了就被带去图库。
+/// 48 见方:它压在一整张可点的图上,与图片查看操作独立。
 class _AgainButton extends ConsumerWidget {
   const _AgainButton({required this.msgId});
 
@@ -327,7 +351,7 @@ class _AgainButton extends ConsumerWidget {
       shape: const CircleBorder(),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
-        // 图本体点了是去图库,这颗要吃掉自己的点击,别顺着漏下去
+        // 这颗要吃掉自己的点击，避免同时触发图片查看。
         onTap: () => ref.read(assistantProvider.notifier).generateFrom(msgId),
         child: Tooltip(
           message: '重新生成',

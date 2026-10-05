@@ -10,6 +10,7 @@ add_executable(${BINARY_NAME} WIN32
   "clipboard_channel.cpp"
   "flutter_window.cpp"
   "image_drop_target.cpp"
+  "image_clipboard.cpp"
   "main.cpp"
   "utils.cpp"
   "win32_window.cpp"
@@ -37,6 +38,7 @@ target_compile_definitions(${BINARY_NAME} PRIVATE "NOMINMAX")
 target_link_libraries(${BINARY_NAME} PRIVATE flutter flutter_wrapper_app)
 target_link_libraries(${BINARY_NAME} PRIVATE "dwmapi.lib")
 target_link_libraries(${BINARY_NAME} PRIVATE "ole32.lib" "shell32.lib" "uuid.lib")
+target_link_libraries(${BINARY_NAME} PRIVATE "comctl32.lib")
 target_include_directories(${BINARY_NAME} PRIVATE "${CMAKE_SOURCE_DIR}")
 
 # Run the Flutter tool portions of the build. This must not be removed.

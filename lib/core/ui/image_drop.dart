@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:ui' as ui;
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
@@ -15,10 +16,9 @@ import '../util/image_pick.dart';
 
 /// One drag has one payload and one recipient. Bytes are read only on drop.
 class ImageDropPayload {
-  ImageDropPayload.files(List<String> paths)
+  ImageDropPayload.files(List<String> paths, {this.source})
     : paths = List.unmodifiable(paths),
       imageId = null,
-      source = null,
       _load = null;
 
   ImageDropPayload.image({
@@ -35,6 +35,50 @@ class ImageDropPayload {
          return [PickedImage(name, bytes)];
        });
 
+  factory ImageDropPayload.clipboard(Map<Object?, Object?> arguments) {
+    final paths = (arguments['paths'] as List?)?.cast<String>() ?? const [];
+    final error = arguments['error'] as String? ?? '';
+    if (error.isEmpty && paths.isNotEmpty) {
+      return ImageDropPayload.files(paths, source: 'clipboard');
+    }
+    return ImageDropPayload.image(
+      name: 'clipboard.png',
+      source: 'clipboard',
+      load: () async {
+        if (error.isNotEmpty) {
+          throw FormatException(switch (error) {
+            'clipboard_busy' => '剪贴板暂时被占用，请重试粘贴',
+            'too_many_images' => '一次最多粘贴 64 张图片',
+            _ => '无法读取剪贴板图片，请重新复制；单张最多 64 MB',
+          });
+        }
+        final bytes = arguments['bytes'] as Uint8List?;
+        if (bytes == null || bytes.isEmpty) {
+          throw const FormatException('剪贴板中没有可读取的图片');
+        }
+        // A DIB gains a small BMP header in the native reader.
+        if (bytes.length > 64 * 1024 * 1024 + 14) {
+          throw const FormatException('剪贴板图片过大：单张最多 64 MB');
+        }
+        if (arguments['bitmap'] != true) return bytes;
+        final codec = await ui.instantiateImageCodec(bytes);
+        try {
+          final frame = await codec.getNextFrame();
+          try {
+            final png = await frame.image.toByteData(
+              format: ui.ImageByteFormat.png,
+            );
+            return png?.buffer.asUint8List();
+          } finally {
+            frame.image.dispose();
+          }
+        } finally {
+          codec.dispose();
+        }
+      },
+    );
+  }
+
   final List<String> paths;
   final String? imageId;
   final String? source;
@@ -43,7 +87,7 @@ class ImageDropPayload {
 
   Future<List<PickedImage>> read() async {
     if (count == 0 || count > 64) {
-      throw const FormatException('一次最多拖入 64 张图片');
+      throw const FormatException('一次最多导入 64 张图片');
     }
     final files = <PickedImage>[];
     if (_load != null) {
@@ -61,7 +105,13 @@ class ImageDropPayload {
       }
     }
     // Validate the entire batch before any recipient changes its state.
+    var totalBytes = 0;
     for (final file in files) {
+      totalBytes += file.bytes.length;
+      if (file.bytes.length > 64 * 1024 * 1024 ||
+          totalBytes > 256 * 1024 * 1024) {
+        throw const FormatException('图片过大：单张最多 64 MB，一次最多 256 MB');
+      }
       try {
         final (width, height) = await decodeImageSize(file.bytes);
         if (width <= 0 || height <= 0) throw const FormatException();
@@ -116,6 +166,7 @@ class ImageDropRegion extends StatefulWidget {
 }
 
 class _ImageDropRegionState extends State<ImageDropRegion> {
+  _DesktopImageDropHostState? _host;
   bool _externalHover = false;
   bool _busy = false;
   bool get _enabled => widget.enabled && !_busy;
@@ -126,8 +177,25 @@ class _ImageDropRegionState extends State<ImageDropRegion> {
       // 挡在外面(它本来就没打算管那条路)。
       (widget.acceptInternal ||
           payload.paths.isNotEmpty ||
-          payload.source == _kClipboardSource) &&
+          payload.source == kClipboardSource) &&
       (widget.accept?.call(payload) ?? true);
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final host = context.findAncestorStateOfType<_DesktopImageDropHostState>();
+    if (_host != host) {
+      _host?._regions.remove(this);
+      _host = host;
+      _host?._regions.add(this);
+    }
+  }
+
+  @override
+  void dispose() {
+    _host?._regions.remove(this);
+    super.dispose();
+  }
 
   void _hover(bool value) {
     if (mounted && value != _externalHover) {
@@ -135,17 +203,22 @@ class _ImageDropRegionState extends State<ImageDropRegion> {
     }
   }
 
-  Future<void> _receive(ImageDropPayload payload) async {
+  Future<void> _receive(
+    ImageDropPayload payload, {
+    bool Function()? stillVisible,
+  }) async {
     if (!_accepts(payload)) return;
     setState(() => _busy = true);
     try {
       if (!widget.multiple && payload.count > 1) {
-        throw const FormatException('此处一次接收一张图片，请拖入单张图片');
+        throw const FormatException('此处一次接收一张图片，请选择单张图片');
       }
       final images = await payload.read();
-      if (mounted) await widget.onDrop(images, payload);
+      if (mounted && widget.enabled && (stillVisible?.call() ?? true)) {
+        await widget.onDrop(images, payload);
+      }
     } catch (error) {
-      if (mounted) {
+      if (mounted && (stillVisible?.call() ?? true)) {
         final message = error is FormatException
             ? error.message
             : '图片导入失败，请检查文件是否可读';
@@ -168,7 +241,7 @@ class _ImageDropRegionState extends State<ImageDropRegion> {
       // 落到各块区域里就叫这个名字(附件列表、导入面板首行都会显示它),
       // 和上传时的默认名保持一致。
       name: image.name ?? kClipboardImageName,
-      source: _kClipboardSource,
+      source: kClipboardSource,
       load: () async => image.bytes,
     );
     if (!_accepts(payload)) return false;
@@ -231,7 +304,7 @@ class _ImageDropRegionState extends State<ImageDropRegion> {
 
 /// 剪贴板来的图的来源标记:接收区据此把它和「应用内拖拽」区分开
 /// ([ImageDropPayload.source] 的其余取值是 `canvas` / `history`)。
-const _kClipboardSource = 'clipboard';
+const kClipboardSource = 'clipboard';
 
 /// 把一块接收区的**粘贴范围**扩到它自己盖不到的地方。
 ///
@@ -255,7 +328,6 @@ class ImagePasteProxy extends StatelessWidget {
   final bool enabled;
 
   final Widget child;
-
   @override
   Widget build(BuildContext context) => MetaData(
     metaData: this,
@@ -269,8 +341,7 @@ class _PasteImageIntent extends Intent {
   const _PasteImageIntent();
 }
 
-class DesktopImageDropHost extends ConsumerStatefulWidget {
-  const DesktopImageDropHost({super.key, required this.child});
+class DesktopImageDropHost extends ConsumerStatefulWidget {  const DesktopImageDropHost({super.key, required this.child});
   final Widget child;
   static const channel = MethodChannel('plana/image_drop');
 
@@ -282,6 +353,7 @@ class DesktopImageDropHost extends ConsumerStatefulWidget {
 class _DesktopImageDropHostState extends ConsumerState<DesktopImageDropHost> {
   _ImageDropRegionState? _hovered;
   bool _receiving = false;
+  final _regions = <_ImageDropRegionState>{};
 
   /// 鼠标在窗口里的位置(逻辑像素),没进过窗口就是 null。
   ///
@@ -299,8 +371,7 @@ class _DesktopImageDropHostState extends ConsumerState<DesktopImageDropHost> {
     DesktopImageDropHost.channel.setMethodCallHandler(_nativeEvent);
   }
 
-  HitTestResult _hitAt(Offset position) {
-    final hit = HitTestResult();
+  HitTestResult _hitAt(Offset position) {    final hit = HitTestResult();
     WidgetsBinding.instance.hitTestInView(
       hit,
       position,
@@ -310,8 +381,7 @@ class _DesktopImageDropHostState extends ConsumerState<DesktopImageDropHost> {
   }
 
   _ImageDropRegionState? _at(Offset position) {
-    for (final entry in _hitAt(position).path) {
-      final target = entry.target;
+    for (final entry in _hitAt(position).path) {      final target = entry.target;
       if (target is RenderMetaData &&
           target.metaData is _ImageDropRegionState) {
         final region = target.metaData as _ImageDropRegionState;
@@ -328,10 +398,12 @@ class _DesktopImageDropHostState extends ConsumerState<DesktopImageDropHost> {
   /// 按 ⌘V —— 他要的是「贴进我正看着的这张卡」。只看焦点的话这一下哪儿都不去,
   /// 白按。焦点兜底留着,是为了鼠标不在窗口里(纯键盘操作、或刚切回来的窗口)时
   /// 还能贴到正在编辑的那块上。
-  _ImageDropRegionState? _pasteTarget() {
-    final at = _pointer;
-    if (at != null) {
-      final under = _pasteRegionAt(at);
+  /// [at] 给 Windows 的 `paste` 事件用:那个位置是**按下那一刻**原生报上来的,
+  /// 比 [_pointer](最近一次悬停)更准 —— 用户可能刚把光标挪开就按了键。
+  _ImageDropRegionState? _pasteTarget({Offset? at}) {
+    final point = at ?? _pointer;
+    if (point != null) {
+      final under = _pasteRegionAt(point);
       // 鼠标底下明确摆着一块接收区时,成不成都是它说了算:它正忙就这一下不动,
       // 不越过它去贴用户没在看着的下一层 —— 贴哪儿和看着哪儿对不上比不贴更糟。
       if (under != null) return under._enabled ? under : null;
@@ -437,7 +509,6 @@ class _DesktopImageDropHostState extends ConsumerState<DesktopImageDropHost> {
       const PasteTextIntent(SelectionChangedCause.keyboard),
     );
   }
-
   Future<void> _nativeEvent(MethodCall call) async {
     if (!mounted) return;
     if (call.method == 'leave') {
@@ -445,13 +516,26 @@ class _DesktopImageDropHostState extends ConsumerState<DesktopImageDropHost> {
       _hovered = null;
       return;
     }
-    if (call.method != 'over' && call.method != 'drop') return;
+    if (call.method != 'over' &&
+        call.method != 'drop' &&
+        call.method != 'paste') {
+      return;
+    }
     final args = Map<Object?, Object?>.from(call.arguments as Map);
     final scale = View.of(context).devicePixelRatio;
     final point = Offset(
       (args['x'] as num).toDouble() / scale,
       (args['y'] as num).toDouble() / scale,
     );
+    if (call.method == 'paste') {
+      // Windows:密钥在原生侧就拦下了(见 windows/runner/image_clipboard.cpp),
+      // 图和位置一起送上来。落点和 macOS 那条路是**同一个** [_pasteTarget]:
+      // 光标优先、焦点兜底。原图在原生读好了,所以不走剪贴板再问一遍。
+      final target = _pasteTarget(at: point);
+      if (target == null || !target.mounted) return;
+      await target._receive(ImageDropPayload.clipboard(args));
+      return;
+    }
     final target = _receiving ? null : _at(point);
     if (_hovered != target) {
       _hovered?._hover(false);

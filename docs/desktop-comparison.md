@@ -1,8 +1,8 @@
 # macOS 桌面版适配
 
-基于 LingXia979/Plana-App-for-windows 的 `1e99e5b`（windows.43，构建 62），包含已发布的三栏工作台、桌面图库、助手、鼠标交互及导出功能。旧测试包基于 `062fbaf`，只有图库改进，没有该桌面 UI。
+基于 LingXia979/Plana-App-for-windows 的 `bab2699`（windows.45，构建 64），包含三栏工作台、桌面图库、助手、鼠标交互、导出功能,以及上游这版新增的剪贴板图片导入与助手生成图预览。
 
-本次版本：1.1.1-desktop.43.1+62。
+本次版本：1.1.1-desktop.45+64。
 
 - 合并上游完整历史，保留 macOS 工程、传统登录钥匙串和 CI 验证。
 - macOS 使用系统字体及苹方，窗口默认 1440×900。
@@ -11,17 +11,18 @@
 - 存储统计只扫描 Plana 作品目录，不扫描整个文稿目录。
 - 应用名称为 Plana App，源码入口指向 shenghuo2/Plana-App-Desktop。
 
-最低 macOS 14；GitHub Actions 构建 DMG，验证签名、钥匙串和挂载启动。测试包为 ad-hoc 签名，未经 Apple 公证。真实账号生成、Finder 拖图及系统权限弹窗仍需实机交互验收。
+最低 macOS 14；GitHub Actions 构建 DMG，验证签名、钥匙串和挂载启动，并额外构建 Windows 包、跑原生剪贴板单测。测试包为 ad-hoc 签名，未经 Apple 公证。真实账号生成、Finder 拖图及系统权限弹窗仍需实机交互验收。
 
 不包含另一个 fork 整合版的云存储推送、代理和 Android 应用内更新功能。
 
 ## 剪贴板图片（桌面端专有）
 
-Flutter 自带的 `Clipboard` 只有文本，图片这半截走原生通道 `plana/clipboard`：macOS 是 `NSPasteboard`（`macos/Runner/ClipboardChannel.swift`），Windows 是剪贴板 API（`windows/runner/clipboard_channel.cpp`），Dart 门面在 `lib/core/platform/clipboard_image.dart`，落点复用既有的图片拖放区域（`ImageDropRegion.acceptPaste`）。
+上游 windows.45 做了「贴进来」那一半（Windows 独占，按键在原生侧就拦下），本 fork 在此基础上补齐了「复制出去」、macOS 侧实现，并把落点判据统一成**光标优先、焦点兜底**。
 
-- **贴进来**：⌘/Ctrl+V 把剪贴板里的图交给**焦点所在的那块区域**（对话框附件、导入面板、图生图底图、Vibe／角色／风格参考）。对话输入框另有一颗粘贴按钮，走的是「明确要图」那条路。
+- **落点怎么定**：`DesktopImageDropHost`（应用根）统一裁 —— **光标底下那块接收区优先**，光标不在任何一块上时回落到焦点所在的那块。只看焦点是不够的:点过提示词框之后把鼠标挪到某张卡上按 ⌘V,图会哪儿都不去。被挡住/藏起来的页面(如 `IndexedStack` 里的后台页)命中测试打不到,自然不接手。
+- **两条入口同一个判据**:macOS 走 Flutter 层的 `Shortcuts` 认领 ⌘V;Windows 由原生 `image_clipboard.cpp` 在窗口过程里吃掉 Ctrl+V(拦得住系统补发的 `WM_CHAR`),图经 `plana/image_drop` 的 `paste` 事件推上来。两条都汇到同一个落点函数。
 - **不抢文本**：剪贴板里同时有能用的文本时不取图，原样交给系统那套文本粘贴；从访达／资源管理器「复制文件」时例外 —— 那时剪贴板里的文本只是文件名。
 - **复制出去**：作品画布顶栏「复制图片」、看图浮层信息栏的复制按钮、图库缩略图右键「复制到剪贴板」、对话里那张图的右键菜单。macOS 同时写 PNG 与 TIFF，Windows 写 PNG 格式与 CF_DIB，兼顾新老程序。
 - **对话里的图**：桌面端点开的是桌面看图浮层（放大／复制／保存／超分都在里面，并给出它在库里的位置），不再切去图库页；移动端维持原行为。
 
-原生通道由 CI 的 clipboard smoke 验证（启动应用，真往系统剪贴板写一张 2×2 的图再读回来）—— Swift 文件漏进 Xcode 工程这类事，构建和启动都看不出问题，只有用户按 ⌘V 才会发现。Windows 那份 C++ 没有 CI 覆盖，首次在 Windows 上使用请以实机为准。
+原生通道由 CI 验证:macOS 跑 clipboard smoke(启动应用,真往系统剪贴板写一张 2×2 的图再读回来 —— Swift 文件漏进 Xcode 工程这类事,构建和启动都看不出问题);Windows 跑 `flutter build windows` 加 `test/native` 下的 DIB 边界单测(24 位/32 位 V5/负高度/截断/畸形头)。两条路都验的只是「没崩、接得上」,实机手感仍需真机确认。
