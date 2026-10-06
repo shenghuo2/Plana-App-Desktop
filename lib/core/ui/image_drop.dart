@@ -19,6 +19,7 @@ class ImageDropPayload {
   ImageDropPayload.files(List<String> paths, {this.source})
     : paths = List.unmodifiable(paths),
       imageId = null,
+      _count = null,
       _load = null;
 
   ImageDropPayload.image({
@@ -27,6 +28,7 @@ class ImageDropPayload {
     this.imageId,
     this.source,
   }) : paths = const [],
+       _count = null,
        _load = (() async {
          final bytes = await load();
          if (bytes == null || bytes.isEmpty) {
@@ -34,6 +36,12 @@ class ImageDropPayload {
          }
          return [PickedImage(name, bytes)];
        });
+
+  ImageDropPayload.images(List<PickedImage> images, {this.source})
+    : paths = const [],
+      imageId = null,
+      _count = images.length,
+      _load = (() async => List.unmodifiable(images));
 
   factory ImageDropPayload.clipboard(Map<Object?, Object?> arguments) {
     final paths = (arguments['paths'] as List?)?.cast<String>() ?? const [];
@@ -83,7 +91,8 @@ class ImageDropPayload {
   final String? imageId;
   final String? source;
   final Future<List<PickedImage>> Function()? _load;
-  int get count => _load == null ? paths.length : 1;
+  final int? _count;
+  int get count => _count ?? (_load == null ? paths.length : 1);
 
   Future<List<PickedImage>> read() async {
     if (count == 0 || count > 64) {
@@ -234,18 +243,30 @@ class _ImageDropRegionState extends State<ImageDropRegion> {
   /// 把剪贴板里的图贴到这块里。由 [DesktopImageDropHost] 按鼠标/焦点选中后调用。
   ///
   /// 返回 false = 这块不收(或正忙),调用方据此把这一下还给文本粘贴。
-  Future<bool> pasteFromClipboard() async {
-    final image = await DesktopClipboard.readImage();
-    if (!mounted || image == null || !_enabled) return false;
-    final payload = ImageDropPayload.image(
-      // 落到各块区域里就叫这个名字(附件列表、导入面板首行都会显示它),
-      // 和上传时的默认名保持一致。
-      name: image.name ?? kClipboardImageName,
-      source: kClipboardSource,
-      load: () async => image.bytes,
-    );
+  Future<bool> pasteFromClipboard({bool Function()? stillVisible}) async {
+    final content = await DesktopClipboard.read();
+    if (!mounted ||
+        !_enabled ||
+        !content.hasImage ||
+        (content.hasText && !content.fromFile)) {
+      return false;
+    }
+    if (stillVisible?.call() == false) return true;
+    final payload = content.images.isNotEmpty
+        ? ImageDropPayload.images([
+            for (final image in content.images)
+              PickedImage(image.name ?? kClipboardImageName, image.bytes),
+          ], source: kClipboardSource)
+        : content.paths.isNotEmpty
+        ? ImageDropPayload.files(content.paths, source: kClipboardSource)
+        : ImageDropPayload.image(
+            name: content.name ?? kClipboardImageName,
+            source: kClipboardSource,
+            load: () async =>
+                (await DesktopClipboard.imageFromContent(content)).bytes,
+          );
     if (!_accepts(payload)) return false;
-    await _receive(payload);
+    await _receive(payload, stillVisible: stillVisible);
     return true;
   }
 
@@ -341,7 +362,8 @@ class _PasteImageIntent extends Intent {
   const _PasteImageIntent();
 }
 
-class DesktopImageDropHost extends ConsumerStatefulWidget {  const DesktopImageDropHost({super.key, required this.child});
+class DesktopImageDropHost extends ConsumerStatefulWidget {
+  const DesktopImageDropHost({super.key, required this.child});
   final Widget child;
   static const channel = MethodChannel('plana/image_drop');
 
@@ -371,7 +393,8 @@ class _DesktopImageDropHostState extends ConsumerState<DesktopImageDropHost> {
     DesktopImageDropHost.channel.setMethodCallHandler(_nativeEvent);
   }
 
-  HitTestResult _hitAt(Offset position) {    final hit = HitTestResult();
+  HitTestResult _hitAt(Offset position) {
+    final hit = HitTestResult();
     WidgetsBinding.instance.hitTestInView(
       hit,
       position,
@@ -381,7 +404,8 @@ class _DesktopImageDropHostState extends ConsumerState<DesktopImageDropHost> {
   }
 
   _ImageDropRegionState? _at(Offset position) {
-    for (final entry in _hitAt(position).path) {      final target = entry.target;
+    for (final entry in _hitAt(position).path) {
+      final target = entry.target;
       if (target is RenderMetaData &&
           target.metaData is _ImageDropRegionState) {
         final region = target.metaData as _ImageDropRegionState;
@@ -460,7 +484,7 @@ class _DesktopImageDropHostState extends ConsumerState<DesktopImageDropHost> {
   /// 保活的页面(工作台右栏是 IndexedStack、助手页切走了也还在树里)照样有尺寸,
   /// 用后者会把一次 ⌘V 贴进一个用户正眼都看不到的页面。命中测试走的就是绘制
   /// 那份可见性:IndexedStack 只命中当前那一页,被挡住的、离屏的一律打不到。
-  bool _visible(_ImageDropRegionState region) {
+  bool _visible(_ImageDropRegionState region, {Offset? at}) {
     if (!region.mounted || ModalRoute.of(region.context)?.isCurrent == false) {
       return false;
     }
@@ -471,10 +495,36 @@ class _DesktopImageDropHostState extends ConsumerState<DesktopImageDropHost> {
         box.size.isEmpty) {
       return false;
     }
-    final center = box.localToGlobal(box.size.center(Offset.zero));
-    for (final entry in _hitAt(center).path) {
-      final target = entry.target;
-      if (target is RenderMetaData && target.metaData == region) return true;
+    bool hit(Offset point) {
+      for (final entry in _hitAt(point).path) {
+        final target = entry.target;
+        if (target is! RenderMetaData) continue;
+        if (target.metaData == region) return true;
+        final data = target.metaData;
+        if (at != null &&
+            data is ImagePasteProxy &&
+            data.enabled &&
+            data.target.currentState == region) {
+          return _visible(region);
+        }
+      }
+      return false;
+    }
+
+    if (at != null) return hit(at);
+
+    final points = <Offset>[];
+    final focusBox = FocusManager.instance.primaryFocus?.context
+        ?.findRenderObject();
+    if (focusBox is RenderBox &&
+        focusBox.attached &&
+        focusBox.hasSize &&
+        !focusBox.size.isEmpty) {
+      points.add(focusBox.localToGlobal(focusBox.size.center(Offset.zero)));
+    }
+    points.add(box.localToGlobal(box.size.center(Offset.zero)));
+    for (final point in points) {
+      if (hit(point)) return true;
     }
     return false;
   }
@@ -486,14 +536,19 @@ class _DesktopImageDropHostState extends ConsumerState<DesktopImageDropHost> {
   Future<void> _paste() async {
     if (_pasting) return;
     _pasting = true;
+    final focus = FocusManager.instance.primaryFocus;
     try {
-      final target = _pasteTarget();
+      final point = _pointer;
+      final target = _pasteTarget(at: point);
       if (target == null || !target.mounted) {
-        await _pasteText();
+        await _pasteText(focus);
         return;
       }
-      final handled = await target.pasteFromClipboard();
-      if (!handled) await _pasteText();
+      final pointerTarget = point != null && _pasteRegionAt(point) == target;
+      final handled = await target.pasteFromClipboard(
+        stillVisible: () => _visible(target, at: pointerTarget ? point : null),
+      );
+      if (!handled) await _pasteText(focus);
     } finally {
       _pasting = false;
     }
@@ -501,14 +556,16 @@ class _DesktopImageDropHostState extends ConsumerState<DesktopImageDropHost> {
 
   /// 把这一下还给当前的文本粘贴。焦点还在这块接收区里(用户多半刚点过输入框),
   /// 走的就是系统那套 PasteTextIntent —— 和没拦过一模一样。
-  Future<void> _pasteText() async {
-    final target = FocusManager.instance.primaryFocus?.context;
+  Future<void> _pasteText(FocusNode? focus) async {
+    if (focus != FocusManager.instance.primaryFocus) return;
+    final target = focus?.context;
     if (target == null || !target.mounted) return;
     Actions.maybeInvoke(
       target,
       const PasteTextIntent(SelectionChangedCause.keyboard),
     );
   }
+
   Future<void> _nativeEvent(MethodCall call) async {
     if (!mounted) return;
     if (call.method == 'leave') {
@@ -528,12 +585,21 @@ class _DesktopImageDropHostState extends ConsumerState<DesktopImageDropHost> {
       (args['y'] as num).toDouble() / scale,
     );
     if (call.method == 'paste') {
+      final text = args['text'] as String?;
+      if (text != null && text.trim().isNotEmpty && args['fromFile'] != true) {
+        await _pasteText(FocusManager.instance.primaryFocus);
+        return;
+      }
       // Windows:密钥在原生侧就拦下了(见 windows/runner/image_clipboard.cpp),
       // 图和位置一起送上来。落点和 macOS 那条路是**同一个** [_pasteTarget]:
       // 光标优先、焦点兜底。原图在原生读好了,所以不走剪贴板再问一遍。
       final target = _pasteTarget(at: point);
       if (target == null || !target.mounted) return;
-      await target._receive(ImageDropPayload.clipboard(args));
+      final pointerTarget = _pasteRegionAt(point) == target;
+      await target._receive(
+        ImageDropPayload.clipboard(args),
+        stillVisible: () => _visible(target, at: pointerTarget ? point : null),
+      );
       return;
     }
     final target = _receiving ? null : _at(point);

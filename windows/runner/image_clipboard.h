@@ -14,6 +14,9 @@ struct ClipboardImage {
   bool bitmap = false;
   std::vector<uint8_t> bytes;
   std::vector<std::string> paths;
+  std::string text;
+  bool has_text = false;
+  bool from_file = false;
   std::string error;
   POINT position = {};
 };

@@ -733,10 +733,7 @@ void main() {
 
     /// 帮 ⌘/Ctrl+V 按下去。两个修饰键都发:macOS 是 ⌘,Windows 是 Ctrl,
     /// 这条通道两边都得通。
-    Future<void> pressPaste(
-      WidgetTester tester, {
-      bool control = false,
-    }) async {
+    Future<void> pressPaste(WidgetTester tester, {bool control = false}) async {
       final modifier = control
           ? LogicalKeyboardKey.controlLeft
           : LogicalKeyboardKey.metaLeft;
@@ -759,6 +756,26 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
+    testWidgets('粘贴按钮一次加入 Finder 复制的多张图片', (tester) async {
+      clipboard = {
+        'images': [
+          {'image': pngA, 'name': 'first.heic'},
+          {'image': pngB, 'name': 'second.png'},
+        ],
+        'text': 'first.heic',
+        'fromFile': true,
+      };
+      await mount(tester, embedded: true);
+      await tester.tap(key('assistant-paste-image'));
+      await settle(tester);
+      await tester.pumpAndSettle();
+
+      expect(find.text('已添加 2 张图片'), findsOneWidget);
+      expect(find.byTooltip('移除图片 1：first.heic'), findsOneWidget);
+      expect(find.byTooltip('移除图片 2：second.png'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
     testWidgets('剪贴板里没有图时如实说一声,附件不动', (tester) async {
       clipboard = {'text': '只有文字'};
       await mount(tester, embedded: true);
@@ -773,9 +790,7 @@ void main() {
 
     testWidgets('⌘V 在对话框里(光标停在对话区)把剪贴板里的图加进附件', (tester) async {
       await mount(tester, embedded: true);
-      await tester.showKeyboard(
-        find.widgetWithText(TextField, '想画什么、想改哪里…'),
-      );
+      await tester.showKeyboard(find.widgetWithText(TextField, '想画什么、想改哪里…'));
       await tester.pumpAndSettle();
       await pressPaste(tester);
       await tester.pumpAndSettle();

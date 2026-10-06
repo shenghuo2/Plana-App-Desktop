@@ -37,6 +37,8 @@ void main() {
     bool bitmap = false,
     List<String> paths = const [],
     String error = '',
+    String text = '',
+    bool fromFile = false,
   }) async {
     await tester.runAsync(() async {
       await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
@@ -49,6 +51,8 @@ void main() {
             'bitmap': bitmap,
             'paths': paths,
             'error': error,
+            'text': text,
+            'fromFile': fromFile,
           }),
         ),
         (_) {},
@@ -255,6 +259,33 @@ void main() {
     expect(find.text('剪贴板暂时被占用，请重试粘贴'), findsOneWidget);
   });
 
+  testWidgets('原生事件带图文时将文本还给焦点输入框', (tester) async {
+    final controller = TextEditingController();
+    addTearDown(controller.dispose);
+    final messenger = tester.binding.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(SystemChannels.platform, (call) async {
+      if (call.method == 'Clipboard.getData') return {'text': '正文'};
+      return null;
+    });
+    addTearDown(
+      () => messenger.setMockMethodCallHandler(SystemChannels.platform, null),
+    );
+    var imports = 0;
+    await mount(
+      tester,
+      ImageDropRegion(
+        label: '助手',
+        acceptPaste: true,
+        onDrop: (_, _) async => imports++,
+        child: TextField(controller: controller),
+      ),
+    );
+    await tester.tap(find.byType(TextField));
+    await paste(tester, const Offset(450, 350), text: '正文');
+    expect(controller.text, '正文');
+    expect(imports, 0);
+  });
+
   testWidgets('图片路径形式的粘贴(资源管理器复制的文件)也认', (tester) async {
     final dir = Directory.systemTemp.createTempSync('plana_paste_paths_');
     addTearDown(() => dir.deleteSync(recursive: true));
@@ -273,7 +304,12 @@ void main() {
         child: const SizedBox.expand(),
       ),
     );
-    await paste(tester, const Offset(450, 350), bytes: null, paths: [file.path]);
+    await paste(
+      tester,
+      const Offset(450, 350),
+      bytes: null,
+      paths: [file.path],
+    );
     expect(got.single.name, '照片.png');
     expect(got.single.bytes, png);
   });

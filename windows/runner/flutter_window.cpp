@@ -49,6 +49,10 @@ bool FlutterWindow::OnCreate() {
             flutter::EncodableValue(image.bitmap);
         args[flutter::EncodableValue("error")] =
             flutter::EncodableValue(image.error);
+        args[flutter::EncodableValue("text")] =
+            flutter::EncodableValue(image.text);
+        args[flutter::EncodableValue("fromFile")] =
+            flutter::EncodableValue(image.from_file);
         flutter::EncodableList paths;
         for (auto& path : image.paths) paths.emplace_back(std::move(path));
         args[flutter::EncodableValue("paths")] =

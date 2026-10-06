@@ -4,6 +4,7 @@
 /// (见 CI 的 clipboard smoke),Windows 的 C++ 没有人能在这台机器上跑。
 library;
 
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -42,11 +43,7 @@ void main() {
 
   group('读剪贴板', () {
     test('只有图时取图,文件名跟着一起回来', () async {
-      response = {
-        'image': png,
-        'format': 'png',
-        'name': 'shot.png',
-      };
+      response = {'image': png, 'format': 'png', 'name': 'shot.png'};
       final content = await DesktopClipboard.read();
       expect(content.hasImage, isTrue);
       expect(content.hasText, isFalse);
@@ -61,10 +58,7 @@ void main() {
       response = {'image': png, 'format': 'png', 'text': '一段复制来的文字'};
 
       expect(await DesktopClipboard.readImage(), isNull);
-      expect(
-        (await DesktopClipboard.readImage(preferImage: true))?.bytes,
-        png,
-      );
+      expect((await DesktopClipboard.readImage(preferImage: true))?.bytes, png);
     });
 
     test('空白文本不算文本:图照取', () async {
@@ -86,6 +80,43 @@ void main() {
       expect((await DesktopClipboard.readImage())?.bytes, png);
     });
 
+    test('Finder 解码的多张图片一次返回且保留各自文件名', () async {
+      response = {
+        'images': [
+          {'image': png, 'name': 'first.heic'},
+          {'image': png, 'name': 'second.png'},
+        ],
+        'text': 'first.heic',
+        'fromFile': true,
+      };
+      final images = await DesktopClipboard.readImages();
+      expect(images.map((image) => image.name), ['first.heic', 'second.png']);
+      expect(images.map((image) => image.bytes), [png, png]);
+    });
+
+    test('资源管理器复制多张文件时按顺序读入', () async {
+      final dir = await Directory.systemTemp.createTemp('clipboard_files_');
+      addTearDown(() => dir.delete(recursive: true));
+      final first = File('${dir.path}/first.png')..writeAsBytesSync(png);
+      final second = File('${dir.path}/second.png')..writeAsBytesSync(png);
+      response = {
+        'paths': [first.path, second.path],
+        'text': 'first.png',
+        'fromFile': true,
+      };
+      final images = await DesktopClipboard.readImages();
+      expect(images.map((image) => image.name), ['first.png', 'second.png']);
+      expect(images.map((image) => image.bytes), [png, png]);
+    });
+
+    test('原生报告文件过大时显式粘贴显示错误', () async {
+      response = {'error': 'too_large', 'fromFile': true};
+      expect(
+        () => DesktopClipboard.readImages(preferImage: true),
+        throwsA(isA<FormatException>()),
+      );
+    });
+
     test('剪贴板里没图、通道没注册,都只是「没有」,不抛', () async {
       response = {'text': '只有文字'};
       var content = await DesktopClipboard.read();
@@ -98,7 +129,6 @@ void main() {
       expect(content.hasImage, isFalse);
       expect(await DesktopClipboard.readImage(), isNull);
     });
-
   });
 
   group('写剪贴板', () {
@@ -116,6 +146,10 @@ void main() {
       final args = (calls.single.arguments as Map).cast<String, Object?>();
       final dib = args['dib']! as Uint8List;
       expect(dib.sublist(0, 2), isNot(equals([0x42, 0x4D]))); // 裸 DIB,没有 BM
+      final header = ByteData.sublistView(dib);
+      expect(header.getUint32(0, Endian.little), 40);
+      expect(header.getUint16(14, Endian.little), 24);
+      expect(header.getUint32(16, Endian.little), 0); // BI_RGB
 
       final decoded = img.decodeImage(wrapDibAsBmp(dib));
       expect(decoded, isNotNull);
@@ -123,6 +157,33 @@ void main() {
       expect(decoded.getPixel(0, 0).r, 10);
       expect(decoded.getPixel(0, 0).g, 200);
       expect(decoded.getPixel(0, 0).b, 30);
+    });
+
+    test('Windows DIB 保留四角像素方向和颜色', () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+      final source = img.Image(width: 2, height: 2)
+        ..setPixelRgb(0, 0, 255, 0, 0)
+        ..setPixelRgb(1, 0, 0, 255, 0)
+        ..setPixelRgb(0, 1, 0, 0, 255)
+        ..setPixelRgb(1, 1, 255, 255, 0);
+      expect(
+        await DesktopClipboard.writeImage(
+          Uint8List.fromList(img.encodePng(source)),
+        ),
+        isTrue,
+      );
+      final args = (calls.single.arguments as Map).cast<String, Object?>();
+      final decoded = img.decodeImage(wrapDibAsBmp(args['dib']! as Uint8List))!;
+      for (var y = 0; y < 2; y++) {
+        for (var x = 0; x < 2; x++) {
+          final expected = source.getPixel(x, y);
+          final actual = decoded.getPixel(x, y);
+          expect(
+            (actual.r, actual.g, actual.b),
+            (expected.r, expected.g, expected.b),
+          );
+        }
+      }
     });
 
     test('JPEG 之类不是 PNG 的字节先转码再交 —— 不能贴着 PNG 标签发出去', () async {
@@ -136,7 +197,9 @@ void main() {
     });
 
     test('原生说写不进去时如实回 false,不假装成功', () async {
-      messenger.setMockMethodCallHandler(DesktopClipboard.channel, (call) async {
+      messenger.setMockMethodCallHandler(DesktopClipboard.channel, (
+        call,
+      ) async {
         calls.add(call);
         return false;
       });
@@ -146,11 +209,26 @@ void main() {
 
   group('DIB 补文件头', () {
     /// 造一个 2×2 的 24 位裸 DIB(自下而上,行按 4 字节对齐)。
-    Uint8List dib({int headerSize = 40, int compression = 0, int bitCount = 24}) {
+    Uint8List dib({
+      int headerSize = 40,
+      int compression = 0,
+      int bitCount = 24,
+      int colorsUsed = 0,
+    }) {
       const rowStride = 8; // 2 像素 × 3 字节,补到 4 的倍数
       final pixels = rowStride * 2;
-      final palette = bitCount <= 8 ? (1 << bitCount) * 4 : 0;
-      final masks = headerSize == 40 && (compression == 3) ? 12 : 0;
+      final palette =
+          (colorsUsed != 0
+              ? colorsUsed
+              : bitCount <= 8
+              ? 1 << bitCount
+              : 0) *
+          4;
+      final masks = headerSize == 40 && compression != 0
+          ? compression == 6
+                ? 16
+                : 12
+          : 0;
       final out = Uint8List(headerSize + masks + palette + pixels);
       final header = ByteData.sublistView(out);
       header
@@ -161,7 +239,7 @@ void main() {
         ..setUint16(14, bitCount, Endian.little)
         ..setUint32(16, compression, Endian.little)
         ..setUint32(20, pixels, Endian.little)
-        ..setUint32(32, 0, Endian.little); // biClrUsed
+        ..setUint32(32, colorsUsed, Endian.little); // biClrUsed
       var at = headerSize + masks + palette;
       for (var row = 0; row < 2; row++) {
         for (var x = 0; x < 2; x++) {
@@ -189,6 +267,29 @@ void main() {
         ByteData.sublistView(bmp).getUint32(10, Endian.little),
         14 + 40 + 12,
       );
+    });
+
+    test('BI_ALPHABITFIELDS 的第四个掩码和高色深色表也计入偏移', () {
+      final alpha = wrapDibAsBmp(dib(compression: 6, bitCount: 32));
+      expect(
+        ByteData.sublistView(alpha).getUint32(10, Endian.little),
+        14 + 40 + 16,
+      );
+      final palette = wrapDibAsBmp(dib(colorsUsed: 2));
+      expect(
+        ByteData.sublistView(palette).getUint32(10, Endian.little),
+        14 + 40 + 8,
+      );
+    });
+
+    test('负高度可读，极值和缺失的像素数据须拒绝', () {
+      final topDown = dib();
+      ByteData.sublistView(topDown).setInt32(8, -2, Endian.little);
+      expect(wrapDibAsBmp(topDown).length, topDown.length + 14);
+      ByteData.sublistView(topDown).setInt32(8, -0x80000000, Endian.little);
+      expect(() => wrapDibAsBmp(topDown), throwsFormatException);
+      final truncated = Uint8List.sublistView(dib(), 0, 40 + 8);
+      expect(() => wrapDibAsBmp(truncated), throwsFormatException);
     });
 
     test('调色板图的偏移按调色板条数走', () {

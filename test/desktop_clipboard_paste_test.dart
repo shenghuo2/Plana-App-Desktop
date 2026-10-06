@@ -9,6 +9,8 @@
 /// - 没开 acceptPaste 的区域既不接收,也不挡住后面那层。
 library;
 
+import 'dart:async';
+
 import 'package:flutter/gestures.dart' show PointerDeviceKind;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -164,11 +166,7 @@ void main() {
   });
 
   testWidgets('剪贴板里同时有文本:图让位,文本照常粘进输入框', (tester) async {
-    clipboardResponse = {
-      'image': png,
-      'format': 'png',
-      'text': '一段复制来的文字',
-    };
+    clipboardResponse = {'image': png, 'format': 'png', 'text': '一段复制来的文字'};
     final (controller, _, _) = await mount(tester);
     await paste(tester);
 
@@ -252,6 +250,180 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('Finder 多图剪贴板一次交给多图接收区', (tester) async {
+    clipboardResponse = {
+      'images': [
+        {'image': png, 'name': 'one.heic'},
+        {'image': png, 'name': 'two.png'},
+      ],
+      'text': 'one.heic',
+      'fromFile': true,
+    };
+    final names = <String>[];
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [desktopModeProvider.overrideWithValue(true)],
+        child: MaterialApp(
+          builder: (_, child) => DesktopImageDropHost(child: child!),
+          home: Scaffold(
+            body: ImageDropRegion(
+              label: '附件',
+              acceptPaste: true,
+              multiple: true,
+              onDrop: (images, _) async {
+                names.addAll(images.map((image) => image.name));
+              },
+              child: const SizedBox.expand(),
+            ),
+          ),
+        ),
+      ),
+    );
+    await hover(tester, const Offset(400, 300));
+    await paste(tester);
+    expect(names, ['one.heic', 'two.png']);
+  });
+
+  testWidgets('接收区中心滚出视口后，鼠标所在的可见部分仍可接收', (tester) async {
+    final scroll = ScrollController();
+    addTearDown(scroll.dispose);
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [desktopModeProvider.overrideWithValue(true)],
+        child: MaterialApp(
+          builder: (_, child) => DesktopImageDropHost(child: child!),
+          home: Scaffold(
+            body: SingleChildScrollView(
+              controller: scroll,
+              child: Column(
+                children: [
+                  const SizedBox(height: 300),
+                  SizedBox(
+                    height: 600,
+                    child: ImageDropRegion(
+                      label: '导入图片',
+                      acceptPaste: true,
+                      onDrop: (_, _) async => received.add('visible'),
+                      child: const ColoredBox(
+                        color: Color(0xFFEEEEEE),
+                        child: SizedBox.expand(),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 800),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    scroll.jumpTo(650);
+    await tester.pumpAndSettle();
+    await hover(tester, const Offset(400, 100));
+    await paste(tester);
+    expect(received, ['visible']);
+  });
+
+  testWidgets('异步读图期间遮住原光标位置，不向露出的其他部分粘贴', (tester) async {
+    final response = Completer<Map<String, Object?>>();
+    messenger.setMockMethodCallHandler(DesktopClipboard.channel, (call) {
+      if (call.method == 'read') return response.future;
+      return Future.value(true);
+    });
+    final covered = ValueNotifier(false);
+    addTearDown(covered.dispose);
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [desktopModeProvider.overrideWithValue(true)],
+        child: MaterialApp(
+          builder: (_, child) => DesktopImageDropHost(child: child!),
+          home: Scaffold(
+            body: ValueListenableBuilder<bool>(
+              valueListenable: covered,
+              builder: (_, showCover, _) => Stack(
+                children: [
+                  ImageDropRegion(
+                    label: '导入图片',
+                    acceptPaste: true,
+                    onDrop: (_, _) async => received.add('covered'),
+                    child: const SizedBox.expand(),
+                  ),
+                  if (showCover)
+                    const Positioned(
+                      left: 0,
+                      top: 0,
+                      width: 200,
+                      height: 200,
+                      child: ColoredBox(color: Color(0xFF222222)),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await hover(tester, const Offset(100, 100));
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.metaLeft);
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.keyV);
+    covered.value = true;
+    await tester.pump();
+    response.complete({'image': png, 'format': 'png'});
+    await tester.pumpAndSettle();
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.keyV);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.metaLeft);
+    expect(received, isEmpty);
+  });
+
+  testWidgets('异步读图期间切到保活的另一页，不贴到后台页', (tester) async {
+    final response = Completer<Map<String, Object?>>();
+    messenger.setMockMethodCallHandler(DesktopClipboard.channel, (call) {
+      if (call.method == 'read') return response.future;
+      return Future.value(true);
+    });
+    final page = ValueNotifier(0);
+    addTearDown(page.dispose);
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [desktopModeProvider.overrideWithValue(true)],
+        child: MaterialApp(
+          builder: (_, child) => DesktopImageDropHost(child: child!),
+          home: Scaffold(
+            body: ValueListenableBuilder<int>(
+              valueListenable: page,
+              builder: (_, index, _) => IndexedStack(
+                index: index,
+                children: [
+                  ImageDropRegion(
+                    label: '助手',
+                    acceptPaste: true,
+                    onDrop: (_, _) async => received.add('hidden'),
+                    child: const SizedBox.expand(),
+                  ),
+                  const ColoredBox(
+                    color: Color(0xFF888888),
+                    child: SizedBox.expand(),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await hover(tester, const Offset(400, 300));
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.metaLeft);
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.keyV);
+    page.value = 1;
+    await tester.pump();
+    response.complete({'image': png, 'format': 'png'});
+    await tester.pumpAndSettle();
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.keyV);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.metaLeft);
+    expect(received, isEmpty);
+  });
+
   group('鼠标优先、焦点兜底', () {
     testWidgets('鼠标停在另一块上时归鼠标那块(焦点还在下面的输入框里)', (tester) async {
       final (controller, sibling, _) = await mount(tester);
@@ -277,10 +449,7 @@ void main() {
     testWidgets('鼠标停在接收区之间的缝上:退回焦点所在的那块', (tester) async {
       final (controller, sibling, region) = await mount(tester);
       // 两块之间的那一线不属于任何一块(Expanded 之间没有缝时用边线上一点)。
-      final seam = Offset(
-        sibling.center.dx,
-        (sibling.bottom + region.top) / 2,
-      );
+      final seam = Offset(sibling.center.dx, (sibling.bottom + region.top) / 2);
       await hover(tester, seam);
 
       await paste(tester);

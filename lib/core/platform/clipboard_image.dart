@@ -1,9 +1,11 @@
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart'
     show TargetPlatform, compute, defaultTargetPlatform;
 import 'package:flutter/services.dart';
 import 'package:image/image.dart' as img;
+import 'package:path/path.dart' as p;
 
 import '../util/log.dart';
 
@@ -20,6 +22,9 @@ class ClipboardContent {
     this.name,
     this.text,
     this.fromFile = false,
+    this.paths = const [],
+    this.images = const [],
+    this.error,
   });
 
   static const empty = ClipboardContent();
@@ -47,7 +52,21 @@ class ClipboardContent {
   /// 文件时就会带),用户要的也是那张图,不是文件名的文本。
   final bool fromFile;
 
-  bool get hasImage => image != null && image!.isNotEmpty;
+  /// Files copied from Finder or Explorer; read only after a recipient accepts.
+  final List<String> paths;
+
+  /// Native-decoded file images, used when a platform decoder supports more
+  /// file formats than Flutter's image codec (for example Finder HEIC files).
+  final List<ClipboardImageBytes> images;
+
+  /// Native validation failure, retained so an explicit image paste can report it.
+  final String? error;
+
+  bool get hasImage =>
+      (image != null && image!.isNotEmpty) ||
+      paths.isNotEmpty ||
+      images.isNotEmpty ||
+      error != null;
 
   /// 有**能拿来用**的文本:空串和纯空白不算 —— 从某些程序里复制图片时,
   /// 剪贴板里会顺带躺着一个空文本块,那不是「用户想贴文字」。
@@ -75,12 +94,25 @@ class DesktopClipboard {
       final map = await channel.invokeMapMethod<String, Object?>('read');
       if (map == null) return ClipboardContent.empty;
       final image = map['image'];
+      final images = <ClipboardImageBytes>[];
+      for (final entry in (map['images'] as List?) ?? const []) {
+        if (entry is! Map) continue;
+        final bytes = entry['image'];
+        if (bytes is Uint8List && bytes.isNotEmpty) {
+          images.add(
+            ClipboardImageBytes(bytes: bytes, name: entry['name'] as String?),
+          );
+        }
+      }
       return ClipboardContent(
         image: image is Uint8List ? image : null,
         format: map['format'] as String?,
         name: map['name'] as String?,
         text: map['text'] as String?,
         fromFile: map['fromFile'] == true,
+        paths: (map['paths'] as List?)?.cast<String>() ?? const [],
+        images: images,
+        error: map['error'] as String?,
       );
     } catch (e) {
       // 剪贴板是「顺手就有」的东西:原生侧被别的程序占着、没实现,都不该
@@ -116,19 +148,94 @@ class DesktopClipboard {
   /// [preferImage] 为 false 时,**剪贴板里同时有能用的文本就不取图** —— 焦点多半
   /// 在一个输入框里,用户按 Ctrl/⌘+V 想贴的是文字;要图的话有「从剪贴板粘贴」
   /// 这个明确入口。从文件管理器复制的文件例外(见 [ClipboardContent.fromFile])。
-  static Future<ClipboardImageBytes?> readImage({bool preferImage = false}) async {
-    final content = await read();
-    if (!content.hasImage) return null;
-    if (!preferImage && content.hasText && !content.fromFile) return null;
+  static Future<ClipboardImageBytes?> readImage({
+    bool preferImage = false,
+  }) async {
     try {
-      final png = await ensurePng(content.image!, format: content.format);
-      return ClipboardImageBytes(name: content.name, bytes: png);
+      final images = await readImages(preferImage: preferImage);
+      return images.firstOrNull;
     } catch (e) {
       // 剪贴板里躺着的可能是「一张图」之外的东西(某些程序把原始像素块塞进来),
       // 读不出来就当没有,别把异常抛给粘贴动作。
       logd('[clipboard] 剪贴板里的图读不出来: $e');
       return null;
     }
+  }
+
+  /// Read one clipboard snapshot, including all files copied from a file manager.
+  static Future<List<ClipboardImageBytes>> readImages({
+    bool preferImage = false,
+  }) async {
+    final content = await read();
+    if (!content.hasImage ||
+        (!preferImage && content.hasText && !content.fromFile)) {
+      return const [];
+    }
+    if (content.error != null) {
+      throw FormatException(switch (content.error) {
+        'too_many_images' => '一次最多粘贴 64 张图片',
+        'clipboard_busy' => '剪贴板暂时被占用，请重试粘贴',
+        'too_large' => '图片过大：单张最多 64 MB，一次最多 256 MB',
+        _ => '无法读取剪贴板图片，请重新复制',
+      });
+    }
+    if (content.images.isNotEmpty) {
+      if (content.images.length > 64) {
+        throw const FormatException('一次最多粘贴 64 张图片');
+      }
+      var total = 0;
+      for (final image in content.images) {
+        total += image.bytes.length;
+        if (image.bytes.length > 64 * 1024 * 1024 ||
+            total > 256 * 1024 * 1024) {
+          throw const FormatException('图片过大：单张最多 64 MB，一次最多 256 MB');
+        }
+      }
+      return content.images;
+    }
+    if (content.paths.isEmpty) return [await imageFromContent(content)];
+    if (content.paths.length > 64) {
+      throw const FormatException('一次最多粘贴 64 张图片');
+    }
+    final images = <ClipboardImageBytes>[];
+    var total = 0;
+    for (final path in content.paths) {
+      final file = File(path);
+      final size = await file.length();
+      total += size;
+      if (size <= 0 || size > 64 * 1024 * 1024 || total > 256 * 1024 * 1024) {
+        throw const FormatException('图片过大：单张最多 64 MB，一次最多 256 MB');
+      }
+      final png = await ensurePng(await file.readAsBytes());
+      if (png.length > 64 * 1024 * 1024) {
+        throw const FormatException('图片过大：单张最多 64 MB');
+      }
+      images.add(ClipboardImageBytes(name: p.basename(path), bytes: png));
+    }
+    return images;
+  }
+
+  /// Decode bytes from an already-read snapshot without querying the clipboard again.
+  static Future<ClipboardImageBytes> imageFromContent(
+    ClipboardContent content,
+  ) async {
+    if (content.error != null) {
+      throw FormatException(switch (content.error) {
+        'too_many_images' => '一次最多粘贴 64 张图片',
+        'clipboard_busy' => '剪贴板暂时被占用，请重试粘贴',
+        'too_large' => '图片过大：单张最多 64 MB，一次最多 256 MB',
+        _ => '无法读取剪贴板图片，请重新复制',
+      });
+    }
+    final bytes = content.image;
+    if (bytes == null || bytes.isEmpty) {
+      throw const FormatException('剪贴板中没有可读取的图片');
+    }
+    final png = await ensurePng(bytes, format: content.format);
+    if (png.length > 64 * 1024 * 1024) {
+      throw const FormatException('图片过大：单张最多 64 MB');
+    }
+    return ClipboardImageBytes(name: content.name, bytes: png);
   }
 
   /// 把 [bytes] 统一成 PNG:已经是 PNG 的原样返回(库里的作品都是 PNG,这条
@@ -207,10 +314,22 @@ Uint8List _toPng(Uint8List bytes) {
 Uint8List _toDib(Uint8List png) {
   final decoded = img.decodeImage(png, frame: 0);
   if (decoded == null) throw const FormatException('剪贴板里的图片无法解码');
-  // 24 位不透明图:CF_DIB 的通用档,画图 / Word / Photoshop 都吃;32 位带 alpha
-  // 的那档要配 BITFIELDS 才行,而接收方对它的支持远比 24 位参差。
+  // image.encodeBmp writes a V5/BI_BITFIELDS header even for 24-bit pixels.
+  // Publish those pixels with a conventional 40-byte BI_RGB DIB instead.
   final bmp = img.encodeBmp(decoded.convert(numChannels: 3));
-  return Uint8List.sublistView(bmp, 14); // 去掉 "BM" 文件头,剩下的就是 DIB
+  final pixelOffset = ByteData.sublistView(bmp).getUint32(10, Endian.little);
+  final pixels = Uint8List.sublistView(bmp, pixelOffset);
+  final dib = Uint8List(40 + pixels.length);
+  final header = ByteData.sublistView(dib);
+  header
+    ..setUint32(0, 40, Endian.little)
+    ..setInt32(4, decoded.width, Endian.little)
+    ..setInt32(8, decoded.height, Endian.little)
+    ..setUint16(12, 1, Endian.little)
+    ..setUint16(14, 24, Endian.little)
+    ..setUint32(20, pixels.length, Endian.little);
+  dib.setRange(40, dib.length, pixels);
+  return dib;
 }
 
 /// 给裸 DIB 补一个 BMP 文件头,好交给 `image` 包解码。
@@ -223,19 +342,50 @@ Uint8List _toDib(Uint8List png) {
 /// 已经带 "BM" 文件头的原样返回。
 Uint8List wrapDibAsBmp(Uint8List dib) {
   if (_isBmpHeader(dib)) return dib;
-  if (dib.length < 40) throw const FormatException('DIB 头不完整');
+  if (dib.length < 12 || dib.length > 64 * 1024 * 1024) {
+    throw const FormatException('DIB 头不完整或图片过大');
+  }
   final headerSize = _u32(dib, 0);
-  final bitCount = _u16(dib, 14);
-  final compression = _u32(dib, 16);
-  final colorsUsed = _u32(dib, 32);
-  final paletteEntries = bitCount <= 8
-      ? (colorsUsed != 0 ? colorsUsed : 1 << bitCount)
+  if (![12, 40, 52, 56, 108, 124].contains(headerSize) ||
+      headerSize > dib.length) {
+    throw const FormatException('不支持或不完整的 DIB 头');
+  }
+  final core = headerSize == 12;
+  final width = core ? _u16(dib, 4) : _i32(dib, 4);
+  final signedHeight = core ? _u16(dib, 6) : _i32(dib, 8);
+  final height = signedHeight.abs();
+  final planes = _u16(dib, core ? 8 : 12);
+  final bitCount = _u16(dib, core ? 10 : 14);
+  final compression = core ? 0 : _u32(dib, 16);
+  if (width <= 0 ||
+      height <= 0 ||
+      width > 32768 ||
+      height > 32768 ||
+      planes != 1 ||
+      ![1, 4, 8, 16, 24, 32].contains(bitCount) ||
+      ![0, 3, 6].contains(compression) ||
+      (compression != 0 && bitCount != 16 && bitCount != 32)) {
+    throw const FormatException('DIB 尺寸或格式无效');
+  }
+  final colorsUsed = core ? 0 : _u32(dib, 32);
+  final paletteEntries = colorsUsed != 0
+      ? colorsUsed
+      : bitCount <= 8
+      ? 1 << bitCount
       : 0;
-  // 40 字节头 + BI_BITFIELDS:三个掩码紧跟在头后面,但它们不算在 biSize 里。
-  final masks =
-      headerSize == 40 && (compression == 3 || compression == 6) ? 12 : 0;
-  final offset = 14 + headerSize + paletteEntries * 4 + masks;
-  if (offset > 14 + dib.length) throw const FormatException('DIB 像素偏移越界');
+  if (paletteEntries > 256 ||
+      (bitCount <= 8 && paletteEntries > 1 << bitCount)) {
+    throw const FormatException('DIB 调色板无效');
+  }
+  final masks = headerSize == 40 && compression != 0
+      ? (compression == 6 ? 16 : 12)
+      : 0;
+  final pixelOffset = headerSize + paletteEntries * (core ? 3 : 4) + masks;
+  final stride = ((width * bitCount + 31) ~/ 32) * 4;
+  if (pixelOffset + stride * height > dib.length) {
+    throw const FormatException('DIB 像素数据不完整');
+  }
+  final offset = 14 + pixelOffset;
   final out = Uint8List(14 + dib.length);
   final header = ByteData.sublistView(out);
   header
@@ -252,3 +402,6 @@ int _u16(Uint8List bytes, int at) =>
 
 int _u32(Uint8List bytes, int at) =>
     ByteData.sublistView(bytes).getUint32(at, Endian.little);
+
+int _i32(Uint8List bytes, int at) =>
+    ByteData.sublistView(bytes).getInt32(at, Endian.little);

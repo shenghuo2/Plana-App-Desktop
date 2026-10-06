@@ -11,6 +11,19 @@
 namespace {
 constexpr size_t kMaxImageBytes = 64 * 1024 * 1024;
 
+bool OpenClipboardWithRetry(HWND owner) {
+  for (int attempt = 0; attempt < 10; ++attempt) {
+    if (OpenClipboard(owner)) return true;
+    Sleep(5);
+  }
+  return false;
+}
+
+bool HasUsableText(const std::wstring& text) {
+  return std::any_of(text.begin(), text.end(),
+      [](wchar_t c) { return std::iswspace(c) == 0; });
+}
+
 template <typename T>
 T Read(const std::vector<uint8_t>& bytes, size_t offset) {
   if (offset > bytes.size() || sizeof(T) > bytes.size() - offset) {
@@ -128,46 +141,55 @@ ClipboardImage ReadClipboardImage(HWND owner) {
   const bool encoded = IsClipboardFormatAvailable(png) || IsClipboardFormatAvailable(mime_png);
   const bool bitmap = IsClipboardFormatAvailable(CF_DIBV5) || IsClipboardFormatAvailable(CF_DIB);
   const bool files = IsClipboardFormatAvailable(CF_HDROP);
-  if (!encoded && !bitmap && !files) return image;
-  if (!OpenClipboard(owner)) {
-    // Do not consume a normal text paste just because an unrelated file list
-    // is temporarily locked by its owner.
-    image.recognized = encoded || bitmap;
-    image.error = "clipboard_busy";
-    return image;
-  }
+  if (!OpenClipboardWithRetry(owner)) return image;
   try {
-    if (encoded) {
-      image.recognized = true;
-      image.bytes = CopyGlobal(GetClipboardData(IsClipboardFormatAvailable(png) ? png : mime_png));
-    } else if (bitmap) {
-      image.recognized = true;
-      const UINT format = IsClipboardFormatAvailable(CF_DIBV5) ? CF_DIBV5 : CF_DIB;
-      image.bytes = ClipboardBitmapFile(CopyGlobal(GetClipboardData(format)));
-      image.bitmap = true;
-    } else {
+    if (HANDLE text = GetClipboardData(CF_UNICODETEXT)) {
+      if (const auto* data = static_cast<const wchar_t*>(GlobalLock(text))) {
+        const std::wstring value(data);
+        image.has_text = HasUsableText(value);
+        image.text = Utf8(value);
+        GlobalUnlock(text);
+      }
+    }
+    // A copied image file owns the paste even if Explorer also advertises a
+    // bitmap or its file name as text. Keep all paths for multi-image targets.
+    if (files) {
       const auto drop = static_cast<HDROP>(GetClipboardData(CF_HDROP));
       if (drop) {
         const UINT count = DragQueryFileW(drop, 0xFFFFFFFF, nullptr, 0);
-          for (UINT i = 0; i < count && i < 65; ++i) {
+        if (count != 0) {
+          bool all_images = true;
+          for (UINT i = 0; i < count; ++i) {
             const UINT length = DragQueryFileW(drop, i, nullptr, 0);
             if (!length || length > 32767) throw std::runtime_error("Invalid clipboard file path.");
             std::vector<wchar_t> buffer(length + 1);
             DragQueryFileW(drop, i, buffer.data(), length + 1);
             const std::wstring path(buffer.data(), length);
-            if (!ImagePath(path)) { image.paths.clear(); break; }
-            image.paths.push_back(Utf8(path));
+            if (!ImagePath(path)) { all_images = false; break; }
+            if (count <= 64) image.paths.push_back(Utf8(path));
           }
-          image.recognized = !image.paths.empty();
-          if (image.recognized && count > 64) {
+          if (all_images) {
+            image.recognized = image.from_file = true;
+            if (count > 64) image.error = "too_many_images";
+          } else {
             image.paths.clear();
-            image.error = "too_many_images";
           }
+        }
       }
+    }
+    if (!image.recognized && encoded) {
+      image.recognized = true;
+      image.bytes = CopyGlobal(GetClipboardData(IsClipboardFormatAvailable(png) ? png : mime_png));
+    } else if (!image.recognized && bitmap) {
+      image.recognized = true;
+      const UINT format = IsClipboardFormatAvailable(CF_DIBV5) ? CF_DIBV5 : CF_DIB;
+      image.bytes = ClipboardBitmapFile(CopyGlobal(GetClipboardData(format)));
+      image.bitmap = true;
     }
   } catch (...) {
     image.bytes.clear();
     image.paths.clear();
+    image.recognized = true;
     image.error = "invalid_image";
   }
   CloseClipboard();
@@ -202,6 +224,9 @@ bool ImageClipboard::HandleKey(UINT message, WPARAM key, LPARAM flags,
   }
   if (message != WM_KEYDOWN) return false;
   if (suppressed) return true;
+  // A previous paste may have produced no WM_CHAR. Do not consume the next
+  // text paste's character because of that stale suppression flag.
+  if (key == 'V') suppress_char_ = false;
   const bool paste = !alt && ((key == 'V' && control && !shift) ||
                              (key == VK_INSERT && shift && !control));
   if (!paste || (flags & (static_cast<LPARAM>(1) << 30))) return false;
@@ -209,7 +234,7 @@ bool ImageClipboard::HandleKey(UINT message, WPARAM key, LPARAM flags,
   GetCursorPos(&position);
   ScreenToClient(window_, &position);
   ClipboardImage image = reader_(window_);
-  if (!image.recognized) return false;  // Text keeps Flutter's normal paste path.
+  if (!image.recognized || (image.has_text && !image.from_file)) return false;
   image.position = position;
   suppressed = true;
   suppress_char_ = key == 'V';

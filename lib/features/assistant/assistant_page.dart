@@ -224,13 +224,28 @@ class _AssistantPageState extends ConsumerState<AssistantPage> {
   /// 抢**(焦点在输入框里,用户多半想粘文字);这颗按钮是明确的「我要图」,
   /// 所以 [DesktopClipboard.readImage] 传 preferImage —— 有没有文本都要图。
   Future<void> _pasteImage() async {
-    final image = await DesktopClipboard.readImage(preferImage: true);
+    List<ClipboardImageBytes> images;
+    try {
+      images = await DesktopClipboard.readImages(preferImage: true);
+    } catch (error) {
+      if (mounted) {
+        hintSnack(
+          context,
+          error is FormatException ? error.message : '无法读取剪贴板图片',
+          icon: Icons.error_outline,
+        );
+      }
+      return;
+    }
     if (!mounted) return;
-    if (image == null) {
+    if (images.isEmpty) {
       hintSnack(context, '剪贴板里没有图片', icon: Icons.error_outline);
       return;
     }
-    _addImages([PickedImage(image.name ?? kClipboardImageName, image.bytes)]);
+    _addImages([
+      for (final image in images)
+        PickedImage(image.name ?? kClipboardImageName, image.bytes),
+    ]);
   }
 
   /// 快捷键提示按平台写:macOS 是 ⌘V,Windows / Linux 是 Ctrl+V。
