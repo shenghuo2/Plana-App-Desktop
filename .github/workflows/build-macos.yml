@@ -91,6 +91,9 @@ jobs:
       - name: Test
         run: flutter test --no-pub --concurrency=2
 
+      - name: Test edition build planning
+        run: python3 tool/test_desktop_build_plan.py
+
   # Windows 那半截(剪贴板读写、原生拦 Ctrl+V)在本机没有任何编译机会:
   # Swift 只build macOS,C++ 要 MSVC。这里把 Windows 构建和原生单测都跑起来 ——
   # 少了这一趟,那半边代码就只能等用户实机报错。
