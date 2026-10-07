@@ -69,6 +69,48 @@ class AppearancePage extends ConsumerWidget {
             ],
           ),
           const SizedBox(height: 16),
+          if (desktop) ...[
+            const SettingsLabel('页面对齐方式'),
+            SettingsCard(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Text(
+                        '调整「我的」页面的水平位置',
+                        style: context.texts.bodySmall!.copyWith(
+                          color: context.scheme.onSurfaceVariant,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      SegmentedButton<PageAlignment>(
+                        segments: const [
+                          ButtonSegment(
+                            value: PageAlignment.center,
+                            label: Text('居中'),
+                            icon: Icon(Icons.align_horizontal_center),
+                          ),
+                          ButtonSegment(
+                            value: PageAlignment.left,
+                            label: Text('居左'),
+                            icon: Icon(Icons.align_horizontal_left),
+                          ),
+                        ],
+                        selected: {ts.pageAlignment},
+                        onSelectionChanged: (s) => notifier.patch(
+                          (x) => x.copyWith(pageAlignment: s.first),
+                        ),
+                        showSelectedIcon: false,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+          ],
           SettingsLabel(desktop ? '导航栏' : '底部导航'),
           SettingsCard(
             children: [

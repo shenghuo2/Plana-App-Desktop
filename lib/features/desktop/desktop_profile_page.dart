@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/theme/app_theme.dart';
+import '../../core/theme/theme_settings.dart';
 import '../generate/preset_manage_page.dart';
 import '../migrate/web_backup_page.dart';
 import '../profile/about_page.dart';
@@ -64,6 +65,21 @@ class _DesktopProfilePageState extends ConsumerState<DesktopProfilePage>
   Widget build(BuildContext context) {
     super.build(context);
     final active = ref.watch(shellIndexProvider) == kTabProfile;
+    final alignment = ref.watch(
+      themeSettingsProvider.select((settings) => settings.pageAlignment),
+    );
+    return Align(
+      alignment: alignment == PageAlignment.center
+          ? Alignment.topCenter
+          : Alignment.topLeft,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 1280),
+        child: _buildPage(context, active: active),
+      ),
+    );
+  }
+
+  Widget _buildPage(BuildContext context, {required bool active}) {
     return LayoutBuilder(
       builder: (context, constraints) {
         final sidebar = constraints.maxWidth >= 700;

@@ -34,13 +34,17 @@ const themeSeeds = <ThemeSeed>[
 /// 默认主题色(未选过时的档位)。
 const kDefaultSeedKey = 'sky';
 
-/// 外观与触感设置(持久化):深浅模式 + 主题色 + 振动总开关。
+/// 桌面「我的」页面的水平对齐方式。
+enum PageAlignment { center, left }
+
+/// 外观与体验设置(持久化):主题、导航、触感与桌面页面对齐。
 class ThemeSettings {
   const ThemeSettings({
     this.mode = ThemeMode.light,
     this.seedKey = kDefaultSeedKey,
     this.haptics = true,
     this.showAssistant = true,
+    this.pageAlignment = PageAlignment.center,
   });
 
   final ThemeMode mode;
@@ -56,6 +60,8 @@ class ThemeSettings {
   /// (底栏首帧就得知道画几格),而这份是全 app 唯一一个同步加载的偏好。
   final bool showAssistant;
 
+  final PageAlignment pageAlignment;
+
   ThemeSeed get seed => themeSeeds.firstWhere(
     (s) => s.key == seedKey,
     orElse: () => themeSeeds.firstWhere((s) => s.key == kDefaultSeedKey),
@@ -66,11 +72,13 @@ class ThemeSettings {
     String? seedKey,
     bool? haptics,
     bool? showAssistant,
+    PageAlignment? pageAlignment,
   }) => ThemeSettings(
     mode: mode ?? this.mode,
     seedKey: seedKey ?? this.seedKey,
     haptics: haptics ?? this.haptics,
     showAssistant: showAssistant ?? this.showAssistant,
+    pageAlignment: pageAlignment ?? this.pageAlignment,
   );
 
   /// 脏数据(旧版本/已下架的档位,如早先那档深蓝)回退默认。
@@ -81,6 +89,9 @@ class ThemeSettings {
         : kDefaultSeedKey,
     haptics: j['haptics'] != false,
     showAssistant: j['showAssistant'] != false,
+    pageAlignment:
+        PageAlignment.values.asNameMap()[j['pageAlignment']] ??
+        PageAlignment.center,
   );
 
   Map<String, dynamic> toJson() => {
@@ -88,6 +99,7 @@ class ThemeSettings {
     'seed': seedKey,
     'haptics': haptics,
     'showAssistant': showAssistant,
+    'pageAlignment': pageAlignment.name,
   };
 
   @override
@@ -96,10 +108,12 @@ class ThemeSettings {
       other.mode == mode &&
       other.seedKey == seedKey &&
       other.haptics == haptics &&
-      other.showAssistant == showAssistant;
+      other.showAssistant == showAssistant &&
+      other.pageAlignment == pageAlignment;
 
   @override
-  int get hashCode => Object.hash(mode, seedKey, haptics);
+  int get hashCode =>
+      Object.hash(mode, seedKey, haptics, showAssistant, pageAlignment);
 }
 
 const _key = 'theme_settings';
