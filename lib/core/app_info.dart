@@ -40,7 +40,14 @@ const kCensorModelUrl = 'https://huggingface.co/deepghs/anime_censor_detection';
 /// 两种都不如「复制群号,自己去搜」来得稳。
 const kQqGroupId = '1078261982';
 
-/// GitHub 仓库(`owner/repo`),「检查更新」据此查 Releases,关于页据此显示源码入口。
+/// 原版 Plana App 的源码出处。
+const kOriginalSourceUrl = 'https://github.com/mc5024/Plana-App';
+
+/// Windows 重构版的源码出处,链接到本桌面分支所基于的上游分支。
+const kWindowsSourceUrl =
+    'https://github.com/LingXia979/Plana-App-for-windows/tree/Plana-app-for-windows';
+
+/// 当前桌面版仓库(`owner/repo`),用于检查更新及关于页的源码入口。
 ///
 /// **开源发布后把仓库名填在这里 —— 只此一处。** 留空时检查更新显示「暂无更新信息」、
 /// 关于页不显示源码行,都不报错。填了之后应用只做两件事:比版本、把用户送去

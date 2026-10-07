@@ -93,6 +93,32 @@ class AboutPage extends StatelessWidget {
           const SettingsLabel('版本'),
           const SettingsCard(children: [UpdateRow()]),
           const SizedBox(height: 16),
+          const SettingsLabel('项目来源'),
+          SettingsCard(
+            children: [
+              SettingsRow(
+                icon: Icons.code,
+                title: '源版本',
+                value: 'mc5024/Plana-App',
+                onTap: () => _open(context, kOriginalSourceUrl),
+              ),
+              SettingsRow(
+                icon: Icons.desktop_windows_outlined,
+                title: 'Windows 重构版',
+                value: 'LingXia979/Plana-App-for-windows',
+                onTap: () => _open(context, kWindowsSourceUrl),
+              ),
+              if (kGithubRepo.isNotEmpty)
+                SettingsRow(
+                  icon: Icons.computer_outlined,
+                  title: '当前桌面版',
+                  value: kGithubRepo,
+                  onTap: () =>
+                      _open(context, 'https://github.com/$kGithubRepo'),
+                ),
+            ],
+          ),
+          const SizedBox(height: 16),
           const SettingsLabel('数据与资源'),
           SettingsCard(
             children: [
@@ -159,16 +185,6 @@ class AboutPage extends StatelessWidget {
           const SettingsLabel('法律'),
           SettingsCard(
             children: [
-              // 填了 kGithubRepo 才出现 —— 同一个常量也驱动「检查更新」,
-              // 一处配置点亮两个功能,不会出现"有源码入口但查不了更新"的错位
-              if (kGithubRepo.isNotEmpty)
-                SettingsRow(
-                  icon: Icons.code,
-                  title: '源码',
-                  value: kGithubRepo,
-                  onTap: () =>
-                      _open(context, 'https://github.com/$kGithubRepo'),
-                ),
               SettingsRow(
                 icon: Icons.balance_outlined,
                 title: '开源协议',
