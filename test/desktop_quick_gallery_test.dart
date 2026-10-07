@@ -173,7 +173,10 @@ void main() {
         stores.albums.idle,
       ]).then((_) => done = true),
     );
-    for (var i = 0; i < 100 && !done; i++) {
+    // Real disk writes may take longer when the full suite runs concurrently.
+    // Keep pumping FakeAsync microtasks until the queue finishes, with a bound.
+    final wait = Stopwatch()..start();
+    while (!done && wait.elapsed < const Duration(seconds: 10)) {
       await tester.runAsync(
         () => Future<void>.delayed(const Duration(milliseconds: 10)),
       );
