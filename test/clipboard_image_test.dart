@@ -41,6 +41,70 @@ void main() {
     messenger.setMockMethodCallHandler(DesktopClipboard.channel, null);
   });
 
+  for (final stripText in [false, true]) {
+    test(
+      'macOS smoke verifies Finder PNG bytes (stripText=$stripText)',
+      () async {
+        Uint8List? written;
+        List<String> copied = [];
+        final fixturePaths = <String>[];
+        messenger.setMockMethodCallHandler(DesktopClipboard.channel, (
+          call,
+        ) async {
+          if (call.method == 'write') {
+            written = (call.arguments as Map)['image'] as Uint8List;
+            copied = [];
+            return true;
+          }
+          if (call.method == 'smokeCopyFiles') {
+            copied = (call.arguments as List).cast<String>();
+            fixturePaths.addAll(copied);
+            return true;
+          }
+          if (call.method == 'read' && copied.isEmpty) {
+            return {'image': written, 'format': 'png'};
+          }
+          final images = <Map<String, Object?>>[];
+          for (final path in copied) {
+            final bytes = await File(path).readAsBytes();
+            img.Image? image;
+            try {
+              image = img.decodeImage(bytes);
+            } catch (_) {
+              return {'fromFile': true, 'error': 'invalid_image'};
+            }
+          if (image == null) {
+            return {'fromFile': true, 'error': 'invalid_image'};
+          }
+            images.add({
+              'name': File(path).uri.pathSegments.last,
+              'image': path.endsWith('.png') && !stripText
+                  ? bytes
+                  : Uint8List.fromList(img.encodePng(image..textData = null)),
+            });
+          }
+          return {'fromFile': true, 'images': images};
+        });
+        if (stripText) {
+          await expectLater(
+            runMacOsClipboardSmokeTest(),
+            throwsA(isA<StateError>()),
+          );
+        } else {
+          await runMacOsClipboardSmokeTest();
+        }
+        expect(fixturePaths, isNotEmpty);
+        for (final path in fixturePaths) {
+          expect(
+            await File(path).exists(),
+            isFalse,
+            reason: 'Smoke fixtures must be cleaned',
+          );
+        }
+      },
+    );
+  }
+
   group('读剪贴板', () {
     test('只有图时取图,文件名跟着一起回来', () async {
       response = {'image': png, 'format': 'png', 'name': 'shot.png'};

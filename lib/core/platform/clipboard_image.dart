@@ -2,12 +2,13 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart'
-    show TargetPlatform, compute, defaultTargetPlatform;
+    show TargetPlatform, compute, defaultTargetPlatform, listEquals;
 import 'package:flutter/services.dart';
 import 'package:image/image.dart' as img;
 import 'package:path/path.dart' as p;
 
 import '../util/log.dart';
+import '../util/png_meta.dart' show writeImageMetadataPng;
 
 /// 剪贴板这一趟拿回来的东西:一张图、一段文本,以及这张图是不是从文件管理器
 /// 里「复制文件」来的。
@@ -292,6 +293,63 @@ Future<void> runMacOsClipboardSmokeTest() async {
   final decoded = img.decodeImage(content.image!);
   if (decoded == null || decoded.width != 2 || decoded.height != 2) {
     throw StateError('读回来的图不是写进去那张: ${decoded?.width}x${decoded?.height}');
+  }
+  final folder = await Directory.systemTemp.createTemp(
+    'plana_clipboard_smoke_',
+  );
+  try {
+    final textPng = Uint8List.fromList(
+      img.encodePng(
+        img.Image(width: 2, height: 2)
+          ..textData = {
+            'parameters': 'clipboard metadata\nSteps: 28, Seed: 123, Size: 2x2',
+          },
+      ),
+    );
+    final utf8Png = await writeImageMetadataPng(
+      png,
+      comment: {'prompt': '剪贴板元数据', 'seed': 123},
+    );
+    final files = [
+      await File('${folder.path}/text.png').writeAsBytes(textPng),
+      await File('${folder.path}/utf8.png').writeAsBytes(utf8Png),
+      await File(
+        '${folder.path}/image.jpg',
+      ).writeAsBytes(img.encodeJpg(decoded)),
+    ];
+    Future<void> copyFiles(List<File> sources) async {
+      final copied = await DesktopClipboard.channel.invokeMethod<bool>(
+        'smokeCopyFiles',
+        [for (final file in sources) file.path],
+      );
+      if (copied != true) throw StateError('无法创建 Finder 文件剪贴板样本');
+    }
+
+    await copyFiles(files);
+    final images = await DesktopClipboard.readImages(preferImage: true);
+    if (images.length != 3 ||
+        images[0].name != 'text.png' ||
+        images[1].name != 'utf8.png' ||
+        !listEquals(images[0].bytes, textPng) ||
+        !listEquals(images[1].bytes, utf8Png)) {
+      throw StateError('Finder PNG 粘贴改变了原始字节或丢失生成元数据');
+    }
+    final converted = img.decodePng(images[2].bytes);
+    if (converted == null || converted.width != 2 || converted.height != 2) {
+      throw StateError('Finder JPG 粘贴没有正确转换为 PNG');
+    }
+    final invalid = await File(
+      '${folder.path}/invalid.png',
+    ).writeAsBytes([137, 80, 78, 71]);
+    await copyFiles([files.first, invalid]);
+    try {
+      await DesktopClipboard.readImages(preferImage: true);
+      throw StateError('Finder 粘贴接受了损坏 PNG');
+    } on FormatException {
+      // A bad file rejects the entire batch, without partial attachments.
+    }
+  } finally {
+    await folder.delete(recursive: true);
   }
 }
 

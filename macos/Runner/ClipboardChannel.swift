@@ -15,6 +15,15 @@ enum ClipboardChannel {
       switch call.method {
       case "read": read(result)
       case "write": write(call.arguments, result)
+      case "smokeCopyFiles":
+        guard ProcessInfo.processInfo.environment["PLANA_MACOS_CLIPBOARD_SMOKE_TEST"] == "1",
+              let paths = call.arguments as? [String], !paths.isEmpty, paths.count <= 64 else {
+          result(FlutterMethodNotImplemented)
+          return
+        }
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        result(pasteboard.writeObjects(paths.map { NSURL(fileURLWithPath: $0) }))
       default: result(FlutterMethodNotImplemented)
       }
     }
@@ -168,7 +177,14 @@ enum ClipboardChannel {
   }
 
   private static func png(from data: Data) -> Data? {
-    encode(data, as: .png)
+    // Finder supplies file URLs. Keep validated PNG bytes so generation text
+    // chunks survive; only other formats need conversion through CGImage.
+    if let source = source(for: data),
+       (CGImageSourceGetType(source) as String?) == UTType.png.identifier,
+       CGImageSourceCreateImageAtIndex(source, 0, nil) != nil {
+      return data
+    }
+    return encode(data, as: .png)
   }
 
   private static func write(_ arguments: Any?, _ result: @escaping FlutterResult) {
