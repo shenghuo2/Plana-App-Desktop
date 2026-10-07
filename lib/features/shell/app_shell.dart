@@ -27,8 +27,12 @@ import '../generate/widgets/common.dart' show hintSnack;
 import '../inspiration/inspiration_page.dart';
 import '../inpaint/inpaint_overlay.dart' show inpaintSessionProvider;
 import '../profile/profile_page.dart';
+import '../update/desktop_update.dart';
+import '../update/macos_update_controller.dart';
 import '../update/update_service.dart';
 import '../update/update_sheet.dart' show showUpdateSheet;
+import 'desktop_task_status.dart';
+import 'desktop_version_button.dart';
 import 'shell_state.dart';
 
 /// 全局骨架:5 tab 底部导航(AI 那格可藏)+ PageView 切页。
@@ -45,7 +49,8 @@ class AppShell extends ConsumerStatefulWidget {
   ConsumerState<AppShell> createState() => _AppShellState();
 }
 
-class _AppShellState extends ConsumerState<AppShell> {
+class _AppShellState extends ConsumerState<AppShell>
+    with WidgetsBindingObserver {
   late final PageController _pc = PageController(
     initialPage: ref.read(shellIndexProvider),
   );
@@ -67,10 +72,12 @@ class _AppShellState extends ConsumerState<AppShell> {
   ];
 
   Timer? _updateTimer;
+  DateTime? _lastDesktopUpdateAttempt;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     // 预热鉴权/后端配置(懒加载 AsyncNotifier 的 storage 首读在此触发,
     // 否则冷启动后立刻点「生成」会在 loading 态被误判成未授权/没 token)。
     ref.read(tokenProvider);
@@ -78,22 +85,66 @@ class _AppShellState extends ConsumerState<AppShell> {
     ref.read(backendBaseProvider);
     // 账号密码登录的 JWT 临期静默换新(非该来源的令牌自动跳过)。
     ref.read(naiTokenAutoRefreshProvider);
+    if (ref.read(desktopModeProvider)) {
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
+        if (mounted) {
+          await ref.read(macOSUpdateProvider.notifier).acknowledgeStartup();
+        }
+      });
+    }
     _scheduleAutoCheck();
   }
 
   /// 冷启动静默查一次更新(24h 节流)。
   ///
-  /// 延后 3 秒:启动那几帧要留给首页和鉴权预热,更新弹层不是急事。计时器**必须
+  /// 桌面在首帧后检查,结果只显示为顶栏标记。移动端延后 3 秒:启动那几帧要留给
+  /// 首页和鉴权预热,更新弹层不是急事。计时器**必须
   /// 存下来并在 dispose 取消** —— 裸 `Future.delayed` 在页面提前销毁后照样会醒,
   /// 属于真实泄漏(widget 冒烟测试会直接报 pending timer)。
   void _scheduleAutoCheck() {
-    if (ref.read(desktopModeProvider)) return;
+    if (ref.read(desktopModeProvider)) {
+      final updates = ref.read(desktopUpdateProvider.notifier);
+      if (updates.shouldAutoCheck) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          unawaited(_checkDesktopUpdate());
+        });
+      }
+      return;
+    }
     final prefs = ref.read(prefsStoreProvider);
     if (!shouldAutoCheck(prefs)) return;
     _updateTimer = Timer(
       const Duration(seconds: 3),
       () => _autoCheckUpdate(prefs),
     );
+  }
+
+  Future<void> _checkDesktopUpdate() async {
+    if (!mounted) return;
+    final updates = ref.read(desktopUpdateProvider.notifier);
+    if (!updates.shouldAutoCheck || ref.read(desktopUpdateProvider).checking) {
+      return;
+    }
+    final now = DateTime.now();
+    final lastAttempt = _lastDesktopUpdateAttempt;
+    if (lastAttempt != null &&
+        now.difference(lastAttempt) < const Duration(minutes: 5)) {
+      return;
+    }
+    _lastDesktopUpdateAttempt = now;
+    try {
+      // 只更新顶栏标记;网络错误在用户主动打开版本面板时展示。
+      await updates.check();
+    } catch (_) {}
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed &&
+        mounted &&
+        ref.read(desktopModeProvider)) {
+      unawaited(_checkDesktopUpdate());
+    }
   }
 
   /// **只在真有新版时弹**,查不到/网络不通一律无声吞掉 —— 用户没主动要求检查,
@@ -117,6 +168,7 @@ class _AppShellState extends ConsumerState<AppShell> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _updateTimer?.cancel();
     _pc.dispose();
     super.dispose();
@@ -305,14 +357,13 @@ class _AppShellState extends ConsumerState<AppShell> {
                             label: Text(labels[tab]),
                           ),
                         ),
-                      const Spacer(),
-                      Text(
-                        'Windows',
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: context.scheme.outline,
+                      const Expanded(
+                        child: Align(
+                          alignment: Alignment.centerRight,
+                          child: DesktopTaskStatusButton(),
                         ),
                       ),
+                      const DesktopVersionButton(),
                     ],
                   ),
                 ),

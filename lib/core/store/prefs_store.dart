@@ -26,6 +26,7 @@ class PrefsStore {
   final Map<String, String> _map;
 
   Future<void> _chain = Future.value();
+  Future<void> get idle => _chain;
 
   /// 需要从 secure storage 迁出的键。
   ///

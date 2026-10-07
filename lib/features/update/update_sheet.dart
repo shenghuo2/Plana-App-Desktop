@@ -1,11 +1,15 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/app_info.dart';
+import '../../core/platform/desktop.dart';
 import '../../core/theme/app_theme.dart';
 import '../generate/widgets/common.dart' show hintSnack;
 import '../profile/widgets/settings_ui.dart';
+import 'desktop_update.dart';
+import 'macos_update_controls.dart';
 import 'update_service.dart';
 
 /// 「检查更新」行。放在关于页,按设置行规范:单行 + 右侧状态,不写副标题。
@@ -22,6 +26,22 @@ class _UpdateRowState extends ConsumerState<UpdateRow> {
   bool _failed = false;
 
   Future<void> _check() async {
+    if (ref.read(desktopModeProvider)) {
+      final updates = ref.read(desktopUpdateProvider.notifier);
+      if (ref.read(desktopUpdateProvider).checking) return;
+      try {
+        final check = await updates.check();
+        if (!mounted) return;
+        if (check.hasUpdate) {
+          await showUpdateSheet(context, check, desktop: true);
+        } else {
+          hintSnack(context, '暂未发现新版本', icon: Icons.check_circle_outline);
+        }
+      } catch (e) {
+        if (mounted) hintSnack(context, '$e', icon: Icons.error_outline);
+      }
+      return;
+    }
     if (_checking) return;
     setState(() {
       _checking = true;
@@ -55,10 +75,14 @@ class _UpdateRowState extends ConsumerState<UpdateRow> {
   @override
   Widget build(BuildContext context) {
     final scheme = context.scheme;
-    final r = _result;
+    final desktop = ref.watch(desktopModeProvider);
+    final status = desktop ? ref.watch(desktopUpdateProvider) : null;
+    final r = status?.checkedAt != null ? status!.check : _result;
+    final checking = status?.checking ?? _checking;
+    final failed = desktop ? status?.error != null : _failed;
     final (String value, Color? color) = switch (null) {
-      _ when _checking => ('检查中…', null),
-      _ when _failed => ('检查失败', scheme.error),
+      _ when checking => ('检查中…', null),
+      _ when failed => ('检查失败', scheme.error),
       _ when r != null && r.hasUpdate => (
         '新版本 ${r.release!.display}',
         scheme.tertiary,
@@ -76,8 +100,27 @@ class _UpdateRowState extends ConsumerState<UpdateRow> {
   }
 }
 
-/// 新版本提示。只提示 + 跳转,**不下载不安装** —— 那两步交给浏览器和系统。
-Future<void> showUpdateSheet(BuildContext context, UpdateCheck check) {
+/// 新版本说明。桌面用对话框,macOS 同时提供应用内下载与安装。
+Future<void> showUpdateSheet(
+  BuildContext context,
+  UpdateCheck check, {
+  bool desktop = false,
+}) {
+  if (desktop) {
+    return showDialog<void>(
+      context: context,
+      builder: (_) => Dialog(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 520, maxHeight: 560),
+          child: _UpdateSheet(
+            release: check.release!,
+            installed: check.installed,
+            desktop: true,
+          ),
+        ),
+      ),
+    );
+  }
   return showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
@@ -87,10 +130,15 @@ Future<void> showUpdateSheet(BuildContext context, UpdateCheck check) {
 }
 
 class _UpdateSheet extends StatelessWidget {
-  const _UpdateSheet({required this.release, required this.installed});
+  const _UpdateSheet({
+    required this.release,
+    required this.installed,
+    this.desktop = false,
+  });
 
   final GithubRelease release;
   final InstalledInfo installed;
+  final bool desktop;
 
   Future<void> _open(BuildContext context) async {
     final ok = await launchUrl(
@@ -167,6 +215,10 @@ class _UpdateSheet extends StatelessWidget {
                 ),
               ],
               const SizedBox(height: 18),
+              if (desktop && defaultTargetPlatform == TargetPlatform.macOS) ...[
+                MacOSUpdateControls(release: release),
+                const SizedBox(height: 12),
+              ],
               Row(
                 children: [
                   Expanded(

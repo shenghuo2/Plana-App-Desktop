@@ -206,7 +206,10 @@ jobs:
           -srcfolder "build/macos/Build/Products/Release/Plana App.app"
           -ov
           -format UDZO
-          "Plana-macOS.dmg"
+          "Plana-macOS-arm64.dmg"
+
+      - name: Create update checksum
+        run: shasum -a 256 Plana-macOS-arm64.dmg > Plana-macOS-arm64.dmg.sha256
 
       - name: Validate packaged macOS image
         shell: bash
@@ -221,7 +224,7 @@ jobs:
           }
           trap cleanup EXIT
 
-          hdiutil attach -readonly -nobrowse -mountpoint "$mount_point" "Plana-macOS.dmg"
+          hdiutil attach -readonly -nobrowse -mountpoint "$mount_point" "Plana-macOS-arm64.dmg"
           app_path="$mount_point/Plana App.app"
           plist_path="$app_path/Contents/Info.plist"
           executable_name="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$plist_path")"
@@ -259,5 +262,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: Plana-macOS-ad-hoc
-          path: Plana-macOS.dmg
+          path: |
+            Plana-macOS-arm64.dmg
+            Plana-macOS-arm64.dmg.sha256
           if-no-files-found: error

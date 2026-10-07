@@ -1,13 +1,16 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:plana_app/core/platform/desktop.dart';
+import 'package:plana_app/core/app_info.dart';
 import 'package:plana_app/core/store/app_stores.dart';
 import 'package:plana_app/features/desktop/desktop_library_state.dart';
 import 'package:plana_app/features/editor/widgets/chip_flow_view.dart';
@@ -17,6 +20,12 @@ import 'package:plana_app/features/assistant/custom_endpoint.dart';
 import 'package:plana_app/features/gallery/albums/album_state.dart';
 import 'package:plana_app/features/gallery/gallery_state.dart';
 import 'package:plana_app/features/generate/generate_state.dart';
+import 'package:plana_app/features/generate/gen_jobs.dart';
+import 'package:plana_app/features/generate/gen_queue.dart';
+import 'package:plana_app/features/generate/generation_controller.dart';
+import 'package:plana_app/features/generate/models.dart' show GenerateState;
+import 'package:plana_app/features/update/desktop_update.dart';
+import 'package:plana_app/features/update/update_service.dart';
 import 'package:plana_app/features/shell/shell_state.dart';
 import 'package:plana_app/features/inpaint/inpaint_overlay.dart';
 import 'package:plana_app/main.dart';
@@ -36,6 +45,33 @@ class _ChatRecorder extends AssistantNotifier {
     sent.add(text);
     onAccepted?.call();
   }
+}
+
+class _HeaderGeneration extends GenerationNotifier {
+  void busy() => state = GenPool(
+    jobs: [
+      for (var i = 0; i < 2; i++)
+        GenJob(
+          id: '$i',
+          kind: GenJobKind.normal,
+          stage: GenJobStage.running,
+          width: 832,
+          height: 1216,
+          seq: i,
+          step: 8,
+          total: 28,
+        ),
+    ],
+  );
+}
+
+class _HeaderQueue extends GenQueueNotifier {
+  void fill() => state = GenQueueState(
+    items: [
+      for (var i = 0; i < 20; i++)
+        QueuedTask(id: i, snapshot: GenerateState.initial()),
+    ],
+  );
 }
 
 void main() {
@@ -154,6 +190,65 @@ void main() {
     c.dispose();
     disposed = true;
   }
+
+  testWidgets(
+    '窄窗同时显示任务和更新标记不溢出,状态入口不切页',
+    (tester) async {
+      c.dispose();
+      c = ProviderContainer(
+        overrides: [
+          appStoresProvider.overrideWithValue(stores),
+          desktopModeProvider.overrideWithValue(true),
+          generationProvider.overrideWith(_HeaderGeneration.new),
+          genQueueProvider.overrideWith(_HeaderQueue.new),
+        ],
+      );
+      await tester.runAsync(
+        () => stores.prefs.write(
+          key: 'desktop_update_${defaultTargetPlatform.name}',
+          value: jsonEncode({
+            'version': kAppVersion,
+            'architecture': macOSArchitecture,
+            'checkedAt': DateTime.now().millisecondsSinceEpoch,
+            'release': const GithubRelease(
+              tag: 'v1.1.1-desktop.46',
+              name: '',
+              notes: '',
+              url:
+                  'https://github.com/$kGithubRepo/releases/tag/v1.1.1-desktop.46',
+              prerelease: false,
+              assets: [
+                GithubAsset(name: 'Plana-macOS.dmg'),
+                GithubAsset(name: 'Plana-Windows-x64.zip'),
+              ],
+            ).toJson(),
+          }),
+        ),
+      );
+      await mount(tester, const Size(1000, 760));
+      (c.read(generationProvider.notifier) as _HeaderGeneration).busy();
+      (c.read(genQueueProvider.notifier) as _HeaderQueue).fill();
+      for (final width in [1000.0, 900.0]) {
+        tester.view.physicalSize = Size(width, 760);
+        await tester.pump(const Duration(milliseconds: 180));
+        expect(key('desktop-task-button'), findsOneWidget);
+        expect(key('desktop-update-marker'), findsOneWidget);
+        expect(tester.takeException(), isNull);
+      }
+      await tester.tap(key('desktop-task-button'));
+      await tester.pump(const Duration(milliseconds: 160));
+      expect(find.text('任务状态'), findsOneWidget);
+      expect(c.read(shellIndexProvider), kTabCreate);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox());
+      c.dispose();
+      disposed = true;
+    },
+    variant: TargetPlatformVariant({
+      TargetPlatform.windows,
+      TargetPlatform.macOS,
+    }),
+  );
 
   testWidgets('步数引导摘要定位设置，种子快捷清空，比例仍使用浮窗', (tester) async {
     await tester.runAsync(

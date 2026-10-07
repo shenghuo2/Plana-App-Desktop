@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:plana_app/core/store/prefs_store.dart';
 import 'package:plana_app/features/update/update_service.dart';
@@ -65,6 +66,7 @@ void main() {
       String tag, {
       bool pre = false,
       bool draft = false,
+      List<String> assets = const [],
     }) => {
       'tag_name': tag,
       'html_url': 'https://github.com/x/y/releases/tag/$tag',
@@ -72,6 +74,9 @@ void main() {
       'body': '',
       'prerelease': pre,
       'draft': draft,
+      'assets': [
+        for (final name in assets) {'name': name},
+      ],
     };
 
     test('挑出更新的那个', () {
@@ -118,9 +123,73 @@ void main() {
       expect(r?.tag, 'v1.2.0');
     });
 
+    test('按版本挑最高的新版本,不受 GitHub 发布时间顺序影响', () {
+      final r = pickNewer('1.0.0', [
+        rel('v1.1.0'),
+        rel('v1.3.0'),
+        rel('v1.2.0'),
+      ]);
+      expect(r?.tag, 'v1.3.0');
+    });
+
+    test('桌面更新必须有当前平台安装包,不能提示 APK 或另一平台的发布版', () {
+      final releases = [
+        rel('v1.1.1-desktop.49', assets: ['Plana.apk']),
+        rel('v1.1.1-desktop.48'),
+        rel('v1.1.1-desktop.47', assets: ['Plana-Windows-x64.zip']),
+        rel('v1.1.1-desktop.46', assets: ['Plana-macOS.DMG']),
+      ];
+      expect(
+        pickNewer(
+          '1.1.1-desktop.45',
+          releases,
+          platform: TargetPlatform.windows,
+        )?.tag,
+        'v1.1.1-desktop.47',
+      );
+      expect(
+        pickNewer(
+          '1.1.1-desktop.45',
+          releases,
+          platform: TargetPlatform.macOS,
+        )?.tag,
+        'v1.1.1-desktop.46',
+      );
+      expect(
+        pickNewer('1.1.1-desktop.45', releases, platform: TargetPlatform.linux),
+        isNull,
+      );
+    });
+
     test('展示名:release 标题为空时回落到 tag', () {
       final r = pickNewer('1.0.0', [rel('v1.2.0')]);
       expect(r?.display, 'v1.2.0');
+    });
+
+    test('Mac 不提示只有另一种 CPU 架构的更新', () {
+      final releases = [
+        rel('v1.1.1-desktop.48', assets: ['Plana-macOS-arm64.dmg']),
+        rel('v1.1.1-desktop.47', assets: ['Plana-macOS-x64.dmg']),
+        rel('v1.1.1-desktop.46', assets: ['Plana-macOS-universal.dmg']),
+      ];
+      expect(
+        pickNewer(
+          '1.1.1-desktop.45',
+          releases,
+          platform: TargetPlatform.macOS,
+          architecture: 'x64',
+        )?.tag,
+        'v1.1.1-desktop.47',
+      );
+      expect(
+        pickNewer(
+          '1.1.1-desktop.45',
+          releases,
+          platform: TargetPlatform.macOS,
+          architecture: 'arm64',
+        )?.tag,
+        'v1.1.1-desktop.48',
+      );
     });
   });
 

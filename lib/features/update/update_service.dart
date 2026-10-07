@@ -1,9 +1,8 @@
-/// 检查更新(只检查,不下载不安装)。
+/// 检查 GitHub Release 更新。
 ///
 /// 链路:GitHub Releases API 拿最新 release → 按语义化版本比 → 有新版就提示,
-/// 用户点「去下载」跳外部浏览器打开 Release 页。**下载与安装交给浏览器和系统**,
-/// 本应用不碰 —— 所以既不需要 `REQUEST_INSTALL_PACKAGES`,也不需要 FileProvider,
-/// 更不需要自己校验安装包。
+/// Windows / Android 通过浏览器打开发布页;macOS 还提供校验 DMG 后的应用内更新,
+/// 下载与替换由 macos_update_service.dart 负责。
 library;
 
 import 'dart:async';
@@ -49,6 +48,7 @@ class GithubRelease {
     required this.notes,
     required this.url,
     required this.prerelease,
+    this.assets = const [],
   });
 
   /// 形如 `v1.0.0-beta.2`(比较时会剥掉前导 v)。
@@ -59,6 +59,28 @@ class GithubRelease {
   /// Release 页地址,用户点「去下载」时用浏览器打开。
   final String url;
   final bool prerelease;
+  final List<GithubAsset> assets;
+
+  /// 桌面只提示带有当前平台安装包的发布版。
+  bool supportsPlatform(TargetPlatform platform, {String? architecture}) =>
+      assets.any((asset) {
+        final name = asset.name.toLowerCase();
+        return switch (platform) {
+          TargetPlatform.macOS =>
+            (name.endsWith('.dmg') || name.endsWith('.pkg')) &&
+                asset.matchesArchitecture(architecture),
+          TargetPlatform.windows =>
+            name.endsWith('.exe') ||
+                name.endsWith('.msi') ||
+                (name.endsWith('.zip') && name.contains('windows')),
+          TargetPlatform.linux =>
+            name.endsWith('.appimage') ||
+                name.endsWith('.deb') ||
+                name.endsWith('.rpm') ||
+                (name.endsWith('.tar.gz') && name.contains('linux')),
+          _ => false,
+        };
+      });
 
   /// 展示名:GitHub 上 release 标题常留空,回落到 tag。
   String get display => name.isNotEmpty ? name : tag;
@@ -74,8 +96,67 @@ class GithubRelease {
       notes: (j['body'] as String?) ?? '',
       url: url,
       prerelease: j['prerelease'] == true,
+      assets: [
+        if (j['assets'] is List)
+          for (final asset in j['assets'] as List)
+            if (asset is Map<String, dynamic> && asset['name'] is String)
+              GithubAsset.fromJson(asset),
+      ],
     );
   }
+
+  Map<String, dynamic> toJson() => {
+    'tag_name': tag,
+    'name': name,
+    'body': notes,
+    'html_url': url,
+    'prerelease': prerelease,
+    'assets': [for (final asset in assets) asset.toJson()],
+  };
+}
+
+/// 安装包元数据;digest 由 GitHub 在上传资产时计算。
+class GithubAsset {
+  const GithubAsset({
+    required this.name,
+    this.url = '',
+    this.size = 0,
+    this.digest,
+  });
+
+  final String name;
+  final String url;
+  final int size;
+  final String? digest;
+
+  bool matchesArchitecture(String? architecture) {
+    if (architecture == null) return true;
+    final lower = name.toLowerCase();
+    if (lower.contains('universal')) return true;
+    if (lower.contains('arm64') || lower.contains('aarch64')) {
+      return architecture == 'arm64';
+    }
+    if (lower.contains('x64') ||
+        lower.contains('x86_64') ||
+        lower.contains('intel')) {
+      return architecture == 'x64';
+    }
+    return true;
+  }
+
+  factory GithubAsset.fromJson(Map<String, dynamic> j) => GithubAsset(
+    name: j['name'] as String,
+    url: j['browser_download_url'] as String? ?? '',
+    size: (j['size'] as num?)?.toInt() ?? 0,
+    digest: j['digest'] as String?,
+  );
+
+  Map<String, dynamic> toJson() => {
+    'name': name,
+    'browser_download_url': url,
+    'size': size,
+    'digest': digest,
+  };
 }
 
 /// 一次检查的结论。
@@ -176,6 +257,8 @@ Future<InstalledInfo> installedInfo() async {
 Future<GithubRelease?> fetchLatestRelease(
   String current, {
   String repo = kGithubRepo,
+  TargetPlatform? platform,
+  String? architecture,
 }) async {
   if (repo.isEmpty || current.isEmpty) return null;
   try {
@@ -191,6 +274,9 @@ Future<GithubRelease?> fetchLatestRelease(
       // 未鉴权的 API 限额是每小时 60 次/IP。有 24h 节流正常撞不到,
       // 真撞到了也只是这次查不了,不值得吓用户。
       logd('[update] GitHub API 限流');
+      if (platform != null) {
+        throw const UpdateException('更新检查暂时受限,请稍后重试');
+      }
       return null;
     }
     if (resp.statusCode != 200) {
@@ -198,7 +284,12 @@ Future<GithubRelease?> fetchLatestRelease(
     }
     final j = jsonDecode(utf8.decode(resp.bodyBytes));
     if (j is! List) throw const UpdateException('更新信息格式异常');
-    return pickNewer(current, j);
+    return pickNewer(
+      current,
+      j,
+      platform: platform,
+      architecture: architecture,
+    );
   } on TimeoutException {
     throw const UpdateException('检查更新超时,请检查网络后重试');
   } on SocketException {
@@ -215,16 +306,29 @@ Future<GithubRelease?> fetchLatestRelease(
 ///
 /// 已在正式版上的用户**不会**被推预发布 —— 否则装着 1.0.0 的人会被 1.1.0-beta.1
 /// 拽回测试轨道。仍在 beta 上的人则照收 beta。
-GithubRelease? pickNewer(String current, List<dynamic> releases) {
+GithubRelease? pickNewer(
+  String current,
+  List<dynamic> releases, {
+  TargetPlatform? platform,
+  String? architecture,
+}) {
   final onPrerelease = isPrerelease(current);
+  GithubRelease? newest;
   for (final r in releases) {
     if (r is! Map<String, dynamic>) continue;
     final rel = GithubRelease.fromJson(r);
     if (rel == null) continue;
     if (rel.prerelease && !onPrerelease) continue;
-    if (compareSemver(rel.tag, current) > 0) return rel;
+    if (platform != null &&
+        !rel.supportsPlatform(platform, architecture: architecture)) {
+      continue;
+    }
+    if (compareSemver(rel.tag, current) <= 0) continue;
+    if (newest == null || compareSemver(rel.tag, newest.tag) > 0) {
+      newest = rel;
+    }
   }
-  return null;
+  return newest;
 }
 
 // ── 自动检查的节流 ───────────────────────────────────────────────────────
