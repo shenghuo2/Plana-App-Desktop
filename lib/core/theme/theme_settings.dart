@@ -34,10 +34,10 @@ const themeSeeds = <ThemeSeed>[
 /// 默认主题色(未选过时的档位)。
 const kDefaultSeedKey = 'sky';
 
-/// 桌面「我的」页面的水平对齐方式。
+/// 桌面「我的」页面右侧内容区的水平对齐方式。
 enum PageAlignment { center, left }
 
-/// 外观与体验设置(持久化):主题、导航、触感与桌面页面对齐。
+/// 外观与体验设置(持久化):主题、导航、触感与桌面内容对齐。
 class ThemeSettings {
   const ThemeSettings({
     this.mode = ThemeMode.light,

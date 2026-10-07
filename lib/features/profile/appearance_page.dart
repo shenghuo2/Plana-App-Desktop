@@ -79,7 +79,7 @@ class AppearancePage extends ConsumerWidget {
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       Text(
-                        '调整「我的」页面的水平位置',
+                        '调整「我的」页面右侧内容区域的水平位置',
                         style: context.texts.bodySmall!.copyWith(
                           color: context.scheme.onSurfaceVariant,
                         ),
@@ -133,7 +133,8 @@ class AppearancePage extends ConsumerWidget {
                   icon: Icons.vibration,
                   title: '振动反馈',
                   value: ts.haptics,
-                  onChanged: (v) => notifier.patch((x) => x.copyWith(haptics: v)),
+                  onChanged: (v) =>
+                      notifier.patch((x) => x.copyWith(haptics: v)),
                 ),
               ],
             ),

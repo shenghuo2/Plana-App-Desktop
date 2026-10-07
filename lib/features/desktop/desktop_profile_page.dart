@@ -68,18 +68,6 @@ class _DesktopProfilePageState extends ConsumerState<DesktopProfilePage>
     final alignment = ref.watch(
       themeSettingsProvider.select((settings) => settings.pageAlignment),
     );
-    return Align(
-      alignment: alignment == PageAlignment.center
-          ? Alignment.topCenter
-          : Alignment.topLeft,
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 1280),
-        child: _buildPage(context, active: active),
-      ),
-    );
-  }
-
-  Widget _buildPage(BuildContext context, {required bool active}) {
     return LayoutBuilder(
       builder: (context, constraints) {
         final sidebar = constraints.maxWidth >= 700;
@@ -224,7 +212,9 @@ class _DesktopProfilePageState extends ConsumerState<DesktopProfilePage>
                     ],
                     Expanded(
                       child: Align(
-                        alignment: Alignment.topLeft,
+                        alignment: alignment == PageAlignment.center
+                            ? Alignment.topCenter
+                            : Alignment.topLeft,
                         child: ConstrainedBox(
                           constraints: const BoxConstraints(maxWidth: 1000),
                           child: IndexedStack(
