@@ -112,8 +112,8 @@ class PlanaApp extends ConsumerWidget {
               constraints: const BoxConstraints(maxWidth: 760),
             ),
           );
-    // 触感开关同步到全局出口:调用点在手势/绘制层,拿不到 ref,只能这样递。
-    Haptics.enabled = ts.haptics;
+    // 桌面关闭触感调用;移动端将触感设置同步到全局出口。
+    Haptics.enabled = !desktop && ts.haptics;
     return MaterialApp(
       title: kAppName,
       debugShowCheckedModeBanner: false,
