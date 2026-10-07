@@ -250,6 +250,41 @@ class _DesktopSettingsPanel extends ConsumerWidget {
                                         ),
                                       ),
                                     ]),
+                                    section('侧栏图片按钮', [
+                                      SettingRow(
+                                        icon: Icons.image_outlined,
+                                        title: '添加图片',
+                                        desc: '在创作页侧栏显示文件选择按钮，支持多选',
+                                        value: s.showSidebarImagePicker,
+                                        onChanged: (v) => n.patch(
+                                          (o) => o.copyWith(
+                                            showSidebarImagePicker: v,
+                                          ),
+                                        ),
+                                      ),
+                                      SettingRow(
+                                        icon: Icons.photo_library_outlined,
+                                        title: '从历史选择',
+                                        desc: '在创作页侧栏显示历史图片按钮',
+                                        value: s.showSidebarHistoryPicker,
+                                        onChanged: (v) => n.patch(
+                                          (o) => o.copyWith(
+                                            showSidebarHistoryPicker: v,
+                                          ),
+                                        ),
+                                      ),
+                                      SettingRow(
+                                        icon: Icons.content_paste,
+                                        title: '从剪贴板粘贴',
+                                        desc: '在创作页侧栏显示图片粘贴按钮',
+                                        value: s.showSidebarClipboardButton,
+                                        onChanged: (v) => n.patch(
+                                          (o) => o.copyWith(
+                                            showSidebarClipboardButton: v,
+                                          ),
+                                        ),
+                                      ),
+                                    ]),
                                     section('对话记忆', [
                                       SettingStepperRow(
                                         icon: Icons.history,

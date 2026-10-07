@@ -2132,6 +2132,13 @@ void main() {
       expect(s.autoImport, isFalse);
       expect(s.noDraw, isFalse);
       expect(s.introDone, isFalse, reason: '首次引导没走过就得弹');
+      expect(s.showSidebarImagePicker, isFalse);
+      expect(s.showSidebarHistoryPicker, isFalse);
+      expect(s.showSidebarClipboardButton, isFalse);
+      final restored = AssistantSettings.fromJson(const {});
+      expect(restored.showSidebarImagePicker, isFalse);
+      expect(restored.showSidebarHistoryPicker, isFalse);
+      expect(restored.showSidebarClipboardButton, isFalse);
     });
 
     test('存得下也读得回来', () {
@@ -2140,6 +2147,9 @@ void main() {
         inlineImage: true,
         autoImport: true,
         noDraw: true,
+        showSidebarImagePicker: true,
+        showSidebarHistoryPicker: true,
+        showSidebarClipboardButton: true,
         introVersion: kAssistantIntroVersion,
       );
       final back = AssistantSettings.fromJson(s.toJson());
@@ -2147,6 +2157,9 @@ void main() {
       expect(back.inlineImage, isTrue);
       expect(back.autoImport, isTrue);
       expect(back.noDraw, isTrue);
+      expect(back.showSidebarImagePicker, isTrue);
+      expect(back.showSidebarHistoryPicker, isTrue);
+      expect(back.showSidebarClipboardButton, isTrue);
       expect(back.introDone, isTrue);
       // 引导改过版,走过旧版的也得再看一次
       expect(

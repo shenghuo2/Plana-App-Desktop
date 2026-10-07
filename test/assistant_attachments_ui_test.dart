@@ -33,6 +33,7 @@ class _Canvas extends GenerateNotifier {
 class _Picker extends FilePicker {
   List<PlatformFile> files = [];
   bool? multiple;
+  PlatformException? error;
   @override
   Future<FilePickerResult?> pickFiles({
     String? dialogTitle,
@@ -49,6 +50,7 @@ class _Picker extends FilePicker {
     bool readSequential = false,
   }) async {
     multiple = allowMultiple;
+    if (error != null) throw error!;
     return files.isEmpty ? null : FilePickerResult(files);
   }
 }
@@ -81,6 +83,9 @@ class _Settings extends AssistantSettingsNotifier {
   Future<AssistantSettings> build() async => const AssistantSettings(
     introVersion: kAssistantIntroVersion,
     libraryScope: LibraryScope.none,
+    showSidebarImagePicker: true,
+    showSidebarHistoryPicker: true,
+    showSidebarClipboardButton: true,
   );
 }
 
@@ -276,6 +281,39 @@ void main() {
       expect(recorder().sent.single.images, [pngB, pngA]);
       expect(key('assistant-pending-images'), findsNothing);
       expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'file picker failure preserves the draft and attachments and allows retry',
+    (tester) async {
+      await mount(tester, embedded: true);
+      picker.files = [
+        PlatformFile(name: 'first.png', size: pngA.length, bytes: pngA),
+      ];
+      await tester.tap(find.byTooltip('添加图片（可多选）'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField), '保留这份草稿');
+
+      picker.error = PlatformException(code: 'ENTITLEMENT_NOT_FOUND');
+      await tester.tap(find.byTooltip('添加图片（可多选）'));
+      await tester.pumpAndSettle();
+      expect(find.text('当前应用无法打开文件选择器，请更新应用后重试'), findsOneWidget);
+      expect(find.text('已添加 1 张图片'), findsOneWidget);
+      expect(
+        tester.widget<TextField>(find.byType(TextField)).controller!.text,
+        '保留这份草稿',
+      );
+      expect(tester.takeException(), isNull);
+
+      picker.error = null;
+      picker.files = [
+        PlatformFile(name: 'second.png', size: pngB.length, bytes: pngB),
+      ];
+      await tester.tap(find.byTooltip('添加图片（可多选）'));
+      await tester.pumpAndSettle();
+      expect(find.text('已添加 2 张图片'), findsOneWidget);
+      expect(recorder().sent, isEmpty);
     },
   );
 

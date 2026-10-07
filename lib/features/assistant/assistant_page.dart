@@ -84,6 +84,7 @@ class _AssistantPageState extends ConsumerState<AssistantPage> {
   final _scroll = ScrollController();
   final _pending = <PickedImage>[];
   bool _sending = false;
+  bool _choosingFiles = false;
   bool _choosingHistory = false;
 
   /// 这一条要不要把创作页的提示词带上。**纯一次性:每发一次回到关**,和带图一样。
@@ -181,8 +182,26 @@ class _AssistantPageState extends ConsumerState<AssistantPage> {
   }
 
   Future<void> _pick() async {
-    final images = await pickImageFiles(context);
-    _addImages(images);
+    if (_choosingFiles || _sending || ref.read(assistantProvider).running) return;
+    setState(() => _choosingFiles = true);
+    try {
+      final images = await pickImageFiles(context);
+      _addImages(images);
+    } on PlatformException catch (error) {
+      if (mounted) {
+        hintSnack(
+          context,
+          error.code.startsWith('ENTITLEMENT_')
+              ? '当前应用无法打开文件选择器，请更新应用后重试'
+              : '无法打开图片选择器，请重试',
+          icon: Icons.error_outline,
+        );
+      }
+    } catch (_) {
+      if (mounted) hintSnack(context, '读取图片失败，请重新选择');
+    } finally {
+      if (mounted) setState(() => _choosingFiles = false);
+    }
   }
 
   Future<void> _pickHistory() async {
@@ -386,6 +405,12 @@ class _AssistantPageState extends ConsumerState<AssistantPage> {
                     ],
                   );
                 },
+              )
+            : widget.embedded
+            ? Material(
+                key: const ValueKey('assistant-sidebar-background'),
+                color: scheme.surface,
+                child: chat(),
               )
             : chat(),
       ),
@@ -966,6 +991,10 @@ class _AssistantPageState extends ConsumerState<AssistantPage> {
     bool enabled = true,
   }) {
     final running = st.running || _sending;
+    final desktop = ref.watch(desktopModeProvider);
+    final sidebar = desktop && widget.embedded;
+    final settings =
+        ref.watch(assistantSettingsProvider).value ?? const AssistantSettings();
     final canSend =
         enabled &&
         !running &&
@@ -980,7 +1009,7 @@ class _AssistantPageState extends ConsumerState<AssistantPage> {
     }
     final attachment = IconButton(
       tooltip: '添加图片（可多选）',
-      onPressed: !enabled || running ? null : _pick,
+      onPressed: !enabled || running || _choosingFiles ? null : _pick,
       icon: Icon(
         Icons.image_outlined,
         color: _pending.isNotEmpty ? scheme.primary : null,
@@ -1154,11 +1183,12 @@ class _AssistantPageState extends ConsumerState<AssistantPage> {
             Row(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
-                attachment,
-                historyAttachment,
-                // 嵌在工作台右栏时走的正是这一支 —— 那才是桌面端最常见的样子,
-                // 粘贴这颗不能只在整页那条分支里露脸。
-                if (ref.watch(desktopModeProvider)) pasteAttachment,
+                if (!sidebar || settings.showSidebarImagePicker) attachment,
+                if (!sidebar || settings.showSidebarHistoryPicker)
+                  historyAttachment,
+                if (desktop &&
+                    (!sidebar || settings.showSidebarClipboardButton))
+                  pasteAttachment,
                 const SizedBox(width: 1),
                 Expanded(child: input),
                 const SizedBox(width: 8),

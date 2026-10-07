@@ -123,9 +123,10 @@ jobs:
 
           # GitHub-hosted builds have no Developer ID certificate. Release is
           # intentionally non-sandboxed and uses the classic login Keychain,
-          # so the downloadable build can use an entitlement-free ad-hoc
-          # signature without losing credential storage.
-          codesign --force --sign - "$app_path"
+          # while file_picker requires the user-selected file entitlement even
+          # outside the sandbox. Keep that entitlement in the ad-hoc signature.
+          codesign --force --sign - \
+            --entitlements macos/Runner/Release.entitlements "$app_path"
 
           test -x "$executable_path"
           test "$executable_name" = "Plana App"
@@ -137,6 +138,10 @@ jobs:
           else
             echo 'Ad-hoc test signature contains no entitlements.'
           fi
+
+          test "$(/usr/libexec/PlistBuddy \
+            -c 'Print :com.apple.security.files.user-selected.read-write' \
+            "$entitlements_path")" = "true"
 
           for forbidden_entitlement in \
             com.apple.security.get-task-allow \

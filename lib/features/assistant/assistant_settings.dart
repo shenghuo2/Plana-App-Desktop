@@ -102,6 +102,9 @@ class AssistantSettings {
     this.fontSize = fontSizeDefault,
     this.historyTurns = historyTurnsDefault,
     this.stream = true,
+    this.showSidebarImagePicker = false,
+    this.showSidebarHistoryPicker = false,
+    this.showSidebarClipboardButton = false,
   });
 
   /// 上下文轮数的默认值与可调范围。
@@ -183,6 +186,11 @@ class AssistantSettings {
   /// 字段、或者就是不想看字一个个蹦的人。
   final bool stream;
 
+  /// 创作页侧栏输入框的图片按钮。默认隐藏,为输入文字留出宽度。
+  final bool showSidebarImagePicker;
+  final bool showSidebarHistoryPicker;
+  final bool showSidebarClipboardButton;
+
   AssistantSettings copyWith({
     bool? autoGenerate,
     bool? inlineImage,
@@ -194,6 +202,9 @@ class AssistantSettings {
     double? fontSize,
     int? historyTurns,
     bool? stream,
+    bool? showSidebarImagePicker,
+    bool? showSidebarHistoryPicker,
+    bool? showSidebarClipboardButton,
   }) => AssistantSettings(
     autoGenerate: autoGenerate ?? this.autoGenerate,
     inlineImage: inlineImage ?? this.inlineImage,
@@ -205,6 +216,12 @@ class AssistantSettings {
     fontSize: fontSize ?? this.fontSize,
     historyTurns: historyTurns ?? this.historyTurns,
     stream: stream ?? this.stream,
+    showSidebarImagePicker:
+        showSidebarImagePicker ?? this.showSidebarImagePicker,
+    showSidebarHistoryPicker:
+        showSidebarHistoryPicker ?? this.showSidebarHistoryPicker,
+    showSidebarClipboardButton:
+        showSidebarClipboardButton ?? this.showSidebarClipboardButton,
   );
 
   Map<String, dynamic> toJson() => {
@@ -218,6 +235,9 @@ class AssistantSettings {
     'fontSize': fontSize,
     'historyTurns': historyTurns,
     'stream': stream,
+    'showSidebarImagePicker': showSidebarImagePicker,
+    'showSidebarHistoryPicker': showSidebarHistoryPicker,
+    'showSidebarClipboardButton': showSidebarClipboardButton,
   };
 
   factory AssistantSettings.fromJson(Map<String, dynamic> j) =>
@@ -235,6 +255,9 @@ class AssistantSettings {
         noDraw: j['noDraw'] == true,
         // 缺键 = 老存档,按开算:新行为更好,不必等用户自己去翻设置
         stream: j['stream'] != false,
+        showSidebarImagePicker: j['showSidebarImagePicker'] == true,
+        showSidebarHistoryPicker: j['showSidebarHistoryPicker'] == true,
+        showSidebarClipboardButton: j['showSidebarClipboardButton'] == true,
         introVersion: switch (j['introVersion']) {
           final num v => v.toInt(),
           _ => 0,
