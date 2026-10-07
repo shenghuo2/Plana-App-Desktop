@@ -1,40 +1,41 @@
-> macOS 测试移植版：基于 windows.45 桌面源码。构建与适配说明见 [docs/desktop-comparison.md](docs/desktop-comparison.md)。
+> Windows / macOS 桌面预发布版：基于 windows.45 重构源码。macOS 构建与适配说明见 [docs/desktop-comparison.md](docs/desktop-comparison.md)，应用内更新与发布要求见 [docs/desktop-updates.md](docs/desktop-updates.md)。
 
 <div align="center">
 
-<img src="assets/app_icon.png" width="96" alt="Plana App for Windows">
+<img src="assets/app_icon.png" width="96" alt="Plana App Desktop">
 
-# Plana App for Windows
+# Plana App Desktop
 
-**面向 Windows 的 AI 绘图工作台**
+**面向 Windows 与 macOS 的 AI 绘图工作台**
 
 提示词、画布、图库与 AI 助手，在一个桌面窗口中完成。
 
 [![License](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)
 [![Windows](https://img.shields.io/badge/Windows-x64-3572A5)](#界面预览)
+[![macOS](https://img.shields.io/badge/macOS-14%2B%20arm64-555555)](#下载与安装)
 [![Status](https://img.shields.io/badge/状态-桌面版测试中-6A5ACD)](#项目状态)
 [![Flutter](https://img.shields.io/badge/built%20with-Flutter-02569B?logo=flutter&logoColor=white)](https://flutter.dev)
 
-[界面预览](#界面预览) · [桌面版亮点](#桌面版亮点) · [问题反馈](https://github.com/LingXia979/Plana-App-for-windows/issues) · [上游项目](https://github.com/mc5024/Plana-App)
+[界面预览](#界面预览) · [桌面版亮点](#桌面版亮点) · [问题反馈](https://github.com/shenghuo2/Plana-App-Desktop/issues) · [原版项目](https://github.com/mc5024/Plana-App) · [Windows 重构版](https://github.com/LingXia979/Plana-App-for-windows/tree/Plana-app-for-windows)
 
 </div>
 
 ## 项目状态
 
-本项目基于 [Plana App](https://github.com/mc5024/Plana-App) 开发 Windows 桌面适配。
-当前版本为 **1.1.1-windows.45（构建 64）**。本分支提供对应的 Windows 桌面源码，安装包与便携版见 [Releases](https://github.com/LingXia979/Plana-App-for-windows/releases/tag/v1.1.1-windows.45)。
+本项目基于 [Plana App](https://github.com/mc5024/Plana-App) 及其 [Windows 重构版](https://github.com/LingXia979/Plana-App-for-windows/tree/Plana-app-for-windows)，提供 Windows 与 macOS 桌面适配。
+当前版本为 **1.1.2-desktop（构建 65，Pre-release）**。安装包见[本 fork 的 Releases](https://github.com/shenghuo2/Plana-App-Desktop/releases/tag/v1.1.2-desktop)。
 
-- `Plana-app-for-windows`：Windows 桌面适配分支。
-- [`plana-app-gallery-optimization`](https://github.com/LingXia979/Plana-App-for-windows/tree/plana-app-gallery-optimization)：图库优化分支。
+- `desktop/merge-windows45`：本预发布版的 Windows / macOS 桌面源码。
+- [`Plana-app-for-windows`](https://github.com/LingXia979/Plana-App-for-windows/tree/Plana-app-for-windows)：Windows 重构上游分支。
 - Android 原版介绍与下载请前往[上游仓库](https://github.com/mc5024/Plana-App)。
 
 ## 下载与安装
 
-- [中文安装包（Windows x64）](https://github.com/LingXia979/Plana-App-for-windows/releases/download/v1.1.1-windows.45/Plana-Windows-1.1.1-windows.45-x64-setup.exe)：按中文向导选择安装目录，支持开始菜单、可选桌面快捷方式及卸载。
-- [便携版 ZIP](https://github.com/LingXia979/Plana-App-for-windows/releases/download/v1.1.1-windows.45/Plana-Windows-1.1.1-windows.45-x64.zip)：完整解压后运行 `plana_app_for_windows.exe`。
-- [SHA-256 校验清单](https://github.com/LingXia979/Plana-App-for-windows/releases/download/v1.1.1-windows.45/Plana-Windows-1.1.1-windows.45-x64-SHA256.txt)。
+- [Windows x64 便携版 ZIP](https://github.com/shenghuo2/Plana-App-Desktop/releases/download/v1.1.2-desktop/Plana-Windows-1.1.2-desktop-x64.zip)：完整解压后运行 `plana_app_for_windows.exe`。
+- [macOS Apple Silicon DMG](https://github.com/shenghuo2/Plana-App-Desktop/releases/download/v1.1.2-desktop/Plana-macOS-arm64.dmg)：需要 macOS 14 或更新版本，将 `Plana App.app` 拖入应用程序文件夹后运行。
+- [macOS DMG SHA-256](https://github.com/shenghuo2/Plana-App-Desktop/releases/download/v1.1.2-desktop/Plana-macOS-arm64.dmg.sha256) · [Windows ZIP SHA-256](https://github.com/shenghuo2/Plana-App-Desktop/releases/download/v1.1.2-desktop/Plana-Windows-1.1.2-desktop-x64.zip.sha256)。
 
-升级前请关闭旧版。作品自动保存到程序旁的 `output` 文件夹，卸载保留个人数据。发布包不附带个人账号、API/Bot/Web 授权、提示词草稿或私人 tag 库，首次使用请自行配置。当前安装包未进行代码签名。
+升级前请关闭旧版。发布包不附带个人账号、API/Bot/Web 授权、提示词草稿或私人 tag 库，首次使用请自行配置。Windows 包未进行代码签名，macOS 包使用 ad-hoc 签名，尚未经过 Apple 公证。
 
 开发与打包说明见 [Windows 使用说明](WINDOWS-README.md)。
 
@@ -78,7 +79,7 @@
 
 ## 反馈与上游
 
-Windows 版的问题与建议请提交到[本仓库 Issues](https://github.com/LingXia979/Plana-App-for-windows/issues)，并注明版本、复现步骤及相关截图。
+桌面版的问题与建议请提交到[本仓库 Issues](https://github.com/shenghuo2/Plana-App-Desktop/issues)，并注明平台、版本、复现步骤及相关截图。
 
 本项目保留上游的开源许可与第三方声明。原版功能、Android 构建说明及原作者维护的版本见 [mc5024/Plana-App](https://github.com/mc5024/Plana-App)。
 

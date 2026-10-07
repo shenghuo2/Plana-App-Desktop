@@ -114,17 +114,17 @@ void main() {
             TargetPlatform? platform,
             String? architecture,
           }) async => const GithubRelease(
-            tag: 'v1.1.1-desktop.46',
+            tag: 'v1.1.2-desktop.1',
             name: '',
             notes: '新版说明',
             url:
-                'https://github.com/$kGithubRepo/releases/tag/v1.1.1-desktop.46',
+                'https://github.com/$kGithubRepo/releases/tag/v1.1.2-desktop.1',
             prerelease: false,
             assets: [
               GithubAsset(
                 name: 'Plana-macOS.dmg',
                 url:
-                    'https://github.com/$kGithubRepo/releases/download/v1.1.1-desktop.46/Plana-macOS.dmg',
+                    'https://github.com/$kGithubRepo/releases/download/v1.1.2-desktop.1/Plana-macOS.dmg',
                 size: 6,
               ),
               GithubAsset(name: 'Plana-Windows-x64.zip'),
