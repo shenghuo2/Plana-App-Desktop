@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:plana_app/core/app_info.dart';
+import 'package:plana_app/core/desktop_edition.dart';
 import 'package:plana_app/core/store/app_stores.dart';
 import 'package:plana_app/core/store/prefs_store.dart';
 import 'package:plana_app/features/update/desktop_update.dart';
@@ -19,7 +20,9 @@ const _release = GithubRelease(
   prerelease: false,
   assets: [
     GithubAsset(name: 'Plana-macOS.dmg'),
+    GithubAsset(name: 'Plana-RemoteUpload-macOS.dmg'),
     GithubAsset(name: 'Plana-Windows-x64.zip'),
+    GithubAsset(name: 'Plana-RemoteUpload-Windows-x64.zip'),
   ],
 );
 
@@ -139,6 +142,7 @@ void main() {
 
     debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
     final saved = jsonDecode(prefs.get('desktop_update_macOS')!) as Map;
+    expect(saved['edition'], kDesktopEdition.name);
     saved['version'] = '1.1.1-desktop.44';
     await prefs.write(key: 'desktop_update_macOS', value: jsonEncode(saved));
     final upgraded = container(() async => _release);

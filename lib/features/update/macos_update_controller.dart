@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/desktop_edition.dart';
 import '../../core/store/app_stores.dart';
 import '../inpaint/inpaint_overlay.dart';
 import '../shell/desktop_work_state.dart';
@@ -32,7 +33,9 @@ class MacOSUpdateState {
       stage == MacOSUpdateStage.installing;
 }
 
-final macOSUpdateServiceProvider = Provider((ref) => MacOSUpdateService());
+final macOSUpdateServiceProvider = Provider(
+  (ref) => MacOSUpdateService(edition: kDesktopEdition),
+);
 final macOSUpdateProvider =
     NotifierProvider<MacOSUpdateNotifier, MacOSUpdateState>(
       MacOSUpdateNotifier.new,

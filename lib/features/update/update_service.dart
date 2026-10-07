@@ -13,6 +13,7 @@ import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 
 import '../../core/app_info.dart';
+import '../../core/desktop_edition.dart';
 import '../../core/store/prefs_store.dart';
 import '../../core/util/log.dart';
 
@@ -62,25 +63,29 @@ class GithubRelease {
   final List<GithubAsset> assets;
 
   /// 桌面只提示带有当前平台安装包的发布版。
-  bool supportsPlatform(TargetPlatform platform, {String? architecture}) =>
-      assets.any((asset) {
-        final name = asset.name.toLowerCase();
-        return switch (platform) {
-          TargetPlatform.macOS =>
-            (name.endsWith('.dmg') || name.endsWith('.pkg')) &&
-                asset.matchesArchitecture(architecture),
-          TargetPlatform.windows =>
-            name.endsWith('.exe') ||
-                name.endsWith('.msi') ||
-                (name.endsWith('.zip') && name.contains('windows')),
-          TargetPlatform.linux =>
-            name.endsWith('.appimage') ||
-                name.endsWith('.deb') ||
-                name.endsWith('.rpm') ||
-                (name.endsWith('.tar.gz') && name.contains('linux')),
-          _ => false,
-        };
-      });
+  bool supportsPlatform(
+    TargetPlatform platform, {
+    String? architecture,
+    DesktopEdition edition = DesktopEdition.standard,
+  }) => assets.any((asset) {
+    if (!matchesDesktopEditionAsset(asset.name, edition)) return false;
+    final name = asset.name.toLowerCase();
+    return switch (platform) {
+      TargetPlatform.macOS =>
+        (name.endsWith('.dmg') || name.endsWith('.pkg')) &&
+            asset.matchesArchitecture(architecture),
+      TargetPlatform.windows =>
+        name.endsWith('.exe') ||
+            name.endsWith('.msi') ||
+            (name.endsWith('.zip') && name.contains('windows')),
+      TargetPlatform.linux =>
+        name.endsWith('.appimage') ||
+            name.endsWith('.deb') ||
+            name.endsWith('.rpm') ||
+            (name.endsWith('.tar.gz') && name.contains('linux')),
+      _ => false,
+    };
+  });
 
   /// 展示名:GitHub 上 release 标题常留空,回落到 tag。
   String get display => name.isNotEmpty ? name : tag;
@@ -289,6 +294,7 @@ Future<GithubRelease?> fetchLatestRelease(
       j,
       platform: platform,
       architecture: architecture,
+      edition: kDesktopEdition,
     );
   } on TimeoutException {
     throw const UpdateException('检查更新超时,请检查网络后重试');
@@ -311,6 +317,7 @@ GithubRelease? pickNewer(
   List<dynamic> releases, {
   TargetPlatform? platform,
   String? architecture,
+  DesktopEdition edition = DesktopEdition.standard,
 }) {
   final onPrerelease = isPrerelease(current);
   GithubRelease? newest;
@@ -320,7 +327,11 @@ GithubRelease? pickNewer(
     if (rel == null) continue;
     if (rel.prerelease && !onPrerelease) continue;
     if (platform != null &&
-        !rel.supportsPlatform(platform, architecture: architecture)) {
+        !rel.supportsPlatform(
+          platform,
+          architecture: architecture,
+          edition: edition,
+        )) {
       continue;
     }
     if (compareSemver(rel.tag, current) <= 0) continue;

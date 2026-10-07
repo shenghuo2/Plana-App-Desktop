@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/app_info.dart';
+import '../../core/desktop_edition.dart';
 import '../../core/store/app_stores.dart';
 import 'update_service.dart';
 
@@ -53,6 +54,10 @@ class DesktopUpdateNotifier extends Notifier<DesktopUpdateStatus> {
     try {
       final json = jsonDecode(saved) as Map<String, dynamic>;
       if (json['version'] != kAppVersion) return const DesktopUpdateStatus();
+      if ((json['edition'] ?? DesktopEdition.standard.name) !=
+          kDesktopEdition.name) {
+        return const DesktopUpdateStatus();
+      }
       if (defaultTargetPlatform == TargetPlatform.macOS &&
           json['architecture'] != macOSArchitecture) {
         return const DesktopUpdateStatus();
@@ -68,6 +73,7 @@ class DesktopUpdateNotifier extends Notifier<DesktopUpdateStatus> {
           (release == null ||
               !release.supportsPlatform(
                 defaultTargetPlatform,
+                edition: kDesktopEdition,
                 architecture: defaultTargetPlatform == TargetPlatform.macOS
                     ? macOSArchitecture
                     : null,
@@ -120,6 +126,7 @@ class DesktopUpdateNotifier extends Notifier<DesktopUpdateStatus> {
           key: key,
           value: jsonEncode({
             'version': kAppVersion,
+            'edition': kDesktopEdition.name,
             'architecture': architecture,
             'checkedAt': result.checkedAt!.millisecondsSinceEpoch,
             'release': release?.toJson(),

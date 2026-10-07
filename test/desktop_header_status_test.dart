@@ -127,6 +127,12 @@ void main() {
                     'https://github.com/$kGithubRepo/releases/download/v1.1.2-desktop.1/Plana-macOS.dmg',
                 size: 6,
               ),
+              GithubAsset(
+                name: 'Plana-RemoteUpload-macOS.dmg',
+                url:
+                    'https://github.com/$kGithubRepo/releases/download/v1.1.2-desktop.1/Plana-RemoteUpload-macOS.dmg',
+                size: 6,
+              ),
               GithubAsset(name: 'Plana-Windows-x64.zip'),
             ],
           ),

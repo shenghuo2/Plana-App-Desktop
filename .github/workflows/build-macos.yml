@@ -2,9 +2,30 @@ name: Build desktop
 
 on:
   workflow_dispatch:
+    inputs:
+      editions:
+        description: macOS editions to build (release builds use both)
+        type: choice
+        options: [both, standard, remote-upload]
+        default: both
+      standard_ref:
+        description: Standard edition branch
+        default: desktop/merge-windows45
+        type: string
+      remote_ref:
+        description: Remote upload edition branch
+        default: feature/remote-upload
+        type: string
+      build_windows:
+        description: Also build the standard Windows edition
+        type: boolean
+        default: true
   push:
     branches:
       - 'desktop/**'
+      - 'feature/remote-upload'
+    tags:
+      - 'v*-desktop*'
 
 permissions:
   contents: read
@@ -14,13 +35,45 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  plan:
+    name: Resolve edition commits
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      standard_sha: ${{ steps.plan.outputs.standard_sha }}
+      build_windows: ${{ steps.plan.outputs.build_windows }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Pin commits and validate matching versions
+        id: plan
+        env:
+          BUILD_EVENT: ${{ github.event_name }}
+          BUILD_BRANCH: ${{ github.ref_name }}
+          BUILD_REF_TYPE: ${{ github.ref_type }}
+          BUILD_SHA: ${{ github.sha }}
+          BUILD_EDITIONS: ${{ inputs.editions || 'both' }}
+          STANDARD_BRANCH: ${{ inputs.standard_ref || 'desktop/merge-windows45' }}
+          REMOTE_BRANCH: ${{ inputs.remote_ref || 'feature/remote-upload' }}
+          BUILD_WINDOWS: ${{ inputs.build_windows }}
+        run: python3 tool/desktop_build_plan.py
+      - uses: actions/upload-artifact@v7
+        with:
+          name: desktop-build-plan
+          path: desktop-build-plan.json
+
   quality:
-    name: Analyze and test
+    name: Analyze and test (${{ matrix.edition }})
+    needs: plan
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.plan.outputs.matrix) }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - name: Check out source
         uses: actions/checkout@v7
+        with:
+          ref: ${{ matrix.sha }}
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
@@ -42,12 +95,16 @@ jobs:
   # Swift 只build macOS,C++ 要 MSVC。这里把 Windows 构建和原生单测都跑起来 ——
   # 少了这一趟,那半边代码就只能等用户实机报错。
   windows:
-    name: Build and test Windows
+    name: Build and test Windows (standard)
+    needs: [plan, quality]
+    if: needs.plan.outputs.build_windows == 'true'
     runs-on: windows-latest
     timeout-minutes: 45
     steps:
       - name: Check out source
         uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.plan.outputs.standard_sha }}
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
@@ -81,12 +138,21 @@ jobs:
           if-no-files-found: error
 
   macos:
-    name: Build macOS
+    name: Build macOS (${{ matrix.edition }})
+    needs: [plan, quality]
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.plan.outputs.matrix) }}
+    env:
+      DMG_NAME: ${{ matrix.dmg }}
+      DMG_VOLUME: ${{ matrix.volume }}
     runs-on: macos-15
     timeout-minutes: 45
     steps:
       - name: Check out source
         uses: actions/checkout@v7
+        with:
+          ref: ${{ matrix.sha }}
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
@@ -203,14 +269,14 @@ jobs:
       - name: Create ad-hoc DMG
         run: >-
           hdiutil create
-          -volname "Plana App"
+          -volname "$DMG_VOLUME"
           -srcfolder "build/macos/Build/Products/Release/Plana App.app"
           -ov
           -format UDZO
-          "Plana-macOS-arm64.dmg"
+          "$DMG_NAME"
 
       - name: Create update checksum
-        run: shasum -a 256 Plana-macOS-arm64.dmg > Plana-macOS-arm64.dmg.sha256
+        run: shasum -a 256 "$DMG_NAME" > "$DMG_NAME.sha256"
 
       - name: Validate packaged macOS image
         shell: bash
@@ -225,7 +291,7 @@ jobs:
           }
           trap cleanup EXIT
 
-          hdiutil attach -readonly -nobrowse -mountpoint "$mount_point" "Plana-macOS-arm64.dmg"
+          hdiutil attach -readonly -nobrowse -mountpoint "$mount_point" "$DMG_NAME"
           app_path="$mount_point/Plana App.app"
           plist_path="$app_path/Contents/Info.plist"
           executable_name="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$plist_path")"
@@ -262,8 +328,8 @@ jobs:
       - name: Upload macOS image
         uses: actions/upload-artifact@v7
         with:
-          name: Plana-macOS-ad-hoc
+          name: ${{ matrix.artifact }}
           path: |
-            Plana-macOS-arm64.dmg
-            Plana-macOS-arm64.dmg.sha256
+            ${{ matrix.dmg }}
+            ${{ matrix.dmg }}.sha256
           if-no-files-found: error

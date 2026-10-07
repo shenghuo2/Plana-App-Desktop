@@ -9,6 +9,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import '../../core/app_info.dart';
+import '../../core/desktop_edition.dart';
 import '../../core/store/atomic_file.dart';
 import 'macos_update_script.dart';
 import 'update_service.dart';
@@ -28,11 +29,16 @@ class DownloadedMacOSUpdate {
   final String sha256;
 }
 
-GithubAsset? macOSUpdateAsset(GithubRelease release, String architecture) {
+GithubAsset? macOSUpdateAsset(
+  GithubRelease release,
+  String architecture, {
+  DesktopEdition edition = DesktopEdition.standard,
+}) {
   final candidates = release.assets
       .where(
         (a) =>
             a.name.toLowerCase().endsWith('.dmg') &&
+            matchesDesktopEditionAsset(a.name, edition) &&
             a.matchesArchitecture(architecture) &&
             a.url.isNotEmpty &&
             a.size > 0,
@@ -54,6 +60,7 @@ GithubAsset? macOSUpdateAsset(GithubRelease release, String architecture) {
 /// 用户点击下载后校验 DMG;独立助手验证、暂存成功后才退出当前应用。
 class MacOSUpdateService {
   MacOSUpdateService({
+    this.edition = DesktopEdition.standard,
     Directory? directory,
     String? executablePath,
     http.Client Function()? clientFactory,
@@ -70,6 +77,7 @@ class MacOSUpdateService {
        _exitApp = exitApp ?? exit;
 
   final Directory? _directoryOverride;
+  final DesktopEdition edition;
   final String _executablePath;
   final http.Client Function() _clientFactory;
   final Future<Process> Function(String, List<String>) _processStarter;
@@ -104,7 +112,7 @@ class MacOSUpdateService {
     required String architecture,
     required void Function(int received, int total) onProgress,
   }) async {
-    final asset = macOSUpdateAsset(release, architecture);
+    final asset = macOSUpdateAsset(release, architecture, edition: edition);
     if (asset == null) throw const UpdateException('此版本没有适合当前 Mac 的 DMG');
     if (_client != null) throw const UpdateException('更新包正在下载');
     final client = _clientFactory();
@@ -119,7 +127,9 @@ class MacOSUpdateService {
         RegExp(r'[^A-Za-z0-9._-]'),
         '_',
       );
-      final file = File(p.join(root.path, '$safeVersion-$architecture.dmg'));
+      final file = File(
+        p.join(root.path, '$safeVersion-$architecture-${edition.name}.dmg'),
+      );
       final part = partial = File('${file.path}.part');
       final expected = await _expectedSha(client, release, asset);
       if (await _valid(file, asset, expected)) {

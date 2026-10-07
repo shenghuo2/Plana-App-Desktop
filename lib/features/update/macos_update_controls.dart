@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/desktop_edition.dart';
 import '../../core/theme/app_theme.dart';
 import '../inpaint/inpaint_overlay.dart';
 import '../shell/desktop_work_state.dart';
@@ -17,7 +18,11 @@ class MacOSUpdateControls extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final state = ref.watch(macOSUpdateProvider);
     final controller = ref.read(macOSUpdateProvider.notifier);
-    final asset = macOSUpdateAsset(release, macOSArchitecture);
+    final asset = macOSUpdateAsset(
+      release,
+      macOSArchitecture,
+      edition: kDesktopEdition,
+    );
     final busy = ref.watch(desktopWorkBusyProvider);
     final editing = ref.watch(inpaintSessionProvider) != null;
     final ready = state.downloaded?.release.tag == release.tag;

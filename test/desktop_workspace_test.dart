@@ -11,6 +11,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:plana_app/core/platform/desktop.dart';
 import 'package:plana_app/core/app_info.dart';
+import 'package:plana_app/core/desktop_edition.dart';
 import 'package:plana_app/core/store/app_stores.dart';
 import 'package:plana_app/features/desktop/desktop_library_state.dart';
 import 'package:plana_app/features/editor/widgets/chip_flow_view.dart';
@@ -215,6 +216,7 @@ void main() {
           key: 'desktop_update_${defaultTargetPlatform.name}',
           value: jsonEncode({
             'version': kAppVersion,
+            'edition': kDesktopEdition.name,
             'architecture': macOSArchitecture,
             'checkedAt': DateTime.now().millisecondsSinceEpoch,
             'release': const GithubRelease(
@@ -226,7 +228,9 @@ void main() {
               prerelease: false,
               assets: [
                 GithubAsset(name: 'Plana-macOS.dmg'),
+                GithubAsset(name: 'Plana-RemoteUpload-macOS.dmg'),
                 GithubAsset(name: 'Plana-Windows-x64.zip'),
+                GithubAsset(name: 'Plana-RemoteUpload-Windows-x64.zip'),
               ],
             ).toJson(),
           }),
