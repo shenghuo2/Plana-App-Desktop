@@ -161,7 +161,7 @@ class AppStores {
     assistant.flush();
   }
 
-  /// 更新退出前等待真正落盘,不能只触发防抖队列后立即结束进程。
+  /// 普通退出和更新退出都等待真正落盘，不能只触发队列后立即结束进程。
   Future<void> flushForExit() async {
     flushNow();
     await Future.wait([

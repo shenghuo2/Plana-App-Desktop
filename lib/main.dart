@@ -10,6 +10,7 @@ import 'core/platform/clipboard_image.dart';
 import 'core/platform/desktop.dart';
 import 'core/store/app_stores.dart';
 import 'core/store/gen_settings.dart';
+import 'core/store/storage_lifecycle.dart';
 import 'core/theme/app_theme.dart';
 import 'core/theme/theme_settings.dart';
 import 'core/ui/input_focus_guard.dart';
@@ -70,14 +71,8 @@ Future<void> main() async {
     ),
   );
   // 注册即挂到 binding 观察者列表(强引用,不会被 GC):
-  // 退后台/失焦即刻把防抖窗口里的工作台/图库索引落盘,进程被杀不丢。
-  AppLifecycleListener(
-    onStateChange: (s) {
-      if (s == AppLifecycleState.inactive || s == AppLifecycleState.paused) {
-        stores.flushNow();
-      }
-    },
-  );
+  // 退后台/失焦即刻冲刷防抖存档，桌面正常退出还会等待所有存储写入完成。
+  createStorageLifecycleListener(stores);
   stores.postBootMaintenance(); // 选图器缓存清扫 + blob GC(延迟后台跑)
 }
 
