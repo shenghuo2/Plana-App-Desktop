@@ -29,10 +29,11 @@ foreach ($name in @('LICENSE.txt', 'THIRD_PARTY_NOTICES.md', 'source-code.zip', 
 }
 $manifestPath = Join-Path $bundle 'package-manifest.json'
 $manifest = Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
-$versionMatch = [regex]::Match($manifest.Version, '^(\d+)\.(\d+)\.(\d+)-windows\.(\d+)\+(\d+)$')
-if (!$versionMatch.Success -or $manifest.Architecture -ne 'x64') { throw 'Invalid Windows package version or architecture.' }
-$fileVersion = '{0}.{1}.{2}.{3}' -f $versionMatch.Groups[1].Value, $versionMatch.Groups[2].Value, $versionMatch.Groups[3].Value, $versionMatch.Groups[5].Value
-$packageName = 'Plana-Windows-' + $manifest.Version.Split('+')[0] + '-x64'
+. (Join-Path $PSScriptRoot 'windows_package_version.ps1')
+$packageVersion = Get-PlanaWindowsPackageVersion $manifest.Version
+if ($manifest.Architecture -ne 'x64') { throw 'Invalid Windows package version or architecture.' }
+$fileVersion = $packageVersion.FileVersion
+$packageName = $packageVersion.PackageName
 $files = @{}
 foreach ($entry in $manifest.Files) {
     $relative = [string]$entry.Path

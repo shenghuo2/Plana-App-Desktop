@@ -62,6 +62,10 @@ jobs:
       - name: Build release app
         run: flutter build windows --release --no-pub
 
+      - name: Windows package version tests
+        shell: pwsh
+        run: ./tool/test_windows_package_version.ps1
+
       - name: Native clipboard tests
         shell: cmd
         run: |

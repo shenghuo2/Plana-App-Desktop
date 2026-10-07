@@ -28,7 +28,8 @@ if (!$RuntimeCab -or !(Test-Path -LiteralPath $RuntimeCab -PathType Leaf)) {
 
 $version = [regex]::Match((Get-Content -LiteralPath (Join-Path $projectRoot 'pubspec.yaml') -Raw), '(?m)^version:\s*(\S+)').Groups[1].Value
 if (!$version) { throw 'Application version is missing' }
-$packageName = 'Plana-Windows-' + $version.Split('+')[0] + '-x64'
+. (Join-Path $PSScriptRoot 'windows_package_version.ps1')
+$packageName = (Get-PlanaWindowsPackageVersion $version).PackageName
 $OutputDirectory = [IO.Path]::GetFullPath($OutputDirectory)
 $bundle = Join-Path $OutputDirectory $packageName
 $zipPath = Join-Path $OutputDirectory ($packageName + '.zip')
@@ -179,6 +180,7 @@ Project license: GPL-3.0. See LICENSE and THIRD_PARTY_NOTICES.md.
     })
     [ordered]@{Version=$version;Architecture='x64';RuntimeVersion=$runtimeVersion;Files=$fileManifest} | ConvertTo-Json -Depth 5 |
         Set-Content -LiteralPath (Join-Path $bundle 'package-manifest.json') -Encoding UTF8
+    & (Join-Path $PSScriptRoot 'test_windows_installer.ps1') -BundleDirectory $bundle | Out-Host
     Push-Location -LiteralPath $OutputDirectory
     try {
         Invoke-Archive -ArchiveArguments @('a', '-tzip', $zipPath, $packageName, '-mx=7', '-bso0', '-bsp0')
