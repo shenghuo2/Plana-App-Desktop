@@ -157,6 +157,11 @@ class _AssistantPageState extends ConsumerState<AssistantPage> {
     setState(() => _sending = true);
     _toBottom();
     try {
+      await showAssistantIntro(context);
+      if (!mounted ||
+          ref.read(assistantSettingsProvider).value?.introDone != true) {
+        return;
+      }
       await ref
           .read(assistantProvider.notifier)
           .send(
@@ -294,13 +299,15 @@ class _AssistantPageState extends ConsumerState<AssistantPage> {
   /// 第一次进 AI 页:先确认资料库范围和使用习惯([showAssistantIntro])。
   /// 只在 AI 页真在前台时弹 —— 页面是保活的,停在别的 tab 时也可能重建。
   void _maybeShowIntro() {
-    if (_introOpen) return;
+    if (widget.embedded || _introOpen) return;
     final s = ref.watch(assistantSettingsProvider).value;
     if (s == null || s.introDone) return;
     if (ref.watch(shellIndexProvider) != kTabAssistant) return;
     _introOpen = true;
     WidgetsBinding.instance.addPostFrameCallback((_) async {
-      if (mounted) await showAssistantIntro(context);
+      if (mounted && ref.read(shellIndexProvider) == kTabAssistant) {
+        await showAssistantIntro(context);
+      }
       _introOpen = false;
     });
   }
@@ -796,6 +803,11 @@ class _AssistantPageState extends ConsumerState<AssistantPage> {
   /// 从某一句提问重来。和 [_send] 一样先回到底部:重来的那一轮出在最下面,
   /// 而长按菜单多半是停在上面某条消息上点的。
   Future<void> _retryFrom(String askId, {String? text}) async {
+    await showAssistantIntro(context);
+    if (!mounted ||
+        ref.read(assistantSettingsProvider).value?.introDone != true) {
+      return;
+    }
     _toBottom();
     await ref.read(assistantProvider.notifier).retryFrom(askId, text: text);
     if (mounted) _toBottom();

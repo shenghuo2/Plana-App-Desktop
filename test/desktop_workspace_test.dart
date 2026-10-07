@@ -16,6 +16,7 @@ import 'package:plana_app/features/desktop/desktop_library_state.dart';
 import 'package:plana_app/features/editor/widgets/chip_flow_view.dart';
 import 'package:plana_app/features/assistant/agent_model.dart';
 import 'package:plana_app/features/assistant/assistant_state.dart';
+import 'package:plana_app/features/assistant/assistant_settings.dart';
 import 'package:plana_app/features/assistant/custom_endpoint.dart';
 import 'package:plana_app/features/gallery/albums/album_state.dart';
 import 'package:plana_app/features/gallery/gallery_state.dart';
@@ -121,6 +122,12 @@ void main() {
       ],
     );
     c.read(desktopLibraryProvider);
+    await stores.prefs.write(
+      key: 'assistant_settings',
+      value: jsonEncode(
+        const AssistantSettings(introVersion: kAssistantIntroVersion).toJson(),
+      ),
+    );
   });
   tearDown(() {
     if (!disposed) c.dispose();
