@@ -15,6 +15,7 @@ import 'package:plana_app/features/gallery/models.dart';
 import 'package:plana_app/features/generate/models.dart';
 import 'package:plana_app/features/gallery/widgets/result_canvas.dart';
 import 'package:plana_app/features/inpaint/inpaint_ops.dart';
+import 'package:plana_app/features/inpaint/inpaint_overlay.dart';
 import 'package:plana_app/features/shell/shell_state.dart';
 
 void main() {
@@ -167,6 +168,27 @@ void main() {
     await tester.tap(find.text('打开'));
     await expectFrame(tester, 0);
     await tester.pumpAndSettle();
+  }
+
+  for (final initialTab in [kTabCreate, kTabGallery]) {
+    testWidgets('inpaint closes the viewer from tab $initialTab', (
+      tester,
+    ) async {
+      container.read(shellIndexProvider.notifier).select(initialTab);
+      await mount(tester, comparison: true);
+      await tester.tap(find.text('重绘'));
+      await tester.pumpAndSettle();
+      final session = container.read(inpaintSessionProvider);
+      expect(session, isNotNull);
+      expect(session!.sourceId, 'gen0');
+      expect(session.imageBytes, pixels[0]);
+      expect(container.read(shellIndexProvider), kTabCreate);
+      expect(key('desktop-image-viewer'), findsNothing);
+        expect(find.text('打开'), findsOneWidget);
+        expect(tester.takeException(), isNull);
+        stores.flushNow();
+        await tester.pumpWidget(const SizedBox());
+    });
   }
 
   testWidgets(

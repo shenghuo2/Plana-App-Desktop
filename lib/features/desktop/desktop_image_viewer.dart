@@ -163,6 +163,12 @@ class _DesktopImageViewerState extends ConsumerState<_DesktopImageViewer> {
     Navigator.of(context).pop();
   }
 
+  void _inpaintOpened() {
+    final shell = ref.read(shellIndexProvider.notifier);
+    _close();
+    shell.select(kTabCreate);
+  }
+
   Future<void> _transfer({required bool copy}) async {
     if (_transferring) return;
     setState(() => _transferring = true);
@@ -325,8 +331,7 @@ class _DesktopImageViewerState extends ConsumerState<_DesktopImageViewer> {
           key: ValueKey('desktop-image-actions-${result.id}'),
           result: result,
           detailsPanel: true,
-          onInpaintOpened: () =>
-              ref.read(shellIndexProvider.notifier).select(kTabCreate),
+          onInpaintOpened: _inpaintOpened,
         ),
         const SizedBox(height: 8),
         Row(
