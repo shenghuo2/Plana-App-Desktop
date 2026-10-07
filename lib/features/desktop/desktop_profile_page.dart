@@ -8,6 +8,7 @@ import '../migrate/web_backup_page.dart';
 import '../profile/about_page.dart';
 import '../profile/account_page.dart';
 import '../profile/appearance_page.dart';
+import '../profile/cloud_storage_page.dart';
 import '../profile/gen_settings_page.dart';
 import '../profile/storage_page.dart';
 import '../stats/stats_page.dart';
@@ -17,6 +18,12 @@ import '../tools/tools_page.dart';
 enum _Section {
   account('账号与接入', Icons.manage_accounts_outlined, '账户与服务', AccountPage()),
   dataImport('数据导入', Icons.import_export, '账户与服务', WebBackupPage()),
+  remoteUpload(
+    '远端上传',
+    Icons.cloud_upload_outlined,
+    '账户与服务',
+    CloudStoragePage(),
+  ),
   generation('生成设置', Icons.tune, '创作偏好', GenSettingsPage()),
   presets('提示词预设', Icons.bookmark_outline, '创作偏好', PromptPresetManagePage()),
   appearance('外观与体验', Icons.color_lens_outlined, '应用', AppearancePage()),

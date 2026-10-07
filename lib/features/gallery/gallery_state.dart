@@ -8,12 +8,14 @@ import '../../core/store/inpaint_history_cleanup.dart';
 import '../../core/platform/desktop.dart';
 import '../../core/store/date_album.dart';
 import '../../core/store/storage_settings.dart';
+import '../../core/net/external_image_push_config.dart';
 import '../generate/models.dart' show GenerateState;
 import '../generate/generation_controller.dart'
     show genNoticeProvider, generationProvider;
 import 'albums/album_models.dart';
 import 'albums/album_state.dart';
 import 'gallery_search.dart';
+import 'external_image_push.dart';
 import 'models.dart';
 
 final galleryProvider = NotifierProvider<GalleryNotifier, GalleryState>(
@@ -161,7 +163,8 @@ class GalleryNotifier extends Notifier<GalleryState> {
   }
 
   void toggleFavorite(String id) {
-    if (!state.results.any((r) => r.id == id)) return;
+    final result = state.results.where((r) => r.id == id).firstOrNull;
+    if (result == null) return;
     state = state.copyWith(
       results: [
         for (final r in state.results)
@@ -169,6 +172,13 @@ class GalleryNotifier extends Notifier<GalleryState> {
       ],
     );
     _persistIndex();
+    if (!result.favorite && ref.read(favoriteAutoUploadProvider)) {
+      unawaited(
+        ref
+            .read(externalImagePushUploadsProvider.notifier)
+            .upload(result.withFavorite(true)),
+      );
+    }
   }
 
   /// 生成链路产出真实结果:前插并选中,同时落盘(原图/缩略图/参数快照)。

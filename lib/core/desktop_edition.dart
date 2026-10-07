@@ -1,7 +1,7 @@
 /// The standard app and the remote upload feature use separate update assets.
 enum DesktopEdition { standard, remoteUpload }
 
-const kDesktopEdition = DesktopEdition.standard;
+const kDesktopEdition = DesktopEdition.remoteUpload;
 
 bool matchesDesktopEditionAsset(String name, DesktopEdition edition) {
   final lower = name.toLowerCase();

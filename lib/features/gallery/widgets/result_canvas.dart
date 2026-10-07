@@ -30,6 +30,7 @@ import '../../../core/store/app_stores.dart';
 import '../../../core/util/haptics.dart';
 import '../../../core/util/image_ops.dart';
 import '../gallery_state.dart';
+import 'image_remote_action.dart';
 import '../models.dart';
 import '../save_pipeline.dart';
 import '../phone_gallery_save.dart';
@@ -478,11 +479,31 @@ class _ActionRailState extends ConsumerState<ResultActions> {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          FilledButton.icon(
-            key: const ValueKey('desktop-image-import'),
-            onPressed: () => _import(context, ref),
-            icon: const Icon(Icons.input, size: 18),
-            label: const Text('导入到创作'),
+          Row(
+            children: [
+              Expanded(
+                child: FilledButton.icon(
+                  key: const ValueKey('desktop-image-import'),
+                  style: FilledButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                  ),
+                  onPressed: () => _import(context, ref),
+                  icon: const Icon(Icons.input, size: 18),
+                  label: const Text('导入到创作'),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: ImageRemoteAction(
+                  result: widget.result,
+                  enabled: widget.enabled,
+                  outlined: true,
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                  ),
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 8),
           Wrap(
@@ -725,6 +746,11 @@ class _ActionRailState extends ConsumerState<ResultActions> {
                           : null,
                       icon: const Icon(Icons.content_copy, size: 18),
                       label: const Text('复制图片'),
+                    ),
+                    ImageRemoteAction(
+                      result: widget.result,
+                      enabled: canAct,
+                      style: style,
                     ),
                     _baseImageButton(style: style, enabled: canAct),
                   ],

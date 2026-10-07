@@ -8,6 +8,7 @@ import '../generate/gen_jobs.dart';
 import '../generate/gen_queue.dart';
 import '../generate/generation_controller.dart';
 import '../generate/loop_controller.dart';
+import '../gallery/external_image_push.dart';
 import '../update/macos_update_controller.dart';
 
 bool _waiting(GenJob job) =>
@@ -41,6 +42,11 @@ final desktopTaskStatusProvider = Provider((ref) {
   final loop = ref.watch(loopStatusProvider.select((loop) => loop.active));
   final assistant = ref.watch(assistantProvider.select((s) => s.running));
   final activeCount = jobs.active + (assistant ? 1 : 0);
+  final uploads = ref.watch(
+    externalImagePushUploadsProvider.select(
+      (s) => (pending: s.pending.length, failed: s.failures.length),
+    ),
+  );
   // items 不含已派发到任务池的工作,两边相加不会重复计数。
   final waitingCount = jobs.waiting + queue.count;
   final labels = <String>[
@@ -54,6 +60,8 @@ final desktopTaskStatusProvider = Provider((ref) {
       jobs.waiting == 0 && !queue.active && !loop && activeCount == 0
           ? '待处理 $waitingCount'
           : '排队 $waitingCount',
+    if (uploads.pending > 0) '上传中 ${uploads.pending}',
+    if (uploads.failed > 0) '上传失败 ${uploads.failed}',
   ];
   // 循环/队列的启动、接续及收尾间隙可能还没有任务,仍应显示入口。
   if (labels.isEmpty) {
@@ -83,6 +91,7 @@ final desktopTaskStatusProvider = Provider((ref) {
         queue.active ||
         loop ||
         assistant ||
+        uploads.pending > 0 ||
         updating,
   );
 });
@@ -142,12 +151,15 @@ class _TaskPanel extends ConsumerWidget {
     final assistant = ref.watch(
       assistantProvider.select((s) => (running: s.running, stage: s.stage)),
     );
+    final uploads = ref.watch(externalImagePushUploadsProvider);
     final idle =
         jobs.isEmpty &&
         queue.items.isEmpty &&
         !queue.active &&
         !loop.active &&
         !assistant.running &&
+        uploads.pending.isEmpty &&
+        uploads.failures.isEmpty &&
         !update.busy;
     final completed = loop.batch > 0 ? loop.batch - 1 : 0;
     return Column(
@@ -209,6 +221,43 @@ class _TaskPanel extends ConsumerWidget {
                         ? update.received / update.total
                         : null,
                   ),
+                if (uploads.pending.isNotEmpty)
+                  _TaskRow(
+                    icon: Icons.cloud_upload_outlined,
+                    title: '远端上传 · ${uploads.pending.length} 张',
+                    detail: '正在上传原图',
+                    showProgress: true,
+                  ),
+                for (final failure in uploads.failures.values) ...[
+                  _TaskRow(
+                    icon: Icons.cloud_off_outlined,
+                    title:
+                        '远端上传失败 · ${failure.result.width} × ${failure.result.height}',
+                    detail: failure.message,
+                  ),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      TextButton(
+                        onPressed: () => ref
+                            .read(externalImagePushUploadsProvider.notifier)
+                            .dismissFailure(failure.result.id),
+                        child: const Text('忽略'),
+                      ),
+                      TextButton.icon(
+                        key: ValueKey(
+                          'retry-image-upload-${failure.result.id}',
+                        ),
+                        onPressed: () => ref
+                            .read(externalImagePushUploadsProvider.notifier)
+                            .retry(failure.result.id),
+                        icon: const Icon(Icons.refresh, size: 16),
+                        label: const Text('重试上传'),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                ],
                 for (final job in jobs)
                   _TaskRow(
                     icon: job.kind == GenJobKind.inpaint

@@ -20,7 +20,7 @@ class DesktopVersionButton extends ConsumerWidget {
     );
     return Tooltip(
       message: release == null
-          ? '版本信息与更新 · 构建 $kAppBuild'
+          ? '远端上传版 · 版本信息与更新 · 构建 $kAppBuild'
           : '发现新版本 ${release.display}',
       child: TextButton(
         key: const ValueKey('desktop-version-button'),
@@ -73,6 +73,8 @@ class _VersionPanel extends ConsumerWidget {
           Text(kAppName, style: context.texts.titleMedium),
           const SizedBox(height: 6),
           Text('版本 $kAppVersion · 构建 $kAppBuild'),
+          const SizedBox(height: 6),
+          Text('远端上传版', style: context.texts.bodySmall),
           const SizedBox(height: 16),
           Text(
             release != null

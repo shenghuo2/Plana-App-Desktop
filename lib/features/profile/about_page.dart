@@ -49,7 +49,7 @@ class AboutPage extends StatelessWidget {
                 ),
                 const SizedBox(height: 3),
                 Text(
-                  kAppTagline,
+                  '$kAppTagline · 远端上传版',
                   style: context.texts.bodySmall!.copyWith(
                     color: scheme.onSurfaceVariant,
                   ),
