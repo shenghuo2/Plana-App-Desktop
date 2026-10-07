@@ -1300,7 +1300,11 @@ class GenerationNotifier extends Notifier<GenPool> {
     final galleryTarget =
         _job(jobId)?.galleryTarget ?? const GallerySaveTarget.all();
     final firstFocused = s.inpaint?.paste?.focus != null
-        ? await pasteFocusedInpaint(job: s.inpaint!, patch: batch.first)
+        ? await pasteFocusedInpaint(
+            job: s.inpaint!,
+            patch: batch.first,
+            originalState: s,
+          )
         : null;
     // 保存/缩略图/图库归属都有异步间隙。此时撤任务会让画布短暂露出旧图，
     // 必须保留终图，等主图选中（或建立跨图库临时预览）后再交给历史。
@@ -1367,7 +1371,9 @@ class GenerationNotifier extends Notifier<GenPool> {
     if (paste?.focus != null) {
       // Failed validation must not silently publish a request-sized crop as a
       // completed focused edit. Keep the source safe and surface the error.
-      out = focusedOutput ?? await pasteFocusedInpaint(job: job!, patch: bytes);
+      out =
+          focusedOutput ??
+          await pasteFocusedInpaint(job: job!, patch: bytes, originalState: s);
       w = paste!.outW;
       h = paste.outH;
     } else if (paste != null) {

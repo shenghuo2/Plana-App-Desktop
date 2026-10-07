@@ -802,9 +802,11 @@ typedef _FocusPreparation = ({
 /// Resize the generated request to its original outer rectangle and replace
 /// only its effective interior mask. Context and unselected pixels remain
 /// byte-for-byte unchanged, including transparent source pixels.
+/// Final results use [originalState] to restore coordinates in their metadata.
 Future<Uint8List> pasteFocusedInpaint({
   required InpaintJob job,
   required Uint8List patch,
+  GenerateState? originalState,
   bool preview = false,
 }) {
   final paste = job.paste;
@@ -819,8 +821,23 @@ Future<Uint8List> pasteFocusedInpaint({
     width: paste.outW,
     height: paste.outH,
     preview: preview,
+    coordinates: originalState == null || preview
+        ? null
+        : (
+            useCoords: originalState.params.useCoords,
+            centers: [
+              for (final character in originalState.characters)
+                if (character.enabled && character.positive.trim().isNotEmpty)
+                  resolveCharacterCenter(character.position),
+            ],
+          ),
   ));
 }
+
+typedef _FocusCoordinates = ({
+  bool useCoords,
+  List<({double x, double y})?> centers,
+});
 
 typedef _FocusComposite = ({
   Uint8List original,
@@ -830,6 +847,7 @@ typedef _FocusComposite = ({
   int width,
   int height,
   bool preview,
+  _FocusCoordinates? coordinates,
 });
 
 Uint8List _pasteFocus(_FocusComposite input) {
@@ -894,6 +912,7 @@ Uint8List _pasteFocus(_FocusComposite input) {
     input.patch,
     input.width,
     input.height,
+    input.coordinates,
   )) {
     encoded.add(chunk);
   }
@@ -902,11 +921,13 @@ Uint8List _pasteFocus(_FocusComposite input) {
 }
 
 /// Retain the generated PNG's text chunks, including UTF-8 iTXt unsupported by
-/// the image package. Rewrite only Comment dimensions for the pasted canvas.
+/// the image package. Restore full-canvas dimensions and original character
+/// positions: crop mapping may have clamped them, so it cannot be inverted.
 Iterable<Uint8List> _focusResultTextChunks(
   Uint8List patch,
   int width,
   int height,
+  _FocusCoordinates? coordinates,
 ) sync* {
   const signature = [137, 80, 78, 71, 13, 10, 26, 10];
   if (patch.length < 8) return;
@@ -953,6 +974,9 @@ Iterable<Uint8List> _focusResultTextChunks(
           if (comment is Map<String, dynamic>) {
             comment['width'] = width;
             comment['height'] = height;
+            if (coordinates != null) {
+              _restoreFocusCoordinates(comment, coordinates);
+            }
             final body = Uint8List.fromList([
               ...ascii.encode('iTXtComment'),
               0,
@@ -984,6 +1008,55 @@ Iterable<Uint8List> _focusResultTextChunks(
       yield replacement ?? Uint8List.sublistView(patch, offset, end);
     }
     offset = end;
+  }
+}
+
+void _restoreFocusCoordinates(
+  Map<String, dynamic> comment,
+  _FocusCoordinates coordinates,
+) {
+  Map<String, double>? centerAt(int index) {
+    final point = coordinates.centers[index];
+    return point == null ? null : {'x': point.x, 'y': point.y};
+  }
+
+  List? captionsOf(Object? prompt) => prompt is Map && prompt['caption'] is Map
+      ? prompt['caption']['char_captions'] as List?
+      : null;
+
+  comment['use_coords'] = coordinates.useCoords;
+  final positive = captionsOf(comment['v4_prompt']);
+  final negative = captionsOf(comment['v4_negative_prompt']);
+  // Keep the generated negative captions associated with AUTO characters too,
+  // whose restored centers are empty and cannot be matched by coordinates.
+  if (positive != null && negative?.length == positive.length) {
+    for (var i = 0; i < positive.length; i++) {
+      if (positive[i] is Map && negative![i] is Map) {
+        positive[i]['char_uc'] ??= negative[i]['char_caption'];
+      }
+    }
+  }
+  for (final key in ['v4_prompt', 'v4_negative_prompt']) {
+    final prompt = comment[key];
+    if (prompt is! Map) continue;
+    if (key == 'v4_prompt' || prompt.containsKey('use_coords')) {
+      prompt['use_coords'] = coordinates.useCoords;
+    }
+    final captions = captionsOf(prompt);
+    if (captions == null || captions.length != coordinates.centers.length) {
+      continue;
+    }
+    for (var i = 0; i < captions.length; i++) {
+      if (captions[i] is! Map) continue;
+      final center = centerAt(i);
+      captions[i]['centers'] = center == null ? [] : [center];
+    }
+  }
+  final legacy = comment['characterPrompts'];
+  if (legacy is List && legacy.length == coordinates.centers.length) {
+    for (var i = 0; i < legacy.length; i++) {
+      if (legacy[i] is Map) legacy[i]['center'] = centerAt(i);
+    }
   }
 }
 

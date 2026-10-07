@@ -7,6 +7,7 @@ import 'package:image/image.dart' as img;
 import 'package:plana_app/core/util/png_meta.dart';
 import 'package:plana_app/features/generate/char_position.dart';
 import 'package:plana_app/features/generate/models.dart';
+import 'package:plana_app/features/generate/nai_request.dart';
 import 'package:plana_app/features/import/image_metadata.dart';
 import 'package:plana_app/features/inpaint/inpaint_ops.dart';
 
@@ -433,6 +434,123 @@ void main() {
         );
       },
     );
+  }
+
+  for (final useCoords in [true, false]) {
+    for (final legacy in [true, false]) {
+      test(
+        'full-canvas metadata restores clamped and AUTO positions (custom=$useCoords, legacy=$legacy)',
+        () async {
+          final state = GenerateState.initial().copyWith(
+            inpaint: prepared.job,
+            params: GenerateState.initial().params.copyWith(
+              useCoords: useCoords,
+            ),
+            characters: const [
+              CharacterPrompt(
+                id: 'off',
+                name: '',
+                positive: 'off',
+                enabled: false,
+              ),
+              CharacterPrompt(id: 'empty', name: ''),
+              CharacterPrompt(
+                id: 'a',
+                name: '',
+                positive: 'cat',
+                position: '0.3750,0.5000',
+              ),
+              CharacterPrompt(
+                id: 'b',
+                name: '',
+                positive: 'dog',
+                position: '0.9900,0.0000',
+              ),
+              CharacterPrompt(id: 'c', name: '', positive: 'bird'),
+            ],
+          );
+          final fields = Map<String, dynamic>.from(
+            buildNaiPayload(
+                  focusedRequestState(state),
+                  presetId: 'none',
+                  qualityToggle: false,
+                ).body['parameters']
+                as Map,
+          );
+          fields['prompt'] = 'generated prompt with preset';
+          fields['seed'] = 123456;
+          final positives =
+              fields['v4_prompt']['caption']['char_captions'] as List;
+          final negatives =
+              fields['v4_negative_prompt']['caption']['char_captions'] as List;
+          for (var i = 0; i < positives.length; i++) {
+            positives[i]['char_caption'] = 'generated character $i';
+            negatives[i]['char_caption'] = 'generated negative $i';
+          }
+          if (legacy) {
+            for (var i = 0; i < positives.length; i++) {
+              fields['characterPrompts'][i]['uc'] = 'generated negative $i';
+            }
+          } else {
+            fields.remove('characterPrompts');
+          }
+          final patch = await writeImageMetadataPng(
+            generated,
+            comment: fields,
+            source: 'NovelAI Diffusion V4.5',
+          );
+          final output = await pasteFocusedInpaint(
+            job: prepared.job,
+            patch: patch,
+            originalState: state,
+          );
+          final metadata = (await extractImageMetadata(output))!;
+          expect(metadata.prompt, 'generated prompt with preset');
+          expect(metadata.seed, '123456');
+          expect((metadata.width, metadata.height), (256, 256));
+          expect(metadata.useCoords, useCoords);
+          expect(metadata.characters.map((c) => (c.centerX, c.centerY)), [
+            (.375, .5),
+            (.99, .0),
+            (null, null),
+          ]);
+          expect(metadata.characters.map((c) => c.prompt), [
+            'generated character 0',
+            'generated character 1',
+            'generated character 2',
+          ]);
+          expect(metadata.characters.map((c) => c.uc), [
+            'generated negative 0',
+            'generated negative 1',
+            'generated negative 2',
+          ]);
+          final raw = metadata.raw as Map;
+          final restored = raw['Comment'] as Map;
+          expect(restored['use_coords'], useCoords);
+          expect(
+            restored['v4_negative_prompt']['caption']['char_captions'].map(
+              (c) => c['centers'],
+            ),
+            [
+              [
+                {'x': .375, 'y': .5},
+              ],
+              [
+                {'x': .99, 'y': .0},
+              ],
+              [],
+            ],
+          );
+          if (legacy) {
+            expect(restored['characterPrompts'].map((c) => c['center']), [
+              {'x': .375, 'y': .5},
+              {'x': .99, 'y': .0},
+              null,
+            ]);
+          }
+        },
+      );
+    }
   }
 
   test(

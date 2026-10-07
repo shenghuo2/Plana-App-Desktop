@@ -14,6 +14,7 @@ import 'package:plana_app/core/net/nai_client.dart';
 import 'package:plana_app/core/platform/desktop.dart';
 import 'package:plana_app/core/store/app_stores.dart';
 import 'package:plana_app/core/theme/app_theme.dart';
+import 'package:plana_app/core/util/png_meta.dart';
 import 'package:plana_app/features/desktop/desktop_library_state.dart';
 import 'package:plana_app/features/gallery/albums/album_models.dart';
 import 'package:plana_app/features/gallery/albums/album_state.dart';
@@ -23,6 +24,7 @@ import 'package:plana_app/features/generate/generate_state.dart';
 import 'package:plana_app/features/generate/generation_controller.dart';
 import 'package:plana_app/features/generate/models.dart';
 import 'package:plana_app/features/generate/widgets/img2img_card.dart';
+import 'package:plana_app/features/import/image_metadata.dart';
 import 'package:plana_app/features/inpaint/inpaint_comparison.dart';
 import 'package:plana_app/features/inpaint/inpaint_ops.dart';
 import 'package:plana_app/features/inpaint/inpaint_overlay.dart';
@@ -328,7 +330,17 @@ void main() {
         params: GenerateState.initial().params.copyWith(
           width: prepared.width,
           height: prepared.height,
+          useCoords: true,
         ),
+        characters: const [
+          CharacterPrompt(
+            id: 'a',
+            name: 'cat',
+            positive: 'cat',
+            negative: 'bad cat',
+            position: '0.9900,0.0000',
+          ),
+        ],
       );
       final generation = container
           .read(generationProvider.notifier)
@@ -368,7 +380,14 @@ void main() {
       client.frames.add((
         step: 28,
         isFinal: true,
-        bytes: _solid(prepared.width, prepared.height, 0, 0, 255),
+        bytes: await writeImageMetadataPng(
+          _solid(prepared.width, prepared.height, 0, 0, 255),
+          comment: {
+            ...Map<String, dynamic>.from(parameters),
+            'prompt': client.request!['input'],
+          },
+          source: 'NovelAI Diffusion V4.5',
+        ),
       ));
       await albums.saving.future.timeout(const Duration(seconds: 10));
       final saving = container.read(generationProvider).jobs.single;
@@ -389,6 +408,16 @@ void main() {
       expect(restoredResult.hasInpaintComparison, isTrue);
       final savedState = (await reopened.gallery.readInput(restoredResult.id))!;
       final finalBytes = (await reopened.gallery.readImage(restoredResult.id))!;
+      final metadata = (await extractImageMetadata(finalBytes))!;
+      expect(metadata.useCoords, isTrue);
+      expect(
+        (
+          metadata.characters.single.centerX,
+          metadata.characters.single.centerY,
+        ),
+        (.99, .0),
+      );
+      expect(metadata.characters.single.uc, 'bad cat');
       _expectOriginalGeometry(savedState.inpaint!);
       _expectComposed(finalBytes, [0, 0, 255]);
       final comparison = await buildInpaintComparison(
