@@ -6,6 +6,8 @@ import 'package:path/path.dart' as p;
 import 'package:plana_app/features/update/macos_update_script.dart';
 
 void main() {
+  // Allows Linux to exercise the Bash 3.2 behavior used by macOS as well.
+  final shell = Platform.environment['PLANA_TEST_BASH'] ?? '/bin/bash';
   group('macOS 更新助手 (macOS 工具由测试替身替代)', () {
     late Directory root;
     late Directory bundle;
@@ -29,18 +31,20 @@ void main() {
       required bool updated,
       bool starts = true,
       String bundleId = 'com.sora214.plana.app',
+      String executableName = 'Plana App',
+      String? version,
     }) async {
       final info = File(p.join(directory.path, 'Contents', 'Info.plist'));
       await info.parent.create(recursive: true);
       await info.writeAsString('''<?xml version="1.0" encoding="UTF-8"?>
 <plist version="1.0"><dict>
 <key>CFBundleIdentifier</key><string>$bundleId</string>
-<key>CFBundleExecutable</key><string>Plana App</string>
-<key>CFBundleShortVersionString</key><string>1.1.1.${updated ? 46 : 45}</string>
+<key>CFBundleExecutable</key><string>$executableName</string>
+<key>CFBundleShortVersionString</key><string>${version ?? '1.1.1.${updated ? 46 : 45}'}</string>
 <key>CFBundleVersion</key><string>${updated ? 65 : 64}</string>
 </dict></plist>''');
       final binary = File(
-        p.join(directory.path, 'Contents', 'MacOS', 'Plana App'),
+        p.join(directory.path, 'Contents', 'MacOS', executableName),
       );
       await binary.parent.create();
       await binary.writeAsString(
@@ -131,9 +135,11 @@ printf '%s\n' "$1" > "$PLANA_TEST_OPENED"
       bool badSignature = false,
       String architecture = 'x64',
       String availableArchitecture = 'x86_64',
+      int? appPid,
+      int shutdownTimeout = 120,
     }) async {
       var text = MacOSUpdateScript.build(
-        appPid: oldPid,
+        appPid: appPid ?? oldPid,
         version: 'v1.1.1-desktop.46+65',
         architecture: architecture,
         dmgPath: p.join(root.path, 'update.dmg'),
@@ -143,6 +149,7 @@ printf '%s\n' "$1" > "$PLANA_TEST_OPENED"
         backupApp: p.join(root.path, '.backup.app'),
         startupFile: startup.path,
         startupTimeout: 3,
+        shutdownTimeout: shutdownTimeout,
       );
       for (final command in commands.entries) {
         text = text.replaceAll(
@@ -151,10 +158,10 @@ printf '%s\n' "$1" > "$PLANA_TEST_OPENED"
         );
       }
       await script.writeAsString(text);
-      final syntax = await Process.run('/bin/bash', ['-n', script.path]);
+      final syntax = await Process.run(shell, ['-n', script.path]);
       expect(syntax.exitCode, 0, reason: '${syntax.stderr}');
       return Process.run(
-        '/bin/bash',
+        shell,
         [script.path],
         environment: {
           'PLANA_TEST_CANDIDATE': candidate.path,
@@ -169,6 +176,24 @@ printf '%s\n' "$1" > "$PLANA_TEST_OPENED"
     Future<Map> result() async =>
         jsonDecode(await File(p.join(work.path, 'result.json')).readAsString())
             as Map;
+
+    Future<void> expectRejectedUpdate(ProcessResult failed) async {
+      expect(
+        failed.exitCode,
+        isNot(0),
+        reason: await File(p.join(work.path, 'update.log')).readAsString(),
+      );
+      expect((await result())['success'], isFalse);
+      expect(
+        await File(p.join(bundle.path, 'version.txt')).readAsString(),
+        'old',
+      );
+      expect(await File(p.join(work.path, 'ready')).exists(), isFalse);
+      expect(
+        await Directory(p.join(root.path, '.backup.app')).exists(),
+        isFalse,
+      );
+    }
 
     Future<void> expectSuccessfulUpdate({
       String architecture = 'x64',
@@ -224,17 +249,7 @@ printf '%s\n' "$1" > "$PLANA_TEST_OPENED"
     });
 
     test('架构不匹配在退出和替换前被拒绝', () async {
-      final failed = await run(architecture: 'arm64');
-      expect(failed.exitCode, isNot(0));
-      expect(
-        await File(p.join(bundle.path, 'version.txt')).readAsString(),
-        'old',
-      );
-      expect(await File(p.join(work.path, 'ready')).exists(), isFalse);
-      expect(
-        await Directory(p.join(root.path, '.backup.app')).exists(),
-        isFalse,
-      );
+      await expectRejectedUpdate(await run(architecture: 'arm64'));
     });
 
     test('启动失败时恢复旧 .app 并重新打开', () async {
@@ -254,26 +269,37 @@ printf '%s\n' "$1" > "$PLANA_TEST_OPENED"
 
     test('不同 Bundle ID 在替换之前被拒绝', () async {
       await app(candidate, updated: true, bundleId: 'another.app');
-      final failed = await run();
-      expect(failed.exitCode, isNot(0));
-      expect(
-        await File(p.join(bundle.path, 'version.txt')).readAsString(),
-        'old',
-      );
-      expect(
-        await Directory(p.join(root.path, '.backup.app')).exists(),
-        isFalse,
-      );
+      await expectRejectedUpdate(await run());
+    });
+
+    test('不同可执行文件名在替换之前被拒绝', () async {
+      await app(candidate, updated: true, executableName: 'Another App');
+      await expectRejectedUpdate(await run());
+    });
+
+    test('与目标版本不符的安装包在替换之前被拒绝', () async {
+      await app(candidate, updated: true, version: '1.1.0');
+      await expectRejectedUpdate(await run());
+    });
+
+    test('旧应用未退出时超时保留旧版本', () async {
+      final running = await Process.start('/bin/bash', [
+        '-c',
+        'exec /bin/sleep 30',
+      ]);
+      try {
+        await expectRejectedUpdate(
+          await run(appPid: running.pid, shutdownTimeout: 1),
+        );
+        expect(await File(p.join(root.path, 'opened')).exists(), isFalse);
+      } finally {
+        running.kill();
+        await running.exitCode;
+      }
     });
 
     test('签名验证失败在退出和替换前被拒绝', () async {
-      final failed = await run(badSignature: true);
-      expect(failed.exitCode, isNot(0));
-      expect(
-        await File(p.join(bundle.path, 'version.txt')).readAsString(),
-        'old',
-      );
-      expect(await File(p.join(work.path, 'ready')).exists(), isFalse);
+      await expectRejectedUpdate(await run(badSignature: true));
     });
   }, skip: Platform.isWindows);
 

@@ -39,3 +39,10 @@ macOS 产物为 `Plana App Desktop.app`，Windows 程序为 `plana_app_for_windo
 macOS 内部可执行文件名保留为 `Plana App`，DMG 附带隐藏的旧名称链接。
 旧版更新器仍可通过 `Plana App.app` 复制完整应用并校验原执行文件名；新版更新器
 优先读取新名称，也接受旧包。打包冒烟会检查该链接及复制后的签名。
+
+1.1.3 构建 67 修正了 `lipo` 架构检查参数，并参考
+`Aaalice_NAI_Launcher/lib/core/services/macos_update_script.dart` 的显式身份、
+版本拒绝和退出超时处理，避免 macOS Bash 3.2 忽略部分失败校验。
+macOS CI 使用系统 `/bin/bash` 检查安装、拒绝错误包、退出超时与回滚，
+并用真实 `lipo` 验证生成的命令。1.1.2 与 1.1.3 构建 66 用户需手动安装
+构建 67，因为重新下载 DMG 不会替换旧客户端内置的安装脚本。
