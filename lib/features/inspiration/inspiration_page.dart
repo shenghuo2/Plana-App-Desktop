@@ -2563,7 +2563,7 @@ class _TagCard extends StatelessWidget {
               ),
             ),
             Padding(
-              padding: const EdgeInsets.fromLTRB(14, 12, 14, 8),
+              padding: const EdgeInsets.fromLTRB(14, 12, 14, 0),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
@@ -2584,24 +2584,37 @@ class _TagCard extends StatelessWidget {
                       color: scheme.onSurfaceVariant,
                     ),
                   ),
-                  const SizedBox(height: 4),
-                  TextButton(
-                    key: ValueKey('inspiration-detail-${entry.id}'),
-                    onPressed: onLongPress,
-                    style: TextButton.styleFrom(
-                      padding: EdgeInsets.zero,
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(6, 4, 6, 8),
+              child: TextButton(
+                key: ValueKey('inspiration-detail-${entry.id}'),
+                onPressed: onLongPress,
+                style:
+                    TextButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
                       minimumSize: const Size(0, 32),
                       alignment: Alignment.centerLeft,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                    ).copyWith(
+                      overlayColor: WidgetStateProperty.resolveWith((states) {
+                        if (states.contains(WidgetState.hovered)) {
+                          return scheme.primary.withValues(alpha: .12);
+                        }
+                        return null;
+                      }),
                     ),
-                    child: const Row(
-                      children: [
-                        Text('查看详情'),
-                        Spacer(),
-                        Icon(Icons.arrow_forward, size: 18),
-                      ],
-                    ),
-                  ),
-                ],
+                child: const Row(
+                  children: [
+                    Text('查看详情'),
+                    Spacer(),
+                    Icon(Icons.arrow_forward, size: 18),
+                  ],
+                ),
               ),
             ),
           ],
