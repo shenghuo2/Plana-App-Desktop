@@ -23,7 +23,7 @@
 ## 项目状态
 
 本项目基于 [Plana App](https://github.com/mc5024/Plana-App) 及其 [Windows 重构版](https://github.com/LingXia979/Plana-App-for-windows/tree/Plana-app-for-windows)，提供 Windows 与 macOS 桌面适配。后续构建的应用统一命名为 **Plana App Desktop**。
-当前源码版本为 **1.1.2-desktop（构建 65，Pre-release）**。GitHub Actions 提供各分支的构建产物；[已发布的 1.1.2 预发布包](https://github.com/shenghuo2/Plana-App-Desktop/releases/tag/v1.1.2-desktop)仍使用旧名称，不会随源码改名而自动替换。
+当前版本为 **1.1.3-desktop（构建 66，Pre-release）**，应用名称为 **Plana App Desktop**。标准版与远端上传版同时发布，安装包见 [1.1.3 预发布页](https://github.com/shenghuo2/Plana-App-Desktop/releases/tag/v1.1.3-desktop)；GitHub Actions 提供各分支的构建记录与产物。
 
 - `desktop/merge-windows45`：标准版的 Windows / macOS 桌面源码。
 - `feature/remote-upload`：在标准版上增加远端上传与「收藏自动上传」，单独构建 macOS DMG；两版使用相同版本号。
@@ -44,11 +44,14 @@
 
 macOS 包适用于 Apple Silicon（ARM64），需要 macOS 14 或更新版本，包内应用为 `Plana App Desktop.app`。标准版与远端上传版在关于页标明版本类型，并分别选择自己的更新包。
 
-### 已发布的 1.1.2 预发布包（旧名称）
+### 1.1.3 预发布下载
 
-- [Windows x64 便携版 ZIP](https://github.com/shenghuo2/Plana-App-Desktop/releases/download/v1.1.2-desktop/Plana-Windows-1.1.2-desktop-x64.zip)：完整解压后运行 `plana_app_for_windows.exe`。
-- [macOS Apple Silicon DMG](https://github.com/shenghuo2/Plana-App-Desktop/releases/download/v1.1.2-desktop/Plana-macOS-arm64.dmg)：需要 macOS 14 或更新版本，将 `Plana App.app` 拖入应用程序文件夹后运行。
-- [macOS DMG SHA-256](https://github.com/shenghuo2/Plana-App-Desktop/releases/download/v1.1.2-desktop/Plana-macOS-arm64.dmg.sha256) · [Windows ZIP SHA-256](https://github.com/shenghuo2/Plana-App-Desktop/releases/download/v1.1.2-desktop/Plana-Windows-1.1.2-desktop-x64.zip.sha256)。
+- [Windows x64 标准版 ZIP](https://github.com/shenghuo2/Plana-App-Desktop/releases/download/v1.1.3-desktop/Plana-App-Desktop-Windows-1.1.3-desktop-x64.zip)：完整解压后运行 `plana_app_for_windows.exe`。
+- [macOS Apple Silicon 标准版 DMG](https://github.com/shenghuo2/Plana-App-Desktop/releases/download/v1.1.3-desktop/Plana-App-Desktop-macOS-arm64.dmg)。
+- [macOS Apple Silicon 远端上传版 DMG](https://github.com/shenghuo2/Plana-App-Desktop/releases/download/v1.1.3-desktop/Plana-App-Desktop-RemoteUpload-macOS-arm64.dmg)：另含远端上传与「收藏自动上传」，无需此功能时选择标准版。
+- 两种 macOS 包均需要 macOS 14 或更新版本，将 `Plana App Desktop.app` 拖入应用程序文件夹后运行。每个安装包均附带同名 `.sha256` 校验文件，见[发布页全部资产](https://github.com/shenghuo2/Plana-App-Desktop/releases/tag/v1.1.3-desktop)。
+
+[1.1.2 预发布包](https://github.com/shenghuo2/Plana-App-Desktop/releases/tag/v1.1.2-desktop)保留旧名称，仍可作为历史版本下载。
 
 升级前请关闭旧版。发布包不附带个人账号、API/Bot/Web 授权、提示词草稿或私人 tag 库，首次使用请自行配置。Windows 包未进行代码签名，macOS 包使用 ad-hoc 签名，尚未经过 Apple 公证。
 

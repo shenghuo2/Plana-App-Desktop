@@ -24,7 +24,7 @@ const _remote = GithubAsset(
 );
 
 GithubRelease _release(List<GithubAsset> assets) => GithubRelease(
-  tag: 'v1.1.3-desktop',
+  tag: 'v$kAppVersion.1',
   name: '',
   notes: '',
   url: 'https://example.com/release',
