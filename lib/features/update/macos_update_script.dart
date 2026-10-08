@@ -12,6 +12,7 @@ class MacOSUpdateScript {
     required String backupApp,
     required String startupFile,
     int startupTimeout = 60,
+    int shutdownTimeout = 120,
   }) {
     var nativeVersion = version
         .split('+')
@@ -39,6 +40,7 @@ class MacOSUpdateScript {
       'BACKUP': quote(backupApp),
       'STARTUP': quote(startupFile),
       'TIMEOUT': startupTimeout.toString(),
+      'SHUTDOWN_TIMEOUT': shutdownTimeout.toString(),
     };
     var script = _template;
     for (final entry in values.entries) {
@@ -63,6 +65,7 @@ StagedApp=@@STAGED@@
 BackupApp=@@BACKUP@@
 StartupFile=@@STARTUP@@
 StartupTimeout=@@TIMEOUT@@
+ShutdownTimeout=@@SHUTDOWN_TIMEOUT@@
 MountDir="$WorkDir/mount"
 ReadyFile="$WorkDir/ready"
 ResultFile="$WorkDir/result.json"
@@ -118,12 +121,14 @@ trap 'fail $?' ERR
 trap 'fail 1' TERM INT
 trap cleanup EXIT
 
-[[ "$AppPid" -gt 0 && "$TargetApp" == *.app ]]
-[[ "$TargetApp" != /Volumes/* && "$TargetApp" != *'/AppTranslocation/'* ]]
+# macOS ships Bash 3.2, whose errexit/ERR handling can ignore failed [[ ]]
+# checks containing command substitutions. Reject invalid inputs explicitly.
+[[ "$AppPid" -gt 0 && "$TargetApp" == *.app ]] || fail 1
+[[ "$TargetApp" != /Volumes/* && "$TargetApp" != *'/AppTranslocation/'* ]] || fail 1
 TargetParent="$(dirname "$TargetApp")"
-[[ -d "$TargetApp" && -w "$TargetParent" ]]
-[[ "$(dirname "$StagedApp")" == "$TargetParent" && ! -e "$StagedApp" ]]
-[[ "$(dirname "$BackupApp")" == "$TargetParent" && ! -e "$BackupApp" ]]
+[[ -d "$TargetApp" && -w "$TargetParent" ]] || fail 1
+[[ "$(dirname "$StagedApp")" == "$TargetParent" && ! -e "$StagedApp" ]] || fail 1
+[[ "$(dirname "$BackupApp")" == "$TargetParent" && ! -e "$BackupApp" ]] || fail 1
 mkdir -p -- "$MountDir"
 /usr/bin/hdiutil attach "$DmgPath" -readonly -nobrowse -mountpoint "$MountDir"
 Mounted=1
@@ -131,18 +136,24 @@ CandidateApp="$MountDir/Plana App Desktop.app"
 if [[ ! -d "$CandidateApp" ]]; then
   CandidateApp="$MountDir/Plana App.app"
 fi
-[[ -d "$CandidateApp" ]]
+[[ -d "$CandidateApp" ]] || fail 1
 plist_value() { /usr/libexec/PlistBuddy -c "Print :$2" "$1/Contents/Info.plist"; }
-CurrentId="$(plist_value "$TargetApp" CFBundleIdentifier)"
-Executable="$(plist_value "$TargetApp" CFBundleExecutable)"
-[[ -n "$CurrentId" && -n "$Executable" && "$Executable" != */* ]]
-[[ "$(plist_value "$CandidateApp" CFBundleIdentifier)" == "$CurrentId" ]]
-[[ "$(plist_value "$CandidateApp" CFBundleExecutable)" == "$Executable" ]]
-[[ "$(plist_value "$CandidateApp" CFBundleShortVersionString)" == "$ExpectedVersion" ]]
-CandidateBuild="$(plist_value "$CandidateApp" CFBundleVersion)"
-[[ "$CandidateBuild" =~ ^[0-9]+$ ]]
-[[ -z "$ExpectedBuild" || "$CandidateBuild" == "$ExpectedBuild" ]]
-[[ -x "$CandidateApp/Contents/MacOS/$Executable" ]]
+CurrentId="$(plist_value "$TargetApp" CFBundleIdentifier)" || fail 1
+Executable="$(plist_value "$TargetApp" CFBundleExecutable)" || fail 1
+CandidateId="$(plist_value "$CandidateApp" CFBundleIdentifier)" || fail 1
+CandidateExecutable="$(plist_value "$CandidateApp" CFBundleExecutable)" || fail 1
+CandidateVersion="$(plist_value "$CandidateApp" CFBundleShortVersionString)" || fail 1
+CandidateBuild="$(plist_value "$CandidateApp" CFBundleVersion)" || fail 1
+if [[ -z "$CurrentId" || -z "$Executable" || "$Executable" == */* || \
+      "$CandidateId" != "$CurrentId" || \
+      "$CandidateExecutable" != "$Executable" || \
+      "$CandidateVersion" != "$ExpectedVersion" || \
+      ( -n "$ExpectedBuild" && "$CandidateBuild" != "$ExpectedBuild" ) ]] || \
+   [[ ! "$CandidateBuild" =~ ^[0-9]+$ ]]; then
+  printf 'Update application identity or version does not match the installed app.\n'
+  fail 1
+fi
+[[ -x "$CandidateApp/Contents/MacOS/$Executable" ]] || fail 1
 /usr/bin/lipo "$CandidateApp/Contents/MacOS/$Executable" -verify_arch "$Architecture"
 /usr/bin/codesign --verify --deep --strict "$CandidateApp"
 /usr/bin/ditto "$CandidateApp" "$StagedApp"
@@ -150,11 +161,14 @@ CandidateBuild="$(plist_value "$CandidateApp" CFBundleVersion)"
 rm -f -- "$StartupFile"
 printf 'ready\n' > "$ReadyFile"
 
-Deadline=$((SECONDS + 120))
+Deadline=$((SECONDS + ShutdownTimeout))
 while kill -0 "$AppPid" 2>/dev/null && [[ "$SECONDS" -lt "$Deadline" ]]; do
   sleep 0.25
 done
-! kill -0 "$AppPid" 2>/dev/null
+if kill -0 "$AppPid" 2>/dev/null; then
+  printf 'Application process %s did not exit within %s seconds.\n' "$AppPid" "$ShutdownTimeout"
+  fail 1
+fi
 mv -- "$TargetApp" "$BackupApp"
 Swapped=1
 mv -- "$StagedApp" "$TargetApp"
@@ -166,9 +180,9 @@ while [[ ! -f "$StartupFile" && "$SECONDS" -lt "$Deadline" ]]; do
   kill -0 "$UpdatedPid"
   sleep 0.25
 done
-[[ -f "$StartupFile" ]]
+[[ -f "$StartupFile" ]] || fail 1
 read -r StartupPid < "$StartupFile"
-[[ "$StartupPid" == "$UpdatedPid" ]]
+[[ "$StartupPid" == "$UpdatedPid" ]] || fail 1
 sleep 1
 kill -0 "$UpdatedPid"
 write_result true
