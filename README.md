@@ -1,4 +1,4 @@
-> Plana App Desktop：基于 windows.45 重构源码的 Windows / macOS 桌面版。标准版与远端上传版的构建说明见 [DESKTOP-EDITIONS.md](DESKTOP-EDITIONS.md)。
+> Plana App Desktop：基于 windows.45 桌面重构，合入 Android 1.2.0 功能的 Windows / macOS 桌面版。标准版与远端上传版的构建说明见 [DESKTOP-EDITIONS.md](DESKTOP-EDITIONS.md)。
 
 <div align="center">
 
@@ -23,7 +23,7 @@
 ## 项目状态
 
 本项目基于 [Plana App](https://github.com/mc5024/Plana-App) 及其 [Windows 重构版](https://github.com/LingXia979/Plana-App-for-windows/tree/Plana-app-for-windows)，提供 Windows 与 macOS 桌面适配。后续构建的应用统一命名为 **Plana App Desktop**。
-当前版本为 **1.1.3-desktop（构建 67，Pre-release）**，应用名称为 **Plana App Desktop**。标准版与远端上传版同时发布，安装包见 [1.1.3 预发布页](https://github.com/shenghuo2/Plana-App-Desktop/releases/tag/v1.1.3-desktop)；GitHub Actions 提供各分支的构建记录与产物。
+当前源码版本为 **1.2.0-desktop（构建 68）**，Android 1.2.0 的合并范围与数据迁移说明见 [合并记录](docs/ANDROID-1.2.0-INTEGRATION.md)。最近发布的版本为 **1.1.3-desktop（构建 67，Pre-release）**，安装包见 [1.1.3 预发布页](https://github.com/shenghuo2/Plana-App-Desktop/releases/tag/v1.1.3-desktop)；GitHub Actions 提供各分支的最新构建记录与产物。
 
 - `desktop/merge-windows45`：标准版的 Windows / macOS 桌面源码。
 - `feature/remote-upload`：在标准版上增加远端上传与「收藏自动上传」，单独构建 macOS DMG；两版使用相同版本号。
@@ -88,9 +88,9 @@ macOS 包适用于 Apple Silicon（ARM64），需要 macOS 14 或更新版本，
 以下为桌面版的主要功能。
 
 - **桌面工作台**：可调整侧栏宽度，提示词、画布与助手同屏；支持鼠标、键盘、文件拖入和快捷粘贴图片，图片按鼠标所在区域导入。
-- **提示词与预设**：文本／标签视图切换，正负提示词折叠联动；快捷小窗查看与切换预设。
+- **提示词与预设**：多画布、提示词分区、文本／标签视图切换，正负提示词折叠联动；快捷小窗查看与切换每张画布的预设。
 - **图库管理**：自建图库、日期筛选、收藏、多选与批量导出；一次复制到多个图库，每份副本独立保存。
-- **AI 助手**：一次附加多张图片，从历史选择图片，拖入或粘贴到助手区域即可加入附件；支持会话管理、消息编辑及生成图原图预览。
+- **AI 助手**：一次附加多张图片，从历史选择图片，拖入或粘贴到助手区域即可加入附件；支持完整规则编辑、最多 200 轮上下文、会话管理、消息编辑及生成图原图预览。
 - **图片剪贴板**：Windows / macOS 可粘贴图片，也可从画布、看图浮层、图库或助手复制图片到其他应用。
 - **参考与画布**：Vibe／角色参考单击立即切换、双击放大；图生图放大与超分辨率提供独立入口。
 - **本地作品**：Windows 自动保存到程序根目录的 `output` 文件夹；macOS 保存到文稿目录下的 `Plana/output`，升级不会替换作品目录。

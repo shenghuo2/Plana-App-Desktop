@@ -153,6 +153,7 @@ class _FilmStripState extends State<FilmStrip> {
         old.jobs.length != widget.jobs.length ||
         old.selectedJobId != widget.selectedJobId) {
       _cancelDelete();
+      if (widget.results.length < old.results.length) return;
       WidgetsBinding.instance.addPostFrameCallback((_) => _reveal());
     }
   }
@@ -531,6 +532,8 @@ class _FilmThumbState extends State<_FilmThumb> {
                   top: 4,
                   child: ResultBadgeChip(badge: result.badge),
                 ),
+              if (result.saved)
+                const Positioned(right: 4, top: 4, child: SavedMark(size: 14)),
             ],
           ),
         ),

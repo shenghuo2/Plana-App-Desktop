@@ -199,8 +199,8 @@ void main() {
       final target = scope == '其他图库'
           ? (await tester.runAsync(() => albums.create('新图目标')))!
           : albumId;
-      if (scope != '所有照片') albums.browse(albumId);
       albums.setSave(target);
+      albums.browse(scope == '所有照片' ? null : albumId);
       await mount(tester);
       await tester.runAsync(() async {
         expect(await pixel(tester), [255, 0, 0]);

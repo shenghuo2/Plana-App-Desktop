@@ -9,6 +9,7 @@ import '../../desktop/desktop_library_state.dart';
 import '../../../core/store/ui_prefs.dart';
 import '../../generate/generation_controller.dart';
 import '../gallery_state.dart';
+import '../models.dart';
 import 'album_models.dart';
 
 final albumsProvider = NotifierProvider<AlbumsNotifier, AlbumsData>(
@@ -85,7 +86,17 @@ class GalleryResultPreviewNotifier extends Notifier<GalleryResultPreview?> {
   void clear() => state = null;
 }
 
+ResultImage? albumCoverOf(
+  AlbumsData albums,
+  String? id,
+  List<ResultImage> items,
+) {
+  final pinned = albums.cover(id)?.sourceImageId;
+  return items.where((r) => r.id == pinned).firstOrNull ?? items.firstOrNull;
+}
+
 class AlbumsNotifier extends Notifier<AlbumsData> {
+  ({String? id})? _gridLanding;
   final _lastSelected = <String, String>{};
   @override
   AlbumsData build() => ref.watch(appStoresProvider).albums.data;
@@ -189,7 +200,11 @@ class AlbumsNotifier extends Notifier<AlbumsData> {
     return true;
   }
 
-  void browse(String? id, {bool alsoSave = false}) {
+  void browse(
+    String? id, {
+    bool alsoSave = false,
+    bool keepGeneration = false,
+  }) {
     if (!state.exists(id)) throw StateError('图库已被删除');
     if (ref.read(desktopModeProvider)) {
       ref.read(desktopLibraryProvider.notifier).choose(id);
@@ -214,7 +229,7 @@ class AlbumsNotifier extends Notifier<AlbumsData> {
     final next = images.any((r) => r.id == candidate)
         ? candidate
         : images.firstOrNull?.id;
-    ref.read(generationProvider.notifier).select(null);
+    if (!keepGeneration) ref.read(generationProvider.notifier).select(null);
     ref.read(galleryResultPreviewProvider.notifier).clear();
     ref
         .read(uiPrefsProvider.notifier)
@@ -225,17 +240,20 @@ class AlbumsNotifier extends Notifier<AlbumsData> {
           ),
         );
     ref.read(galleryProvider.notifier).select(next);
+    if (alsoSave && !ref.read(desktopModeProvider)) _gridLanding = (id: id);
   }
 
   void setSave(String? id) {
     if (!state.exists(id)) throw StateError('图库已被删除');
-    if (ref.read(desktopModeProvider)) {
-      browse(id, alsoSave: true);
-      return;
-    }
-    ref
-        .read(uiPrefsProvider.notifier)
-        .patch((p) => p.copyWith(gallerySaveAlbum: id ?? ''));
+    browse(id, alsoSave: true, keepGeneration: !ref.read(desktopModeProvider));
+  }
+
+  ({String? id})? takeGridLanding() {
+    final landing = _gridLanding;
+    _gridLanding = null;
+    final browsing = ref.read(uiPrefsProvider).galleryBrowseAlbum;
+    final scope = browsing.isEmpty || !state.exists(browsing) ? null : browsing;
+    return landing?.id == scope ? landing : null;
   }
 
   GalleryImportOrigin origin(String imageId) {

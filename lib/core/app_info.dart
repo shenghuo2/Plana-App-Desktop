@@ -8,8 +8,8 @@ library;
 /// 存储标识独立于显示名,改名不迁移用户配置、图库或加密令牌。
 const kAppName = 'Plana App Desktop';
 const kAppTagline = 'NovelAI 桌面创作端';
-const kAppVersion = '1.1.3-desktop';
-const kAppBuild = '67';
+const kAppVersion = '1.2.0-desktop';
+const kAppBuild = '68';
 
 /// 预发布版(版号带 `-`):关于页加内测标,免得测试反馈回来分不清版本。
 bool get kIsPrerelease => kAppVersion.contains('-');

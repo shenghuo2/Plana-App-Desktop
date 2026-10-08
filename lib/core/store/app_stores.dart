@@ -188,10 +188,10 @@ class AppStores {
       await clearRetiredRoleLexicon();
       try {
         final live = <String>{
-          ...await workspace.liveRefs(),
-          ...await gallery.liveRefs(),
+          ...await workspace.liveRefs(strict: true),
+          ...await gallery.liveRefs(strict: true),
           // 漏了这行 = AI 助手里用户带的图在启动第 6 秒被 GC 掉
-          ...await assistant.liveRefs(),
+          ...await assistant.liveRefs(strict: true),
         };
         await blobs.gc(live);
       } catch (_) {}

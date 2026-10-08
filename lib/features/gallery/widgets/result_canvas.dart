@@ -1,6 +1,7 @@
 import '../albums/album_state.dart';
 import '../albums/album_models.dart';
 import '../albums/album_ui.dart';
+import '../albums/mobile_album_ui.dart' show showGallerySaveAlbumPicker;
 import 'dart:async';
 import 'dart:io';
 import 'package:file_picker/file_picker.dart';
@@ -16,6 +17,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/ui/param_help.dart';
 import '../../desktop/desktop_canvas_state.dart';
 import '../../generate/generate_state.dart';
+import '../../generate/canvas_state.dart';
 import '../../generate/gen_modules.dart';
 import '../../generate/generation_controller.dart';
 import '../../generate/models.dart';
@@ -113,7 +115,7 @@ class GalleryImageLayer extends StatelessWidget {
   }
 }
 
-/// 桌面画布底部显示尺寸与种子；移动端保留右侧操作轨和左下种子。
+/// 桌面画布底部显示尺寸与种子；移动端显示保存图库和右侧操作轨。
 class ResultChrome extends StatelessWidget {
   const ResultChrome({
     super.key,
@@ -205,15 +207,7 @@ class ResultChrome extends StatelessWidget {
               ),
             )
           else
-            Positioned(
-              left: 12,
-              bottom: 16,
-              child: _SeedChip(
-                key: const ValueKey('canvas-seed'),
-                seed: result.seed,
-                enabled: enabled,
-              ),
-            ),
+            Positioned(left: 12, bottom: 16, child: const _SaveAlbumChip()),
         ],
       ),
     );
@@ -579,8 +573,10 @@ class _ActionRailState extends ConsumerState<ResultActions> {
                           ),
                           const SizedBox(height: 10),
                           _RailButton(
-                            label: '保存',
-                            icon: Icons.download,
+                            label: result.saved ? '已保存' : '保存',
+                            icon: result.saved
+                                ? Icons.download_done
+                                : Icons.download,
                             onTap: () => _download(context, ref),
                             onLongPress: () => _openSaveSheet(context, ref),
                           ),
@@ -805,6 +801,7 @@ class _ActionRailState extends ConsumerState<ResultActions> {
   Future<void> _useAsBaseImage() async {
     if (_settingBaseImage) return;
     final image = result;
+    final canvasId = ref.read(canvasWorkspaceProvider).activeId;
     setState(() => _settingBaseImage = true);
     try {
       // Read this displayed result, never its original generation input or the
@@ -819,8 +816,13 @@ class _ActionRailState extends ConsumerState<ResultActions> {
       final resolution = img2imgResolution(width, height);
       await ref.read(genModulesProvider.future);
       if (!mounted) return;
-      if (providerOfModel(ref.read(generateProvider).params.model) !=
-          GenProvider.nai) {
+      final source = ref.read(canvasWorkspaceProvider).find(canvasId);
+      if (source == null ||
+          providerOfModel(
+                source.prompts.sampling?.model ??
+                    ref.read(generateProvider).params.model,
+              ) !=
+              GenProvider.nai) {
         return;
       }
       // Enabling the module before the image is set lets the sidebar reveal
@@ -840,6 +842,7 @@ class _ActionRailState extends ConsumerState<ResultActions> {
           image: bytes,
           width: resolution.w,
           height: resolution.h,
+          canvasId: canvasId,
         );
       ref.read(shellIndexProvider.notifier).select(kTabCreate);
       ref.read(desktopImg2ImgRevealProvider.notifier).request();
@@ -1370,6 +1373,7 @@ class _ActionRailState extends ConsumerState<ResultActions> {
         image: result,
         format: settings.format,
       );
+      ref.read(galleryProvider.notifier).markSaved([result.id]);
       if (context.mounted) {
         hintSnack(context, '已保存到相册', icon: Icons.check_circle_outline);
       }
@@ -2056,4 +2060,61 @@ class _UpscalePanelState extends ConsumerState<_UpscalePanel> {
 
   TextStyle _pill(Color fg) =>
       TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: fg);
+}
+
+class _SaveAlbumChip extends ConsumerWidget {
+  const _SaveAlbumChip();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final scheme = context.scheme;
+    final target = ref.watch(gallerySaveTargetProvider).albumId;
+    final name = target == null
+        ? '全部相册'
+        : ref.watch(albumsProvider).name(target);
+    return Material(
+      color: scheme.surface.withValues(alpha: .84),
+      shape: StadiumBorder(
+        side: BorderSide(color: scheme.outlineVariant.withValues(alpha: .5)),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: () => showGallerySaveAlbumPicker(context),
+        // 13 号粗体、17 的图标:压在图上看得清,又不抢右侧操作轨。
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(11, 7, 7, 7),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.photo_album_outlined,
+                size: 17,
+                color: scheme.onSurface,
+              ),
+              const SizedBox(width: 6),
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 160),
+                child: Text(
+                  '保存到 $name',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: context.texts.labelLarge?.copyWith(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: scheme.onSurface,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 2),
+              Icon(
+                Icons.keyboard_arrow_down,
+                size: 17,
+                color: scheme.onSurface,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }

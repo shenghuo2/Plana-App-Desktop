@@ -7,8 +7,9 @@ import '../../editor/editor_state.dart';
 
 /// A persistent, independent editor session for each sidebar prompt.
 class DesktopPromptCard extends StatefulWidget {
-  const DesktopPromptCard({super.key, this.charId});
+  const DesktopPromptCard({super.key, this.charId, this.sectionId});
   final String? charId;
+  final String? sectionId;
 
   @override
   State<DesktopPromptCard> createState() => _DesktopPromptCardState();
@@ -28,9 +29,14 @@ class _DesktopPromptCardState extends State<DesktopPromptCard>
           () => EditorNotifier(immediateWriteBack: true),
         ),
       ],
-      child: EditorPage(positive: true, charId: widget.charId, embedded: true),
+      child: EditorPage(
+        positive: true,
+        charId: widget.charId,
+        sectionId: widget.sectionId,
+        embedded: true,
+      ),
     );
-    if (widget.charId != null) return editor;
+    if (widget.charId != null || widget.sectionId != null) return editor;
     return Material(
       color: context.scheme.surface,
       shape: RoundedRectangleBorder(

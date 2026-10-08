@@ -45,7 +45,8 @@ class _Assistant extends AssistantNotifier {
   AssistantState build() => const AssistantState(msgs: [_message]);
   void clear() => state = const AssistantState();
   @override
-  Future<void> generateFrom(String msgId) async => generated.add(msgId);
+  Future<void> generateFrom(String msgId, {String? canvasId}) async =>
+      generated.add(msgId);
 }
 
 class _Canvas extends GenerateNotifier {
@@ -205,7 +206,10 @@ void main() {
   ///
   /// **不能用 pumpAndSettle**:原图没读完时浮层里挂着转圈的进度指示,一直在动,
   /// 它就永远「settle」不了。这里边喂真时间(读盘要走真 IO)边 pump。
-  Future<void> settleViewer(WidgetTester tester, {bool untilImage = true}) async {
+  Future<void> settleViewer(
+    WidgetTester tester, {
+    bool untilImage = true,
+  }) async {
     for (var i = 0; i < 40; i++) {
       await tester.runAsync(
         () => Future<void>.delayed(const Duration(milliseconds: 10)),

@@ -49,6 +49,7 @@ class ResultImage {
     this.inpaintFrom,
     this.inpaintHistoryCleared = false,
     this.favorite = false,
+    this.saved = false,
     bool? hasInput,
   }) : hasInput = hasInput ?? input != null;
 
@@ -71,6 +72,9 @@ class ResultImage {
       (input?.inpaint != null ||
           (badge == ResultBadge.inpaint && hasInput) ||
           inpaintFrom != null);
+
+  /// 存进过手机相册(任一保存入口成功过一次)。只是提示,不拦再存。
+  final bool saved;
 
   /// 生成时刻(ms epoch)。0 = 未知(升级前的老索引由文件 mtime 回填,
   /// 回填也失败才会留 0,展开页归入「更早」段)。
@@ -111,6 +115,7 @@ class ResultImage {
           inpaintFrom: inpaintFrom,
           inpaintHistoryCleared: inpaintHistoryCleared,
           favorite: favorite,
+          saved: saved,
           hasInput: hasInput,
         );
 
@@ -126,6 +131,7 @@ class ResultImage {
     inpaintFrom: inpaintFrom,
     inpaintHistoryCleared: inpaintHistoryCleared,
     favorite: favorite,
+    saved: saved,
     bytes: bytes,
     input: input,
     hasInput: hasInput,
@@ -144,6 +150,7 @@ class ResultImage {
     hasInput: hasInput,
     inpaintHistoryCleared: true,
     favorite: favorite,
+    saved: saved,
   );
 
   ResultImage withFavorite(bool value) => ResultImage(
@@ -160,5 +167,26 @@ class ResultImage {
     inpaintFrom: inpaintFrom,
     inpaintHistoryCleared: inpaintHistoryCleared,
     favorite: value,
+    saved: saved,
   );
+
+  /// 标成已存进相册的副本(其余字段原样)。
+  ResultImage asSaved() => saved
+      ? this
+      : ResultImage(
+          id: id,
+          width: width,
+          height: height,
+          seed: seed,
+          badge: badge,
+          createdAt: createdAt,
+          batchIndex: batchIndex,
+          inpaintFrom: inpaintFrom,
+          saved: true,
+          favorite: favorite,
+          inpaintHistoryCleared: inpaintHistoryCleared,
+          bytes: bytes,
+          input: input,
+          hasInput: hasInput,
+        );
 }

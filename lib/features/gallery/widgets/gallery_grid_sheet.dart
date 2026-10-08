@@ -26,6 +26,7 @@ import '../albums/album_ui.dart';
 import '../albums/album_organize_sheet.dart';
 import '../albums/gallery_transfer_dialog.dart';
 import 'gallery_date_sheet.dart';
+import 'mobile_gallery_grid_sheet.dart' show showMobileGalleryGrid;
 import 'gallery_output_folder_button.dart';
 import 'gallery_toolbar_button.dart';
 import 'gallery_export_dialog.dart';
@@ -119,11 +120,7 @@ Future<void> showGalleryGrid(
       ),
     );
   }
-  return showModalBottomSheet<void>(
-    context: context,
-    isScrollControlled: true,
-    builder: (_) => const GalleryGridContent(),
-  );
+  return showMobileGalleryGrid(context);
 }
 
 /// 首次打开快速浏览时说明当前平台的长按与右键操作。

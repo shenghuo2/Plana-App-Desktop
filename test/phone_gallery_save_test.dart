@@ -213,6 +213,8 @@ void main() {
       );
       await tester.tap(find.text('历史'));
       await tester.pumpAndSettle();
+      await tester.tap(find.text('全部相册'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('多选'));
       await tester.pumpAndSettle();
       // 按显示的「新→旧」勾选，保存必须重新按时间排列。
@@ -223,7 +225,7 @@ void main() {
       final firstDone = Completer<void>();
       onWrite = (number) => number == 1 ? firstDone.future : Future.value();
       if (toAlbum) {
-        await tester.tap(find.text('手机相册'));
+        await tester.tap(find.text('自定义相册'));
         await tester.pumpAndSettle();
         await tester.enterText(find.byType(TextField).last, '测试排序');
         await tester.pumpAndSettle();
@@ -253,10 +255,17 @@ void main() {
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox.shrink());
       await tester.pumpAndSettle();
-      await tester.runAsync(() async {
-        stores.flushNow();
-        await stores.gallery.idle;
-      });
+      stores.flushNow();
+      var flushed = false;
+      final flush = stores.gallery.idle.then((_) => flushed = true);
+      for (var i = 0; i < 300 && !flushed; i++) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 10)),
+        );
+        await tester.pump();
+      }
+      expect(flushed, isTrue);
+      await flush;
     });
   }
 
