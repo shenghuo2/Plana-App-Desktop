@@ -10,6 +10,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:plana_app/core/platform/desktop.dart';
 import 'package:plana_app/core/store/app_stores.dart';
 import 'package:plana_app/core/theme/app_theme.dart';
+import 'package:plana_app/core/theme/theme_settings.dart';
 import 'package:plana_app/features/desktop/desktop_profile_page.dart';
 import 'package:plana_app/features/generate/generate_state.dart';
 import 'package:plana_app/features/inspiration/tag_editor_page.dart';
@@ -209,6 +210,9 @@ void main() {
   testWidgets(
     'profile keeps its sidebar, nested routes and tool drafts across categories and resize',
     (tester) async {
+      c
+          .read(themeSettingsProvider.notifier)
+          .patch((settings) => settings.copyWith(showTools: false));
       c.read(shellIndexProvider.notifier).select(kTabProfile);
       await mount(tester, const DesktopProfilePage());
       expect(find.byType(AccountPage), findsOneWidget);
@@ -260,7 +264,8 @@ void main() {
         tester.widget<TextField>(input).controller!.text,
         '(cat ears:1.2), solo',
       );
-      await tester.tap(find.text('转换'));
+      await tester.ensureVisible(key('weight-convert-run'));
+      await tester.tap(key('weight-convert-run'));
       await tester.pumpAndSettle();
       await tester.ensureVisible(find.text('导入提示词'));
       await tester.tap(find.text('导入提示词'));
@@ -415,9 +420,9 @@ void main() {
       expect(panel.right, lessThanOrEqualTo(1268));
       expect(panel.top, closeTo(anchor.bottom + 8, 1));
       expect(find.byType(BottomSheet), findsNothing);
-      final input = tester.widget<TextField>(
-        find.byType(TextField),
-      ).controller!;
+      final input = tester
+          .widget<TextField>(find.byType(TextField))
+          .controller!;
       await tester.enterText(find.byType(TextField), '喜欢的角色');
       await tester.tap(find.text('添加'));
       // 等的是**写入真正落完**,不是「大概过去了 100 毫秒」:状态是同步改的,
