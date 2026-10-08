@@ -70,6 +70,66 @@ class AppearancePage extends ConsumerWidget {
           ),
           const SizedBox(height: 16),
           if (desktop) ...[
+            const SettingsLabel('全局字体大小'),
+            SettingsCard(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Wrap(
+                        spacing: 12,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: [
+                          Text(
+                            '${(ts.textScale * 100).round()}%',
+                            key: const ValueKey('appearance-text-scale-value'),
+                            style: context.texts.titleLarge,
+                          ),
+                          TextButton(
+                            key: const ValueKey('appearance-text-scale-reset'),
+                            onPressed: ts.textScale == 1
+                                ? null
+                                : () => notifier.patch(
+                                    (x) => x.copyWith(textScale: 1),
+                                  ),
+                            child: const Text('恢复默认'),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        '即时调整整个应用的文字大小，100% 为默认',
+                        style: context.texts.bodySmall!.copyWith(
+                          color: context.scheme.onSurfaceVariant,
+                        ),
+                      ),
+                      Slider(
+                        key: const ValueKey('appearance-text-scale'),
+                        value: ts.textScale,
+                        min: kMinAppTextScale,
+                        max: kMaxAppTextScale,
+                        divisions: 12,
+                        label: '${(ts.textScale * 100).round()}%',
+                        semanticFormatterCallback: (value) =>
+                            '${(value * 100).round()}%',
+                        onChanged: (value) =>
+                            notifier.patch((x) => x.copyWith(textScale: value)),
+                      ),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text('80%', style: context.texts.bodySmall),
+                          Text('140%', style: context.texts.bodySmall),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
             const SettingsLabel('页面对齐方式'),
             SettingsCard(
               children: [
