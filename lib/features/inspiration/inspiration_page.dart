@@ -1,5 +1,6 @@
-import 'dart:async';
 import 'dart:io';
+import '../../core/ui/fade_in_once.dart';
+import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -11,14 +12,15 @@ import '../../core/net/remote_image.dart';
 import '../../core/platform/desktop.dart';
 import '../../core/store/ui_prefs.dart';
 import '../../core/theme/app_theme.dart';
-import '../../core/ui/fade_in_once.dart';
 import '../../core/ui/pinch_columns.dart';
 import '../../core/ui/scroll_memory.dart';
 import '../../core/ui/selection_bar.dart';
 import '../editor/editor_models.dart' show draftOf, outputOf, pickEditorText;
+import '../generate/canvas_state.dart';
 import '../generate/gen_modules.dart';
 import '../generate/generate_state.dart';
 import '../generate/models.dart' show maxCharactersOf;
+import '../generate/style_recipes.dart';
 import '../generate/widgets/common.dart' show confirmDialog, hintSnack;
 import '../shell/shell_state.dart';
 import 'codex/codex_view.dart';
@@ -27,6 +29,8 @@ import 'public_tags.dart';
 import 'tag_editor_page.dart';
 import 'tag_library.dart';
 import 'tag_models.dart';
+import 'widgets/scope_seg_tabs.dart';
+import 'widgets/tag_filter_chips.dart';
 import 'widgets/tag_filter_sheet.dart';
 import 'widgets/tag_sheets.dart';
 import '../../core/util/haptics.dart';
@@ -69,13 +73,17 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
   bool _codex = false;
   static const _kCodexSel = '__codex__';
 
+  /// 法典正文进过一次就一直挂着(切回标签库时只是藏起来),没进过不建、不拉数据。
+  bool _codexBuilt = false;
+
   late final TabController _tab = TabController(length: 2, vsync: this);
-  // 初始分类的记忆直接灌进 initialScrollOffset;换分类走 _switchCategory 落位。
-  late final _mineScroll = ScrollController(
-    initialScrollOffset: ScrollMemory.read(_scrollKey(_cat, false)) ?? 0,
+  // 账本 key 跟着当前分类走;网格按分类 + 分段换 key 重建,新网格从各自的账上落位
+  // (换分类、换分段、骨架换成内容都一样)。
+  late final _mineScroll = MemoScrollController.keyed(
+    () => _scrollKey(_cat, false),
   );
-  late final _pubScroll = ScrollController(
-    initialScrollOffset: ScrollMemory.read(_scrollKey(_cat, true)) ?? 0,
+  late final _pubScroll = MemoScrollController.keyed(
+    () => _scrollKey(_cat, true),
   );
 
   /// 每分类已选 id(我的/公共库两 scope 共用一套,对齐 web selectionMap)。
@@ -88,7 +96,7 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
 
   /// 筛选:null=全部;[_kFavFilter]=收藏;其余为标签名。
   String? _filter;
-  static const _kFavFilter = ' fav';
+  static const _kFavFilter = TagFilterChips.favorites;
 
   /// 画风的「适用模型」筛选:null=全部;[kGenericModelFilter]=只看通用;
   /// 其余是 [ArtistModelGroup] 的 name。与 [_filter] 是两个正交的维度,
@@ -122,8 +130,6 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
       final i = _tab.animation!.value.round();
       if (i != _tabIndex && mounted) setState(() => _tabIndex = i);
     });
-    _mineScroll.addListener(() => _saveScroll(_mineScroll, false));
-    _pubScroll.addListener(() => _saveScroll(_pubScroll, true));
   }
 
   @override
@@ -163,28 +169,10 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
   String _scrollKey(TagCategory c, bool pub) =>
       'inspiration.${c.name}.${pub ? 'public' : 'mine'}';
 
-  /// 持续记账(内容不可滚时跳过,否则会把记忆冲成 0)。
-  void _saveScroll(ScrollController ctrl, bool pub) {
-    if (!ctrl.hasClients || ctrl.positions.length != 1) return;
-    final p = ctrl.position;
-    if (!p.hasContentDimensions || p.maxScrollExtent <= 0) return;
-    ScrollMemory.write(_scrollKey(_cat, pub), p.pixels);
-  }
-
-  void _jumpTo(ScrollController ctrl, double want) {
-    if (!ctrl.hasClients || ctrl.positions.length != 1) return;
-    final p = ctrl.position;
-    if (!p.hasContentDimensions) return;
-    final target = want.clamp(0.0, p.maxScrollExtent);
-    if ((p.pixels - target).abs() > 1) ctrl.jumpTo(target);
-  }
-
   void _switchCategory(TagCategory c) {
     if (c == _cat) return;
-    // 目标位置必须在换 _cat **之前**读:换完之后旧偏移还挂在同一个控制器上,
-    // 记账监听会先把旧值写进新分类的账,读到的就不是原位了。
-    final wantMine = ScrollMemory.read(_scrollKey(c, false)) ?? 0;
-    final wantPub = ScrollMemory.read(_scrollKey(c, true)) ?? 0;
+    // 滚动位置不用在这里搬:网格的 widget key 带分类,换完 _cat 就是一份新列表,
+    // 挂上控制器时从新分类的账上落位(见 [MemoScrollController])。
     setState(() {
       _cat = c;
       _search = '';
@@ -196,12 +184,6 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
     });
     // 换完 _cat 再换:上限跟着新分类的卡片形状走
     jumpGridColumns(_savedCols(c));
-    // 新分类的列表要等这一帧布好才有 maxScrollExtent,落位排到帧后。
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      _jumpTo(_mineScroll, wantMine);
-      _jumpTo(_pubScroll, wantPub);
-    });
   }
 
   // ---- 双指捏合改列数(见 PinchColumnsMixin) ----
@@ -274,32 +256,12 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
   /// 「我的」的完整来源 = 本地条目 + 公共库里我发布的(本地没副本的补进来,
   /// 标 created;对齐 web mineAll)。归属判定优先 owner_id,与服务端一致。
   List<TagEntry> _mineAll(TagLibraryState lib) => _def.hasPublic
-      ? _mergeMine(
+      ? mergeMineTags(
           lib.of(_cat),
           ref.watch(botSessionProvider).value?.botUserId,
           ref.watch(publicTagsProvider(_cat)).value,
         )
       : lib.of(_cat);
-
-  /// [_mineAll] 的纯函数体 —— 筛选弹层要在 build 之外拿同一份来源点候选作者,
-  /// 那里不能 watch,只能把读来的值喂进来。
-  static List<TagEntry> _mergeMine(
-    List<TagEntry> local,
-    String? myId,
-    List<TagEntry>? pub,
-  ) {
-    if (myId == null || pub == null) return local;
-    final haveId = {for (final e in local) e.publicId};
-    final haveName = {for (final e in local) e.name};
-    return [
-      ...local,
-      for (final p in pub)
-        if (p.createdBy == myId &&
-            !haveId.contains(p.publicId) &&
-            !haveName.contains(p.name))
-          p.copyWith(origin: TagOrigin.created),
-    ];
-  }
 
   List<TagEntry> _mineList(TagLibraryState lib) {
     final q = _search.trim().toLowerCase();
@@ -378,6 +340,8 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
   }
 
   Future<void> _afterConfirm(List<TagEntry> used, String message) async {
+    // 写进的是此刻的当前画布,提示条里的「套用」也按它回写
+    final canvasId = ref.read(canvasWorkspaceProvider).activeId;
     await ref.read(tagLibraryProvider.notifier).markUsed(_cat, [
       for (final e in used) e.id,
     ]);
@@ -397,6 +361,10 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
     setState(() => _sel.clear());
     hintSnack(context, message, icon: Icons.check_circle_outline);
     ref.read(shellIndexProvider.notifier).select(kTabCreate);
+    // 画风带推荐参数、且对得上当前模型的,弹窗问套不套
+    if (_cat == TagCategory.artist) {
+      await offerStyleRecipe(context, ref, used, canvasId: canvasId);
+    }
   }
 
   /// 角色 → 加入角色卡(带名追加,上限按模型截断,见 maxCharactersOf)。
@@ -404,6 +372,9 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
     final entries = _resolveSelected(lib);
     if (entries.isEmpty) return;
     final cap = maxCharactersOf(ref.read(generateProvider).params.model);
+    final pubPreview = publicPreviewsOf(
+      ref.read(publicTagsProvider(_cat)).value,
+    );
     final drafts = [
       for (final e in entries)
         appendTagPromptsFolded(
@@ -420,6 +391,7 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
           name: entries[i].name,
           positive: outputOf(drafts[i].positiveDraft),
           negative: outputOf(drafts[i].negativeDraft),
+          avatar: tagPreviewOf(entries[i], pubPreview),
         ),
     ]);
     if (added == 0) {
@@ -447,10 +419,16 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
   }
 
   /// 角色「主提示词」/ 画风/场景/其他「确认选择」:正负向拼进主提示词。
+  /// 主提示词分过区时,每个条目自成一格、不折叠(同提示词卡头的「灵感库」)。
   Future<void> _confirmToPrompt(TagLibraryState lib) async {
     final entries = _resolveSelected(lib);
     if (entries.isEmpty) return;
     final gen = ref.read(generateProvider);
+    if (gen.sections.isNotEmpty) {
+      ref.read(generateProvider.notifier).addEntrySections(entries);
+      await _afterConfirm(entries, '已加入提示词');
+      return;
+    }
     // 追加到编辑器原文草稿(带回既有的禁用/折叠),每个条目自成一个折叠组;
     // 定稿由 outputOf 从草稿导出 —— 两者必须同时写,只写定稿的话草稿会被
     // 判过期作废,这次加进去的折叠(以及用户原有的禁用词)就一起没了。
@@ -487,87 +465,105 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
       return _desktopPage(scheme, lib);
     }
 
-    // 法典模式:只留分类胶囊的顶栏 + 只读浏览器,无搜索/分段/筛选/选择栏
-    // (法典自带选择器与搜索)。
-    if (_codex) {
-      return Scaffold(
-        body: Column(
-          children: [
-            _topBarCodex(scheme, lib),
-            const Expanded(child: CodexView()),
-          ],
-        ),
-      );
-    }
-
+    // 标签库与法典两套正文都挂着、只显示其一:来回切换时两边的滚动位置、
+    // 搜索框、分段都原样还在(原来是整块拆掉重建,切回来就回到顶上)。
     return Scaffold(
-      body: Column(
+      body: Stack(
+        fit: StackFit.expand,
         children: [
-          _topBar(scheme, lib),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(_kEdge, 8, _kEdge, 0),
-            child: TextField(
-              key: ValueKey('tag-search-${def.webId}'),
-              controller: _searchController,
-              onChanged: (v) => setState(() => _search = v),
-              decoration: InputDecoration(
-                isDense: true,
-                hintText: def.searchHint,
-                prefixIcon: const Icon(Icons.search, size: 20),
-                filled: true,
-                fillColor: scheme.surfaceContainerHigh,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide.none,
-                ),
-                contentPadding: const EdgeInsets.symmetric(vertical: 8),
-                // 「作者 / 适用模型」筛选挂在搜索框里:它们和左边的标签筛选是正交
-                // 维度,塞进同一条 chip 行既会让人以为是同一组单选,标签一多还会被
-                // 挤到屏幕外。挂这儿两个 scope 都有,且不多占一行高度。
-                // 只给有公共库的两类(角色/画风)—— 场景/其他的条目全是自己的,
-                // 没有「别人」可筛。
-                suffixIcon: def.hasPublic
-                    ? Builder(
-                        builder: (anchor) => _filterButton(scheme, anchor),
-                      )
-                    : null,
-                suffixIconConstraints: const BoxConstraints(
-                  minWidth: 0,
-                  maxWidth: 190,
-                ),
+          _shown(!_codex, _tagBody(scheme, lib, def)),
+          // 法典模式:只留分类胶囊的顶栏 + 只读浏览器,无搜索/分段/筛选/选择栏
+          // (法典自带选择器与搜索)。
+          if (_codexBuilt)
+            _shown(
+              _codex,
+              Column(
+                children: [
+                  _topBarCodex(scheme, lib),
+                  const Expanded(child: CodexView()),
+                ],
               ),
             ),
-          ),
-          if (def.hasPublic)
-            Padding(
-              // 「我的」下面紧跟筛选行,间距由它顶出,这里不再留底距;
-              // 公共态没有筛选行,分段行会直接贴上网格首个分组头(顶衬仅 2),
-              // 补一档底距回到与上方各行相同的 8 节奏。
-              padding: EdgeInsets.fromLTRB(
-                _kEdge,
-                8,
-                _kEdge,
-                _tabIndex == 0 ? 0 : 8,
-              ),
-              child: _segTabs(scheme, lib.of(_cat).length),
-            ),
-          if (_tabIndex == 0 || !def.hasPublic) _filterChips(lib),
-          Expanded(
-            // 禁 TabBarView 横滑:横滑手势留给 shell PageView 切底部 tab
-            // (与场景/其他分类行为一致),scope 切换走分段控件点按。
-            child: pinchLayer(
-              child: def.hasPublic
-                  ? TabBarView(
-                      controller: _tab,
-                      physics: const NeverScrollableScrollPhysics(),
-                      children: [_mineTab(lib), _publicTab(lib)],
-                    )
-                  : _mineTab(lib),
-            ),
-          ),
         ],
       ),
-      bottomNavigationBar: _selectionBar(scheme, lib),
+      bottomNavigationBar: _codex ? null : _selectionBar(scheme, lib),
+    );
+  }
+
+  /// 藏起来但不拆:不绘制、不接手势、不占焦点、动画停走,状态全留着。
+  Widget _shown(bool on, Widget child) => Offstage(
+    offstage: !on,
+    child: TickerMode(
+      enabled: on,
+      child: ExcludeFocus(excluding: !on, child: child),
+    ),
+  );
+
+  Widget _tagBody(ColorScheme scheme, TagLibraryState lib, TagCategoryDef def) {
+    return Column(
+      children: [
+        _topBar(scheme, lib),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(_kEdge, 8, _kEdge, 0),
+          child: TextField(
+            key: ValueKey('tag-search-${def.webId}'),
+            controller: _searchController,
+            onChanged: (v) => setState(() => _search = v),
+            decoration: InputDecoration(
+              isDense: true,
+              hintText: def.searchHint,
+              prefixIcon: const Icon(Icons.search, size: 20),
+              filled: true,
+              fillColor: scheme.surfaceContainerHigh,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide.none,
+              ),
+              contentPadding: const EdgeInsets.symmetric(vertical: 8),
+              // 「作者 / 适用模型」筛选挂在搜索框里:它们和左边的标签筛选是正交
+              // 维度,塞进同一条 chip 行既会让人以为是同一组单选,标签一多还会被
+              // 挤到屏幕外。挂这儿两个 scope 都有,且不多占一行高度。
+              // 只给有公共库的两类(角色/画风)—— 场景/其他的条目全是自己的,
+              // 没有「别人」可筛。
+              suffixIcon: def.hasPublic ? _filterButton(scheme, context) : null,
+              suffixIconConstraints: const BoxConstraints(
+                minWidth: 0,
+                maxWidth: 190,
+              ),
+            ),
+          ),
+        ),
+        if (def.hasPublic)
+          Padding(
+            // 「我的」下面紧跟筛选行,间距由它顶出,这里不再留底距;
+            // 公共态没有筛选行,分段行会直接贴上网格首个分组头(顶衬仅 2),
+            // 补一档底距回到与上方各行相同的 8 节奏。
+            padding: EdgeInsets.fromLTRB(
+              _kEdge,
+              8,
+              _kEdge,
+              _tabIndex == 0 ? 0 : 8,
+            ),
+            child: ScopeSegTabs(
+              controller: _tab,
+              mineCount: lib.of(_cat).length,
+            ),
+          ),
+        if (_tabIndex == 0 || !def.hasPublic) _filterChips(lib),
+        Expanded(
+          // 禁 TabBarView 横滑:横滑手势留给 shell PageView 切底部 tab
+          // (与场景/其他分类行为一致),scope 切换走分段控件点按。
+          child: pinchLayer(
+            child: def.hasPublic
+                ? TabBarView(
+                    controller: _tab,
+                    physics: const NeverScrollableScrollPhysics(),
+                    children: [_mineTab(lib), _publicTab(lib)],
+                  )
+                : _mineTab(lib),
+          ),
+        ),
+      ],
     );
   }
 
@@ -1008,7 +1004,7 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
   /// 分类选择(四类标签库 + 法典)。法典是特殊项:切模式,不走 [_switchCategory]。
   void _onPickCat(Object v) {
     if (v == _kCodexSel) {
-      setState(() => _codex = true);
+      setState(() => _codex = _codexBuilt = true);
     } else if (v is TagCategory) {
       if (_codex) setState(() => _codex = false);
       _switchCategory(v);
@@ -1127,108 +1123,6 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
     ],
   );
 
-  Widget _segTabs(ColorScheme scheme, int mineCount) {
-    return SizedBox(
-      height: 42,
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          color: scheme.surfaceContainerHigh,
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Stack(
-          children: [
-            // 视觉层:滑动指示器 + 渐变标签(随 tab 动画重建,无手势)。
-            Positioned.fill(
-              child: AnimatedBuilder(
-                animation: _tab.animation!,
-                builder: (context, _) {
-                  final t = _tab.animation!.value.clamp(0.0, 1.0);
-                  return LayoutBuilder(
-                    builder: (context, c) {
-                      final segW = c.maxWidth / 2;
-                      return Stack(
-                        alignment: Alignment.center,
-                        children: [
-                          Positioned(
-                            top: 3,
-                            bottom: 3,
-                            left: 3 + t * segW,
-                            width: segW - 6,
-                            child: DecoratedBox(
-                              decoration: BoxDecoration(
-                                color: scheme.surface,
-                                borderRadius: BorderRadius.circular(9),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.black.withValues(alpha: .06),
-                                    blurRadius: 4,
-                                    offset: const Offset(0, 1),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                          Row(
-                            children: [
-                              _segLabel(
-                                0,
-                                Icons.bookmark_outline,
-                                '我的 · $mineCount',
-                                t,
-                              ),
-                              _segLabel(1, Icons.public, '公共库', t),
-                            ],
-                          ),
-                        ],
-                      );
-                    },
-                  );
-                },
-              ),
-            ),
-            // 手势层:稳定不重建,整段任意位置可点。
-            Positioned.fill(
-              child: Row(
-                children: [
-                  for (var i = 0; i < 2; i++)
-                    Expanded(
-                      child: GestureDetector(
-                        behavior: HitTestBehavior.opaque,
-                        onTap: () => _tab.animateTo(i),
-                        child: const SizedBox.expand(),
-                      ),
-                    ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _segLabel(int i, IconData icon, String label, double t) {
-    final scheme = context.scheme;
-    final sel = i == 0 ? 1 - t : t;
-    final color = Color.lerp(scheme.onSurfaceVariant, scheme.primary, sel);
-    return Expanded(
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(icon, size: 15, color: color),
-          const SizedBox(width: 6),
-          Text(
-            label,
-            style: context.texts.labelLarge!.copyWith(
-              fontWeight: FontWeight.w700,
-              color: color,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   /// 当前模型筛选的显示名;null = 全部。
   String? get _modelFilterLabel {
     final f = _modelFilter;
@@ -1321,7 +1215,7 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
     final pub = ref.read(publicTagsProvider(_cat)).value;
     final scope = _tabIndex == 1 && _def.hasPublic
         ? (pub ?? const <TagEntry>[])
-        : _mergeMine(
+        : mergeMineTags(
             lib.of(_cat),
             ref.read(botSessionProvider).value?.botUserId,
             pub,
@@ -1698,14 +1592,9 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
   double get _cardAspect => _def.previewAspect;
 
   Widget _grid(List<_Group> groups, ScrollController ctrl, bool isPublic) {
-    // 有 publicId 的条目(收藏/我发布的)一律用当前公共库的 http 预览:
-    // 随当前后端地址,不受备份剥离本机预览、也不受端口变化影响。
-    final pubPreview = <String, String>{
-      for (final p
-          in ref.read(publicTagsProvider(_cat)).value ?? const <TagEntry>[])
-        if (p.publicId != null && p.previewUrl != null)
-          p.publicId!: p.previewUrl!,
-    };
+    final pubPreview = publicPreviewsOf(
+      ref.read(publicTagsProvider(_cat)).value,
+    );
     // 分组、预览表在外面算好;捏合与过渡只重建下面这一块(见 pinchBuilder)
     return pinchBuilder(
       (_) => LayoutBuilder(
@@ -1723,6 +1612,7 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
           final decodeW =
               (constraints.maxWidth - edge * 2 - gap * (cols - 1)) / cols;
           return CustomScrollView(
+            key: ValueKey(_scrollKey(_cat, isPublic)),
             controller: ctrl,
             physics: pinchPhysics(const AlwaysScrollableScrollPhysics()),
             slivers: [

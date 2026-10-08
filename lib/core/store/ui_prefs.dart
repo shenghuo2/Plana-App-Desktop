@@ -50,12 +50,12 @@ class UiPrefs {
   GalleryDateFilter get dateFilter =>
       galleryDateFilter ?? GalleryDateFilter.legacy(galleryDaysFilter);
 
-  /// 空字符串代表全部作品，两个选择互相独立。
+  /// 空字符串代表全部相册；浏览与新图保存位置分别记录。
   final String galleryBrowseAlbum;
   final String gallerySaveAlbum;
 
-  /// 图库网格的分组维度(`GalleryGroupBy` 的 name:`day` / `character` / `style`)。
-  /// 存字符串而不是下标 —— 将来插一个维度不会把老用户的选择挪到别的档去。
+  /// 桌面图库的分组维度(`GalleryGroupBy` 的 name)。
+  /// 存字符串,新增维度不会改变旧用户的选择。
   final String galleryGroupBy;
 
   /// 图库网格的列数(双指捏合调,2~5)。与分组维度共用一个值 ——
@@ -133,6 +133,7 @@ class UiPrefs {
     galleryDaysFilter: const {0, 1, 7, 30}.contains(j['galleryDaysFilter'])
         ? j['galleryDaysFilter'] as int
         : 0,
+    // 指定日期 / 日期范围只在本次运行内有效,见 GalleryDateFilter.restored
     galleryDateFilter: GalleryDateFilter.fromJson(
       j['galleryDateFilter'],
       legacyDays: j['galleryDaysFilter'] is int

@@ -15,7 +15,6 @@ import 'package:plana_app/features/gallery/albums/album_state.dart';
 import 'package:plana_app/features/gallery/albums/album_ui.dart';
 import 'package:plana_app/features/gallery/albums/import_album_options.dart';
 import 'package:plana_app/features/gallery/gallery_date_filter.dart';
-import 'package:plana_app/features/gallery/gallery_groups.dart';
 import 'package:plana_app/features/gallery/gallery_page.dart';
 import 'package:plana_app/features/gallery/gallery_state.dart';
 import 'package:plana_app/features/gallery/widgets/gallery_date_sheet.dart';
@@ -44,7 +43,9 @@ void main() {
   late ProviderContainer c;
   late String albumId, imageId;
   final capture = GlobalKey();
+  var cleanupInWidget = false;
   setUp(() async {
+    cleanupInWidget = false;
     stores = AppStores.ephemeral();
     c = ProviderContainer(
       overrides: [appStoresProvider.overrideWithValue(stores)],
@@ -71,11 +72,38 @@ void main() {
             .id;
   });
   tearDown(() async {
-    stores.flushNow();
-    await stores.gallery.idle;
-    await stores.albums.idle;
-    c.dispose();
+    if (!cleanupInWidget) {
+      c.dispose();
+      await stores.flushForExit();
+    }
   });
+
+  // Finish futures created by widget callbacks while their fake clock can
+  // still be pumped. Awaiting them from the outer tearDown can deadlock.
+  void galleryWidgetTest(
+    String description,
+    Future<void> Function(WidgetTester) body,
+  ) {
+    testWidgets(description, (tester) async {
+      try {
+        await body(tester);
+      } finally {
+        cleanupInWidget = true;
+        await tester.pumpWidget(const SizedBox.shrink());
+        c.dispose();
+        var flushed = false;
+        final flush = stores.flushForExit().then((_) => flushed = true);
+        for (var i = 0; i < 300 && !flushed; i++) {
+          await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 10)),
+          );
+          await tester.pump();
+        }
+        expect(flushed, isTrue, reason: 'Gallery test storage must settle');
+        await flush;
+      }
+    });
+  }
 
   Widget app(Widget body, {double scale = 1, bool dark = false}) =>
       UncontrolledProviderScope(
@@ -120,7 +148,7 @@ void main() {
     });
   }
 
-  testWidgets('图库卡片预览不切换，勾选一起切换后才修改保存位置', (tester) async {
+  galleryWidgetTest('图库卡片预览不切换，勾选一起切换后才修改保存位置', (tester) async {
     tester.view.physicalSize = const Size(390, 844);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
@@ -154,7 +182,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('导入选项默认关闭，勾选与取消只修改草稿', (tester) async {
+  galleryWidgetTest('导入选项默认关闭，勾选与取消只修改草稿', (tester) async {
     var choice = const ImportAlbumChoice();
     await tester.pumpWidget(
       app(
@@ -188,7 +216,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('日期筛选取消日历不会应用新条件', (tester) async {
+  galleryWidgetTest('日期筛选取消日历不会应用新条件', (tester) async {
     GalleryDateFilter? picked;
     await tester.pumpWidget(
       app(
@@ -215,7 +243,7 @@ void main() {
     expect(picked, isNull);
   });
 
-  testWidgets('日历使用中文且年月日输入能正确应用', (tester) async {
+  galleryWidgetTest('日历使用中文且年月日输入能正确应用', (tester) async {
     GalleryDateFilter? picked;
     await tester.pumpWidget(
       app(
@@ -248,7 +276,7 @@ void main() {
     expect(picked?.start, DateTime(2026, 9, 9));
   });
 
-  testWidgets('日期范围完整恢复起止日，应用后保留结束日', (tester) async {
+  galleryWidgetTest('日期范围完整恢复起止日，应用后保留结束日', (tester) async {
     GalleryDateFilter? picked;
     final current = GalleryDateFilter(
       GalleryDateKind.range,
@@ -278,7 +306,7 @@ void main() {
     expect(picked?.end, current.end);
   });
 
-  testWidgets('日期入口恢复按天分组，取消日历不改变当前分组', (tester) async {
+  galleryWidgetTest('移动端日期筛选和取消日历均保留当前分组', (tester) async {
     tester.view.physicalSize = const Size(390, 844);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
@@ -295,47 +323,40 @@ void main() {
     );
     await tester.tap(find.text('打开历史'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('分组'));
+    await tester.tap(find.text('全部相册'));
     await tester.pumpAndSettle();
-    expect(find.text('按时间'), findsNothing);
+    await tester.tap(find.text('按时间'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('按角色'));
     await tester.pumpAndSettle();
-    expect(
-      c.read(uiPrefsProvider).galleryGroupBy,
-      GalleryGroupBy.character.name,
-    );
+    expect(find.text('按角色'), findsOneWidget);
 
-    await tester.tap(find.text('日期'));
+    await tester.tap(find.byKey(const ValueKey('gallery-date-filter')));
     await tester.pumpAndSettle();
     await tester.tap(find.text('指定日期'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('取消'));
     await tester.pumpAndSettle();
-    expect(
-      c.read(uiPrefsProvider).galleryGroupBy,
-      GalleryGroupBy.character.name,
-    );
+    expect(find.text('按角色'), findsOneWidget);
     expect(c.read(uiPrefsProvider).dateFilter.active, isFalse);
 
-    await tester.tap(find.text('日期'));
+    await tester.tap(find.byKey(const ValueKey('gallery-date-filter')));
     await tester.pumpAndSettle();
     await tester.tap(find.text('近 7 天'));
     await tester.pumpAndSettle();
-    expect(c.read(uiPrefsProvider).galleryGroupBy, GalleryGroupBy.day.name);
+    expect(find.text('按角色'), findsOneWidget);
     expect(c.read(uiPrefsProvider).dateFilter.kind, GalleryDateKind.week);
-    expect(find.text('分组'), findsOneWidget);
-
-    await tester.tap(find.text('分组'));
+    await tester.tap(find.text('按角色'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('按画风'));
     await tester.pumpAndSettle();
-    expect(c.read(uiPrefsProvider).galleryGroupBy, GalleryGroupBy.style.name);
+    expect(find.text('按画风'), findsOneWidget);
     expect(c.read(uiPrefsProvider).dateFilter.kind, GalleryDateKind.week);
-    await tester.tap(find.text('近 7 天'));
+    await tester.tap(find.byKey(const ValueKey('gallery-date-filter')));
     await tester.pumpAndSettle();
     await tester.tap(find.text('全部'));
     await tester.pumpAndSettle();
-    expect(c.read(uiPrefsProvider).galleryGroupBy, GalleryGroupBy.day.name);
+    expect(find.text('按画风'), findsOneWidget);
     expect(c.read(uiPrefsProvider).dateFilter.active, isFalse);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
@@ -346,7 +367,7 @@ void main() {
     (const Size(320, 640), 1.5, 'album-narrow'),
     (const Size(844, 390), 1.0, 'album-landscape'),
   ]) {
-    testWidgets('长图库名与预览布局：$name', (tester) async {
+    galleryWidgetTest('长图库名与预览布局：$name', (tester) async {
       tester.view.physicalSize = size;
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.resetPhysicalSize);
@@ -380,7 +401,7 @@ void main() {
     });
   }
 
-  testWidgets('历史弹层中移动后的撤销可点击并恢复归属', (tester) async {
+  galleryWidgetTest('历史弹层中移动后的撤销可点击并恢复归属', (tester) async {
     tester.view.physicalSize = const Size(390, 844);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
@@ -400,27 +421,31 @@ void main() {
     );
     await tester.tap(find.text('打开历史'));
     await tester.pumpAndSettle();
+    if (find.byTooltip('回到相册').evaluate().isNotEmpty) {
+      await tester.tap(find.byTooltip('回到相册'));
+      await tester.pumpAndSettle();
+    }
+    await tester.tap(find.text('表情包'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('多选'));
     await tester.pumpAndSettle();
     await tester.tap(find.byType(ResultThumb));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('移动 (1)'));
+    await tester.tap(find.text('移动'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('移动目标'));
-    await tester.pumpAndSettle();
-    await tester.runAsync(() async {
-      await tester.tap(find.text('移动 (1)').last);
-      await stores.albums.idle;
-    });
-    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(ValueKey('move-album-choice-$target')));
+    await waitForAlbumChange(
+      tester,
+      () => c.read(albumsProvider).contains(target, imageId),
+    );
     expect(c.read(albumsProvider).ofImage(imageId), {target});
     // 只找到文字还不够：SnackBar 在 modal route 下时存在但无法点到。
     expect(find.text('撤销').hitTestable(), findsOneWidget);
-    await tester.runAsync(() async {
-      await tester.tap(find.text('撤销').hitTestable());
-      await stores.albums.idle;
-    });
-    await tester.pumpAndSettle();
+    await tester.tap(find.text('撤销').hitTestable());
+    await waitForAlbumChange(
+      tester,
+      () => c.read(albumsProvider).contains(albumId, imageId),
+    );
     expect(c.read(albumsProvider).ofImage(imageId), {albumId});
     expect(find.byType(ResultThumb), findsOneWidget);
     expect(tester.takeException(), isNull);
@@ -429,7 +454,9 @@ void main() {
   });
 
   for (final scoped in [false, true]) {
-    testWidgets('${scoped ? '指定图库' : '全部作品'}上滑删除保持相邻预览及胶片条选中', (tester) async {
+    galleryWidgetTest('${scoped ? '指定图库' : '全部作品'}上滑删除保持相邻预览及胶片条选中', (
+      tester,
+    ) async {
       tester.view.physicalSize = const Size(390, 844);
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.resetPhysicalSize);
@@ -525,7 +552,7 @@ void main() {
   }
 
   for (final scope in ['所有照片', '保存目标图库', '其他图库']) {
-    testWidgets('浏览$scope时连续新图入库不会被自动翻页改回旧图', (tester) async {
+    galleryWidgetTest('浏览$scope时连续新图入库不会被自动翻页改回旧图', (tester) async {
       tester.view.physicalSize = const Size(390, 844);
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.resetPhysicalSize);
@@ -536,7 +563,7 @@ void main() {
           ? (await tester.runAsync(() => albums.create('新图目标')))!
           : albumId;
       albums.setSave(target);
-      if (scope != '所有照片') albums.browse(albumId);
+      albums.browse(scope == '所有照片' ? null : albumId);
       final bytes = c.read(galleryProvider).selected!.bytes!;
       await tester.pumpWidget(app(const GalleryPage()));
       await tester.pumpAndSettle();
@@ -581,7 +608,7 @@ void main() {
     });
   }
 
-  testWidgets('新图落盘期间手动翻图，完成后保留用户选择', (tester) async {
+  galleryWidgetTest('新图落盘期间手动翻图，完成后保留用户选择', (tester) async {
     tester.view.physicalSize = const Size(390, 844);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
@@ -624,57 +651,41 @@ void main() {
     await tester.pumpAndSettle();
   });
 
-  testWidgets('图库胶囊分别切换浏览范围与新图保存位置', (tester) async {
+  galleryWidgetTest('保存相册胶囊切换落点，历史浏览不改变新图保存位置', (tester) async {
     tester.view.physicalSize = const Size(390, 844);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
-    final semantics = tester.ensureSemantics();
-    try {
-      await tester.pumpWidget(app(const GalleryPage()));
-      await tester.pumpAndSettle();
+    await tester.pumpWidget(app(const GalleryPage()));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('保存到 全部相册'));
+    await tester.pumpAndSettle();
+    expect(find.text('保存到'), findsOneWidget);
+    await tester.tap(find.byKey(ValueKey('save-album-choice-$albumId')));
+    await tester.pumpAndSettle();
+    expect(c.read(galleryBrowseAlbumProvider), albumId);
+    expect(c.read(gallerySaveTargetProvider).albumId, albumId);
+    expect(find.text('保存到 表情包'), findsOneWidget);
 
-      await tester.tap(find.byTooltip('浏览图库：全部作品'));
-      await tester.pumpAndSettle();
-      expect(find.text('选择图库'), findsOneWidget);
-      await tester.tap(find.byType(AlbumCoverImage).last);
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('加载图库'));
-      await tester.pumpAndSettle();
-      expect(c.read(galleryBrowseAlbumProvider), albumId);
-      expect(c.read(gallerySaveTargetProvider).albumId, isNull);
-
-      await tester.tap(find.byTooltip('新图保存到：全部作品'));
-      await tester.pumpAndSettle();
-      expect(find.text('新图保存到'), findsOneWidget);
-      await tester.tap(find.byType(AlbumCoverImage).last);
-      await tester.pumpAndSettle();
-      expect(find.text('新图也保存到这里'), findsNothing);
-      await tester.tap(find.text('新图保存到这里'));
-      await tester.pumpAndSettle();
-      expect(c.read(galleryBrowseAlbumProvider), albumId);
-      expect(c.read(gallerySaveTargetProvider).albumId, albumId);
-
-      await tester.tap(find.byTooltip('浏览图库：表情包'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.byType(AlbumCoverImage).first);
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('加载图库'));
-      await tester.pumpAndSettle();
-      expect(c.read(galleryBrowseAlbumProvider), isNull);
-      expect(c.read(gallerySaveTargetProvider).albumId, albumId);
-      expect(find.bySemanticsLabel('浏览图库：全部作品'), findsOneWidget);
-      expect(find.bySemanticsLabel('新图保存到：表情包'), findsOneWidget);
-      await screenshot(tester, 'gallery-context-pills');
-      expect(tester.takeException(), isNull);
-      await tester.pumpWidget(const SizedBox.shrink());
-      await tester.pumpAndSettle();
-    } finally {
-      semantics.dispose();
-    }
+    final context = tester.element(find.byType(GalleryPage));
+    unawaited(showGalleryGrid(context));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('回到相册'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('全部相册'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(ResultThumb).hitTestable().first);
+    await tester.pumpAndSettle();
+    expect(c.read(galleryBrowseAlbumProvider), isNull);
+    expect(c.read(gallerySaveTargetProvider).albumId, albumId);
+    expect(find.text('保存到 表情包'), findsOneWidget);
+    await screenshot(tester, 'gallery-save-album');
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pumpAndSettle();
   });
 
-  testWidgets('窄屏大字体图库和历史操作栏无溢出', (tester) async {
+  galleryWidgetTest('窄屏大字体图库和历史操作栏无溢出', (tester) async {
     tester.view.physicalSize = const Size(320, 640);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
@@ -687,8 +698,7 @@ void main() {
     });
     await tester.pumpWidget(app(const GalleryPage(), scale: 1.5, dark: true));
     await tester.pumpAndSettle();
-    expect(find.byTooltip('浏览图库：$longName'), findsOneWidget);
-    expect(find.byTooltip('新图保存到：$longName'), findsOneWidget);
+    expect(find.text('保存到 $longName'), findsOneWidget);
     await screenshot(tester, 'gallery-dark-narrow');
     expect(tester.takeException(), isNull);
     await tester.runAsync(
@@ -700,9 +710,24 @@ void main() {
     await tester.tap(find.text('多选'));
     await tester.pumpAndSettle();
     await screenshot(tester, 'history-dark-multiselect');
-    expect(find.text('移动 (0)'), findsOneWidget);
+    expect(find.text('移动'), findsOneWidget);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pumpAndSettle();
   });
+}
+
+Future<void> waitForAlbumChange(
+  WidgetTester tester,
+  bool Function() done,
+) async {
+  await tester.pumpAndSettle();
+  for (var i = 0; i < 300 && !done(); i++) {
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 10)),
+    );
+    await tester.pump(const Duration(milliseconds: 20));
+  }
+  expect(done(), isTrue, reason: 'Album operation must complete');
+  await tester.pumpAndSettle();
 }

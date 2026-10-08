@@ -4,11 +4,33 @@ import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../generate/generate_state.dart';
+import '../generate/canvas_state.dart';
+import '../generate/models.dart' show PromptSection;
+import '../generate/prompt_sections.dart' show normalizeSections;
 import 'editor_models.dart';
 
 final editorProvider = NotifierProvider<EditorNotifier, EditorState>(
   EditorNotifier.new,
 );
+
+/// Shared by every inline ProviderScope, so switching canvases can flush all
+/// mounted editors and undo survives remounting a role or section editor.
+final editorSessionsProvider = Provider((ref) => EditorSessions());
+
+class EditorSessions {
+  final Map<String, _UndoArchive> _archives = {};
+  final Set<EditorNotifier> _editors = {};
+  final Set<void Function()> prepareInputs = {};
+
+  void flushPending() {
+    for (final prepare in prepareInputs.toList()) {
+      prepare();
+    }
+    for (final editor in _editors.toList()) {
+      editor.flushPendingWriteBack();
+    }
+  }
+}
 
 /// 光标驱动定稿:字符串就是真相,正/负各一条(含原样权重语法)。
 /// 折叠体不在正文里(正文只有 `<#名字>` 占位符),存 [foldBodies];
@@ -56,7 +78,12 @@ class EditorState {
   );
 }
 
-typedef _Snap = (String pos, String neg, List<PromptFoldLink> links);
+typedef _Snap = (
+  String pos,
+  String neg,
+  List<PromptFoldLink> links,
+  PromptSection? extracted,
+);
 
 /// 单个编辑目标(主提示词/某角色)的撤销档。**进程级长效**:退出编辑器
 /// 不清空,重进接着撤,只在进程结束或角色被删时消亡。折叠表一并留存且
@@ -74,18 +101,27 @@ class EditorNotifier extends Notifier<EditorState> {
   final bool immediateWriteBack;
   bool isWritingBack = false;
 
-  /// key = 角色 id,主提示词用 ''。
-  final Map<String, _UndoArchive> _archives = {};
+  /// 画布和编辑目标共同隔离撤销记录。
+  Map<String, _UndoArchive> get _archives =>
+      ref.read(editorSessionsProvider)._archives;
   static const _maxHistory = 60;
   int _lastPushMs = 0;
 
   _UndoArchive get _arc =>
-      _archives.putIfAbsent(_charId ?? '', _UndoArchive.new);
+      _archives.putIfAbsent('$_canvasId/$_targetKey', _UndoArchive.new);
 
-  /// 本次会话的编辑目标:null = 创作页主提示词,否则 = 该 id 的角色提示词。
-  /// 进页面时由 [load] 钉死,中途不变。用 id 不用名字——角色自动编号
-  /// (「角色 N」)在删掉中间一个再新增时会重名,名字不是稳定句柄。
+  /// 撤销档里的目标名:主提示词 '',角色是它的 id,分区加 `s:` 前缀(两边的
+  /// id 出自同一个发号器,前缀只是让人一眼分得清)。
+  String get _targetKey =>
+      _charId ?? (_sectionId == null ? '' : 's:$_sectionId');
+
+  /// 本次会话的编辑目标:都为 null = 创作页主提示词;[_charId] = 该角色;
+  /// [_sectionId] = 主提示词的该分区。进页面时由 [load] 钉死,中途不变。
+  /// 用 id 不用名字——角色自动编号(「角色 N」)在删掉中间一个再新增时
+  /// 会重名,名字不是稳定句柄。
   String? _charId;
+  String? _sectionId;
+  String? _canvasId;
 
   /// 编辑中实时回写创作页的防抖(编辑器内容不再只活在内存:
   /// 回写进 generateProvider 后由工作台持久化链自动落盘,
@@ -94,7 +130,12 @@ class EditorNotifier extends Notifier<EditorState> {
 
   @override
   EditorState build() {
-    ref.onDispose(() => _writeBack?.cancel());
+    final sessions = ref.read(editorSessionsProvider);
+    sessions._editors.add(this);
+    ref.onDispose(() {
+      _writeBack?.cancel();
+      sessions._editors.remove(this);
+    });
     return const EditorState();
   }
 
@@ -103,23 +144,37 @@ class EditorNotifier extends Notifier<EditorState> {
     required String negative,
     required bool startPositive,
     String? charId,
+    String? sectionId,
   }) {
     _writeBack?.cancel(); // 新会话,作废上一会话可能挂着的回写
     _lastPushMs = 0;
     _charId = charId;
-    // 角色已删,其撤销档随之作废(主档 '' 恒保留)
+    _sectionId = charId == null ? sectionId : null;
+    _canvasId = ref.read(canvasWorkspaceProvider).activeId;
+    // 角色 / 分区已删,其撤销档随之作废(主档 '' 恒保留)
+    final gen = ref.read(generateProvider);
     final live = <String>{
       '',
-      for (final c in ref.read(generateProvider).characters) c.id,
+      for (final c in gen.characters) c.id,
+      for (final s in gen.sections) 's:${s.id}',
     };
-    _archives.removeWhere((k, _) => !live.contains(k));
+    _archives.removeWhere(
+      (k, _) =>
+          k.startsWith('$_canvasId/') &&
+          !live.contains(k.substring('$_canvasId/'.length)),
+    );
     final arc = _arc;
     final input = ref.read(generateProvider);
     final links = validPromptFoldLinks(
       positive,
       negative,
       charId == null
-          ? input.promptFoldLinks
+          ? sectionId == null
+                ? input.promptFoldLinks
+                : [
+                    for (final s in input.sections)
+                      if (s.id == sectionId) ...s.foldLinks,
+                  ]
           : [
               for (final character in input.characters)
                 if (character.id == charId) ...character.foldLinks,
@@ -193,6 +248,7 @@ class EditorNotifier extends Notifier<EditorState> {
   /// ——从前这里写死了 setPrompts,点角色卡进来编辑会静默覆盖主提示词。
   void flushWriteBack() {
     _writeBack?.cancel();
+    _writeBack = null;
     isWritingBack = true;
     try {
       _writeToGenerate();
@@ -202,8 +258,10 @@ class EditorNotifier extends Notifier<EditorState> {
   }
 
   void _writeToGenerate() {
-    final gen = ref.read(generateProvider.notifier);
+    final canvasId = _canvasId;
+    if (canvasId == null) return;
     final id = _charId;
+    final sectionId = _sectionId;
     // 草稿 = 占位符展开回完整折叠语法(下次载入原样收回);定稿再剔编辑期语法
     final posDraft = expandFolds(state.positiveText, state.foldBodies);
     final negDraft = expandFolds(state.negativeText, state.foldBodies);
@@ -212,37 +270,80 @@ class EditorNotifier extends Notifier<EditorState> {
     final posRaw = draftOf(posDraft, pos);
     final negRaw = draftOf(negDraft, neg);
     final links = validPromptFoldLinks(posDraft, negDraft, state.foldLinks);
-    if (id == null) {
-      gen.setPrompts(
-        positive: pos,
-        negative: neg,
-        positiveRaw: posRaw,
-        negativeRaw: negRaw,
-        promptFoldLinks: links,
-      );
-      return;
-    }
-    // updateCharacter 没有 setPrompts 那样的同值短路,这里自己挡一道:
-    // 防抖回写高频触发,内容没变不该惊动创作页重建与落盘。
-    for (final c in ref.read(generateProvider).characters) {
-      if (c.id != id) continue;
-      if (c.positive == pos &&
-          c.negative == neg &&
-          c.positiveRaw == posRaw &&
-          c.negativeRaw == negRaw &&
-          listEquals(c.foldLinks, links)) {
-        return;
+    // 按进编辑器时的画布回写:编辑中途切了画布,写的也还是原来那张
+    ref.read(canvasWorkspaceProvider.notifier).updatePrompts(canvasId, (p) {
+      if (sectionId != null) {
+        // 这一格已经删了就不写(同角色会话:绝不改写到别处)
+        final cur = p.sections.where((x) => x.id == sectionId).firstOrNull;
+        if (cur == null ||
+            (cur.positive == pos &&
+                cur.negative == neg &&
+                cur.positiveRaw == posRaw &&
+                cur.negativeRaw == negRaw &&
+                listEquals(cur.foldLinks, links))) {
+          return p;
+        }
+        return p.copyWith(
+          sections: [
+            for (final s in p.sections)
+              if (s.id == sectionId)
+                s.copyWith(
+                  positive: pos,
+                  negative: neg,
+                  positiveRaw: posRaw,
+                  negativeRaw: negRaw,
+                  foldLinks: links,
+                )
+              else
+                s,
+          ],
+        );
       }
-      break;
-    }
-    gen.updateCharacter(
-      id,
-      positive: pos,
-      negative: neg,
-      positiveRaw: posRaw,
-      negativeRaw: negRaw,
-      foldLinks: links,
-    );
+      if (id == null) {
+        if (p.prompt == pos &&
+            p.negativePrompt == neg &&
+            p.promptRaw == posRaw &&
+            p.negativePromptRaw == negRaw &&
+            listEquals(p.promptFoldLinks, links)) {
+          return p;
+        }
+        return p.copyWith(
+          prompt: pos,
+          negativePrompt: neg,
+          promptRaw: posRaw,
+          negativePromptRaw: negRaw,
+          promptFoldLinks: links,
+        );
+      }
+      final c = p.characters.where((c) => c.id == id).firstOrNull;
+      if (c == null ||
+          (c.positive == pos &&
+              c.negative == neg &&
+              c.positiveRaw == posRaw &&
+              c.negativeRaw == negRaw &&
+              listEquals(c.foldLinks, links))) {
+        return p;
+      }
+      return p.copyWith(
+        characters: [
+          for (final c in p.characters)
+            if (c.id == id)
+              c.copyWith(
+                positive: pos,
+                negative: neg,
+                positiveRaw: posRaw,
+                negativeRaw: negRaw,
+                foldLinks: links,
+              )
+            else
+              c,
+        ],
+      );
+    });
+  }
+
+  void flushPendingWriteBack() {
+    if (_writeBack?.isActive ?? false) flushWriteBack();
   }
 
   /// 写入当前段。structural=true(删/插/改权重等)必入撤销栈,打字按 700ms 合并。
@@ -250,8 +351,9 @@ class EditorNotifier extends Notifier<EditorState> {
     String text, {
     bool structural = false,
     bool detachRemovedFolds = false,
+    PromptSection? extracted,
   }) {
-    if (text == state.activeText) return;
+    if (text == state.activeText && extracted == null) return;
     final bodies = state.foldBodies;
     final existingLinks = validPromptFoldLinks(
       expandFolds(state.positiveText, bodies),
@@ -302,9 +404,17 @@ class EditorNotifier extends Notifier<EditorState> {
       existingLinks,
     );
     final now = DateTime.now().millisecondsSinceEpoch;
-    if (structural || removedLinkedFold || now - _lastPushMs > 700) {
+    if (structural ||
+        extracted != null ||
+        removedLinkedFold ||
+        now - _lastPushMs > 700) {
       final snaps = _arc.snaps;
-      snaps.add((state.positiveText, state.negativeText, state.foldLinks));
+      snaps.add((
+        state.positiveText,
+        state.negativeText,
+        state.foldLinks,
+        extracted,
+      ));
       if (snaps.length > _maxHistory) snaps.removeAt(0);
       _lastPushMs = now;
     }
@@ -333,7 +443,31 @@ class EditorNotifier extends Notifier<EditorState> {
       foldLinks: s.$3,
       canUndo: snaps.isNotEmpty,
     );
+    if (s.$4 case final extracted?) _dropExtracted(extracted);
     _scheduleWriteBack();
+  }
+
+  /// 撤回一次「提取为新分区」:那一格还在、词也没改过,就从它所在的画布
+  /// 拿掉;改过的留着 —— 那是之后另写的东西,撤销不该替人扔掉。
+  void _dropExtracted(PromptSection section) {
+    final canvasId = _canvasId;
+    if (canvasId == null) return;
+    ref.read(canvasWorkspaceProvider.notifier).updatePrompts(canvasId, (p) {
+      final cur = p.sections.where((x) => x.id == section.id).firstOrNull;
+      if (cur == null ||
+          cur.positive != section.positive ||
+          cur.negative != section.negative ||
+          cur.positiveRaw != section.positiveRaw ||
+          cur.negativeRaw != section.negativeRaw) {
+        return p;
+      }
+      return p.copyWith(
+        sections: normalizeSections([
+          for (final x in p.sections)
+            if (x.id != section.id) x,
+        ]),
+      );
+    });
   }
 
   String outputPositive() =>

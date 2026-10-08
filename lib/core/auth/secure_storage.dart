@@ -39,7 +39,9 @@ Future<void> runMacOsKeychainSmokeTest() async {
   }
 }
 
-/// ProviderScope 内的读写统一走这里。
+/// ProviderScope 内的凭据读写统一走这里。`main()` 把它换成 `CredentialStore`:
+/// 桌面始终使用上面的加密存储;Android 才启用 Keystore 恢复退路。
+/// 测试不覆盖时就是 [kSecureStorage]。
 final secureStorageProvider = Provider<FlutterSecureStorage>(
   (ref) => kSecureStorage,
 );

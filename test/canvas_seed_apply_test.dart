@@ -341,10 +341,10 @@ void main() {
 
   for (final seed in [0, 4294967295, 9223372036854775807]) {
     testWidgets(
-      'shared mobile seed action applies and copies $seed without generation',
+      'compact desktop seed action applies and copies $seed without generation',
       (tester) async {
         container.read(galleryProvider.notifier).select('seed-$seed');
-        await mount(tester, desktop: false);
+        await mount(tester, size: const Size(390, 844));
         await tester.tap(key('canvas-seed'));
         await tester.pump();
         expect(container.read(generateProvider).params.seed, '$seed');

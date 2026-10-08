@@ -10,6 +10,7 @@ import '../generate_state.dart';
 import '../gpu_rental.dart';
 import '../models.dart' as m;
 import 'anlas_panel.dart';
+import 'canvas_picker.dart';
 import 'common.dart' show hintSnack;
 import 'rental_panel.dart';
 
@@ -57,6 +58,7 @@ class GenerateTopBar extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    if (!ref.watch(desktopModeProvider)) return _mobileBar(context, ref);
     final state = ref.watch(generateProvider);
     final rentalActive = ref.watch(gpuRentalProvider).active;
     final scheme = context.scheme;
@@ -131,6 +133,88 @@ class GenerateTopBar extends ConsumerWidget {
             // 余额 / NAI 5 额度(点开是「点数与额度」弹层)
             const AnlasChip(height: 42),
         ],
+      ),
+    );
+  }
+
+  Widget _mobileBar(BuildContext context, WidgetRef ref) {
+    final model = ref.watch(generateProvider.select((s) => s.params.model));
+    final rentalActive = ref.watch(gpuRentalProvider).active;
+    final scheme = context.scheme;
+    final textScale = MediaQuery.textScalerOf(context).scale(14) / 14;
+    final extra = (textScale - 1).clamp(0.0, double.infinity);
+    final rowHeight = 44.0 + extra * 20;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(14, 10, 14, 4),
+      child: LayoutBuilder(
+        builder: (context, constraints) => Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Flexible(
+              flex: 4,
+              child: SizedBox(height: rowHeight, child: const CanvasPicker()),
+            ),
+            const SizedBox(width: 4),
+            Flexible(
+              flex: 5,
+              child: Tooltip(
+                message: '切换模型：$model',
+                child: Semantics(
+                  button: true,
+                  label: '切换模型，当前 $model',
+                  child: Material(
+                    color: Colors.transparent,
+                    borderRadius: BorderRadius.circular(12),
+                    clipBehavior: Clip.antiAlias,
+                    child: InkWell(
+                      onTap: () => _pickModel(context, ref),
+                      child: Padding(
+                        padding: const EdgeInsets.only(left: 2),
+                        child: SizedBox(
+                          height: rowHeight,
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Flexible(
+                                child: Text(
+                                  model,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: context.texts.bodyMedium!.copyWith(
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w600,
+                                    color: scheme.onSurface,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 3),
+                              Icon(
+                                Icons.expand_more,
+                                size: 20,
+                                color: scheme.outline,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 4),
+            ConstrainedBox(
+              constraints: BoxConstraints(maxWidth: constraints.maxWidth * .38),
+              child: SizedBox(
+                height: rowHeight,
+                // 持续订阅实例状态，NAI 下也显示仍在计费的算力。
+                child: m.isModalModel(model) || rentalActive
+                    ? const RentalSourceChip(compact: true)
+                    : const AnlasChip(),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

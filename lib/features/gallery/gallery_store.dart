@@ -110,6 +110,7 @@ class GalleryStore {
               inpaintFrom: e['inpaintFrom'] as String?,
               inpaintHistoryCleared: e['inpaintHistoryCleared'] == true,
               favorite: e['favorite'] == true,
+              saved: e['sv'] == true,
               hasInput: e['hasInput'] == true,
             ),
           );
@@ -379,6 +380,7 @@ class GalleryStore {
             if (r.inpaintFrom != null) 'inpaintFrom': r.inpaintFrom,
             if (r.inpaintHistoryCleared) 'inpaintHistoryCleared': true,
             if (r.favorite) 'favorite': true,
+            if (r.saved) 'sv': true,
             'hasInput': r.hasInput,
           },
       ],
@@ -759,7 +761,8 @@ class GalleryStore {
   }
 
   /// 参数快照(重新生成/重绘/导入用),blob 缺失字段按可用降级。
-  Future<GenerateState?> readInput(String id) async {
+  /// [presetFallback]:快照里没记提示词预设的老图用哪一档(见 [decodeGenerateState])。
+  Future<GenerateState?> readInput(String id, {String? presetFallback}) async {
     try {
       final f = _inputFile(id);
       if (!await f.exists()) return null;
@@ -768,6 +771,7 @@ class GalleryStore {
       final input = await decodeGenerateState(
         j['state'] as Map<String, dynamic>,
         _blobs,
+        presetFallback: presetFallback,
       );
       return _clearedInpaintIds.contains(id) ||
               j['inpaintHistoryCleared'] == true

@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'core/app_info.dart';
 import 'core/auth/auth_mode.dart';
+import 'core/auth/credential_store.dart';
 import 'core/auth/secure_storage.dart';
 import 'core/platform/clipboard_image.dart';
 import 'core/platform/desktop.dart';
@@ -16,11 +17,15 @@ import 'core/theme/app_text_scale.dart';
 import 'core/theme/theme_settings.dart';
 import 'core/ui/input_focus_guard.dart';
 import 'core/ui/image_drop.dart';
+import 'core/ui/nav_bar_guard.dart';
 import 'features/import/desktop_image_drop.dart';
+import 'features/generate/widgets/common.dart';
 import 'features/onboarding/welcome_page.dart';
+import 'features/profile/account_page.dart';
 import 'features/shell/app_shell.dart';
 import 'core/util/haptics.dart';
 import 'features/editor/data/local_tag_db.dart';
+import 'features/editor/editor_state.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -59,12 +64,18 @@ Future<void> main() async {
   // 外观预读(首帧不闪色)现在直接取内存态 —— 设置已随 AppStores 一次读全,
   // 不再需要第二笔 I/O,也不必再解一次 Keystore。
   final stores = await AppStores.open();
+  // 凭据出口:桌面沿用平台加密存储;Android 才启用 Keystore 恢复退路。
+  // 要排在 AppStores 之后,恢复判定用得上已迁出的接入方式。
+  final creds = await CredentialStore.open(stores.prefs);
   await tagDbReady;
   final themeInit = loadThemeSettings(stores.prefs);
+  final editorSessions = EditorSessions();
   runApp(
     ProviderScope(
       overrides: [
         appStoresProvider.overrideWithValue(stores),
+        editorSessionsProvider.overrideWithValue(editorSessions),
+        secureStorageProvider.overrideWithValue(creds),
         themeInitProvider.overrideWithValue(themeInit),
         localTagDbProvider.overrideWithValue(tagDb),
       ],
@@ -73,7 +84,10 @@ Future<void> main() async {
   );
   // 注册即挂到 binding 观察者列表(强引用,不会被 GC):
   // 退后台/失焦即刻冲刷防抖存档，桌面正常退出还会等待所有存储写入完成。
-  createStorageLifecycleListener(stores);
+  createStorageLifecycleListener(
+    stores,
+    beforeFlush: editorSessions.flushPending,
+  );
   stores.postBootMaintenance(); // 选图器缓存清扫 + blob GC(延迟后台跑)
 }
 
@@ -122,7 +136,7 @@ class PlanaApp extends ConsumerWidget {
               factor: ts.textScale,
               child: DesktopImageDropHost(child: child!),
             )
-          : child!,
+          : NavBarGuard(child: child!),
       home: const _AuthGate(),
     );
   }
@@ -147,8 +161,45 @@ class _AuthGate extends ConsumerWidget {
     // 读失败一律按首启处理:宁可多走一次欢迎,也不让人卡在空界面
     final primed = gs.value?.notifyPrimed ?? false;
     if (!primed || mode.value == null) return const WelcomePage();
-    return const AppShell();
+    return const _CredentialLostHint(child: AppShell());
   }
+}
+
+/// 加密存储这次启动被系统清过(见 [CredentialStore])时,进主界面提示一次。
+class _CredentialLostHint extends ConsumerStatefulWidget {
+  const _CredentialLostHint({required this.child});
+
+  final Widget child;
+
+  @override
+  ConsumerState<_CredentialLostHint> createState() =>
+      _CredentialLostHintState();
+}
+
+class _CredentialLostHintState extends ConsumerState<_CredentialLostHint> {
+  @override
+  void initState() {
+    super.initState();
+    final creds = ref.read(secureStorageProvider);
+    if (creds is! CredentialStore || !creds.takeLostNotice()) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      hintSnack(
+        context,
+        '已存的 Key 被系统清掉了,重新添加后不会再丢',
+        icon: Icons.key_off_outlined,
+        actionLabel: '去添加',
+        onAction: () {
+          if (mounted) {
+            Navigator.of(context).push(sharedAxisRoute(const AccountPage()));
+          }
+        },
+      );
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
 }
 
 class _SplashHold extends StatelessWidget {

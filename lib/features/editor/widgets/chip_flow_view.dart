@@ -9,6 +9,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/theme/editor_theme.dart';
 import '../../../core/widgets/primary_mouse_drag.dart';
 import '../editor_models.dart';
+import '../chrome_scroll.dart';
 import 'rich_tag_controller.dart';
 import 'editor_body.dart';
 import '../../../core/util/haptics.dart';
@@ -490,6 +491,24 @@ class ChipFlowViewState extends State<ChipFlowView>
 
   Set<int> get _sel => widget.selection;
 
+  final _keep = KeepInViewTracker();
+  int? _focusChip;
+
+  void _focusOn(int i) {
+    _focusChip = i;
+    _keep.arm();
+  }
+
+  void _revealFocusChip() {
+    final i = _focusChip;
+    if (i == null || !_sel.contains(i) || i >= _chipKeys.length) return;
+    final box = _chipKeys[i].currentContext?.findRenderObject();
+    if (box is! RenderBox || !box.attached || !box.hasSize) return;
+    box.showOnScreen(
+      rect: const EdgeInsets.all(12).inflateRect(Offset.zero & box.size),
+    );
+  }
+
   void _tapChip(int i) {
     widget.onChipTap?.call(i);
     Haptics.selection();
@@ -499,7 +518,10 @@ class ChipFlowViewState extends State<ChipFlowView>
       _startOffsets = const {};
     }
     final next = {...widget.selection};
-    if (!next.remove(i)) next.add(i);
+    if (!next.remove(i)) {
+      next.add(i);
+      _focusOn(i);
+    }
     widget.onSelectionChanged(next);
   }
 
@@ -604,86 +626,92 @@ class ChipFlowViewState extends State<ChipFlowView>
 
   @override
   Widget build(BuildContext context) {
-    return OverlayPortal.overlayChildLayoutBuilder(
-      controller: _dragPortal,
-      overlayChildBuilder: _dragOverlay,
-      child: Listener(
-        onPointerDown: _watchMouse,
-        onPointerMove: (event) {
-          if (event.pointer == _mousePointer &&
-              event.buttons != kPrimaryButton) {
-            _interruptMouse();
-          }
-        },
-        onPointerUp: _releaseMouse,
-        onPointerCancel: _releaseMouse,
-        child: AnimatedBuilder(
-          animation: Listenable.merge([widget.controller, _moveAnim]),
-          builder: (context, _) {
-            final text = widget.controller.text;
-            if (_dragIndices != null && _dragText != text) {
-              WidgetsBinding.instance.addPostFrameCallback((_) {
-                if (mounted) cancelDrag();
-              });
+    return NotificationListener<Notification>(
+      onNotification: (n) {
+        if (widget.scrollable && _keep.update(n)) _revealFocusChip();
+        return false;
+      },
+      child: OverlayPortal.overlayChildLayoutBuilder(
+        controller: _dragPortal,
+        overlayChildBuilder: _dragOverlay,
+        child: Listener(
+          onPointerDown: _watchMouse,
+          onPointerMove: (event) {
+            if (event.pointer == _mousePointer &&
+                event.buttons != kPrimaryButton) {
+              _interruptMouse();
             }
-            final units = topLevelUnits(text, widget.foldBodies);
-            final sel = {
-              for (final i in _sel)
-                if (i < units.length) i,
-            };
-            while (_chipKeys.length < units.length) {
-              _chipKeys.add(GlobalKey());
-            }
-            _scheduleAnchors(units.length);
-            bool pendingOf(TopUnit u) =>
-                widget.showTrans &&
-                !u.isFold &&
-                u.tok!.trans == null &&
-                widget.translating(u.tok!.name);
-            _syncPulse(units.any(pendingOf));
-            final t = Curves.easeOutCubic.transform(_moveAnim.value);
-            return GestureDetector(
-              // 没选中时点空白 = 聚焦输入框:芯片之间的缝隙本来什么也不是,
-              // 让它接管「我要接着打字」这个最高频的意图。
-              // 选中着东西时它什么也不做 —— 理由见 [_tapBlank]。
-              behavior: HitTestBehavior.opaque,
-              onTap: _tapBlank,
-              child: EditorBody(
-                // 一屏放得下也照样接拖动:编辑页滚动收起顶栏后,靠「顶上往下拽」
-                // 放出来(见 ChromeScrollTracker)
-                scrollable: widget.scrollable,
-                padding: widget.padding,
-                child: Stack(
-                  key: _stackKey,
-                  clipBehavior: Clip.none,
-                  children: [
-                    Align(
-                      alignment: Alignment.topLeft,
-                      child: Wrap(
-                        // 缝只要够把两颗分开就行:chip 自带底色和边框,靠不上
-                        // 留白来断句。横向比纵向再紧一档 —— 一行里缝出现的次数
-                        // 多得多,同样的数看着就更松。
-                        spacing: 6,
-                        runSpacing: 8,
-                        crossAxisAlignment: WrapCrossAlignment.center,
-                        children: [
-                          ..._rows(text, units, sel, pendingOf, t),
-                          _inputBox(units.isEmpty),
-                        ],
-                      ),
-                    ),
-                    if (sel.isNotEmpty)
-                      for (final (g, pos) in _anchors)
-                        Positioned(
-                          left: pos.dx - 15,
-                          top: pos.dy - 15,
-                          child: _PlusDot(onTap: () => _insert(g)),
-                        ),
-                  ],
-                ),
-              ),
-            );
           },
+          onPointerUp: _releaseMouse,
+          onPointerCancel: _releaseMouse,
+          child: AnimatedBuilder(
+            animation: Listenable.merge([widget.controller, _moveAnim]),
+            builder: (context, _) {
+              final text = widget.controller.text;
+              if (_dragIndices != null && _dragText != text) {
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  if (mounted) cancelDrag();
+                });
+              }
+              final units = topLevelUnits(text, widget.foldBodies);
+              final sel = {
+                for (final i in _sel)
+                  if (i < units.length) i,
+              };
+              while (_chipKeys.length < units.length) {
+                _chipKeys.add(GlobalKey());
+              }
+              _scheduleAnchors(units.length);
+              bool pendingOf(TopUnit u) =>
+                  widget.showTrans &&
+                  !u.isFold &&
+                  u.tok!.trans == null &&
+                  widget.translating(u.tok!.name);
+              _syncPulse(units.any(pendingOf));
+              final t = Curves.easeOutCubic.transform(_moveAnim.value);
+              return GestureDetector(
+                // 没选中时点空白 = 聚焦输入框:芯片之间的缝隙本来什么也不是,
+                // 让它接管「我要接着打字」这个最高频的意图。
+                // 选中着东西时它什么也不做 —— 理由见 [_tapBlank]。
+                behavior: HitTestBehavior.opaque,
+                onTap: _tapBlank,
+                child: EditorBody(
+                  // 一屏放得下也照样接拖动:编辑页滚动收起顶栏后,靠「顶上往下拽」
+                  // 放出来(见 ChromeScrollTracker)
+                  scrollable: widget.scrollable,
+                  padding: widget.padding,
+                  child: Stack(
+                    key: _stackKey,
+                    clipBehavior: Clip.none,
+                    children: [
+                      Align(
+                        alignment: Alignment.topLeft,
+                        child: Wrap(
+                          // 缝只要够把两颗分开就行:chip 自带底色和边框,靠不上
+                          // 留白来断句。横向比纵向再紧一档 —— 一行里缝出现的次数
+                          // 多得多,同样的数看着就更松。
+                          spacing: 6,
+                          runSpacing: 8,
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          children: [
+                            ..._rows(text, units, sel, pendingOf, t),
+                            _inputBox(units.isEmpty),
+                          ],
+                        ),
+                      ),
+                      if (sel.isNotEmpty)
+                        for (final (g, pos) in _anchors)
+                          Positioned(
+                            left: pos.dx - 15,
+                            top: pos.dy - 15,
+                            child: _PlusDot(onTap: () => _insert(g)),
+                          ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
         ),
       ),
     );
@@ -827,6 +855,7 @@ class ChipFlowViewState extends State<ChipFlowView>
         ? null
         : () {
             widget.onChipTap?.call(i);
+            _focusOn(i);
             widget.onLongPressChip(i);
           };
     final Widget chip;

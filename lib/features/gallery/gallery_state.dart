@@ -181,6 +181,17 @@ class GalleryNotifier extends Notifier<GalleryState> {
     }
   }
 
+  void markSaved(Iterable<String> ids) {
+    final hit = ids.toSet();
+    if (!state.results.any((r) => hit.contains(r.id) && !r.saved)) return;
+    state = state.copyWith(
+      results: [
+        for (final r in state.results) hit.contains(r.id) ? r.asSaved() : r,
+      ],
+    );
+    _persistIndex();
+  }
+
   /// 生成链路产出真实结果:前插并选中,同时落盘(原图/缩略图/参数快照)。
   ResultImage addResult({
     required Uint8List bytes,

@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/desktop_edition.dart';
 import '../../core/store/app_stores.dart';
 import '../inpaint/inpaint_overlay.dart';
+import '../editor/editor_state.dart';
 import '../shell/desktop_work_state.dart';
 import 'desktop_update.dart';
 import 'macos_update_service.dart';
@@ -130,6 +131,7 @@ class MacOSUpdateNotifier extends Notifier<MacOSUpdateState> {
               if (!ref.mounted || !_canInstall) {
                 throw const UpdateException('任务尚未结束,当前版本已保留');
               }
+              ref.read(editorSessionsProvider).flushPending();
               await stores.flushForExit();
               if (!ref.mounted || !_canInstall) {
                 throw const UpdateException('任务尚未结束,当前版本已保留');

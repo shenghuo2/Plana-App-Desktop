@@ -14,6 +14,8 @@ import 'package:plana_app/features/editor/widgets/chip_flow_view.dart';
 import 'package:plana_app/features/editor/widgets/inline_editor_chrome.dart';
 import 'package:plana_app/features/editor/widgets/prompt_preset_menu_button.dart';
 import 'package:plana_app/features/generate/generate_state.dart';
+import 'package:plana_app/features/generate/models.dart';
+import 'package:plana_app/features/generate/canvas_models.dart';
 import 'package:plana_app/features/generate/preset_manage_page.dart';
 import 'package:plana_app/features/generate/prompt_presets.dart';
 import 'package:plana_app/features/generate/widgets/desktop_prompt_card.dart';
@@ -26,6 +28,8 @@ class _MemoryPresets extends PromptPresetsNotifier {
   int imports = 0;
   List<PromptPreset> extra = const [];
   PromptPresetsState get current => state.requireValue;
+  String get activeId =>
+      selectedPromptPresetId(ref.read(generateProvider), state.requireValue);
 
   @override
   Future<PromptPresetsState> build() async => PromptPresetsState(
@@ -46,15 +50,12 @@ class _MemoryPresets extends PromptPresetsNotifier {
       ),
       ...extra,
     ],
-    activeId: 'heavy',
   );
 
   @override
   Future<void> setActive(String id) async {
     activations++;
-    state = AsyncData(
-      PromptPresetsState(presets: current.presets, activeId: id),
-    );
+    ref.read(generateProvider.notifier).setPromptPreset(id);
   }
 
   @override
@@ -77,7 +78,6 @@ class _MemoryPresets extends PromptPresetsNotifier {
             suffixPositive: suffixPositive,
           ),
         ],
-        activeId: current.activeId,
       ),
     );
   }
@@ -104,7 +104,6 @@ class _MemoryPresets extends PromptPresetsNotifier {
                   )
                 : p,
         ],
-        activeId: current.activeId,
       ),
     );
   }
@@ -115,7 +114,6 @@ class _MemoryPresets extends PromptPresetsNotifier {
     state = AsyncData(
       PromptPresetsState(
         presets: current.presets.where((p) => p.id != id).toList(),
-        activeId: current.activeId == id ? 'none' : current.activeId,
       ),
     );
   }
@@ -127,10 +125,7 @@ class _MemoryPresets extends PromptPresetsNotifier {
   }) async {
     imports++;
     state = AsyncData(
-      PromptPresetsState(
-        presets: [...current.presets, ...incoming],
-        activeId: current.activeId,
-      ),
+      PromptPresetsState(presets: [...current.presets, ...incoming]),
     );
     return incoming.length;
   }
@@ -316,6 +311,18 @@ void main() {
     );
   }
 
+  void expectOnlyPresetChanged(GenerateState before) {
+    expect(
+      CanvasPrompts.of(gen.state)
+          .copyWith(promptPresetId: before.promptPresetId)
+          .sameAs(CanvasPrompts.of(before)),
+      isTrue,
+    );
+    expect(gen.state.params, same(before.params));
+    expect(gen.state.vibes, same(before.vibes));
+    expect(gen.state.img2img, same(before.img2img));
+  }
+
   Finder detailFields() => find.descendant(
     of: key('prompt-preset-editor-dialog'),
     matching: find.byType(TextField),
@@ -382,7 +389,7 @@ void main() {
         ),
         findsOneWidget,
       );
-      expect(presets.current.activeId, 'heavy');
+      expect(presets.activeId, 'heavy');
       expect(presets.activations, 0);
       for (final id in [
         'heavy',
@@ -401,14 +408,15 @@ void main() {
         findsOneWidget,
       );
       await select(tester, 'v5-light');
-      expect(gen.state, same(before));
+      expect(gen.state.promptPresetId, 'v5-light');
+      expectOnlyPresetChanged(before);
       gen.setModel('NAI 4.5 Full');
       await tester.pumpAndSettle();
       await select(tester, 'custom-v5');
-      expect(presets.current.activeId, 'custom-v5');
+      expect(presets.activeId, 'custom-v5');
       expect(gen.state.params.model, 'NAI 4.5 Full');
       await close(tester);
-      expect(presets.current.activeId, 'custom-v5');
+      expect(presets.activeId, 'custom-v5');
       await finish(tester);
     },
   );
@@ -442,9 +450,9 @@ void main() {
       await open(tester);
       for (final id in ['custom', 'none']) {
         await select(tester, id);
-        expect(presets.current.activeId, id);
+        expect(presets.activeId, id);
         expect(editor.read(editorProvider), same(editing));
-        expect(gen.state, same(generation));
+        expectOnlyPresetChanged(generation);
         expect(controller.text, 'rain, snow ');
         expect(controller.selection, selection);
         expect(editing.positiveText, 'sunrise, mist ');
@@ -489,7 +497,7 @@ void main() {
     expect(chipInputBody(after.input.text), 'unfinished words');
     expect(after.selection, selected);
     expect(editor.read(editorProvider), same(editing));
-    expect(gen.state, same(generation));
+    expectOnlyPresetChanged(generation);
     expect(key('desktop-prompt-tags'), findsOneWidget);
     await finish(tester);
   });
@@ -514,7 +522,7 @@ void main() {
       await tester.tapAt(const Offset(5, 5));
       await tester.pumpAndSettle();
       expect(key('prompt-preset-manager-dialog'), findsNothing);
-      expect(presets.current.activeId, 'heavy');
+      expect(presets.activeId, 'heavy');
       expect(presets.activations, 0);
       expect(gen.state, same(before));
       await finish(tester);
@@ -545,7 +553,7 @@ void main() {
         const Size(308, 568),
       );
       await select(tester, 'extra-29');
-      expect(presets.current.activeId, 'extra-29');
+      expect(presets.activeId, 'extra-29');
       expect(presets.activations, 1);
       await reveal(tester, 'heavy');
       await tap(tester, key('prompt-preset-edit-heavy'));
@@ -559,7 +567,7 @@ void main() {
       expect(find.widgetWithText(FilledButton, '保存'), findsNothing);
       await tap(tester, find.widgetWithText(TextButton, '关闭'));
       expect(key('prompt-preset-manager-dialog'), findsOneWidget);
-      expect(presets.current.activeId, 'extra-29');
+      expect(presets.activeId, 'extra-29');
       expect(presets.updates, 0);
       expect(key('prompt-preset-delete-heavy'), findsNothing);
       await close(tester);
@@ -574,6 +582,7 @@ void main() {
       await open(tester);
       await reveal(tester, 'custom');
       final before = presets.current;
+
       await tap(tester, key('prompt-preset-edit-custom'));
       await tester.enterText(detailFields().at(0), 'discard this edit');
       await tap(tester, find.widgetWithText(TextButton, '取消'));
@@ -608,7 +617,7 @@ void main() {
         ),
         ('New preset', 'soft light', 'blur', true),
       );
-      expect(presets.current.activeId, 'heavy');
+      expect(presets.activeId, 'heavy');
 
       await reveal(tester, created.id);
       await tap(tester, key('prompt-preset-edit-${created.id}'));
@@ -624,7 +633,7 @@ void main() {
       await tap(tester, key('prompt-preset-delete-${created.id}'));
       await tap(tester, find.widgetWithText(FilledButton, '删除'));
       expect(presets.removes, 1);
-      expect(presets.current.activeId, 'none');
+      expect(presets.activeId, 'none');
       expect(presets.current.presets.any((p) => p.id == created.id), isFalse);
       expect(key('prompt-preset-manager-dialog'), findsOneWidget);
       await close(tester);
@@ -638,6 +647,7 @@ void main() {
       await mount(tester);
       await open(tester);
       final before = presets.current;
+      final beforeActiveId = presets.activeId;
       await tap(tester, find.byTooltip('导入预设（JSON）'));
       expect(presets.current, same(before));
       expect(presets.imports, 0);
@@ -666,7 +676,7 @@ void main() {
       ]);
       await tap(tester, find.byTooltip('导入预设（JSON）'));
       expect(presets.imports, 1);
-      expect(presets.current.activeId, before.activeId);
+      expect(presets.activeId, beforeActiveId);
       final imported = presets.current.presets.last;
       expect((imported.scope, imported.suffixPositive), ('legacy', true));
       await reveal(tester, 'imported');

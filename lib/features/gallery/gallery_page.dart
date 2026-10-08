@@ -18,6 +18,7 @@ import '../generate/generate_state.dart';
 import '../generate/widgets/common.dart' show hintSnack;
 import '../inpaint/inpaint_overlay.dart';
 import 'gallery_state.dart';
+import 'mobile_gallery_page.dart';
 import 'models.dart';
 import 'save_settings.dart';
 import 'share_pipeline.dart';
@@ -290,6 +291,7 @@ class _GalleryPageState extends ConsumerState<GalleryPage>
   @override
   Widget build(BuildContext context) {
     super.build(context);
+    if (!widget.desktop) return const MobileGalleryPage();
     final history = ref.watch(galleryViewProvider);
     final scope = ref.watch(galleryBrowseAlbumProvider);
     final preview = ref.watch(galleryResultPreviewProvider);

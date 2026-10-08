@@ -227,6 +227,7 @@ class PublicArtistMeta {
     this.addedBy,
     this.ownerId,
     this.models = const [],
+    this.recipe,
   });
 
   final String id;
@@ -245,6 +246,10 @@ class PublicArtistMeta {
   /// 服务端不校验 id 在不在已知模型表里,所以这里也原样收 —— 新版客户端标的
   /// id 不该被老版静默吃掉。
   final List<String> models;
+
+  /// 推荐参数原始 JSON(形状见 StyleRecipe);null = 没有。这层不认领域模型,
+  /// 由灵感页那边解析。
+  final Map<String, dynamic>? recipe;
 }
 
 /// 公共 OC(角色)列表项(`GET /api/oc/list`)。
@@ -1773,6 +1778,9 @@ class BackendClient {
               for (final m in (a['models'] is List ? a['models'] as List : []))
                 if (m is String && m.trim().isNotEmpty) m.trim(),
             ],
+            recipe: a['recipe'] is Map
+                ? Map<String, dynamic>.from(a['recipe'] as Map)
+                : null,
           ),
     ];
   }
@@ -1903,6 +1911,7 @@ class BackendClient {
     String? previewBase64,
     String? addedBy,
     List<String>? models,
+    Map<String, dynamic>? recipe,
   }) async {
     final j = await _postJson(
       '/artists/create',
@@ -1914,6 +1923,8 @@ class BackendClient {
         'added_by': ?addedBy,
         // 适用模型;不传 = 通用。服务端会再清洗一遍(去空/去重/截断)
         'models': ?models,
+        // 推荐参数;不传 = 没有。服务端同样只做形状清洗
+        'recipe': ?recipe,
       },
       sessionId,
       const Duration(seconds: 30),
@@ -1932,6 +1943,7 @@ class BackendClient {
   ///
   /// [models] 的 null 与 `[]` **不同义**:null = 本次不改,`[]` = 用户把标注全
   /// 取消了、改回通用。服务端按同一口径判,别在这里合并成「空就不发」。
+  /// [recipe] 同理:null = 本次不改,`{}` = 把推荐参数清掉。
   Future<void> updatePublicArtist({
     required String sessionId,
     required String id,
@@ -1940,6 +1952,7 @@ class BackendClient {
     String? previewBase64,
     String? addedBy,
     List<String>? models,
+    Map<String, dynamic>? recipe,
   }) async {
     await _putJson(
       '/artists/${Uri.encodeComponent(id)}',
@@ -1949,6 +1962,7 @@ class BackendClient {
         'preview_base64': ?previewBase64,
         'added_by': ?addedBy,
         'models': ?models,
+        'recipe': ?recipe,
       },
       sessionId,
       const Duration(seconds: 30),

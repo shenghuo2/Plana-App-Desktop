@@ -10,10 +10,12 @@ import '../../core/store/storage_lifecycle.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/theme/editor_theme.dart';
 import '../generate/generate_state.dart';
-import '../generate/models.dart' show GenerateState;
+import '../generate/canvas_state.dart';
+import '../generate/models.dart' show GenerateState, PromptSection;
 import '../generate/widgets/common.dart' show hintSnack;
 import 'data/suggestions.dart';
 import 'data/tag_completion.dart';
+import 'data/tag_favorites.dart';
 import 'data/tag_translation_service.dart';
 import 'editor_models.dart';
 import 'editor_settings.dart';
@@ -48,6 +50,7 @@ class EditorPage extends ConsumerStatefulWidget {
     required this.positive,
     this.charId,
     this.embedded = false,
+    this.sectionId,
   });
 
   final bool positive;
@@ -55,6 +58,9 @@ class EditorPage extends ConsumerStatefulWidget {
 
   /// 编辑目标:null = 创作页主提示词,否则 = 该 id 的角色提示词。
   final String? charId;
+
+  /// 编辑目标是主提示词的某个分区(见 PromptSection);与 [charId] 互斥。
+  final String? sectionId;
 
   @override
   ConsumerState<EditorPage> createState() => _EditorPageState();
@@ -67,6 +73,7 @@ class _EditorPageState extends ConsumerState<EditorPage>
   final FocusNode _inlineFocus = FocusNode();
   bool _inlineHasFocus = false;
   bool _loaded = false;
+  String? _loadedCanvasId;
   final ScrollController _scroll = ScrollController();
   final _inlineTextKey = GlobalKey<AnnotatedFieldState>();
   final _inlineChipKey = GlobalKey<ChipFlowViewState>();
@@ -119,12 +126,15 @@ class _EditorPageState extends ConsumerState<EditorPage>
   /// 选和放分成两个阶段,两类误触才不会互相干扰。
   bool _chipPlacing = false;
   double _chipMult = 1.0; // 芯片模式批量面板的统一数值权重读数
-  String? _charName; // 编辑角色时的名字(顶栏标题);主提示词会话为 null
+  String? _charName; // 编辑角色 / 分区时的名字(顶栏标题);主提示词会话为 null
 
   /// 滚动正文时收起顶栏与权重面板(见 [_onContentScroll])。补全条不收:
   /// 它只在打字时出现,而打字本身就会把这里放回来。
   bool _chromeHidden = false;
   final ChromeScrollTracker _chromeScroll = ChromeScrollTracker();
+
+  /// 底栏展开钮拉出的收藏托盘是否展开。
+  bool _trayOpen = false;
 
   /// 正文形态。设置即真相 —— 底栏那颗切换直接改设置,不另存一份局部状态,
   /// 免得「设置里是芯片、页面还停在文本」这种两头对不上的中间态。
@@ -141,6 +151,8 @@ class _EditorPageState extends ConsumerState<EditorPage>
   EditorSettings get _settings =>
       ref.read(editorSettingsProvider).value ?? const EditorSettings();
 
+  late final EditorSessions _sessions;
+
   @override
   void initState() {
     super.initState();
@@ -150,10 +162,12 @@ class _EditorPageState extends ConsumerState<EditorPage>
       ref.read(appStoresProvider),
       beforeFlush: () {
         if (!mounted || !_loaded) return;
-        _notifier.flushWriteBack();
+        ref.read(editorSessionsProvider).flushPending();
       },
     );
     _controller.addListener(_onCtrl);
+    _sessions = ref.read(editorSessionsProvider);
+    _sessions.prepareInputs.add(_prepareInputForSwitch);
     // 占位符要从一开始就在:框子真空过一次,那一次的退格就收不到信号。
     _resetInput();
     // 增强模式的后端翻译通道:回填到货即刷新注音。
@@ -162,12 +176,16 @@ class _EditorPageState extends ConsumerState<EditorPage>
     // 编辑目标进页面即钉死。角色名只读一次:名字是 app 内部写的
     // (自动编号 / 导入带入),会话中不会变,不必挂 watch。
     final id = widget.charId;
-    final hit = [
-      for (final c in ref.read(generateProvider).characters)
-        if (c.id == id) c,
-    ];
-    final char = hit.isEmpty ? null : hit.first;
-    _charName = char?.name;
+    final sectionId = id == null ? widget.sectionId : null;
+    final gen0 = ref.read(generateProvider);
+    final char = gen0.characters.where((c) => c.id == id).firstOrNull;
+    final section = gen0.sections.where((s) => s.id == sectionId).firstOrNull;
+    // 分过区时主体也写上名字,和点别的分区进来一样
+    _charName = id != null
+        ? char?.name
+        : sectionId != null
+        ? section?.name
+        : gen0.sections.where((s) => s.isMain).firstOrNull?.name;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       // 角色会话即使没命中(角色已被删)也**不**退回主提示词:那正是
@@ -183,6 +201,15 @@ class _EditorPageState extends ConsumerState<EditorPage>
 
   (String, String) _drafts(GenerateState gen) {
     if (widget.charId == null) {
+      if (widget.sectionId != null) {
+        final section = gen.sections
+            .where((s) => s.id == widget.sectionId)
+            .firstOrNull;
+        return (
+          pickEditorText(section?.positiveRaw ?? '', section?.positive ?? ''),
+          pickEditorText(section?.negativeRaw ?? '', section?.negative ?? ''),
+        );
+      }
       return (
         pickEditorText(gen.promptRaw, gen.prompt),
         pickEditorText(gen.negativePromptRaw, gen.negativePrompt),
@@ -196,7 +223,12 @@ class _EditorPageState extends ConsumerState<EditorPage>
   }
 
   List<PromptFoldLink> _links(GenerateState gen) => widget.charId == null
-      ? gen.promptFoldLinks
+      ? widget.sectionId == null
+            ? gen.promptFoldLinks
+            : [
+                for (final s in gen.sections)
+                  if (s.id == widget.sectionId) ...s.foldLinks,
+              ]
       : [
           for (final character in gen.characters)
             if (character.id == widget.charId) ...character.foldLinks,
@@ -205,12 +237,20 @@ class _EditorPageState extends ConsumerState<EditorPage>
   void _loadFromGenerate(bool positive) {
     final drafts = _drafts(ref.read(generateProvider));
     _loaded = true;
+    _loadedCanvasId = ref.read(canvasWorkspaceProvider).activeId;
     _notifier.load(
       positive: drafts.$1,
       negative: drafts.$2,
       startPositive: positive,
       charId: widget.charId,
+      sectionId: widget.sectionId,
     );
+  }
+
+  void _prepareInputForSwitch() {
+    if (mounted && _loaded && _chipMode && _inputText.trim().isNotEmpty) {
+      _commitInput(restoreFocus: false);
+    }
   }
 
   /// 离开编辑器时把输入法按下去。
@@ -230,6 +270,7 @@ class _EditorPageState extends ConsumerState<EditorPage>
 
   @override
   void dispose() {
+    _sessions.prepareInputs.remove(_prepareInputForSwitch);
     _lifecycle?.dispose();
     _debounce?.cancel();
     _transSvc.removeListener(_refreshAnnotations);
@@ -270,9 +311,9 @@ class _EditorPageState extends ConsumerState<EditorPage>
     _controller.refresh();
     _muting = false;
     if (_panelTok != null && _query.isEmpty) _reroute();
-    // 补全条的译文也是显示时现查(transOf)。结果快照没变,不重建就一直空着 ——
-    // 只重绘注音层不够,那是另一棵树。
-    if (!_result.isEmpty) setState(() {});
+    // 补全条与收藏托盘的译文也是显示时现查(transOf)。结果快照没变,不重建
+    // 就一直空着 —— 只重绘注音层不够,那是另一棵树。
+    if (!_result.isEmpty || _trayOpen) setState(() {});
   }
 
   /// 把注音未命中的词喂给后端翻译通道(增强模式;离线模式 no-op)。
@@ -769,12 +810,14 @@ class _EditorPageState extends ConsumerState<EditorPage>
     // _query / _result 原样保留,弹层列表不跳
   }
 
-  /// 程序化改文本(补全/权重/删除),同步撤销与路由
+  /// 程序化改文本(补全/权重/删除),同步撤销与路由。[extracted] 见
+  /// [EditorNotifier.editActive]。
   void _applyText(
     String text,
     int cursor, {
     bool structural = true,
     bool detachRemovedFolds = false,
+    PromptSection? extracted,
   }) {
     _muting = true;
     _controller.value = TextEditingValue(
@@ -789,6 +832,7 @@ class _EditorPageState extends ConsumerState<EditorPage>
       text,
       structural: structural,
       detachRemovedFolds: detachRemovedFolds,
+      extracted: extracted,
     );
     // 打字走 _onCtrl 会喂翻译,这条路径 _muting 压掉了 _onCtrl,必须自己喂 ——
     // 否则**所有**程序化改文本(折叠展开/补全插入/多选批量)带进来的新词
@@ -933,6 +977,34 @@ class _EditorPageState extends ConsumerState<EditorPage>
     }
   }
 
+  void _toggleTray() {
+    Haptics.selection();
+    setState(() => _trayOpen = !_trayOpen);
+    // 收藏卡带译文:缺的交给后端翻译通道(离线模式 no-op)
+    if (_trayOpen) _transSvc.request(ref.read(tagFavoritesProvider));
+  }
+
+  /// 托盘里点了一枚收藏:芯片模式接在末尾;文本模式落在光标处 —— 光标在词里
+  /// 就接在这枚词后面,在空隙里就插在原地。
+  void _insertFavorite(String tag) {
+    Haptics.selection();
+    if (_chipMode) {
+      _appendTag(tag);
+      return;
+    }
+    final text = _controller.text;
+    final sel = _controller.selection;
+    final off = sel.isValid ? sel.end : text.length;
+    final toks = parseToks(text);
+    final i = tokIndexAt(text, off, toks);
+    final (next, cursor) = insertUnitAt(
+      text,
+      i >= 0 ? toks[i].segEnd : off,
+      tag,
+    );
+    _applyText(next, cursor);
+  }
+
   /// 形态切换后的收尾:清掉另一头才有意义的状态。设置载回(冷启动时持久化的
   /// chipMode 到货)也走这里,所以这里只做清理,不碰焦点。
   void _onModeChanged(bool chip) {
@@ -1050,7 +1122,7 @@ class _EditorPageState extends ConsumerState<EditorPage>
   }
 
   /// 回车/「直接添加」:整条落成标签。
-  void _commitInput() {
+  void _commitInput({bool restoreFocus = true}) {
     final raw = _inputText.trim();
     if (raw.isEmpty) {
       _clearSuggest();
@@ -1058,7 +1130,7 @@ class _EditorPageState extends ConsumerState<EditorPage>
     }
     _resetInput();
     _appendTag(raw);
-    _inputFocus.requestFocus();
+    if (restoreFocus) _inputFocus.requestFocus();
   }
 
   /// 末尾追加一枚标签。[quiet] = 不重算 dock(补全弹层里连续插入时用:
@@ -1150,6 +1222,52 @@ class _EditorPageState extends ConsumerState<EditorPage>
     if (out.isEmpty) return;
     Clipboard.setData(ClipboardData(text: out));
     hintSnack(context, '已复制 ${ordered.length} 项', icon: Icons.check);
+  }
+
+  /// 提取所选为新分区:所选从这一段拿掉,原样(权重、禁用、折叠都带着)放进
+  /// 新建的一格,接在分区列表最后;在负面页提取的进那一格的负面。
+  /// [remove] 按各自的多选方式删掉所选并清掉选中,返回删后的正文与光标。
+  ///
+  /// 先删后建:删不动(选区和折叠连在同一个组里,同「删除」会原样退回)就
+  /// 不建格。这一步进撤销档时记着建出的那一格,撤回正文时一并拿掉。
+  /// 整组选中时组权重跟着走,只取一部分不带(见 [extractUnitsDraft])。
+  void _extractUnits(Set<int> sel, (String, int) Function() remove) {
+    final text = _controller.text;
+    final draft = expandFolds(
+      extractUnitsDraft(text, _foldBodies, sel),
+      _foldBodies,
+    ).trim();
+    if (draft.isEmpty) return;
+    final (next, cursor) = remove();
+    if (next == text) {
+      hintSnack(context, '所选和折叠连在一起,没法提取');
+      return;
+    }
+    final section = ref
+        .read(generateProvider.notifier)
+        .addSectionFrom(
+          draft,
+          positive: ref.read(editorProvider).activePositive,
+        );
+    _applyText(next, cursor, extracted: section);
+    _save(); // 当场回写:别让这几枚在原处和新分区里同时存着
+    hintSnack(context, '已提取到「${section.name}」', icon: Icons.check);
+  }
+
+  void _chipExtract() => _extractUnits(_chipSel, () {
+    final out = deleteUnits(_controller.text, _foldBodies, _chipSel);
+    _setChipSel({});
+    return out;
+  });
+
+  void _multiExtract() {
+    final r = _multiRange;
+    if (r == null) return;
+    _extractUnits(_rangeSel(r), () {
+      final out = batchDelete(_controller.text, r.$1, r.$2);
+      setState(() => _multiRange = null);
+      return out;
+    });
   }
 
   /// 多选移动落地:所选顶层单元整批搬到间隙 [to]。折叠占位符作为一整块
@@ -1498,7 +1616,8 @@ class _EditorPageState extends ConsumerState<EditorPage>
     if (widget.embedded) {
       ref.listen(generateProvider, (previous, next) {
         if (!_loaded || _notifier.isWritingBack || previous == null) return;
-        if (_drafts(previous) != _drafts(next) ||
+        if (_loadedCanvasId != ref.read(canvasWorkspaceProvider).activeId ||
+            _drafts(previous) != _drafts(next) ||
             !listEquals(_links(previous), _links(next))) {
           _loadFromGenerate(ref.read(editorProvider).activePositive);
         }
@@ -1537,11 +1656,17 @@ class _EditorPageState extends ConsumerState<EditorPage>
     // 即触发本 build 重灌 + 重绘。
     final foldBodies = ref.watch(editorProvider.select((s) => s.foldBodies));
     _controller.foldBodies = foldBodies;
+    // 权重面板(词条栏 / 批量面板)一弹出,顶栏就让位;补全条不算。
+    // 拖光标期间 dock 是冻住的那份,顶栏跟着不动,松手再定。
+    final dock = _dock();
+    final weightDock = dock is TagPanel || dock is BatchPanel;
 
     if (widget.embedded) {
-      final prefix = widget.charId == null
-          ? 'desktop-prompt'
-          : 'desktop-character-${widget.charId}';
+      final prefix = widget.charId != null
+          ? 'desktop-character-${widget.charId}'
+          : widget.sectionId != null
+          ? 'desktop-section-${widget.sectionId}'
+          : 'desktop-prompt';
       return Theme(
         data: editorTheme(context),
         child: Focus(
@@ -1592,6 +1717,8 @@ class _EditorPageState extends ConsumerState<EditorPage>
               onDismiss: _dismissDesktopPanel,
               child: InlineEditorChrome(
                 charId: widget.charId,
+                sectionId: widget.sectionId,
+                onInsertFavorite: _insertFavorite,
                 chipMode: settings.chipMode,
                 onSettings: _openSettings,
                 onToggleMode: _toggleChipMode,
@@ -1661,13 +1788,17 @@ class _EditorPageState extends ConsumerState<EditorPage>
       data: editorTheme(context),
       child: Builder(
         builder: (context) => PopScope(
-          // 芯片模式选中着东西时,返回键先退选(形态本身是常驻偏好,不该被
-          // 返回键改掉),再按一次才离开编辑器
-          canPop: !(settings.chipMode && (_chipSel.isNotEmpty || _chipPlacing)),
+          // 托盘展开着时返回键先收托盘;芯片模式选中着东西时先退选(形态本身
+          // 是常驻偏好,不该被返回键改掉)。收完再按一次才离开编辑器
+          canPop:
+              !_trayOpen &&
+              !(settings.chipMode && (_chipSel.isNotEmpty || _chipPlacing)),
           onPopInvokedWithResult: (didPop, _) {
             if (didPop) {
               _save();
               _dismissKeyboard(); // 系统返回手势也走这里,不能只挂在返回按钮上
+            } else if (_trayOpen) {
+              setState(() => _trayOpen = false);
             } else if (_chipPlacing) {
               // 先退落位阶段,选中留着 —— 用户多半只是想改一下选哪几枚
               setState(() => _chipPlacing = false);
@@ -1679,16 +1810,20 @@ class _EditorPageState extends ConsumerState<EditorPage>
             body: SafeArea(
               child: Column(
                 children: [
-                  // 滚动正文时整栏收起:贴底对齐 + 裁切,读起来是往上滑走。
-                  // 见 [_onContentScroll]。
+                  // 滚动正文时、或权重面板在时整栏收起:贴底对齐 + 裁切,
+                  // 读起来是往上滑走。见 [_onContentScroll]。
                   ClipRect(
                     child: AnimatedAlign(
                       duration: Motion.fast,
                       curve: Motion.standard,
                       alignment: Alignment.bottomCenter,
-                      heightFactor: _chromeHidden ? 0 : 1,
+                      heightFactor: _chromeHidden || weightDock ? 0 : 1,
                       child: EditorTopBar(
                         charName: _charName,
+                        character: widget.charId != null,
+                        sectionId: widget.charId == null
+                            ? widget.sectionId
+                            : null,
                         onBack: () {
                           // 先收键盘再出栈:让退场动画一开始就是完整半屏,
                           // 不是「键盘收一半、页面滑一半」两段各走各的
@@ -1782,7 +1917,7 @@ class _EditorPageState extends ConsumerState<EditorPage>
                                         child: child,
                                       ),
                                     ),
-                                child: _dock(),
+                                child: dock,
                               ),
                         ),
                       ),
@@ -1791,6 +1926,9 @@ class _EditorPageState extends ConsumerState<EditorPage>
                   EditorBottomBar(
                     onToggleMode: _toggleChipMode,
                     chipMode: settings.chipMode,
+                    trayOpen: _trayOpen,
+                    onToggleTray: _toggleTray,
+                    onInsertFavorite: _insertFavorite,
                   ),
                 ],
               ),
@@ -1814,6 +1952,7 @@ class _EditorPageState extends ConsumerState<EditorPage>
     required VoidCallback onToggleDisabled,
     required VoidCallback onDelete,
     required VoidCallback onClose,
+    required VoidCallback onExtract,
     VoidCallback? onUnfold,
   }) {
     final units = topLevelUnits(_controller.text, _foldBodies);
@@ -1851,6 +1990,8 @@ class _EditorPageState extends ConsumerState<EditorPage>
           ? 0
           : parseToks(_foldBodies[fold.name] ?? '').length,
       onCopy: () => _copyUnits(live),
+      // 分区只属于主提示词:角色会话不给
+      onExtract: widget.charId == null ? onExtract : null,
       onWrap: onWrap,
       onStepMult: onStepMult,
       onClearWeight: onClearWeight,
@@ -1896,6 +2037,7 @@ class _EditorPageState extends ConsumerState<EditorPage>
           onToggleDisabled: _chipToggleDisabled,
           onDelete: _chipDelete,
           onClose: () => _setChipSel({}),
+          onExtract: _chipExtract,
           onUnfold: _chipUnfold,
         );
       }
@@ -1913,6 +2055,7 @@ class _EditorPageState extends ConsumerState<EditorPage>
           onToggleDisabled: _multiToggleDisabled,
           onDelete: _multiDelete,
           onClose: widget.embedded ? _dismissDesktopPanel : _multiClose,
+          onExtract: _multiExtract,
         );
       }
     }
@@ -1965,6 +2108,11 @@ class _EditorPageState extends ConsumerState<EditorPage>
         onAddRelated: _addRelated,
         onRename: _chipMode ? _chipRename : null,
         onClose: _chipMode ? () => _setChipSel({}) : _closePanel,
+        favorited: ref
+            .watch(tagFavoriteKeysProvider)
+            .contains(metaKey(tok.name)),
+        onToggleFavorite: () =>
+            ref.read(tagFavoritesProvider.notifier).toggle(tok.name),
       );
     }
     return const SizedBox.shrink(key: ValueKey('dock-empty'));

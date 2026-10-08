@@ -209,6 +209,14 @@ class _DateFilterSheet extends StatelessWidget {
               selected: current.kind == GalleryDateKind.range,
               onTap: () => Navigator.pop(context, GalleryDateKind.range),
             ),
+            if (current.kind != GalleryDateKind.all)
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  onPressed: () => Navigator.pop(context, GalleryDateKind.all),
+                  child: const Text('重置'),
+                ),
+              ),
           ],
         ),
       ),

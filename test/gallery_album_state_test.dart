@@ -137,8 +137,8 @@ void main() {
           );
         }
       }
-      albums.browse(scoped ? album : null);
       albums.setSave(other);
+      albums.browse(scoped ? album : null);
       gallery.select(ids[2]);
       await gallery.deleteResults([ids[2]]);
       expect(c.read(galleryViewProvider).selectedId, ids[1]);

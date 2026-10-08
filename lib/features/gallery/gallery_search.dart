@@ -124,7 +124,9 @@ class GallerySearchNotifier extends Notifier<GallerySearchState> {
   }
 
   Future<void> _init() async {
+    if (!ref.mounted) return;
     final loaded = await _store.readSearchIndex();
+    if (!ref.mounted) return;
     // 已 put 的新图优先(_init 前生成的),盘上旧值不回退它
     state = state.copyWith(byId: {...loaded, ...state.byId});
     await _backfill();
@@ -134,6 +136,7 @@ class GallerySearchNotifier extends Notifier<GallerySearchState> {
   /// 陈条(崩溃残留)。逐文件 await 让路 UI,每 25 张刷一次进度。
   Future<void> _backfill() async {
     final ids = await _store.listInputIds();
+    if (!ref.mounted) return;
     final live = ids.toSet();
     final missing = [
       for (final id in ids)
@@ -149,6 +152,7 @@ class GallerySearchNotifier extends Notifier<GallerySearchState> {
     var done = 0;
     for (final id in missing) {
       final raw = await _store.readInputRaw(id);
+      if (!ref.mounted) return;
       final m = raw == null ? null : metaOfSnapshotJson(raw);
       if (m != null) add[id] = m;
       done++;

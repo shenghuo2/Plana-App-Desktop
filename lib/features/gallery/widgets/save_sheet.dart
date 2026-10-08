@@ -12,6 +12,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/ui/param_input.dart';
 import '../../generate/widgets/common.dart' show hintSnack;
 import '../desktop_image_save.dart';
+import '../gallery_state.dart';
 import '../save_pipeline.dart';
 import '../models.dart';
 import '../phone_gallery_save.dart';
@@ -100,6 +101,7 @@ class _SaveSheetState extends ConsumerState<_SaveSheet> {
   Future<void> _saveOnce() async {
     if (_saving) return;
     final settings = _current;
+    final gallery = ref.read(galleryProvider.notifier);
     setState(() => _saving = true);
     try {
       if (ref.read(desktopModeProvider)) {
@@ -140,6 +142,7 @@ class _SaveSheetState extends ConsumerState<_SaveSheet> {
         image: widget.image,
         format: settings.format,
       );
+      gallery.markSaved([widget.image.id]);
       if (!mounted) return;
       hintSnack(
         context,

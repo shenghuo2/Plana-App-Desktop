@@ -161,9 +161,9 @@ class _StoragePageState extends ConsumerState<StoragePage> {
       stores.assistant.idle,
     ]);
     final live = <String>{
-      ...await stores.workspace.liveRefs(),
-      ...await stores.gallery.liveRefs(),
-      ...await stores.assistant.liveRefs(),
+      ...await stores.workspace.liveRefs(strict: true),
+      ...await stores.gallery.liveRefs(strict: true),
+      ...await stores.assistant.liveRefs(strict: true),
     };
     await stores.blobs.gc(live, minAge: const Duration(minutes: 5));
   }
