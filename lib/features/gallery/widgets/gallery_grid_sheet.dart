@@ -1090,9 +1090,13 @@ class GalleryGridContentState extends ConsumerState<GalleryGridContent>
           FilterChip(
             key: const ValueKey('gallery-favorites-filter'),
             avatar: Icon(
-              _favoritesOnly ? Icons.star : Icons.star_border,
+              _favoritesOnly ? Icons.star_rounded : Icons.star_border_rounded,
               size: 18,
-              color: _favoritesOnly ? Colors.amber.shade800 : null,
+              color: _favoritesOnly
+                  ? (context.scheme.brightness == Brightness.dark
+                        ? Colors.amber.shade300
+                        : Colors.amber.shade800)
+                  : null,
             ),
             label: const Text('收藏'),
             selected: _favoritesOnly,
