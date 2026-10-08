@@ -1,4 +1,4 @@
-# Plana app for windows
+# Plana App Desktop — Windows 使用说明
 
 版本：1.1.1-windows.45（64）。基于 Flutter 和原版浅蓝主题，提供 Windows 桌面工作台与图库优化。
 

@@ -42,7 +42,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   Win32Window::Size size(
       static_cast<unsigned int>((std::min)(1440.0, available_width - 48)),
       static_cast<unsigned int>((std::min)(900.0, available_height - 72)));
-  if (!window.Create(L"Plana app for windows", origin, size)) {
+  if (!window.Create(L"Plana App Desktop", origin, size)) {
     return EXIT_FAILURE;
   }
   window.SetQuitOnClose(true);

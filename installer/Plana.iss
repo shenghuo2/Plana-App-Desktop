@@ -18,18 +18,18 @@
   #error IconFile is required
 #endif
 
-#define AppName "Plana Windows"
+#define AppName "Plana App Desktop"
 #define AppExeName "plana_app_for_windows.exe"
 #define AppUserModelID "LingXia979.PlanaWindows"
 
 [Setup]
-; Stable identity for all future Plana Windows installer upgrades.
+; Keep the original installer identity and directory for existing users.
 AppId={{50D5C180-410F-4A2D-831A-2145B7336351}
 AppName={#AppName}
 AppVersion={#AppVersion}
 AppVerName={#AppName} {#AppVersion}
-AppPublisher=LingXia979
-AppPublisherURL=https://github.com/LingXia979/Plana-App-for-windows
+AppPublisher=shenghuo2
+AppPublisherURL=https://github.com/shenghuo2/Plana-App-Desktop
 DefaultDirName={localappdata}\Programs\Plana
 AppendDefaultDirName=no
 ; Accept newly created folders and existing installation directories directly.
@@ -44,8 +44,8 @@ OutputBaseFilename={#OutputBaseFilename}
 SetupIconFile={#IconFile}
 UninstallDisplayIcon={app}\{#AppExeName}
 VersionInfoVersion={#FileVersion}
-VersionInfoCompany=LingXia979
-VersionInfoDescription=Plana Windows 中文安装程序
+VersionInfoCompany=shenghuo2
+VersionInfoDescription=Plana App Desktop 中文安装程序
 VersionInfoProductName={#AppName}
 VersionInfoProductVersion={#FileVersion}
 Compression=lzma2
@@ -85,7 +85,7 @@ Name: "{group}\{#AppName}"; Filename: "{app}\{#AppExeName}"; WorkingDir: "{app}"
 Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExeName}"; WorkingDir: "{app}"; Tasks: desktopicon; AppUserModelID: "{#AppUserModelID}"; Check: not IsValidationRun
 
 [Run]
-Filename: "{app}\{#AppExeName}"; Description: "启动 Plana Windows"; Flags: nowait postinstall skipifsilent; Check: not IsValidationRun
+Filename: "{app}\{#AppExeName}"; Description: "启动 Plana App Desktop"; Flags: nowait postinstall skipifsilent; Check: not IsValidationRun
 
 ; No blanket deletion: output and user-created files survive upgrades and
 ; uninstall. Windows user-profile settings/history are never installer inputs.

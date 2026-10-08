@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/app_info.dart';
 import '../../../core/auth/bot_session_store.dart';
 import '../../../core/net/backend_client.dart';
 import '../../../core/platform/desktop.dart';
@@ -607,7 +608,7 @@ class _BackupSheetState extends ConsumerState<_BackupSheet> {
     });
     await client.recordBackupLog(
       sessionId: sid,
-      device: 'Plana App',
+      device: kAppName,
       action: 'backup',
       count: n,
       detail: 'tag-manager 备份 $detail',
@@ -651,7 +652,7 @@ class _BackupSheetState extends ConsumerState<_BackupSheet> {
     });
     await client.recordBackupLog(
       sessionId: sid,
-      device: 'Plana App',
+      device: kAppName,
       action: 'restore',
       count: n,
       detail: 'tag-manager 恢复 $detail',

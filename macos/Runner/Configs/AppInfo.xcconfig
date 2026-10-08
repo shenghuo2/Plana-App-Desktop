@@ -5,7 +5,11 @@
 // 'flutter create' template.
 
 // The application's name. By default this is also the title of the Flutter window.
-PRODUCT_NAME = Plana App
+PRODUCT_NAME = Plana App Desktop
+
+// Legacy updaters compare CFBundleExecutable before replacing the application.
+// Keep the internal executable name while changing the bundle and display name.
+EXECUTABLE_NAME = Plana App
 
 // The application's bundle identifier
 PRODUCT_BUNDLE_IDENTIFIER = com.sora214.plana.app

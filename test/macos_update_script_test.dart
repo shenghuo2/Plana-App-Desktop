@@ -60,7 +60,9 @@ exec /bin/sleep 30
     setUp(() async {
       root = await Directory.systemTemp.createTemp("plana update's ");
       bundle = Directory(p.join(root.path, '我的 Plana.app'));
-      candidate = Directory(p.join(root.path, 'fixture', 'Plana App.app'));
+      candidate = Directory(
+        p.join(root.path, 'fixture', 'Plana App Desktop.app'),
+      );
       work = Directory(p.join(root.path, 'work'));
       startup = File(p.join(work.path, 'startup'));
       await app(bundle, updated: false);
@@ -158,7 +160,7 @@ printf '%s\n' "$1" > "$PLANA_TEST_OPENED"
         jsonDecode(await File(p.join(work.path, 'result.json')).readAsString())
             as Map;
 
-    test('验证、复制、收到实际 PID 回执后才删除旧版', () async {
+    Future<void> expectSuccessfulUpdate() async {
       // Keep a second PID file so the fixture can be cleaned after helper cleanup.
       final binary = File(
         p.join(candidate.path, 'Contents', 'MacOS', 'Plana App'),
@@ -185,6 +187,17 @@ printf '%s\n' "$1" > "$PLANA_TEST_OPENED"
         await Directory(p.join(root.path, '.backup.app')).exists(),
         isFalse,
       );
+    }
+
+    test('改名后的安装包沿用原安装路径和 Bundle ID', () async {
+      await expectSuccessfulUpdate();
+    });
+
+    test('仍可安装使用旧名称的安装包', () async {
+      candidate = await candidate.rename(
+        p.join(root.path, 'fixture', 'Plana App.app'),
+      );
+      await expectSuccessfulUpdate();
     });
 
     test('启动失败时恢复旧 .app 并重新打开', () async {

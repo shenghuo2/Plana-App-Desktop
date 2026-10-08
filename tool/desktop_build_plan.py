@@ -33,9 +33,9 @@ def entry(edition, branch, sha):
         "branch": branch,
         "sha": sha,
         "version": version,
-        "dmg": "Plana-RemoteUpload-macOS-arm64.dmg" if remote else "Plana-macOS-arm64.dmg",
-        "artifact": "Plana-RemoteUpload-macOS-ad-hoc" if remote else "Plana-macOS-ad-hoc",
-        "volume": "Plana App Remote Upload" if remote else "Plana App",
+        "dmg": "Plana-App-Desktop-RemoteUpload-macOS-arm64.dmg" if remote else "Plana-App-Desktop-macOS-arm64.dmg",
+        "artifact": "Plana-App-Desktop-RemoteUpload-macOS-ad-hoc" if remote else "Plana-App-Desktop-macOS-ad-hoc",
+        "volume": "Plana App Desktop Remote Upload" if remote else "Plana App Desktop",
     }
 
 
