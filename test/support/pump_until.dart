@@ -18,3 +18,19 @@ Future<void> pumpUntil(
   }
   expect(done(), isTrue, reason: reason ?? 'Async work must finish');
 }
+
+/// Await futures that can depend on both disk IO and fake-clock callbacks.
+Future<T> pumpUntilComplete<T>(
+  WidgetTester tester,
+  Future<T> future, {
+  String? reason,
+}) async {
+  var done = false;
+  final settled = future.then<void>(
+    (_) => done = true,
+    onError: (Object error, StackTrace stack) => done = true,
+  );
+  await pumpUntil(tester, () => done, reason: reason);
+  await settled;
+  return future;
+}

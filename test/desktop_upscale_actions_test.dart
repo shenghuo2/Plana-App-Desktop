@@ -24,6 +24,8 @@ import 'package:plana_app/features/generate/generate_state.dart';
 import 'package:plana_app/features/generate/generation_controller.dart';
 import 'package:plana_app/features/generate/models.dart';
 
+import 'support/pump_until.dart';
+
 class _Canvas extends GenerateNotifier {
   @override
   GenerateState build() => GenerateState.initial();
@@ -204,13 +206,7 @@ void main() {
 
   Future<void> spinUntil(WidgetTester tester, bool Function() done) async {
     await tester.pump();
-    for (var i = 0; i < 300 && !done(); i++) {
-      await tester.runAsync(
-        () => Future<void>.delayed(const Duration(milliseconds: 10)),
-      );
-      await tester.pump(const Duration(milliseconds: 10));
-    }
-    expect(done(), isTrue);
+    await pumpUntil(tester, done);
   }
 
   Future<void> mount(WidgetTester tester, {bool details = false}) async {
@@ -521,10 +517,11 @@ void main() {
           red,
         );
         expect(balance.refreshes, 1);
-        await tester.runAsync(() async {
-          await stores.gallery.flushIndex();
-          await stores.gallery.load();
-        });
+        await pumpUntilComplete(
+          tester,
+          stores.gallery.flushIndex().then((_) => stores.gallery.load()),
+          reason: 'Gallery index must be durable before reloading',
+        );
         expect(
           stores.gallery.initialResults
               .singleWhere((image) => image.id == result.id)

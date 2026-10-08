@@ -11,6 +11,8 @@ import 'package:plana_app/core/theme/theme_settings.dart';
 import 'package:plana_app/features/profile/appearance_page.dart';
 import 'package:plana_app/main.dart';
 
+import 'support/pump_until.dart';
+
 /// Use the production app's theme and builder with a small settings route.
 class _App extends ConsumerWidget {
   const _App({this.systemScaler});
@@ -98,13 +100,11 @@ void main() {
   Future<void> settlePrefs(WidgetTester tester) async {
     var done = false;
     unawaited(stores.prefs.idle.then((_) => done = true));
-    for (var i = 0; i < 200 && !done; i++) {
-      await tester.runAsync(
-        () => Future<void>.delayed(const Duration(milliseconds: 10)),
-      );
-      await tester.pump(const Duration(milliseconds: 20));
-    }
-    expect(done, isTrue, reason: 'Font preference must finish writing to disk');
+    await pumpUntil(
+      tester,
+      () => done,
+      reason: 'Font preference must finish writing to disk',
+    );
   }
 
   Future<ThemeSettings> reloadTheme(WidgetTester tester) async {

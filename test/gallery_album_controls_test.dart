@@ -16,6 +16,8 @@ import 'package:plana_app/features/gallery/widgets/gallery_grid_sheet.dart';
 import 'package:plana_app/features/gallery/widgets/result_thumb.dart';
 import 'package:plana_app/features/gallery/widgets/stack_card.dart';
 
+import 'support/pump_until.dart';
+
 void main() {
   late AppStores stores;
   late ProviderContainer container;
@@ -756,15 +758,9 @@ void main() {
 // Pump animations first, then yield real IO while advancing the widget clock.
 Future<void> waitForAlbums(WidgetTester tester, bool Function() done) async {
   await tester.pumpAndSettle();
-  for (var i = 0; i < 300 && !done(); i++) {
-    await tester.runAsync(
-      () => Future<void>.delayed(const Duration(milliseconds: 10)),
-    );
-    await tester.pump(const Duration(milliseconds: 20));
-  }
-  expect(
-    done(),
-    isTrue,
+  await pumpUntil(
+    tester,
+    done,
     reason: 'Album operation must finish before assertions',
   );
   await tester.pumpAndSettle();

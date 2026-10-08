@@ -23,6 +23,8 @@ import 'package:plana_app/features/gallery/widgets/film_strip.dart';
 import 'package:plana_app/features/gallery/widgets/result_canvas.dart';
 import 'package:plana_app/features/gallery/widgets/result_thumb.dart';
 
+import 'support/pump_until.dart';
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   final fontPath = Platform.environment['PLANA_UI_FONT'];
@@ -93,13 +95,11 @@ void main() {
         c.dispose();
         var flushed = false;
         final flush = stores.flushForExit().then((_) => flushed = true);
-        for (var i = 0; i < 300 && !flushed; i++) {
-          await tester.runAsync(
-            () => Future<void>.delayed(const Duration(milliseconds: 10)),
-          );
-          await tester.pump();
-        }
-        expect(flushed, isTrue, reason: 'Gallery test storage must settle');
+        await pumpUntil(
+          tester,
+          () => flushed,
+          reason: 'Gallery test storage must settle',
+        );
         await flush;
       }
     });
@@ -722,12 +722,6 @@ Future<void> waitForAlbumChange(
   bool Function() done,
 ) async {
   await tester.pumpAndSettle();
-  for (var i = 0; i < 300 && !done(); i++) {
-    await tester.runAsync(
-      () => Future<void>.delayed(const Duration(milliseconds: 10)),
-    );
-    await tester.pump(const Duration(milliseconds: 20));
-  }
-  expect(done(), isTrue, reason: 'Album operation must complete');
+  await pumpUntil(tester, done, reason: 'Album operation must complete');
   await tester.pumpAndSettle();
 }

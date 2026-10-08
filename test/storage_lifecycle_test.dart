@@ -15,6 +15,8 @@ import 'package:plana_app/features/editor/widgets/annotated_field.dart';
 import 'package:plana_app/features/generate/generate_state.dart';
 import 'package:plana_app/features/generate/models.dart';
 
+import 'support/pump_until.dart';
+
 void main() {
   final binding = TestWidgetsFlutterBinding.ensureInitialized();
   late Directory root;
@@ -46,13 +48,11 @@ void main() {
         done = true;
       }),
     );
-    for (var i = 0; i < 500 && !done; i++) {
-      await tester.runAsync(
-        () => Future<void>.delayed(const Duration(milliseconds: 10)),
-      );
-      await tester.pump();
-    }
-    expect(done, isTrue, reason: 'The persistence queue must finish');
+    await pumpUntil(
+      tester,
+      () => done,
+      reason: 'The persistence queue must finish',
+    );
     return value;
   }
 

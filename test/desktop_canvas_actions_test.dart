@@ -18,6 +18,8 @@ import 'package:plana_app/features/gallery/widgets/result_canvas.dart';
 import 'package:plana_app/features/generate/models.dart';
 import 'package:plana_app/features/inpaint/inpaint_ops.dart';
 
+import 'support/pump_until.dart';
+
 class _FolderPicker extends FilePicker {
   String? directory;
   int calls = 0;
@@ -172,13 +174,7 @@ void main() {
   }
 
   Future<void> drain(WidgetTester tester, bool Function() done) async {
-    for (var i = 0; i < 100 && !done(); i++) {
-      await tester.runAsync(
-        () => Future<void>.delayed(const Duration(milliseconds: 10)),
-      );
-      await tester.pump(const Duration(milliseconds: 20));
-    }
-    expect(done(), isTrue);
+    await pumpUntil(tester, done);
     await tester.pumpAndSettle();
   }
 

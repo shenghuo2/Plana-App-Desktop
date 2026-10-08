@@ -18,6 +18,8 @@ import 'package:plana_app/core/theme/app_theme.dart';
 import 'package:plana_app/core/theme/theme_settings.dart';
 import 'package:plana_app/features/onboarding/welcome_page.dart';
 
+import 'support/pump_until.dart';
+
 class _GuideSettings extends GenSettingsNotifier {
   Future<void> settled = Future.value();
 
@@ -149,13 +151,7 @@ void main() {
       (container.read(genSettingsProvider.notifier) as _GuideSettings).settled
           .then((_) => done = true),
     );
-    for (var i = 0; i < 200 && !done; i++) {
-      await tester.runAsync(
-        () => Future<void>.delayed(const Duration(milliseconds: 10)),
-      );
-      await tester.pump();
-    }
-    expect(done, isTrue);
+    await pumpUntil(tester, () => done);
   }
 
   Future<void> finish(WidgetTester tester) async {

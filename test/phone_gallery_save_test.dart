@@ -16,6 +16,8 @@ import 'package:plana_app/features/gallery/widgets/gallery_grid_sheet.dart';
 import 'package:plana_app/features/gallery/widgets/result_thumb.dart';
 import 'package:plana_app/features/gallery/widgets/save_sheet.dart';
 
+import 'support/pump_until.dart';
+
 ResultImage picture(String id, int minute, {int seed = 7}) => ResultImage(
   id: id,
   width: 64,
@@ -258,13 +260,7 @@ void main() {
       stores.flushNow();
       var flushed = false;
       final flush = stores.gallery.idle.then((_) => flushed = true);
-      for (var i = 0; i < 300 && !flushed; i++) {
-        await tester.runAsync(
-          () => Future<void>.delayed(const Duration(milliseconds: 10)),
-        );
-        await tester.pump();
-      }
-      expect(flushed, isTrue);
+      await pumpUntil(tester, () => flushed);
       await flush;
     });
   }

@@ -30,6 +30,8 @@ import 'package:plana_app/features/generate/state_codec.dart';
 import 'package:plana_app/features/generate/widgets/desktop_canvas_tabs.dart';
 import 'package:plana_app/features/generate/widgets/desktop_prompt_card.dart';
 
+import 'support/pump_until.dart';
+
 class _Session extends BotSessionNotifier {
   @override
   Future<BotSession?> build() async => const BotSession(sessionId: 'test');
@@ -630,15 +632,9 @@ void main() {
 Future<void> flushStores(WidgetTester tester, AppStores stores) async {
   var done = false;
   final future = stores.flushForExit().then((_) => done = true);
-  for (var i = 0; i < 200 && !done; i++) {
-    await tester.runAsync(
-      () => Future<void>.delayed(const Duration(milliseconds: 10)),
-    );
-    await tester.pump();
-  }
-  expect(
-    done,
-    isTrue,
+  await pumpUntil(
+    tester,
+    () => done,
     reason: 'Storage queues must complete before widget teardown',
   );
   await future;
