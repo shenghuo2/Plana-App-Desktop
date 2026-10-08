@@ -2515,6 +2515,7 @@ class _AboutSheet extends StatelessWidget {
   Widget _line(BuildContext context, String k, String v) => Padding(
     padding: const EdgeInsets.only(bottom: 4),
     child: RichText(
+      textScaler: MediaQuery.textScalerOf(context),
       text: TextSpan(
         style: context.texts.bodySmall,
         children: [
