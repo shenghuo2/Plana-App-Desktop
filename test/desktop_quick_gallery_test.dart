@@ -21,6 +21,8 @@ import 'package:plana_app/features/gallery/gallery_date_filter.dart';
 import 'package:plana_app/features/gallery/models.dart';
 import 'package:plana_app/features/shell/shell_state.dart';
 
+import 'support/pump_until.dart';
+
 class _Gallery extends GalleryNotifier {
   _Gallery(this.images);
   final List<ResultImage> images;
@@ -198,17 +200,14 @@ void main() {
       ),
     );
     await tester.pump();
-    for (var i = 0; i < 200; i++) {
-      await tester.runAsync(
-        () => Future<void>.delayed(const Duration(milliseconds: 10)),
-      );
-      await tester.pump(const Duration(milliseconds: 20));
-      if (key('gallery-export-dialog').evaluate().isEmpty &&
+    await pumpUntil(
+      tester,
+      () =>
+          key('gallery-export-dialog').evaluate().isEmpty &&
           tester.widget<FilledButton>(key('gallery-batch-export')).onPressed !=
-              null) {
-        break;
-      }
-    }
+              null,
+      reason: 'Export must finish before another export or cancellation',
+    );
     expect(
       tester.widget<FilledButton>(key('gallery-batch-export')).onPressed,
       isNotNull,
@@ -419,19 +418,16 @@ void main() {
       expect(tester.getSize(zipName).width, lessThan(480));
       await tester.tap(find.text('打包'));
       await tester.pump();
-      for (var i = 0; i < 300; i++) {
-        await tester.runAsync(
-          () => Future<void>.delayed(const Duration(milliseconds: 10)),
-        );
-        await tester.pump(const Duration(milliseconds: 20));
-        if (picker.savedZip != null &&
+      await pumpUntil(
+        tester,
+        () =>
+            picker.savedZip != null &&
             tester
                     .widget<FilledButton>(key('gallery-batch-export'))
                     .onPressed !=
-                null) {
-          break;
-        }
-      }
+                null,
+        reason: 'ZIP export must finish before checking its contents',
+      );
       await tester.pumpAndSettle();
       expect(picker.savedZip, isNotNull);
       final archive = ZipDecoder().decodeBytes(
