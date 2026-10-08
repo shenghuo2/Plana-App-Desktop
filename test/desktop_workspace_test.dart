@@ -32,6 +32,8 @@ import 'package:plana_app/features/shell/shell_state.dart';
 import 'package:plana_app/features/inpaint/inpaint_overlay.dart';
 import 'package:plana_app/main.dart';
 
+import 'support/pump_until.dart';
+
 class _ChatRecorder extends AssistantNotifier {
   final sent = <String>[];
   @override
@@ -188,13 +190,11 @@ void main() {
         stores.albums.idle,
       ]).then((_) => done = true),
     );
-    for (var i = 0; i < 100 && !done; i++) {
-      await tester.runAsync(
-        () => Future<void>.delayed(const Duration(milliseconds: 10)),
-      );
-      await tester.pump();
-    }
-    expect(done, isTrue, reason: 'Pending gallery writes must finish');
+    await pumpUntil(
+      tester,
+      () => done,
+      reason: 'Pending gallery writes must finish',
+    );
     c.dispose();
     disposed = true;
   }

@@ -31,6 +31,8 @@ import 'package:plana_app/features/generate/generate_state.dart';
 import 'package:plana_app/features/generate/models.dart';
 import 'package:plana_app/features/shell/shell_state.dart';
 
+import 'support/pump_until.dart';
+
 const _message = AssistantMsg(
   id: 'reply',
   role: MsgRole.ai,
@@ -120,27 +122,11 @@ void main() {
   Future<void> cleanFixture() async {
     await activeTester.pumpWidget(const SizedBox());
     container.dispose();
-    stores.flushNow();
-    var idle = false;
-    unawaited(
-      Future.wait([
-        stores.assistant.idle,
-        stores.workspace.idle,
-        stores.gallery.idle,
-        stores.ledger.idle,
-        stores.desktopOutput.idle,
-      ]).then((_) => idle = true),
+    await pumpUntilComplete(
+      activeTester,
+      stores.flushForExit(),
+      reason: 'Temporary store queues must finish before deleting the fixture',
     );
-    // Gallery selection on the old/mobile path can queue a real disk write
-    // from the fake test clock. Drain both clocks rather than await one while
-    // freezing the other, including after an intentionally failing assertion.
-    for (var i = 0; i < 200 && !idle; i++) {
-      await activeTester.runAsync(
-        () => Future<void>.delayed(const Duration(milliseconds: 5)),
-      );
-      await activeTester.pump();
-    }
-    expect(idle, isTrue, reason: 'Temporary store queues did not drain');
     final root = stores.desktopOutput.root.parent;
     expect(
       root.path.startsWith(
