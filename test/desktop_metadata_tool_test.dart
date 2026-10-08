@@ -17,6 +17,8 @@ import 'package:plana_app/features/gallery/models.dart';
 import 'package:plana_app/features/gallery/gallery_state.dart';
 import 'package:plana_app/features/tools/metadata_tool_page.dart';
 
+import 'support/pump_until.dart';
+
 class _Picker extends FilePicker {
   late Uint8List bytes;
   String? directory;
@@ -144,20 +146,24 @@ void main() {
     await tester.pumpAndSettle();
     await tester.runAsync(() async {
       await tester.tap(target);
-      if (output != null) {
-        for (
-          var i = 0;
-          i < 100 && (!output.existsSync() || output.lengthSync() == 0);
-          i++
-        ) {
-          await Future<void>.delayed(const Duration(milliseconds: 30));
-        }
+      if (output == null) {
+        await Future<void>.delayed(const Duration(milliseconds: 250));
+        await tester.pump();
+        await Future<void>.delayed(const Duration(milliseconds: 200));
+        await tester.pump();
       }
-      await Future<void>.delayed(const Duration(milliseconds: 250));
-      await tester.pump();
-      await Future<void>.delayed(const Duration(milliseconds: 200));
-      await tester.pump();
     });
+    if (output != null) {
+      // File bytes can appear before flush and the final UI update complete.
+      await pumpUntil(
+        tester,
+        () =>
+            output.existsSync() &&
+            output.lengthSync() > 0 &&
+            tester.widget<ButtonStyleButton>(target).onPressed != null,
+        reason: 'Metadata export must finish writing and restore its button',
+      );
+    }
     await tester.pumpAndSettle();
   }
 
