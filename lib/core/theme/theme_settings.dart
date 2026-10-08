@@ -74,7 +74,7 @@ class ThemeSettings {
 
   final PageAlignment pageAlignment;
 
-  /// 桌面应用字号倍率，叠加在系统文字缩放上。
+  /// 相对于桌面默认字号的用户倍率，叠加在系统文字缩放上。
   final double textScale;
 
   ThemeSeed get seed => themeSeeds.firstWhere(

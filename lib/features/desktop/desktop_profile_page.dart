@@ -219,6 +219,8 @@ class _DesktopProfilePageState extends ConsumerState<DesktopProfilePage>
                                         'profile-section-${section.name}',
                                       ),
                                       dense: true,
+                                      minTileHeight: 48,
+                                      visualDensity: VisualDensity.standard,
                                       contentPadding:
                                           const EdgeInsets.symmetric(
                                             horizontal: 12,
@@ -231,7 +233,7 @@ class _DesktopProfilePageState extends ConsumerState<DesktopProfilePage>
                                       selectedTileColor: scheme.primaryContainer
                                           .withValues(alpha: .65),
                                       selectedColor: scheme.primary,
-                                      leading: Icon(section.icon, size: 20),
+                                      leading: Icon(section.icon, size: 22),
                                       title: Text(
                                         section.label,
                                         style: TextStyle(

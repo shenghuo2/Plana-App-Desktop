@@ -330,187 +330,7 @@ class _CharacterTile extends ConsumerWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Row(
-                  children: [
-                    Tooltip(
-                      message: '从角色库选择',
-                      child: InkWell(
-                        key: ValueKey('character-avatar-${char.id}'),
-                        onTap: () => _pickFromLibrary(context, ref),
-                        borderRadius: BorderRadius.circular(8),
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(8),
-                          child: SizedBox(
-                            width: 34,
-                            height: 34,
-                            child: TagCardPreview(
-                              url: char.avatar,
-                              name: char.name,
-                              decodeWidth: 34,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 5),
-                    // 电源开关(裸图标)
-                    IconButton(
-                      onPressed: () =>
-                          notifier.updateCharacter(char.id, enabled: !enabled),
-                      icon: Icon(
-                        Icons.power_settings_new,
-                        size: 24,
-                        color: enabled ? scheme.primary : scheme.outline,
-                      ),
-                      // 与参考图那枚同款:字号 + 启用时的主色底托(见 RefEnableToggle)
-                      style: IconButton.styleFrom(
-                        backgroundColor: enabled
-                            ? scheme.primary.withValues(alpha: .12)
-                            : Colors.transparent,
-                      ),
-                      tooltip: enabled ? '停用(保留配置)' : '启用',
-                      visualDensity: const VisualDensity(
-                        horizontal: -3,
-                        vertical: -3,
-                      ),
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(
-                        minWidth: 38,
-                        minHeight: 38,
-                      ),
-                    ),
-                    // 名称 + 状态说明:占满中间,把尾部(徽章+删除)顶到最右
-                    Expanded(
-                      child: Row(
-                        children: [
-                          Flexible(
-                            // 点名字改名:热区只包名字本身,外层那圈照旧点开编辑器
-                            // (里层先拿到这一下)。长按是整卡拖排序,这里不接。
-                            // 开关与名字之间原先的 4px 挪进内边距,名字位置不变。
-                            child: InkWell(
-                              onTap: () => _rename(context, notifier),
-                              borderRadius: BorderRadius.circular(8),
-                              child: Padding(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 4,
-                                  vertical: 4,
-                                ),
-                                child: Text(
-                                  char.name,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: context.texts.bodyLarge!.copyWith(
-                                    fontSize: desktop ? 13 : null,
-                                    fontWeight: FontWeight.w700,
-                                    color: enabled
-                                        ? scheme.onSurface
-                                        : scheme.outline,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                          if (!enabled) ...[
-                            const SizedBox(width: 4),
-                            // 不给 Flexible:状态标签是定长的,该让角色名去挤。
-                            // 原先两个都 flex:1 平分,标签分到的一半装不下,
-                            // 就从尾巴开始吃 —— 屏幕上只剩「已禁用 ·…」。
-                            Text(
-                              '已禁用',
-                              style: context.texts.labelSmall!.copyWith(
-                                color: scheme.outline,
-                              ),
-                            ),
-                          ],
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    // 站位徽章
-                    Material(
-                      color: scheme.surfaceContainerHighest,
-                      borderRadius: BorderRadius.circular(17),
-                      clipBehavior: Clip.antiAlias,
-                      child: InkWell(
-                        onTap: () => showPositionGridDialog(context, char.id),
-                        child: Padding(
-                          padding: EdgeInsets.symmetric(
-                            horizontal: desktop ? 8 : 12,
-                            vertical: 7,
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(
-                                Icons.grid_on,
-                                size: 15,
-                                color: autoPos
-                                    ? scheme.onSurfaceVariant
-                                    : scheme.primary,
-                              ),
-                              const SizedBox(width: 5),
-                              SizedBox(
-                                width: desktop ? 36 : 48,
-                                child: Text(
-                                  // AUTO 是整张图的档(use_coords=false):这时
-                                  // 坐标还在,只是模型不理会,徽章统一写 AUTO。
-                                  // 否则网格模型(V4/V4.5)下显示它实际会被吸附到
-                                  // 的那一格 —— 徽章写 '42,67%'、请求里发的却是
-                                  // C4 的格心,两边对不上(见 quantizeCenterToGrid)。
-                                  autoPos
-                                      ? 'AUTO'
-                                      : positionChipLabel(
-                                          char.position,
-                                          grid: !isV5,
-                                        ),
-                                  textAlign: TextAlign.center,
-                                  style:
-                                      mono(
-                                        context,
-                                        size: 12,
-                                        weight: FontWeight.w700,
-                                      ).copyWith(
-                                        color: autoPos
-                                            ? scheme.onSurfaceVariant
-                                            : scheme.primary,
-                                      ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 2),
-                    SizedBox(
-                      width: desktop ? 30 : 40,
-                      height: 40,
-                      child: IconButton(
-                        onPressed: () => notifier.removeCharacter(char.id),
-                        icon: Icon(
-                          Icons.delete_outline,
-                          size: 20,
-                          color: scheme.error.withValues(alpha: .85),
-                        ),
-                        tooltip: '删除角色',
-                        padding: EdgeInsets.zero,
-                        visualDensity: VisualDensity.compact,
-                      ),
-                    ),
-                    if (desktop)
-                      ReorderableDragStartListener(
-                        index: index,
-                        child: Tooltip(
-                          message: '拖动角色排序',
-                          child: Icon(
-                            Icons.drag_indicator,
-                            size: 18,
-                            color: scheme.outline,
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
+                _header(context, ref, notifier, autoPos: autoPos, isV5: isV5),
                 // 行 2 是点进编辑器的主要落点(行 1 那排全是各管各的按钮),
                 // 所以空当只往它上下加:4 → 8、下边距 10 → 14,这条带子 42 → 50。
                 const SizedBox(height: 8),
@@ -556,6 +376,239 @@ class _CharacterTile extends ConsumerWidget {
           ),
         ),
       ),
+    );
+  }
+
+  /// Let the action group move below the name rather than wrapping position
+  /// labels or squeezing all useful name text out of a narrow sidebar.
+  Widget _header(
+    BuildContext context,
+    WidgetRef ref,
+    GenerateNotifier notifier, {
+    required bool autoPos,
+    required bool isV5,
+  }) {
+    final scheme = context.scheme;
+    final enabled = char.enabled;
+    final position = autoPos
+        ? 'AUTO'
+        : positionChipLabel(char.position, grid: !isV5);
+    double textWidth(String value, TextStyle style) {
+      final painter = TextPainter(
+        text: TextSpan(text: value, style: style),
+        textScaler: MediaQuery.textScalerOf(context),
+        textDirection: Directionality.of(context),
+        maxLines: 1,
+      )..layout();
+      final width = painter.width.ceilToDouble();
+      painter.dispose();
+      return width;
+    }
+
+    final positionWidth = textWidth(
+      position,
+      mono(context, size: 12, weight: FontWeight.w700),
+    ).clamp(36.0, double.infinity);
+    final nameWidth = textWidth(
+      '角色 1',
+      context.texts.bodyLarge!.copyWith(
+        fontSize: 13,
+        fontWeight: FontWeight.w700,
+      ),
+    );
+    final statusWidth = enabled
+        ? 0.0
+        : 4 + textWidth('已禁用', context.texts.labelSmall!);
+    // Avatar, toggle, name padding, separation and trailing controls.
+    final leadingWidth = 34 + 5 + 38 + 8 + nameWidth + statusWidth;
+    final actionsWidth = 16 + 15 + 5 + positionWidth + 2 + 30 + 18;
+    final requiredWidth = leadingWidth + 8 + actionsWidth;
+    final leading = Row(
+      children: [
+        Tooltip(
+          message: '从角色库选择',
+          child: InkWell(
+            key: ValueKey('character-avatar-${char.id}'),
+            onTap: () => _pickFromLibrary(context, ref),
+            borderRadius: BorderRadius.circular(8),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: SizedBox(
+                width: 34,
+                height: 34,
+                child: TagCardPreview(
+                  url: char.avatar,
+                  name: char.name,
+                  decodeWidth: 34,
+                ),
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(width: 5),
+        // 电源开关(裸图标)
+        IconButton(
+          onPressed: () => notifier.updateCharacter(char.id, enabled: !enabled),
+          icon: Icon(
+            Icons.power_settings_new,
+            size: 24,
+            color: enabled ? scheme.primary : scheme.outline,
+          ),
+          // 与参考图那枚同款:字号 + 启用时的主色底托(见 RefEnableToggle)
+          style: IconButton.styleFrom(
+            backgroundColor: enabled
+                ? scheme.primary.withValues(alpha: .12)
+                : Colors.transparent,
+          ),
+          tooltip: enabled ? '停用(保留配置)' : '启用',
+          visualDensity: const VisualDensity(horizontal: -3, vertical: -3),
+          padding: EdgeInsets.zero,
+          constraints: const BoxConstraints(minWidth: 38, minHeight: 38),
+        ),
+        // 名称 + 状态说明:占满中间,把尾部(徽章+删除)顶到最右
+        Expanded(
+          child: Row(
+            children: [
+              Flexible(
+                // 点名字改名:热区只包名字本身,外层那圈照旧点开编辑器
+                // (里层先拿到这一下)。长按是整卡拖排序,这里不接。
+                // 开关与名字之间原先的 4px 挪进内边距,名字位置不变。
+                child: InkWell(
+                  onTap: () => _rename(context, notifier),
+                  borderRadius: BorderRadius.circular(8),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 4,
+                      vertical: 4,
+                    ),
+                    child: Text(
+                      char.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: context.texts.bodyLarge!.copyWith(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: enabled ? scheme.onSurface : scheme.outline,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              if (!enabled) ...[
+                const SizedBox(width: 4),
+                // 不给 Flexible:状态标签是定长的,该让角色名去挤。
+                // 原先两个都 flex:1 平分,标签分到的一半装不下,
+                // 就从尾巴开始吃 —— 屏幕上只剩「已禁用 ·…」。
+                Text(
+                  '已禁用',
+                  style: context.texts.labelSmall!.copyWith(
+                    color: scheme.outline,
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ],
+    );
+    final actions = Wrap(
+      alignment: WrapAlignment.end,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      spacing: 2,
+      runSpacing: 4,
+      children: [
+        // 站位徽章
+        Material(
+          color: scheme.surfaceContainerHighest,
+          borderRadius: BorderRadius.circular(17),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            key: ValueKey('character-position-${char.id}'),
+            onTap: () => showPositionGridDialog(context, char.id),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.grid_on,
+                    size: 15,
+                    color: autoPos ? scheme.onSurfaceVariant : scheme.primary,
+                  ),
+                  const SizedBox(width: 5),
+                  ConstrainedBox(
+                    constraints: BoxConstraints(minWidth: positionWidth),
+                    child: Text(
+                      position,
+                      textAlign: TextAlign.center,
+                      maxLines: 1,
+                      softWrap: false,
+                      style: mono(context, size: 12, weight: FontWeight.w700)
+                          .copyWith(
+                            color: autoPos
+                                ? scheme.onSurfaceVariant
+                                : scheme.primary,
+                          ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(
+              width: 30,
+              height: 40,
+              child: IconButton(
+                onPressed: () => notifier.removeCharacter(char.id),
+                icon: Icon(
+                  Icons.delete_outline,
+                  size: 20,
+                  color: scheme.error.withValues(alpha: .85),
+                ),
+                tooltip: '删除角色',
+                padding: EdgeInsets.zero,
+                visualDensity: VisualDensity.compact,
+              ),
+            ),
+            ReorderableDragStartListener(
+              index: index,
+              child: Tooltip(
+                message: '拖动角色排序',
+                child: Icon(
+                  Icons.drag_indicator,
+                  size: 18,
+                  color: scheme.outline,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (constraints.maxWidth < requiredWidth) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              leading,
+              const SizedBox(height: 4),
+              Align(alignment: Alignment.centerRight, child: actions),
+            ],
+          );
+        }
+        return Row(
+          children: [
+            Expanded(child: leading),
+            const SizedBox(width: 8),
+            actions,
+          ],
+        );
+      },
     );
   }
 

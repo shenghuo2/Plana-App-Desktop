@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/theme/app_theme.dart';
+import '../../../core/theme/app_text_scale.dart';
 import '../../editor/editor_page.dart';
 import '../../editor/editor_state.dart';
 
@@ -23,17 +24,19 @@ class _DesktopPromptCardState extends State<DesktopPromptCard>
   @override
   Widget build(BuildContext context) {
     super.build(context);
-    final editor = ProviderScope(
-      overrides: [
-        editorProvider.overrideWith(
-          () => EditorNotifier(immediateWriteBack: true),
+    final editor = OriginalTextBaseline(
+      child: ProviderScope(
+        overrides: [
+          editorProvider.overrideWith(
+            () => EditorNotifier(immediateWriteBack: true),
+          ),
+        ],
+        child: EditorPage(
+          positive: true,
+          charId: widget.charId,
+          sectionId: widget.sectionId,
+          embedded: true,
         ),
-      ],
-      child: EditorPage(
-        positive: true,
-        charId: widget.charId,
-        sectionId: widget.sectionId,
-        embedded: true,
       ),
     );
     if (widget.charId != null || widget.sectionId != null) return editor;

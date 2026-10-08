@@ -336,7 +336,7 @@ class _AppShellState extends ConsumerState<AppShell>
             Material(
               color: context.scheme.surfaceContainerLow,
               child: SizedBox(
-                height: 52,
+                height: 60,
                 child: Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 14),
                   child: Row(
@@ -377,6 +377,12 @@ class _AppShellState extends ConsumerState<AppShell>
                                       if (tab == kTabCreate) _onEnterCreate();
                                     },
                                     style: TextButton.styleFrom(
+                                      minimumSize: const Size(0, 40),
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 16,
+                                        vertical: 10,
+                                      ),
+                                      visualDensity: VisualDensity.standard,
                                       backgroundColor: index == tab
                                           ? context.scheme.primaryContainer
                                           : null,
@@ -387,8 +393,12 @@ class _AppShellState extends ConsumerState<AppShell>
                                         borderRadius: BorderRadius.circular(8),
                                       ),
                                     ),
-                                    icon: Icon(icons[tab], size: 17),
-                                    label: Text(labels[tab]),
+                                    icon: Icon(icons[tab], size: 20),
+                                    label: Text(
+                                      labels[tab],
+                                      maxLines: 1,
+                                      softWrap: false,
+                                    ),
                                   ),
                                 ),
                             ],

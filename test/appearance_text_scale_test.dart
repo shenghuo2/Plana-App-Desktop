@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:plana_app/core/platform/desktop.dart';
 import 'package:plana_app/core/store/app_stores.dart';
 import 'package:plana_app/core/store/prefs_store.dart';
+import 'package:plana_app/core/theme/app_text_scale.dart';
 import 'package:plana_app/core/theme/theme_settings.dart';
 import 'package:plana_app/features/profile/appearance_page.dart';
 import 'package:plana_app/main.dart';
@@ -52,6 +53,9 @@ class _Page extends StatelessWidget {
           style: TextStyle(fontSize: 14, height: 1),
         ),
         const TextField(key: ValueKey('draft')),
+        const OriginalTextBaseline(
+          child: Text('Prompt baseline', key: ValueKey('prompt-baseline')),
+        ),
         TextButton(
           onPressed: () => showDialog<void>(
             context: context,
@@ -136,6 +140,11 @@ void main() {
     'font setting updates the app, keeps drafts and survives reload',
     (tester) async {
       await mount(tester);
+      expect(find.text('100%'), findsOneWidget);
+      expect(
+        MediaQuery.textScalerOf(tester.element(key('outside-text'))).scale(14),
+        closeTo(14 * 1.05, .001),
+      );
       final before = tester.getSize(key('outside-text')).height;
       await tester.enterText(key('draft'), 'cat, outdoors');
       final slider = key('appearance-text-scale');
@@ -161,14 +170,14 @@ void main() {
       await tester.tap(find.text('Open dialog'));
       await tester.pumpAndSettle();
       var scaler = MediaQuery.textScalerOf(tester.element(key('dialog-text')));
-      expect(scaler.scale(14), closeTo(19.6, .001));
+      expect(scaler.scale(14), closeTo(19.6 * 1.05, .001));
       container
           .read(themeSettingsProvider.notifier)
           .patch((settings) => settings.copyWith(textScale: .8));
       await tester.pumpAndSettle();
       expect(key('dialog-text'), findsOneWidget);
       scaler = MediaQuery.textScalerOf(tester.element(key('dialog-text')));
-      expect(scaler.scale(14), closeTo(11.2, .001));
+      expect(scaler.scale(14), closeTo(11.2 * 1.05, .001));
       Navigator.of(tester.element(key('dialog-text'))).pop();
       await tester.pumpAndSettle();
       await tester.ensureVisible(key('appearance-text-scale-reset'));
@@ -191,9 +200,36 @@ void main() {
         .patch((settings) => settings.copyWith(textScale: 1.25));
     await mount(tester, systemScaler: const _SystemScaler());
     final scaler = MediaQuery.textScalerOf(tester.element(key('outside-text')));
-    expect(scaler.scale(14), closeTo(14 * 1.2 * 1.25, .001));
-    expect(scaler.scale(28), closeTo(28 * 1.1 * 1.25, .001));
+    expect(scaler.scale(14), closeTo(14 * 1.2 * 1.25 * 1.05, .001));
+    expect(scaler.scale(28), closeTo(28 * 1.1 * 1.25 * 1.05, .001));
+    final promptScaler = MediaQuery.textScalerOf(
+      tester.element(key('prompt-baseline')),
+    );
+    expect(promptScaler.scale(14), closeTo(14 * 1.2 * 1.25, .001));
+    expect(promptScaler.scale(28), closeTo(28 * 1.1 * 1.25, .001));
     await settlePrefs(tester);
+    await tester.pumpWidget(const SizedBox());
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('desktop baseline and preference do not change mobile text', (
+    tester,
+  ) async {
+    container.dispose();
+    container = ProviderContainer(
+      overrides: [
+        appStoresProvider.overrideWithValue(stores),
+        desktopModeProvider.overrideWithValue(false),
+        themeInitProvider.overrideWithValue(
+          const ThemeSettings(textScale: 1.4),
+        ),
+      ],
+    );
+    await mount(tester, systemScaler: const _SystemScaler());
+    final scaler = MediaQuery.textScalerOf(tester.element(key('outside-text')));
+    expect(scaler.scale(14), closeTo(14 * 1.2, .001));
+    expect(scaler.scale(28), closeTo(28 * 1.1, .001));
+    expect(key('appearance-text-scale'), findsNothing);
     await tester.pumpWidget(const SizedBox());
     expect(tester.takeException(), isNull);
   });

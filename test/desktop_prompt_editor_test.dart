@@ -8,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:plana_app/core/store/app_stores.dart';
 import 'package:plana_app/core/theme/app_theme.dart';
+import 'package:plana_app/core/theme/app_text_scale.dart';
 import 'package:plana_app/core/theme/editor_theme.dart';
 import 'package:plana_app/features/editor/editor_page.dart';
 import 'package:plana_app/features/editor/editor_models.dart';
@@ -49,12 +50,17 @@ void main() {
     of: key('$prefix-text'),
     matching: find.byType(TextField),
   );
-  Future<void> mount(WidgetTester tester) async {
+  Future<void> mount(WidgetTester tester, {double textScale = 1}) async {
     await tester.pumpWidget(
       UncontrolledProviderScope(
         container: container,
         child: MaterialApp(
           theme: AppTheme.light(),
+          builder: (context, child) => AppTextScale(
+            factor: textScale,
+            baseline: kDesktopTextBaseline,
+            child: child!,
+          ),
           home: Scaffold(
             body: Align(
               alignment: Alignment.topLeft,
@@ -65,6 +71,14 @@ void main() {
                     builder: (context, ref, _) => Column(
                       children: [
                         const DesktopPromptCard(),
+                        for (final s in ref.watch(generateProvider).sections)
+                          Padding(
+                            padding: const EdgeInsets.all(12),
+                            child: DesktopPromptCard(
+                              key: ValueKey(s.id),
+                              sectionId: s.id,
+                            ),
+                          ),
                         for (final c in ref.watch(generateProvider).characters)
                           Padding(
                             padding: const EdgeInsets.all(12),
@@ -103,6 +117,45 @@ void main() {
     await tester.tap(key(name));
     await tester.pumpAndSettle();
   }
+
+  testWidgets('all embedded prompt editors retain the original font baseline', (
+    tester,
+  ) async {
+    gen.setPrompts(positive: 'sunrise', negative: 'rain');
+    gen.addSection();
+    gen.addCharacter();
+    final prefixes = [
+      'desktop-prompt',
+      for (final section in gen.state.sections) 'desktop-section-${section.id}',
+      'desktop-character-${gen.state.characters.single.id}',
+    ];
+    for (final scale in [1.0, 1.4]) {
+      await mount(tester, textScale: scale);
+      for (final prefix in prefixes) {
+        final scaler = MediaQuery.textScalerOf(tester.element(input(prefix)));
+        expect(scaler.scale(16), closeTo(16 * scale, .001));
+        await tap(tester, '$prefix-negative-tab');
+        expect(
+          MediaQuery.textScalerOf(tester.element(input(prefix))).scale(16),
+          closeTo(16 * scale, .001),
+        );
+      }
+      await tap(tester, 'desktop-prompt-mode');
+      for (final prefix in prefixes) {
+        final flow = find.descendant(
+          of: key('$prefix-tags'),
+          matching: find.byType(ChipFlowView),
+        );
+        expect(
+          MediaQuery.textScalerOf(tester.element(flow)).scale(16),
+          closeTo(16 * scale, .001),
+        );
+      }
+      await tap(tester, 'desktop-prompt-mode');
+      expect(tester.takeException(), isNull);
+    }
+    await finish(tester);
+  });
 
   test('weight backgrounds deepen to 2 and -1 and saturate there', () {
     for (final palette in [EditorPalette.light, EditorPalette.dark]) {

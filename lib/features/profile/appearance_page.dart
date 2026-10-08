@@ -100,7 +100,7 @@ class AppearancePage extends ConsumerWidget {
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        '即时调整整个应用的文字大小，100% 为默认',
+                        '即时调整整个应用的文字大小，100% 为默认。创作页提示词编辑区保留原有字号基准，也会随此设置缩放。',
                         style: context.texts.bodySmall!.copyWith(
                           color: context.scheme.onSurfaceVariant,
                         ),
