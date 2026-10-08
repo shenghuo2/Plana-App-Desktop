@@ -34,10 +34,17 @@ const themeSeeds = <ThemeSeed>[
 /// 默认主题色(未选过时的档位)。
 const kDefaultSeedKey = 'sky';
 
+const kMinAppTextScale = .8;
+const kMaxAppTextScale = 1.4;
+
+double _textScale(Object? value) => value is num && value.isFinite
+    ? value.clamp(kMinAppTextScale, kMaxAppTextScale).toDouble()
+    : 1.0;
+
 /// 桌面「我的」页面右侧内容区的水平对齐方式。
 enum PageAlignment { center, left }
 
-/// 外观与体验设置(持久化):主题、导航、触感与桌面内容对齐。
+/// 外观与体验设置(持久化):主题、导航、触感与桌面字号、内容对齐。
 class ThemeSettings {
   const ThemeSettings({
     this.mode = ThemeMode.light,
@@ -45,6 +52,7 @@ class ThemeSettings {
     this.haptics = true,
     this.showAssistant = true,
     this.pageAlignment = PageAlignment.center,
+    this.textScale = 1.0,
   });
 
   final ThemeMode mode;
@@ -62,6 +70,9 @@ class ThemeSettings {
 
   final PageAlignment pageAlignment;
 
+  /// 桌面应用字号倍率，叠加在系统文字缩放上。
+  final double textScale;
+
   ThemeSeed get seed => themeSeeds.firstWhere(
     (s) => s.key == seedKey,
     orElse: () => themeSeeds.firstWhere((s) => s.key == kDefaultSeedKey),
@@ -73,12 +84,14 @@ class ThemeSettings {
     bool? haptics,
     bool? showAssistant,
     PageAlignment? pageAlignment,
+    double? textScale,
   }) => ThemeSettings(
     mode: mode ?? this.mode,
     seedKey: seedKey ?? this.seedKey,
     haptics: haptics ?? this.haptics,
     showAssistant: showAssistant ?? this.showAssistant,
     pageAlignment: pageAlignment ?? this.pageAlignment,
+    textScale: textScale == null ? this.textScale : _textScale(textScale),
   );
 
   /// 脏数据(旧版本/已下架的档位,如早先那档深蓝)回退默认。
@@ -92,6 +105,7 @@ class ThemeSettings {
     pageAlignment:
         PageAlignment.values.asNameMap()[j['pageAlignment']] ??
         PageAlignment.center,
+    textScale: _textScale(j['textScale']),
   );
 
   Map<String, dynamic> toJson() => {
@@ -100,6 +114,7 @@ class ThemeSettings {
     'haptics': haptics,
     'showAssistant': showAssistant,
     'pageAlignment': pageAlignment.name,
+    'textScale': textScale,
   };
 
   @override
@@ -109,11 +124,18 @@ class ThemeSettings {
       other.seedKey == seedKey &&
       other.haptics == haptics &&
       other.showAssistant == showAssistant &&
-      other.pageAlignment == pageAlignment;
+      other.pageAlignment == pageAlignment &&
+      other.textScale == textScale;
 
   @override
-  int get hashCode =>
-      Object.hash(mode, seedKey, haptics, showAssistant, pageAlignment);
+  int get hashCode => Object.hash(
+    mode,
+    seedKey,
+    haptics,
+    showAssistant,
+    pageAlignment,
+    textScale,
+  );
 }
 
 const _key = 'theme_settings';

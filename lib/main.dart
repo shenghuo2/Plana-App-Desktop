@@ -12,6 +12,7 @@ import 'core/store/app_stores.dart';
 import 'core/store/gen_settings.dart';
 import 'core/store/storage_lifecycle.dart';
 import 'core/theme/app_theme.dart';
+import 'core/theme/app_text_scale.dart';
 import 'core/theme/theme_settings.dart';
 import 'core/ui/input_focus_guard.dart';
 import 'core/ui/image_drop.dart';
@@ -116,8 +117,12 @@ class PlanaApp extends ConsumerWidget {
       darkTheme: adapt(AppTheme.dark(ts.seed.color)),
       themeMode: ts.mode,
       navigatorObservers: [_inputFocusGuard],
-      builder: (context, child) =>
-          desktop ? DesktopImageDropHost(child: child!) : child!,
+      builder: (context, child) => desktop
+          ? AppTextScale(
+              factor: ts.textScale,
+              child: DesktopImageDropHost(child: child!),
+            )
+          : child!,
       home: const _AuthGate(),
     );
   }
