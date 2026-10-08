@@ -54,7 +54,10 @@ void main() {
     final c1 = ProviderContainer(
       overrides: [appStoresProvider.overrideWithValue(stores1)],
     );
-    addTearDown(c1.dispose);
+    addTearDown(() async {
+      c1.dispose();
+      await stores1.flushForExit();
+    });
 
     final gen = c1.read(generateProvider.notifier);
     gen.setPrompts(positive: '1girl, {smile, blue eyes}', negative: 'lowres');
@@ -77,6 +80,9 @@ void main() {
     expect(added.hasInput, isTrue);
 
     stores1.flushNow(); // 模拟退后台立即落盘
+    // The image is written before its input snapshot. A file appearing is
+    // not proof that the session can safely be reopened yet.
+    await stores1.flushForExit();
     final stateFile = File('${root.path}/workspace/state.json');
     final indexFile = File('${root.path}/gallery/index.json');
     final imageFile = File('${root.path}/gallery/images/${added.id}.png');
@@ -126,7 +132,10 @@ void main() {
     final c2 = ProviderContainer(
       overrides: [appStoresProvider.overrideWithValue(stores2)],
     );
-    addTearDown(c2.dispose);
+    addTearDown(() async {
+      c2.dispose();
+      await stores2.flushForExit();
+    });
     final again = c2
         .read(galleryProvider.notifier)
         .addResult(bytes: _png, width: 64, height: 64, seed: 7);
@@ -135,9 +144,9 @@ void main() {
 
     // 排空第二次落盘链再进 teardown,避免删目录撞上进行中的写句柄
     stores2.flushNow();
+    await stores2.flushForExit();
     final againFile = File('${root.path}/gallery/images/${again.id}.png');
     await _until(() => againFile.exists());
-    await Future<void>.delayed(const Duration(milliseconds: 200));
   });
 
   test('编辑器实时回写:编辑防抖后自动进创作页,undo/flush 即时生效', () async {
@@ -156,7 +165,10 @@ void main() {
     final c = ProviderContainer(
       overrides: [appStoresProvider.overrideWithValue(stores)],
     );
-    addTearDown(c.dispose);
+    addTearDown(() async {
+      c.dispose();
+      await stores.flushForExit();
+    });
 
     c.read(generateProvider.notifier).setPrompts(positive: 'old');
     final ed = c.read(editorProvider.notifier);
@@ -172,7 +184,7 @@ void main() {
     ed.flushWriteBack(); // 离开编辑器/退后台路径:立即生效
     expect(c.read(generateProvider).prompt, 'old');
     stores.flushNow();
-    await Future<void>.delayed(const Duration(milliseconds: 300));
+    await stores.flushForExit();
   });
 
   test('禁用词跨会话存活:原文草稿随定稿落盘,外部改写即失效', () async {
@@ -205,6 +217,7 @@ void main() {
     expect(pickEditorText(s1.promptRaw, s1.prompt), 'a, ~b~');
 
     stores1.flushNow();
+    await stores1.flushForExit();
     final stateFile = File('${root.path}/workspace/state.json');
     await _until(() async => stateFile.exists());
     c1.dispose();
@@ -221,7 +234,10 @@ void main() {
     final c2 = ProviderContainer(
       overrides: [appStoresProvider.overrideWithValue(stores2)],
     );
-    addTearDown(c2.dispose);
+    addTearDown(() async {
+      c2.dispose();
+      await stores2.flushForExit();
+    });
     c2.read(generateProvider.notifier).setPrompts(positive: 'a, c');
     final s2 = c2.read(generateProvider);
     expect(s2.promptRaw, '');
@@ -244,7 +260,10 @@ void main() {
     final c = ProviderContainer(
       overrides: [appStoresProvider.overrideWithValue(stores)],
     );
-    addTearDown(c.dispose);
+    addTearDown(() async {
+      c.dispose();
+      await stores.flushForExit();
+    });
 
     final gen = c.read(generateProvider.notifier);
     gen.setPrompts(positive: 'main prompt', negative: 'main neg');
@@ -270,7 +289,7 @@ void main() {
     expect(s2.characters.first.positive, '1girl');
 
     stores.flushNow();
-    await Future<void>.delayed(const Duration(milliseconds: 300));
+    await stores.flushForExit();
   });
 
   test('清空图库:文件删净、发号器不复用、重载为空', () async {
@@ -289,7 +308,10 @@ void main() {
     final c = ProviderContainer(
       overrides: [appStoresProvider.overrideWithValue(stores)],
     );
-    addTearDown(c.dispose);
+    addTearDown(() async {
+      c.dispose();
+      await stores.flushForExit();
+    });
 
     final gal = c.read(galleryProvider.notifier);
     final a = gal.addResult(bytes: _png, width: 8, height: 8, seed: 1);
@@ -306,8 +328,7 @@ void main() {
     expect(b.id, isNot(a.id)); // 发号器保留,id 不复用
 
     stores.flushNow();
-    await stores.gallery.idle;
-    await Future<void>.delayed(const Duration(milliseconds: 200));
+    await stores.flushForExit();
     final stores2 = await AppStores.open(rootOverride: root);
     expect([for (final r in stores2.gallery.initialResults) r.id], [b.id]);
   });
@@ -328,7 +349,10 @@ void main() {
     final c = ProviderContainer(
       overrides: [appStoresProvider.overrideWithValue(stores)],
     );
-    addTearDown(c.dispose);
+    addTearDown(() async {
+      c.dispose();
+      await stores.flushForExit();
+    });
 
     final gal = c.read(galleryProvider.notifier);
     final ids = [
@@ -361,8 +385,7 @@ void main() {
     expect(c.read(galleryProvider).results, isEmpty);
     expect(c.read(galleryProvider).selectedId, isNull);
     stores.flushNow();
-    await stores.gallery.idle;
-    await Future<void>.delayed(const Duration(milliseconds: 200));
+    await stores.flushForExit();
     final stores2 = await AppStores.open(rootOverride: root);
     expect(stores2.gallery.initialResults, isEmpty);
   });
@@ -383,7 +406,10 @@ void main() {
     final c = ProviderContainer(
       overrides: [appStoresProvider.overrideWithValue(stores)],
     );
-    addTearDown(c.dispose);
+    addTearDown(() async {
+      c.dispose();
+      await stores.flushForExit();
+    });
 
     await c.read(storageSettingsProvider.future); // 平台通道缺失 → 默认值
     await c
@@ -410,7 +436,7 @@ void main() {
       File('${root.path}/gallery/images/${ids[4]}.png').existsSync(),
       isTrue,
     );
-    await Future<void>.delayed(const Duration(milliseconds: 200));
+    await stores.flushForExit();
   });
 
   test('存档损坏按首启降级,不 brick 启动', () async {

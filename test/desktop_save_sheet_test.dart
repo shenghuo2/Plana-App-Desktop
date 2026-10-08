@@ -16,6 +16,8 @@ import 'package:plana_app/features/gallery/save_settings.dart';
 import 'package:plana_app/features/gallery/widgets/result_canvas.dart';
 import 'package:plana_app/features/import/image_metadata.dart';
 
+import 'support/pump_until.dart';
+
 class _FolderPicker extends FilePicker {
   String? directory;
   var calls = 0;
@@ -122,12 +124,11 @@ void main() {
   }
 
   Future<void> finishSave(WidgetTester tester, String filename) async {
-    for (var i = 0; i < 100 && find.text('单次保存').evaluate().isNotEmpty; i++) {
-      await tester.runAsync(
-        () => Future<void>.delayed(const Duration(milliseconds: 10)),
-      );
-      await tester.pump(const Duration(milliseconds: 50));
-    }
+    await pumpUntil(
+      tester,
+      () => find.text('单次保存').evaluate().isEmpty,
+      reason: 'Image save must finish before dismissing its sheet',
+    );
     await tester.pumpAndSettle();
     expect(find.text('单次保存'), findsNothing);
     expect(find.text('已保存到 ${folder.path}/$filename'), findsOneWidget);
