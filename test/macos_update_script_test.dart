@@ -67,7 +67,7 @@ exec /bin/sleep 30
       startup = File(p.join(work.path, 'startup'));
       await app(bundle, updated: false);
       await app(candidate, updated: true);
-      final old = await Process.start('/bin/true', []);
+      final old = await Process.start('/bin/bash', ['-c', 'exit 0']);
       oldPid = old.pid;
       await old.exitCode;
       commands.clear();
