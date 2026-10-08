@@ -149,6 +149,7 @@ jobs:
     env:
       DMG_NAME: ${{ matrix.dmg }}
       DMG_VOLUME: ${{ matrix.volume }}
+      PLANA_RELEASE_VERSION: ${{ matrix.version }}
     runs-on: macos-15
     timeout-minutes: 45
     steps:
@@ -209,6 +210,11 @@ jobs:
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleName' "$plist_path")" = "Plana App Desktop"
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$plist_path")" = "com.sora214.plana.app"
           test "$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "$plist_path")" = "14.0"
+          expected_version="$(printf '%s' "${PLANA_RELEASE_VERSION%%+*}" | tr -cd '0-9.')"
+          expected_build="${PLANA_RELEASE_VERSION##*+}"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$plist_path")" = "$expected_version"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$plist_path")" = "$expected_build"
+          printf 'Validated macOS bundle version %s, build %s\n' "$expected_version" "$expected_build"
           codesign --verify --deep --strict --verbose=4 "$app_path"
           codesign --display --entitlements - --xml "$app_path" > "$entitlements_path"
           plutil -lint "$entitlements_path"

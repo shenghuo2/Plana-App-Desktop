@@ -9,7 +9,7 @@ library;
 const kAppName = 'Plana App Desktop';
 const kAppTagline = 'NovelAI 桌面创作端';
 const kAppVersion = '1.1.3-desktop';
-const kAppBuild = '66';
+const kAppBuild = '67';
 
 /// 预发布版(版号带 `-`):关于页加内测标,免得测试反馈回来分不清版本。
 bool get kIsPrerelease => kAppVersion.contains('-');
