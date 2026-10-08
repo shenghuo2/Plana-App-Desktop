@@ -143,7 +143,7 @@ CandidateBuild="$(plist_value "$CandidateApp" CFBundleVersion)"
 [[ "$CandidateBuild" =~ ^[0-9]+$ ]]
 [[ -z "$ExpectedBuild" || "$CandidateBuild" == "$ExpectedBuild" ]]
 [[ -x "$CandidateApp/Contents/MacOS/$Executable" ]]
-/usr/bin/lipo -verify_arch "$Architecture" "$CandidateApp/Contents/MacOS/$Executable"
+/usr/bin/lipo "$CandidateApp/Contents/MacOS/$Executable" -verify_arch "$Architecture"
 /usr/bin/codesign --verify --deep --strict "$CandidateApp"
 /usr/bin/ditto "$CandidateApp" "$StagedApp"
 /usr/bin/codesign --verify --deep --strict "$StagedApp"

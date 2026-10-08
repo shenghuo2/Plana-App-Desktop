@@ -29,3 +29,10 @@ macOS 的流程参考 `shenghuo2/Aaalice_NAI_Launcher`:用户点击下载,完成
   CI 构建完成并不会自动成为新版本。
 
 当前 CI 的签名为 ad-hoc;安装助手验证签名完整性,不把它描述为 Apple 公证。
+
+## 已发布版本的架构检查错误
+
+已发布的 1.1.2 和 1.1.3 内置更新脚本使用了错误的 `lipo -verify_arch` 参数顺序。
+若安装日志出现 `unknown architecture specification flag`，需手动安装包含修复的新构建。
+安装脚本由当前运行的应用生成，仅更换远端 DMG 无法修正旧客户端。
+手动更新只替换 `.app`，应用支持目录中的配置与图库继续沿用。
