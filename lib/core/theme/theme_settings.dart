@@ -51,6 +51,7 @@ class ThemeSettings {
     this.seedKey = kDefaultSeedKey,
     this.haptics = true,
     this.showAssistant = true,
+    this.showTools = true,
     this.pageAlignment = PageAlignment.center,
     this.textScale = 1.0,
   });
@@ -68,6 +69,9 @@ class ThemeSettings {
   /// (底栏首帧就得知道画几格),而这份是全 app 唯一一个同步加载的偏好。
   final bool showAssistant;
 
+  /// 桌面工具箱入口在顶部导航和「我的」之间切换，默认放在顶部导航。
+  final bool showTools;
+
   final PageAlignment pageAlignment;
 
   /// 桌面应用字号倍率，叠加在系统文字缩放上。
@@ -83,6 +87,7 @@ class ThemeSettings {
     String? seedKey,
     bool? haptics,
     bool? showAssistant,
+    bool? showTools,
     PageAlignment? pageAlignment,
     double? textScale,
   }) => ThemeSettings(
@@ -90,6 +95,7 @@ class ThemeSettings {
     seedKey: seedKey ?? this.seedKey,
     haptics: haptics ?? this.haptics,
     showAssistant: showAssistant ?? this.showAssistant,
+    showTools: showTools ?? this.showTools,
     pageAlignment: pageAlignment ?? this.pageAlignment,
     textScale: textScale == null ? this.textScale : _textScale(textScale),
   );
@@ -102,6 +108,7 @@ class ThemeSettings {
         : kDefaultSeedKey,
     haptics: j['haptics'] != false,
     showAssistant: j['showAssistant'] != false,
+    showTools: j['showTools'] != false,
     pageAlignment:
         PageAlignment.values.asNameMap()[j['pageAlignment']] ??
         PageAlignment.center,
@@ -113,6 +120,7 @@ class ThemeSettings {
     'seed': seedKey,
     'haptics': haptics,
     'showAssistant': showAssistant,
+    'showTools': showTools,
     'pageAlignment': pageAlignment.name,
     'textScale': textScale,
   };
@@ -124,6 +132,7 @@ class ThemeSettings {
       other.seedKey == seedKey &&
       other.haptics == haptics &&
       other.showAssistant == showAssistant &&
+      other.showTools == showTools &&
       other.pageAlignment == pageAlignment &&
       other.textScale == textScale;
 
@@ -133,6 +142,7 @@ class ThemeSettings {
     seedKey,
     haptics,
     showAssistant,
+    showTools,
     pageAlignment,
     textScale,
   );

@@ -172,6 +172,7 @@ void main() {
       Navigator.of(tester.element(key('dialog-text'))).pop();
       await tester.pumpAndSettle();
       await tester.ensureVisible(key('appearance-text-scale-reset'));
+      await tester.pumpAndSettle();
       await tester.tap(key('appearance-text-scale-reset'));
       await tester.pumpAndSettle();
       expect(container.read(themeSettingsProvider).textScale, 1);
@@ -210,6 +211,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(key('appearance-text-scale').hitTestable(), findsOneWidget);
       await tester.ensureVisible(key('appearance-text-scale-reset'));
+      await tester.pumpAndSettle();
       await tester.tap(key('appearance-text-scale-reset'));
       await tester.pumpAndSettle();
       expect(container.read(themeSettingsProvider).textScale, 1);

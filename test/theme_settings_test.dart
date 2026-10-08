@@ -60,4 +60,14 @@ void main() {
     expect(ThemeSettings.fromJson({'textScale': 9}).textScale, 1.4);
     expect(const ThemeSettings().copyWith(textScale: double.nan).textScale, 1);
   });
+
+  test('工具箱默认在导航栏，关闭和其他修改的偏好可恢复', () {
+    expect(const ThemeSettings().showTools, isTrue);
+    expect(ThemeSettings.fromJson({'mode': 'dark'}).showTools, isTrue);
+    const settings = ThemeSettings(showTools: false, textScale: 1.2);
+    final changed = settings.copyWith(seedKey: 'teal');
+    expect(changed.showTools, isFalse);
+    expect(ThemeSettings.fromJson(changed.toJson()), changed);
+    expect(settings, isNot(settings.copyWith(showTools: true)));
+  });
 }

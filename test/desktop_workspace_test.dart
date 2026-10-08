@@ -13,6 +13,9 @@ import 'package:plana_app/core/platform/desktop.dart';
 import 'package:plana_app/core/app_info.dart';
 import 'package:plana_app/core/desktop_edition.dart';
 import 'package:plana_app/core/store/app_stores.dart';
+import 'package:plana_app/core/theme/theme_settings.dart';
+import 'package:plana_app/features/desktop/desktop_tools_page.dart';
+import 'package:plana_app/features/tools/tools_page.dart';
 import 'package:plana_app/features/desktop/desktop_library_state.dart';
 import 'package:plana_app/features/editor/widgets/chip_flow_view.dart';
 import 'package:plana_app/features/assistant/agent_model.dart';
@@ -198,6 +201,121 @@ void main() {
     c.dispose();
     disposed = true;
   }
+
+  testWidgets(
+    '工具箱默认在我的前面，入口互斥切换保留草稿、结果和工具页签',
+    (tester) async {
+      await mount(tester, const Size(1440, 900));
+      final toolsNav = key('desktop-nav-$kTabTools');
+      final profileNav = key('desktop-nav-$kTabProfile');
+      expect(toolsNav, findsOneWidget);
+      expect(
+        tester.getRect(toolsNav).right,
+        lessThan(tester.getRect(profileNav).left),
+      );
+      await tester.tap(profileNav);
+      await tester.pumpAndSettle();
+      expect(key('profile-section-tools'), findsNothing);
+      await tester.tap(toolsNav);
+      await tester.pumpAndSettle();
+      final pane = tester.state(find.byType(DesktopToolsPage));
+      final draft = key('weight-convert-input');
+      await tester.enterText(draft, '(cat ears:1.2), solo, <lora:test:1>');
+      final modifier = defaultTargetPlatform == TargetPlatform.macOS
+          ? LogicalKeyboardKey.metaLeft
+          : LogicalKeyboardKey.controlLeft;
+      await tester.sendKeyDownEvent(modifier);
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.sendKeyUpEvent(modifier);
+      await tester.pumpAndSettle();
+      final converted = tester
+          .widget<SelectableText>(key('weight-convert-output'))
+          .textSpan!
+          .toPlainText();
+      expect(converted, contains('cat ears'));
+      expect(converted, isNot(contains('lora:')));
+      await tester.tap(find.text('图片元数据'));
+      await tester.pumpAndSettle();
+      final metadataPrompt = key('metadata-field-prompt');
+      await tester.enterText(metadataPrompt, '1girl, forest');
+
+      Future<void> toggleInSettings() async {
+        await tester.tap(profileNav);
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(key('profile-section-appearance'));
+        await tester.tap(key('profile-section-appearance'));
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(find.text('显示工具箱'));
+        await tester.tap(find.text('显示工具箱'));
+        await tester.pumpAndSettle();
+        stores.flushNow();
+        var saved = false;
+        unawaited(stores.prefs.idle.then((_) => saved = true));
+        await pumpUntil(
+          tester,
+          () => saved,
+          reason: 'Toolbox navigation preference must finish saving',
+        );
+      }
+
+      await toggleInSettings();
+      expect(toolsNav, findsNothing);
+      expect(key('profile-section-tools'), findsOneWidget);
+      expect(loadThemeSettings(stores.prefs).showTools, isFalse);
+      await tester.ensureVisible(key('profile-section-tools'));
+      await tester.tap(key('profile-section-tools'));
+      await tester.pumpAndSettle();
+      expect(tester.state(find.byType(DesktopToolsPage)), same(pane));
+      expect(
+        tester.widget<TextField>(metadataPrompt).controller!.text,
+        '1girl, forest',
+      );
+      await tester.tap(find.text('权重转换'));
+      await tester.pumpAndSettle();
+      expect(
+        tester.widget<TextField>(draft).controller!.text,
+        contains('cat ears'),
+      );
+      expect(
+        tester
+            .widget<SelectableText>(key('weight-convert-output'))
+            .textSpan!
+            .toPlainText(),
+        converted,
+      );
+      await toggleInSettings();
+      expect(toolsNav, findsOneWidget);
+      expect(key('profile-section-tools'), findsNothing);
+      expect(loadThemeSettings(stores.prefs).showTools, isTrue);
+      await tester.tap(toolsNav);
+      await tester.pumpAndSettle();
+      expect(tester.state(find.byType(DesktopToolsPage)), same(pane));
+      expect(
+        tester.widget<TextField>(draft).controller!.text,
+        contains('cat ears'),
+      );
+      expect(find.byType(ToolsPage), findsOneWidget);
+
+      // A restored preference can move the currently open toolbox back to settings.
+      c
+          .read(themeSettingsProvider.notifier)
+          .patch((s) => s.copyWith(showTools: false));
+      await tester.pumpAndSettle();
+      expect(c.read(shellIndexProvider), kTabProfile);
+      expect(
+        tester.widget<TextField>(draft).controller!.text,
+        contains('cat ears'),
+      );
+      expect(tester.state(find.byType(DesktopToolsPage)), same(pane));
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox());
+      await drainWrites(tester);
+    },
+    variant: TargetPlatformVariant({
+      TargetPlatform.windows,
+      TargetPlatform.macOS,
+    }),
+  );
 
   testWidgets(
     '窄窗同时显示任务和更新标记不溢出,状态入口不切页',

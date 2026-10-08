@@ -182,6 +182,15 @@ class AppearancePage extends ConsumerWidget {
                 onChanged: (v) =>
                     notifier.patch((x) => x.copyWith(showAssistant: v)),
               ),
+              if (desktop)
+                _SwitchRow(
+                  icon: Icons.handyman_outlined,
+                  title: '显示工具箱',
+                  subtitle: '开启时在顶部导航显示，关闭后移回「我的」',
+                  value: ts.showTools,
+                  onChanged: (v) =>
+                      notifier.patch((x) => x.copyWith(showTools: v)),
+                ),
             ],
           ),
           if (!desktop) ...[
