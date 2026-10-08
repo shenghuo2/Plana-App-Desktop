@@ -466,82 +466,90 @@ class _ActionRailState extends ConsumerState<ResultActions> {
     ref.read(railCollapsedProvider.notifier).set(v);
   }
 
+  Widget _detailsActionRow(Widget first, Widget second) => IntrinsicHeight(
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Expanded(child: first),
+        const SizedBox(width: 8),
+        Expanded(child: second),
+      ],
+    ),
+  );
+
   @override
   Widget build(BuildContext context) {
     if (widget.canvasBar != null) return _canvasBar(context);
     if (widget.detailsPanel) {
+      const actionStyle = ButtonStyle(
+        padding: WidgetStatePropertyAll(
+          EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+        ),
+      );
       return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Row(
-            children: [
-              Expanded(
-                child: FilledButton.icon(
-                  key: const ValueKey('desktop-image-import'),
-                  style: FilledButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(horizontal: 8),
-                  ),
-                  onPressed: () => _import(context, ref),
-                  icon: const Icon(Icons.input, size: 18),
-                  label: const Text('导入到创作'),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: ImageRemoteAction(
-                  result: widget.result,
-                  enabled: widget.enabled,
-                  outlined: true,
-                  style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(horizontal: 8),
-                  ),
-                ),
-              ),
-            ],
+          _detailsActionRow(
+            FilledButton.icon(
+              key: const ValueKey('desktop-image-import'),
+              style: actionStyle,
+              onPressed: () => _import(context, ref),
+              icon: const Icon(Icons.input, size: 18),
+              label: const Text('导入到创作'),
+            ),
+            ImageRemoteAction(
+              result: widget.result,
+              enabled: widget.enabled,
+              outlined: true,
+              style: actionStyle,
+            ),
           ),
           const SizedBox(height: 8),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              OutlinedButton.icon(
-                onPressed: () => _inpaint(context, ref),
-                icon: const Icon(Icons.brush_outlined, size: 17),
-                label: const Text('重绘'),
-              ),
-              OutlinedButton.icon(
-                key: const ValueKey('desktop-image-upscale'),
+          _detailsActionRow(
+            OutlinedButton.icon(
+              style: actionStyle,
+              onPressed: () => _inpaint(context, ref),
+              icon: const Icon(Icons.brush_outlined, size: 17),
+              label: const Text('重绘'),
+            ),
+            OutlinedButton.icon(
+              key: const ValueKey('desktop-image-upscale'),
+              style: actionStyle,
+              onPressed: widget.enabled && !_upscaling
+                  ? () => _upscale(
+                      context,
+                      ref,
+                      requestedMethod: UpscaleMethod.redraw,
+                    )
+                  : null,
+              icon: const Icon(Icons.open_in_full, size: 17),
+              label: const Text('图生图放大'),
+            ),
+          ),
+          const SizedBox(height: 8),
+          _detailsActionRow(
+            Tooltip(
+              message: _superResolutionTooltip,
+              child: OutlinedButton.icon(
+                key: const ValueKey('desktop-image-super-resolution'),
+                style: actionStyle,
                 onPressed: widget.enabled && !_upscaling
                     ? () => _upscale(
                         context,
                         ref,
-                        requestedMethod: UpscaleMethod.redraw,
+                        requestedMethod: UpscaleMethod.naiV5,
                       )
                     : null,
-                icon: const Icon(Icons.open_in_full, size: 17),
-                label: const Text('图生图放大'),
+                icon: const Icon(Icons.photo_size_select_large, size: 17),
+                label: const Text('超分辨率'),
               ),
-              Tooltip(
-                message: _superResolutionTooltip,
-                child: OutlinedButton.icon(
-                  key: const ValueKey('desktop-image-super-resolution'),
-                  onPressed: widget.enabled && !_upscaling
-                      ? () => _upscale(
-                          context,
-                          ref,
-                          requestedMethod: UpscaleMethod.naiV5,
-                        )
-                      : null,
-                  icon: const Icon(Icons.photo_size_select_large, size: 17),
-                  label: const Text('超分辨率'),
-                ),
-              ),
-              OutlinedButton.icon(
-                onPressed: () => _download(context, ref),
-                icon: const Icon(Icons.download_outlined, size: 17),
-                label: const Text('保存'),
-              ),
-            ],
+            ),
+            OutlinedButton.icon(
+              style: actionStyle,
+              onPressed: () => _download(context, ref),
+              icon: const Icon(Icons.download_outlined, size: 17),
+              label: const Text('保存'),
+            ),
           ),
         ],
       );

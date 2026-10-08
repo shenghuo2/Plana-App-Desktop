@@ -107,6 +107,7 @@ void main() {
     WidgetTester tester, {
     bool diskInputs = false,
     bool comparison = false,
+    double textScale = 1,
   }) async {
     tester.view.physicalSize = const Size(1200, 800);
     tester.view.devicePixelRatio = 1;
@@ -123,6 +124,12 @@ void main() {
         container: container,
         child: MaterialApp(
           theme: AppTheme.light(),
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(
+              context,
+            ).copyWith(textScaler: TextScaler.linear(textScale)),
+            child: child!,
+          ),
           home: Scaffold(
             body: Builder(
               builder: (context) => TextButton(
@@ -184,10 +191,10 @@ void main() {
       expect(session.imageBytes, pixels[0]);
       expect(container.read(shellIndexProvider), kTabCreate);
       expect(key('desktop-image-viewer'), findsNothing);
-        expect(find.text('打开'), findsOneWidget);
-        expect(tester.takeException(), isNull);
-        stores.flushNow();
-        await tester.pumpWidget(const SizedBox());
+      expect(find.text('打开'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      stores.flushNow();
+      await tester.pumpWidget(const SizedBox());
     });
   }
 
@@ -268,57 +275,62 @@ void main() {
     },
   );
 
-  testWidgets(
-    'long, short, empty and missing prompts keep controls fixed and reset text scroll',
-    (tester) async {
-      await mount(tester, diskInputs: true);
-      final panel = tester.element(key('desktop-image-info'));
-      final actions = tester.getRect(key('desktop-image-import'));
-      final viewport = tester.getRect(key('desktop-image-prompts'));
-      final long = List.filled(300, 'long prompt, forest, sky').join(', ');
-      reads[1].complete(pixels[1]);
-      inputReads[1].complete(GenerateState.initial().copyWith(prompt: long));
-      await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
-      await expectFrame(tester, 1, prompt: long);
-      expect(tester.getRect(key('desktop-image-import')), actions);
-      expect(tester.getRect(key('desktop-image-prompts')), viewport);
-      final scroll = tester
-          .widget<SingleChildScrollView>(key('desktop-image-prompts'))
-          .controller!;
-      scroll.jumpTo(250);
-      await tester.pump();
-      expect(scroll.offset, 250);
-      for (final i in [2, 3, 4]) {
-        reads[i].complete(pixels[i]);
-        inputReads[i].complete(
-          i == 3
-              ? null
-              : GenerateState.initial().copyWith(
-                  prompt: i == 2 ? '' : 'prompt-4',
-                ),
-        );
+  for (final textScale in [1.0, 1.4]) {
+    testWidgets(
+      'long, short, empty and missing prompts keep controls fixed and reset text scroll, textScale=$textScale',
+      (tester) async {
+        await mount(tester, diskInputs: true, textScale: textScale);
+        final panel = tester.element(key('desktop-image-info'));
+        final actions = tester.getRect(key('desktop-image-import'));
+        final viewport = tester.getRect(key('desktop-image-prompts'));
+        final long = List.filled(300, 'long prompt, forest, sky').join(', ');
+        reads[1].complete(pixels[1]);
+        inputReads[1].complete(GenerateState.initial().copyWith(prompt: long));
         await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
-        await expectFrame(
-          tester,
-          i,
-          prompt: i == 2
-              ? '未填写正面提示词'
-              : i == 3
-              ? '这张作品没有保存参数快照，可通过导入读取图片元数据。'
-              : null,
-        );
-        expect(tester.element(key('desktop-image-info')), same(panel));
+        await expectFrame(tester, 1, prompt: long);
         expect(tester.getRect(key('desktop-image-import')), actions);
         expect(tester.getRect(key('desktop-image-prompts')), viewport);
-        expect(scroll.offset, 0);
-      }
-      tester.view.physicalSize = const Size(900, 600);
-      await tester.pumpAndSettle();
-      expect(tester.takeException(), isNull);
-      expect(tester.getRect(key('desktop-image-import')).bottom, lessThan(600));
-      await tester.pumpWidget(const SizedBox());
-    },
-  );
+        final scroll = tester
+            .widget<SingleChildScrollView>(key('desktop-image-prompts'))
+            .controller!;
+        scroll.jumpTo(250);
+        await tester.pump();
+        expect(scroll.offset, 250);
+        for (final i in [2, 3, 4]) {
+          reads[i].complete(pixels[i]);
+          inputReads[i].complete(
+            i == 3
+                ? null
+                : GenerateState.initial().copyWith(
+                    prompt: i == 2 ? '' : 'prompt-4',
+                  ),
+          );
+          await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+          await expectFrame(
+            tester,
+            i,
+            prompt: i == 2
+                ? '未填写正面提示词'
+                : i == 3
+                ? '这张作品没有保存参数快照，可通过导入读取图片元数据。'
+                : null,
+          );
+          expect(tester.element(key('desktop-image-info')), same(panel));
+          expect(tester.getRect(key('desktop-image-import')), actions);
+          expect(tester.getRect(key('desktop-image-prompts')), viewport);
+          expect(scroll.offset, 0);
+        }
+        tester.view.physicalSize = const Size(900, 600);
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+        expect(
+          tester.getRect(key('desktop-image-import')).bottom,
+          lessThan(600),
+        );
+        await tester.pumpWidget(const SizedBox());
+      },
+    );
+  }
 
   testWidgets(
     'keeps decoded pixels and metadata while loading, and prefetches neighbours',

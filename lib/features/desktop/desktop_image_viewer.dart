@@ -261,58 +261,6 @@ class _DesktopImageViewerState extends ConsumerState<_DesktopImageViewer> {
           style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
         ),
         const SizedBox(height: 20),
-        Text(
-          '${result.width} × ${result.height} px',
-          style: TextStyle(color: context.scheme.onSurfaceVariant),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          input == null
-              ? (_hasFrame ? '未保存生成参数' : '正在读取生成参数…')
-              : '${input.params.activeSteps} 步 · ${input.params.model}',
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(color: context.scheme.onSurfaceVariant),
-        ),
-        const SizedBox(height: 8),
-        Row(
-          children: [
-            Expanded(
-              child: SelectableText(
-                '种子  ${result.seed}',
-                style: const TextStyle(fontSize: 12),
-              ),
-            ),
-            IconButton(
-              tooltip: '复制种子',
-              icon: const Icon(Icons.copy_outlined, size: 16),
-              onPressed: () =>
-                  Clipboard.setData(ClipboardData(text: '${result.seed}')),
-            ),
-            // 复制图片。**图标而不是带字的按钮**:这一栏就 260~340px 宽,下面那排
-            // 「重绘 / 放大 / 超分辨率 / 保存」已经要折三四行,再加一颗带字的
-            // 直接把这一列顶出屏幕;种子那颗复制也在这行,凑成一处「复制」。
-            IconButton(
-              key: const ValueKey('desktop-image-copy-image'),
-              tooltip: '复制图片到剪贴板',
-              icon: const Icon(Icons.content_copy, size: 16),
-              onPressed: () => copyResultToClipboard(context, ref, result),
-            ),
-          ],
-        ),
-        Text(
-          date == null
-              ? '生成时间未知'
-              : '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')} '
-                    '${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}',
-          style: TextStyle(color: context.scheme.outline, fontSize: 12),
-        ),
-        const SizedBox(height: 24),
-        const Text(
-          '正面提示词',
-          style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
-        ),
-        const SizedBox(height: 12),
         Expanded(
           child: Scrollbar(
             controller: _infoScroll,
@@ -320,9 +268,68 @@ class _DesktopImageViewerState extends ConsumerState<_DesktopImageViewer> {
             child: SingleChildScrollView(
               key: const ValueKey('desktop-image-prompts'),
               controller: _infoScroll,
-              // Reserve the gutter even when the text needs no scrollbar.
               padding: const EdgeInsets.only(right: 14),
-              child: prompts,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    '${result.width} × ${result.height} px',
+                    style: TextStyle(color: context.scheme.onSurfaceVariant),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    input == null
+                        ? (_hasFrame ? '未保存生成参数' : '正在读取生成参数…')
+                        : '${input.params.activeSteps} 步 · ${input.params.model}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(color: context.scheme.onSurfaceVariant),
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: SelectableText(
+                          '种子  ${result.seed}',
+                          style: const TextStyle(fontSize: 12),
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: '复制种子',
+                        icon: const Icon(Icons.copy_outlined, size: 16),
+                        onPressed: () => Clipboard.setData(
+                          ClipboardData(text: '${result.seed}'),
+                        ),
+                      ),
+                      // 图片复制与种子复制放在同一行，底部保留作品操作。
+                      IconButton(
+                        key: const ValueKey('desktop-image-copy-image'),
+                        tooltip: '复制图片到剪贴板',
+                        icon: const Icon(Icons.content_copy, size: 16),
+                        onPressed: () =>
+                            copyResultToClipboard(context, ref, result),
+                      ),
+                    ],
+                  ),
+                  Text(
+                    date == null
+                        ? '生成时间未知'
+                        : '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')} '
+                              '${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}',
+                    style: TextStyle(
+                      color: context.scheme.outline,
+                      fontSize: 12,
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  const Text(
+                    '正面提示词',
+                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+                  ),
+                  const SizedBox(height: 12),
+                  prompts,
+                ],
+              ),
             ),
           ),
         ),
@@ -339,18 +346,30 @@ class _DesktopImageViewerState extends ConsumerState<_DesktopImageViewer> {
             Expanded(
               child: OutlinedButton.icon(
                 key: const ValueKey('desktop-image-move'),
+                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 6,
+                  ),
+                ),
                 onPressed: _transferring ? null : () => _transfer(copy: false),
                 icon: const Icon(Icons.drive_file_move_outline, size: 18),
-                label: const Text('移动'),
+                label: const Text('移动到'),
               ),
             ),
             const SizedBox(width: 8),
             Expanded(
               child: OutlinedButton.icon(
                 key: const ValueKey('desktop-image-copy'),
+                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 6,
+                  ),
+                ),
                 onPressed: _transferring ? null : () => _transfer(copy: true),
                 icon: const Icon(Icons.copy_outlined, size: 18),
-                label: const Text('复制'),
+                label: const Text('复制到'),
               ),
             ),
           ],
