@@ -167,6 +167,9 @@ jobs:
       - name: Resolve locked dependencies
         run: flutter pub get --enforce-lockfile
 
+      - name: Test macOS updater native arguments
+        run: flutter test --no-pub --reporter expanded test/macos_update_script_test.dart
+
       - name: Build release app
         run: flutter build macos --release --no-pub
 

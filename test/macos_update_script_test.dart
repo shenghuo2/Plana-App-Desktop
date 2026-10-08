@@ -88,10 +88,15 @@ with open(sys.argv[3], 'rb') as f:
     print(plistlib.load(f)[sys.argv[2].split(':')[-1]])
 ''',
       )).path;
-      commands['/usr/bin/lipo'] = (await executable(
-        'bin/lipo',
-        '#!/bin/bash\nexit 0\n',
-      )).path;
+      commands['/usr/bin/lipo'] = (await executable('bin/lipo', r'''#!/bin/bash
+set -euo pipefail
+if [[ "$#" -ne 3 || "$2" != -verify_arch ]]; then
+  printf 'Expected lipo <input_file> -verify_arch <architecture>\n' >&2
+  exit 2
+fi
+[[ -f "$1" ]]
+[[ "$3" == "$PLANA_TEST_AVAILABLE_ARCH" ]]
+''')).path;
       commands['/usr/bin/codesign'] = (await executable(
         'bin/codesign',
         r'''#!/bin/bash
@@ -122,11 +127,15 @@ printf '%s\n' "$1" > "$PLANA_TEST_OPENED"
       await root.delete(recursive: true);
     });
 
-    Future<ProcessResult> run({bool badSignature = false}) async {
+    Future<ProcessResult> run({
+      bool badSignature = false,
+      String architecture = 'x64',
+      String availableArchitecture = 'x86_64',
+    }) async {
       var text = MacOSUpdateScript.build(
         appPid: oldPid,
         version: 'v1.1.1-desktop.46+65',
-        architecture: 'x64',
+        architecture: architecture,
         dmgPath: p.join(root.path, 'update.dmg'),
         targetApp: bundle.path,
         workDirectory: work.path,
@@ -152,6 +161,7 @@ printf '%s\n' "$1" > "$PLANA_TEST_OPENED"
           'PLANA_TEST_STARTUP': startup.path,
           'PLANA_TEST_OPENED': p.join(root.path, 'opened'),
           'PLANA_TEST_BAD_SIGN': badSignature ? '1' : '0',
+          'PLANA_TEST_AVAILABLE_ARCH': availableArchitecture,
         },
       );
     }
@@ -160,7 +170,10 @@ printf '%s\n' "$1" > "$PLANA_TEST_OPENED"
         jsonDecode(await File(p.join(work.path, 'result.json')).readAsString())
             as Map;
 
-    Future<void> expectSuccessfulUpdate() async {
+    Future<void> expectSuccessfulUpdate({
+      String architecture = 'x64',
+      String availableArchitecture = 'x86_64',
+    }) async {
       // Keep a second PID file so the fixture can be cleaned after helper cleanup.
       final binary = File(
         p.join(candidate.path, 'Contents', 'MacOS', 'Plana App'),
@@ -172,7 +185,10 @@ printf '%s\n' "$1" > "$PLANA_TEST_OPENED"
           "printf '%s\\n' \"\$\$\" > ${MacOSUpdateScript.quote(p.join(root.path, 'child.pid'))}\nexec /bin/sleep 30",
         ),
       );
-      final updated = await run();
+      final updated = await run(
+        architecture: architecture,
+        availableArchitecture: availableArchitecture,
+      );
       expect(
         updated.exitCode,
         0,
@@ -198,6 +214,27 @@ printf '%s\n' "$1" > "$PLANA_TEST_OPENED"
         p.join(root.path, 'fixture', 'Plana App.app'),
       );
       await expectSuccessfulUpdate();
+    });
+
+    test('arm64 架构验证通过后完成更新', () async {
+      await expectSuccessfulUpdate(
+        architecture: 'arm64',
+        availableArchitecture: 'arm64',
+      );
+    });
+
+    test('架构不匹配在退出和替换前被拒绝', () async {
+      final failed = await run(architecture: 'arm64');
+      expect(failed.exitCode, isNot(0));
+      expect(
+        await File(p.join(bundle.path, 'version.txt')).readAsString(),
+        'old',
+      );
+      expect(await File(p.join(work.path, 'ready')).exists(), isFalse);
+      expect(
+        await Directory(p.join(root.path, '.backup.app')).exists(),
+        isFalse,
+      );
     });
 
     test('启动失败时恢复旧 .app 并重新打开', () async {
@@ -239,4 +276,55 @@ printf '%s\n' "$1" > "$PLANA_TEST_OPENED"
       expect(await File(p.join(work.path, 'ready')).exists(), isFalse);
     });
   }, skip: Platform.isWindows);
+
+  test('macOS 上用真实 lipo 验证更新脚本的架构检查命令', () async {
+    final root = await Directory.systemTemp.createTemp("plana lipo's ");
+    try {
+      final candidate = Directory(p.join(root.path, 'Plana App Desktop.app'));
+      final executable = File(
+        p.join(candidate.path, 'Contents', 'MacOS', 'Plana App'),
+      );
+      await executable.parent.create(recursive: true);
+      await Link(executable.path).create(Platform.resolvedExecutable);
+      final architectures = await Process.run('/usr/bin/lipo', [
+        '-archs',
+        executable.path,
+      ]);
+      expect(architectures.exitCode, 0, reason: '${architectures.stderr}');
+      final available = '${architectures.stdout}'.trim().split(RegExp(r'\s+'));
+      expect(available.any({'arm64', 'x86_64'}.contains), isTrue);
+
+      for (final architecture in {'arm64': 'arm64', 'x64': 'x86_64'}.entries) {
+        final helper = MacOSUpdateScript.build(
+          appPid: pid,
+          version: 'v1.1.3-desktop',
+          architecture: architecture.key,
+          dmgPath: p.join(root.path, 'update.dmg'),
+          targetApp: candidate.path,
+          workDirectory: p.join(root.path, 'work'),
+          stagedApp: p.join(root.path, '.staged.app'),
+          backupApp: p.join(root.path, '.backup.app'),
+          startupFile: p.join(root.path, 'startup'),
+        );
+        final invocation = helper
+            .split('\n')
+            .singleWhere((line) => line.startsWith('/usr/bin/lipo '));
+        final probe = File(p.join(root.path, 'check.sh'));
+        await probe.writeAsString('''set -euo pipefail
+Architecture=${MacOSUpdateScript.quote(architecture.value)}
+CandidateApp=${MacOSUpdateScript.quote(candidate.path)}
+Executable=${MacOSUpdateScript.quote(p.basename(executable.path))}
+$invocation
+''');
+        final verified = await Process.run('/bin/bash', [probe.path]);
+        expect(
+          verified.exitCode,
+          available.contains(architecture.value) ? 0 : isNot(0),
+          reason: '${verified.stderr}',
+        );
+      }
+    } finally {
+      await root.delete(recursive: true);
+    }
+  }, skip: !Platform.isMacOS);
 }
