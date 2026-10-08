@@ -21,6 +21,8 @@ import 'package:plana_app/features/generate/generate_state.dart';
 import 'package:plana_app/features/generate/models.dart';
 import 'package:plana_app/features/import/import_panel.dart';
 
+import 'support/pump_until.dart';
+
 class _Balance extends AnlasNotifier {
   int refreshes = 0;
 
@@ -90,14 +92,7 @@ void main() {
   Finder key(String value) => find.byKey(ValueKey(value));
 
   Future<void> drain(WidgetTester tester, bool Function() done) async {
-    await tester.pump();
-    for (var i = 0; i < 300 && !done(); i++) {
-      await tester.runAsync(
-        () => Future<void>.delayed(const Duration(milliseconds: 10)),
-      );
-      await tester.pump(const Duration(milliseconds: 10));
-    }
-    expect(done(), isTrue);
+    await pumpUntil(tester, done, reason: 'Import operation must finish');
   }
 
   Future<void> mount(

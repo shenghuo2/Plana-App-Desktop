@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
@@ -20,6 +19,8 @@ import 'package:plana_app/features/gallery/gallery_search.dart';
 import 'package:plana_app/features/gallery/gallery_state.dart';
 import 'package:plana_app/features/gallery/models.dart';
 import 'package:plana_app/features/gallery/widgets/gallery_image_tile.dart';
+
+import 'support/pump_until.dart';
 
 class _Gallery extends GalleryNotifier {
   _Gallery(this.images);
@@ -167,26 +168,16 @@ void main() {
 
   Future<void> finish(WidgetTester tester) async {
     await tester.pumpWidget(const SizedBox());
-    await tester.pump(const Duration(seconds: 1));
-    stores.flushNow();
-    var done = false;
-    unawaited(
-      Future.wait([
-        stores.gallery.idle,
-        stores.albums.idle,
-      ]).then((_) => done = true),
-    );
-    for (var i = 0; i < 100 && !done; i++) {
-      await tester.runAsync(
-        () => Future<void>.delayed(const Duration(milliseconds: 10)),
-      );
-      await tester.pump();
-    }
-    expect(done, isTrue);
-    await tester.pump();
     container.dispose();
     disposed = true;
-    await tester.pump();
+    var done = false;
+    final flush = stores.flushForExit().then((_) => done = true);
+    await pumpUntil(
+      tester,
+      () => done,
+      reason: 'All storage queues must finish before teardown',
+    );
+    await flush;
     expect(tester.takeException(), isNull);
   }
 
