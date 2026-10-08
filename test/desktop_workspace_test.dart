@@ -220,11 +220,11 @@ void main() {
             'architecture': macOSArchitecture,
             'checkedAt': DateTime.now().millisecondsSinceEpoch,
             'release': const GithubRelease(
-              tag: 'v1.1.2-desktop.1',
+              tag: 'v$kAppVersion.1',
               name: '',
               notes: '',
               url:
-                  'https://github.com/$kGithubRepo/releases/tag/v1.1.2-desktop.1',
+                  'https://github.com/$kGithubRepo/releases/tag/v$kAppVersion.1',
               prerelease: false,
               assets: [
                 GithubAsset(name: 'Plana-macOS.dmg'),

@@ -13,10 +13,10 @@ import 'package:plana_app/features/update/desktop_update.dart';
 import 'package:plana_app/features/update/update_service.dart';
 
 const _release = GithubRelease(
-  tag: 'v1.1.2-desktop.1',
+  tag: 'v$kAppVersion.1',
   name: '',
   notes: '更新说明',
-  url: 'https://github.com/$kGithubRepo/releases/tag/v1.1.2-desktop.1',
+  url: 'https://github.com/$kGithubRepo/releases/tag/v$kAppVersion.1',
   prerelease: false,
   assets: [
     GithubAsset(name: 'Plana-macOS.dmg'),
