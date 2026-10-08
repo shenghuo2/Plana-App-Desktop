@@ -17,6 +17,7 @@ import 'package:plana_app/features/inspiration/tag_library.dart';
 import 'package:plana_app/features/inspiration/tag_models.dart';
 
 import 'support/desktop_capture.dart';
+import 'support/pump_until.dart';
 
 void main() {
   final binding = TestWidgetsFlutterBinding.ensureInitialized();
@@ -172,16 +173,11 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text(label));
     await tester.pump();
-    for (
-      var attempt = 0;
-      attempt < 100 && key('tag-editor-dialog').evaluate().isNotEmpty;
-      attempt++
-    ) {
-      await tester.runAsync(
-        () => Future<void>.delayed(const Duration(milliseconds: 15)),
-      );
-      await tester.pump(const Duration(milliseconds: 15));
-    }
+    await pumpUntil(
+      tester,
+      () => key('tag-editor-dialog').evaluate().isEmpty,
+      reason: 'Artist save must finish before closing its editor',
+    );
     await tester.pumpAndSettle();
     expect(key('tag-editor-dialog'), findsNothing);
   }
