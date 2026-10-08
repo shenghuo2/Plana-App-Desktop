@@ -1,4 +1,4 @@
-> Windows / macOS 桌面预发布版：基于 windows.45 重构源码。macOS 构建与适配说明见 [docs/desktop-comparison.md](docs/desktop-comparison.md)，应用内更新与发布要求见 [docs/desktop-updates.md](docs/desktop-updates.md)。
+> Plana App Desktop：基于 windows.45 重构源码的 Windows / macOS 桌面版。标准版与远端上传版的构建说明见 [DESKTOP-EDITIONS.md](DESKTOP-EDITIONS.md)。
 
 <div align="center">
 
@@ -22,14 +22,29 @@
 
 ## 项目状态
 
-本项目基于 [Plana App](https://github.com/mc5024/Plana-App) 及其 [Windows 重构版](https://github.com/LingXia979/Plana-App-for-windows/tree/Plana-app-for-windows)，提供 Windows 与 macOS 桌面适配。
-当前版本为 **1.1.2-desktop（构建 65，Pre-release）**。安装包见[本 fork 的 Releases](https://github.com/shenghuo2/Plana-App-Desktop/releases/tag/v1.1.2-desktop)。
+本项目基于 [Plana App](https://github.com/mc5024/Plana-App) 及其 [Windows 重构版](https://github.com/LingXia979/Plana-App-for-windows/tree/Plana-app-for-windows)，提供 Windows 与 macOS 桌面适配。后续构建的应用统一命名为 **Plana App Desktop**。
+当前源码版本为 **1.1.2-desktop（构建 65，Pre-release）**。GitHub Actions 提供各分支的构建产物；[已发布的 1.1.2 预发布包](https://github.com/shenghuo2/Plana-App-Desktop/releases/tag/v1.1.2-desktop)仍使用旧名称，不会随源码改名而自动替换。
 
-- `desktop/merge-windows45`：本预发布版的 Windows / macOS 桌面源码。
+- `desktop/merge-windows45`：标准版的 Windows / macOS 桌面源码。
+- `feature/remote-upload`：在标准版上增加远端上传与「收藏自动上传」，单独构建 macOS DMG；两版使用相同版本号。
 - [`Plana-app-for-windows`](https://github.com/LingXia979/Plana-App-for-windows/tree/Plana-app-for-windows)：Windows 重构上游分支。
 - Android 原版介绍与下载请前往[上游仓库](https://github.com/mc5024/Plana-App)。
 
 ## 下载与安装
+
+### GitHub Actions 构建
+
+在 [Build desktop 工作流](https://github.com/shenghuo2/Plana-App-Desktop/actions/workflows/build-macos.yml)中打开成功的构建，登录 GitHub 后下载页面底部的 Artifacts，解压 ZIP 取得安装包。后续构建的产物名称为：
+
+| 版本 | Artifact | 安装包 |
+|---|---|---|
+| macOS 标准版 | `Plana-App-Desktop-macOS-ad-hoc` | `Plana-App-Desktop-macOS-arm64.dmg` |
+| macOS 远端上传版 | `Plana-App-Desktop-RemoteUpload-macOS-ad-hoc` | `Plana-App-Desktop-RemoteUpload-macOS-arm64.dmg` |
+| Windows 标准版 | `Plana-App-Desktop-Windows-x64` | 完整 Release 目录，运行 `plana_app_for_windows.exe` |
+
+macOS 包适用于 Apple Silicon（ARM64），需要 macOS 14 或更新版本，包内应用为 `Plana App Desktop.app`。标准版与远端上传版在关于页标明版本类型，并分别选择自己的更新包。
+
+### 已发布的 1.1.2 预发布包（旧名称）
 
 - [Windows x64 便携版 ZIP](https://github.com/shenghuo2/Plana-App-Desktop/releases/download/v1.1.2-desktop/Plana-Windows-1.1.2-desktop-x64.zip)：完整解压后运行 `plana_app_for_windows.exe`。
 - [macOS Apple Silicon DMG](https://github.com/shenghuo2/Plana-App-Desktop/releases/download/v1.1.2-desktop/Plana-macOS-arm64.dmg)：需要 macOS 14 或更新版本，将 `Plana App.app` 拖入应用程序文件夹后运行。
@@ -37,7 +52,9 @@
 
 升级前请关闭旧版。发布包不附带个人账号、API/Bot/Web 授权、提示词草稿或私人 tag 库，首次使用请自行配置。Windows 包未进行代码签名，macOS 包使用 ad-hoc 签名，尚未经过 Apple 公证。
 
-开发与打包说明见 [Windows 使用说明](WINDOWS-README.md)。
+改名后仍沿用已有的数据目录、系统钥匙串与 Windows 加密存储，账号配置、图库、历史和助手会话可以继续使用。macOS 手动升级时先退出旧版，安装新版并确认存档正常后，可移除旧的 `Plana App.app` 应用本体；无需删除应用数据。
+
+开发与打包说明见 [桌面双版构建](DESKTOP-EDITIONS.md)、[Windows 使用说明](WINDOWS-README.md)、[macOS 适配说明](docs/desktop-comparison.md)与[应用内更新说明](docs/desktop-updates.md)。
 
 ## 界面预览
 
@@ -63,14 +80,17 @@
 
 ## 桌面版亮点
 
-以下功能对应上方展示的 Windows 测试版。
+以下为桌面版的主要功能。
 
 - **桌面工作台**：可调整侧栏宽度，提示词、画布与助手同屏；支持鼠标、键盘、文件拖入和快捷粘贴图片，图片按鼠标所在区域导入。
 - **提示词与预设**：文本／标签视图切换，正负提示词折叠联动；快捷小窗查看与切换预设。
 - **图库管理**：自建图库、日期筛选、收藏、多选与批量导出；一次复制到多个图库，每份副本独立保存。
 - **AI 助手**：一次附加多张图片，从历史选择图片，拖入或粘贴到助手区域即可加入附件；支持会话管理、消息编辑及生成图原图预览。
+- **图片剪贴板**：Windows / macOS 可粘贴图片，也可从画布、看图浮层、图库或助手复制图片到其他应用。
 - **参考与画布**：Vibe／角色参考单击立即切换、双击放大；图生图放大与超分辨率提供独立入口。
-- **本地作品**：自动保存到程序根目录的 `output` 文件夹；创作历史、图库与生成参数可继续使用。
+- **本地作品**：Windows 自动保存到程序根目录的 `output` 文件夹；macOS 保存到文稿目录下的 `Plana/output`，升级不会替换作品目录。
+- **版本与任务**：右上角显示版本与更新标记，任务运行时提供状态入口；macOS 支持下载并安装应用更新。
+- **远端上传版**：配置上传服务后可手动上传原图；开启「收藏自动上传」后，收藏新作品即触发上传，失败可在任务入口重试。
 
 ## 账号与使用
 

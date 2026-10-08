@@ -12,6 +12,8 @@
 	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
+	<key>CFBundleDisplayName</key>
+	<string>$(PRODUCT_NAME)</string>
 	<key>CFBundleName</key>
 	<string>$(PRODUCT_NAME)</string>
 	<key>CFBundlePackageType</key>
@@ -23,9 +25,9 @@
 	<key>LSMinimumSystemVersion</key>
 	<string>$(MACOSX_DEPLOYMENT_TARGET)</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
-	<string>Plana App 需要将生成的原图保存到照片图库。</string>
+	<string>Plana App Desktop 需要将生成的原图保存到照片图库。</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Plana App 需要读取照片并将生成结果保存到图库。</string>
+	<string>Plana App Desktop 需要读取照片并将生成结果保存到图库。</string>
 	<key>NSHumanReadableCopyright</key>
 	<string>$(PRODUCT_COPYRIGHT)</string>
 	<key>NSMainNibFile</key>

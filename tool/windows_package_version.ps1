@@ -15,6 +15,6 @@ function Get-PlanaWindowsPackageVersion([string]$Version) {
     [pscustomobject]@{
         Version = $Version
         FileVersion = $numbers -join '.'
-        PackageName = 'Plana-Windows-' + $Version.Split('+')[0] + '-x64'
+        PackageName = 'Plana-App-Desktop-Windows-' + $Version.Split('+')[0] + '-x64'
     }
 }

@@ -90,11 +90,13 @@ BEGIN
         BLOCK "040904e4"
         BEGIN
             VALUE "CompanyName", "com.plana" "\0"
-            VALUE "FileDescription", "Plana app for windows" "\0"
+            VALUE "FileDescription", "Plana App Desktop" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
             VALUE "InternalName", "plana_app_for_windows" "\0"
             VALUE "LegalCopyright", "Copyright (C) 2026 com.plana. All rights reserved." "\0"
             VALUE "OriginalFilename", "plana_app_for_windows.exe" "\0"
+            // Storage identity: path_provider and secure storage use this name.
+            // Keep it stable so renaming the app preserves settings and tokens.
             VALUE "ProductName", "Plana app for windows" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END

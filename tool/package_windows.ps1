@@ -105,7 +105,7 @@ Plana source for this version is included as ../source-code.zip.
 "@ | Set-Content -LiteralPath (Join-Path $licenses 'WINDOWS-RUNTIME-NOTICES.txt') -Encoding UTF8
 
     @"
-Plana Windows 测试版 $version
+Plana App Desktop Windows 测试版 $version
 适用：Windows 10 / Windows 11，64 位（x64）。
 
 使用方法

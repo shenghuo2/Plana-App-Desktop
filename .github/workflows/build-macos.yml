@@ -136,7 +136,7 @@ jobs:
       - name: Upload Windows build
         uses: actions/upload-artifact@v7
         with:
-          name: Plana-Windows-x64
+          name: Plana-App-Desktop-Windows-x64
           path: build/windows/x64/runner/Release/
           if-no-files-found: error
 
@@ -175,7 +175,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          app_path="build/macos/Build/Products/Release/Plana App.app"
+          app_path="build/macos/Build/Products/Release/Plana App Desktop.app"
           plist_path="$app_path/Contents/Info.plist"
           entitlements_path="$RUNNER_TEMP/plana-release-entitlements.plist"
           executable_name="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$plist_path")"
@@ -203,6 +203,8 @@ jobs:
 
           test -x "$executable_path"
           test "$executable_name" = "Plana App"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleName' "$plist_path")" = "Plana App Desktop"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$plist_path")" = "com.sora214.plana.app"
           test "$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "$plist_path")" = "14.0"
           codesign --verify --deep --strict --verbose=4 "$app_path"
           codesign --display --entitlements - --xml "$app_path" > "$entitlements_path"
@@ -270,13 +272,19 @@ jobs:
           fi
 
       - name: Create ad-hoc DMG
-        run: >-
-          hdiutil create
-          -volname "$DMG_VOLUME"
-          -srcfolder "build/macos/Build/Products/Release/Plana App.app"
-          -ov
-          -format UDZO
-          "$DMG_NAME"
+        shell: bash
+        run: |
+          set -euo pipefail
+          dmg_root="$RUNNER_TEMP/plana-dmg-root"
+          mkdir -p "$dmg_root"
+          ditto "build/macos/Build/Products/Release/Plana App Desktop.app" \
+            "$dmg_root/Plana App Desktop.app"
+          # Existing clients locate this exact path inside a DMG. The hidden
+          # link lets their updater copy the renamed bundle without a reinstall.
+          ln -s "Plana App Desktop.app" "$dmg_root/Plana App.app"
+          chflags -h hidden "$dmg_root/Plana App.app"
+          hdiutil create -volname "$DMG_VOLUME" -srcfolder "$dmg_root" \
+            -ov -format UDZO "$DMG_NAME"
 
       - name: Create update checksum
         run: shasum -a 256 "$DMG_NAME" > "$DMG_NAME.sha256"
@@ -295,7 +303,7 @@ jobs:
           trap cleanup EXIT
 
           hdiutil attach -readonly -nobrowse -mountpoint "$mount_point" "$DMG_NAME"
-          app_path="$mount_point/Plana App.app"
+          app_path="$mount_point/Plana App Desktop.app"
           plist_path="$app_path/Contents/Info.plist"
           executable_name="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$plist_path")"
           executable_path="$app_path/Contents/MacOS/$executable_name"
@@ -304,6 +312,16 @@ jobs:
           file "$executable_path"
           lipo -archs "$executable_path" | grep -qw arm64
           codesign --verify --deep --strict --verbose=4 "$app_path"
+
+          # Verify the legacy updater's ditto operation follows the hidden link
+          # and produces a complete bundle, with its original executable name.
+          test -L "$mount_point/Plana App.app"
+          legacy_copy="$RUNNER_TEMP/plana-legacy-update.app"
+          ditto "$mount_point/Plana App.app" "$legacy_copy"
+          test -d "$legacy_copy"
+          test ! -L "$legacy_copy"
+          test -x "$legacy_copy/Contents/MacOS/Plana App"
+          codesign --verify --deep --strict --verbose=4 "$legacy_copy"
 
           open -n -W -g "$app_path" >"$smoke_log" 2>&1 &
           open_pid=$!

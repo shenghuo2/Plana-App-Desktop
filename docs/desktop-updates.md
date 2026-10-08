@@ -21,8 +21,8 @@ macOS 的流程参考 `shenghuo2/Aaalice_NAI_Launcher`:用户点击下载,完成
 - 更新源为 `shenghuo2/Plana-App-Desktop`,不查询上游仓库或 Actions artifact。
 - 发布标签与 `pubspec.yaml`、`lib/core/app_info.dart` 的公开版本一致,例如
   `v1.1.2-desktop`。安装时按 Flutter 的 macOS 版号规则核对 Bundle 版本。
-- 发布 DMG 的架构必须写进文件名,例如 `Plana-macOS-arm64.dmg` 或
-  `Plana-macOS-x64.dmg`。通用包可使用 `universal`。
+- 发布 DMG 的架构必须写进文件名,例如 `Plana-App-Desktop-macOS-arm64.dmg` 或
+  `Plana-App-Desktop-macOS-x64.dmg`。通用包可使用 `universal`。
 - 将 DMG 与同名 `.sha256` 文件一同上传 GitHub Release。GitHub API 有 `sha256:`
   digest 时优先使用它;否则读取 `.sha256`。缺少校验信息时可到发布页手动下载。
 - 现有 macOS CI 会产出 arm64 DMG 及校验文件。只有发布为 Release 的版本会被检测,

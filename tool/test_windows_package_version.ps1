@@ -12,7 +12,7 @@ $accepted = @{
 foreach ($version in $accepted.Keys) {
     $parsed = Get-PlanaWindowsPackageVersion $version
     if ($parsed.Version -ne $version -or $parsed.FileVersion -ne $accepted[$version] -or
-        $parsed.PackageName -ne ('Plana-Windows-' + $version.Split('+')[0] + '-x64')) {
+        $parsed.PackageName -ne ('Plana-App-Desktop-Windows-' + $version.Split('+')[0] + '-x64')) {
         throw "Incorrect Windows version mapping: $version"
     }
 }

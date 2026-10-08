@@ -4,9 +4,9 @@
 /// 不划算;漂移由 `test/app_info_test.dart` 盯着,对不上直接红。
 library;
 
-/// 显示名。改这里要连 `android/app/src/main/AndroidManifest.xml` 的
-/// `android:label` 一起改 —— 那个是桌面图标下的名字,读不到 Dart 常量。
-const kAppName = 'Plana App';
+/// 对外显示名,与 macOS 产品名、Windows 窗口和安装器同步。
+/// 存储标识独立于显示名,改名不迁移用户配置、图库或加密令牌。
+const kAppName = 'Plana App Desktop';
 const kAppTagline = 'NovelAI 桌面创作端';
 const kAppVersion = '1.1.2-desktop';
 const kAppBuild = '65';

@@ -127,7 +127,10 @@ TargetParent="$(dirname "$TargetApp")"
 mkdir -p -- "$MountDir"
 /usr/bin/hdiutil attach "$DmgPath" -readonly -nobrowse -mountpoint "$MountDir"
 Mounted=1
-CandidateApp="$MountDir/Plana App.app"
+CandidateApp="$MountDir/Plana App Desktop.app"
+if [[ ! -d "$CandidateApp" ]]; then
+  CandidateApp="$MountDir/Plana App.app"
+fi
 [[ -d "$CandidateApp" ]]
 plist_value() { /usr/libexec/PlistBuddy -c "Print :$2" "$1/Contents/Info.plist"; }
 CurrentId="$(plist_value "$TargetApp" CFBundleIdentifier)"

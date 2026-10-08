@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/app_info.dart';
 import '../../core/auth/bot_session_store.dart';
 import '../../core/net/backend_client.dart';
 import '../../core/theme/app_theme.dart';
@@ -188,7 +189,7 @@ class _VibeBackupSheetState extends ConsumerState<_VibeBackupSheet> {
         .read(backendClientProvider)
         .recordBackupLog(
           sessionId: session.sessionId,
-          device: 'Plana App',
+          device: kAppName,
           action: action,
           count: count,
           detail: detail,
