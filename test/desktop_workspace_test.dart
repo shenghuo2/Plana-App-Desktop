@@ -318,6 +318,124 @@ void main() {
   );
 
   testWidgets(
+    '放大字号时角色位置单行显示，窄侧栏的操作与导航仍然可用',
+    (tester) async {
+      await tester.runAsync(
+        () => stores.prefs.write(key: 'desktop_left_pane_width', value: '300'),
+      );
+      await mount(tester, const Size(1440, 900));
+      final gen = c.read(generateProvider.notifier);
+      gen.addCharacter();
+      final id = c.read(generateProvider).characters.single.id;
+      final position = key('character-position-$id');
+      for (final scale in [1.0, 1.05, 1.2, 1.4]) {
+        c
+            .read(themeSettingsProvider.notifier)
+            .patch((settings) => settings.copyWith(textScale: scale));
+        for (final label in ['AUTO', 'E5', '100,100%']) {
+          gen.setModel(label == '100,100%' ? 'NAI 5.0 Full' : 'NAI 4.5 Full');
+          gen.applyParams(
+            c
+                .read(generateProvider)
+                .params
+                .copyWith(useCoords: label != 'AUTO'),
+          );
+          gen.updateCharacter(id, position: label == '100,100%' ? '1,1' : 'E5');
+          await tester.pumpAndSettle();
+          await tester.ensureVisible(position);
+          await tester.pumpAndSettle();
+          final text = find.descendant(
+            of: position,
+            matching: find.text(label),
+          );
+          final paragraph = tester.renderObject<RenderParagraph>(text);
+          final boxes = paragraph.getBoxesForSelection(
+            TextSelection(baseOffset: 0, extentOffset: label.length),
+          );
+          expect(boxes, hasLength(1), reason: '$label at $scale');
+          expect(
+            boxes.single.right,
+            lessThanOrEqualTo(paragraph.size.width + .5),
+          );
+          expect(position.hitTestable(), findsOneWidget);
+          expect(tester.takeException(), isNull, reason: '$label at $scale');
+        }
+        gen.updateCharacter(id, enabled: false);
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull, reason: 'disabled at $scale');
+        gen.updateCharacter(id, enabled: true);
+        for (final size in [const Size(900, 760), const Size(1440, 900)]) {
+          tester.view.physicalSize = size;
+          await tester.pumpAndSettle();
+          final nav = key('desktop-nav-$kTabProfile');
+          await tester.ensureVisible(nav);
+          await tester.pumpAndSettle();
+          expect(nav.hitTestable(), findsOneWidget);
+          expect(tester.getSize(nav).height, greaterThanOrEqualTo(40));
+          expect(tester.takeException(), isNull, reason: 'nav $scale at $size');
+        }
+      }
+      await tester.ensureVisible(position);
+      await tester.pumpAndSettle();
+      await tester.tap(position);
+      await tester.pumpAndSettle();
+      expect(find.byType(Dialog), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox());
+      await drainWrites(tester);
+    },
+    variant: TargetPlatformVariant({
+      TargetPlatform.windows,
+      TargetPlatform.macOS,
+    }),
+  );
+
+  testWidgets(
+    '140% 字号下主要桌面页面在宽窄窗口仍可导航和操作',
+    (tester) async {
+      c
+          .read(themeSettingsProvider.notifier)
+          .patch((settings) => settings.copyWith(textScale: 1.4));
+      await mount(tester, const Size(1440, 900));
+      for (final size in [const Size(1440, 900), const Size(900, 760)]) {
+        tester.view.physicalSize = size;
+        for (final tab in [
+          kTabGallery,
+          kTabAssistant,
+          kTabInspiration,
+          kTabTools,
+          kTabProfile,
+          kTabCreate,
+        ]) {
+          final nav = key('desktop-nav-$tab');
+          await tester.ensureVisible(nav);
+          await tester.pumpAndSettle();
+          await tester.tap(nav);
+          await tester.pumpAndSettle();
+          expect(c.read(shellIndexProvider), tab);
+          if (tab == kTabProfile) {
+            final appearance = key('profile-section-appearance');
+            await tester.ensureVisible(appearance);
+            await tester.pumpAndSettle();
+            await tester.tap(appearance);
+            await tester.pumpAndSettle();
+            await tester.ensureVisible(key('appearance-text-scale'));
+            await tester.pumpAndSettle();
+            expect(key('appearance-text-scale').hitTestable(), findsOneWidget);
+          }
+          expect(tester.takeException(), isNull, reason: '$tab at $size');
+        }
+      }
+      await tester.pumpWidget(const SizedBox());
+      await drainWrites(tester);
+    },
+    variant: TargetPlatformVariant({
+      TargetPlatform.windows,
+      TargetPlatform.macOS,
+    }),
+  );
+
+  testWidgets(
     '窄窗同时显示任务和更新标记不溢出,状态入口不切页',
     (tester) async {
       c.dispose();
@@ -354,6 +472,9 @@ void main() {
           }),
         ),
       );
+      c
+          .read(themeSettingsProvider.notifier)
+          .patch((settings) => settings.copyWith(textScale: 1.4));
       await mount(tester, const Size(1000, 760));
       (c.read(generationProvider.notifier) as _HeaderGeneration).busy();
       (c.read(genQueueProvider.notifier) as _HeaderQueue).fill();

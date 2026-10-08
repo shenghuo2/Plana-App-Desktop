@@ -134,6 +134,7 @@ class PlanaApp extends ConsumerWidget {
       builder: (context, child) => desktop
           ? AppTextScale(
               factor: ts.textScale,
+              baseline: kDesktopTextBaseline,
               child: DesktopImageDropHost(child: child!),
             )
           : NavBarGuard(child: child!),
