@@ -33,6 +33,7 @@ def entry(edition, branch, sha):
         "branch": branch,
         "sha": sha,
         "version": version,
+        "architecture": "arm64",
         "dmg": "Plana-App-Desktop-RemoteUpload-macOS-arm64.dmg" if remote else "Plana-App-Desktop-macOS-arm64.dmg",
         "artifact": "Plana-App-Desktop-RemoteUpload-macOS-ad-hoc" if remote else "Plana-App-Desktop-macOS-ad-hoc",
         "volume": "Plana App Desktop Remote Upload" if remote else "Plana App Desktop",
@@ -71,6 +72,7 @@ def main():
         entries.append(entry(edition, branch, os.environ["BUILD_SHA"]))
     validate_versions(entries)
     standard = next((e for e in entries if e["edition"] == "standard"), None)
+    remote_upload = next((e for e in entries if e["edition"] == "remoteUpload"), None)
     windows = standard is not None and (
         not dispatch or os.environ["BUILD_WINDOWS"].lower() == "true"
     )
@@ -78,7 +80,10 @@ def main():
     Path("desktop-build-plan.json").write_text(json.dumps(matrix, indent=2) + "\n")
     with open(os.environ["GITHUB_OUTPUT"], "a") as output:
         output.write(f"matrix={json.dumps(matrix, separators=(',', ':'))}\n")
+        output.write(f"standard={json.dumps(standard or {}, separators=(',', ':'))}\n")
+        output.write(f"remote_upload={json.dumps(remote_upload or {}, separators=(',', ':'))}\n")
         output.write(f"standard_sha={standard['sha'] if standard else ''}\n")
+        output.write(f"remote_sha={remote_upload['sha'] if remote_upload else ''}\n")
         output.write(f"build_windows={str(windows).lower()}\n")
     print(json.dumps(matrix, indent=2))
 

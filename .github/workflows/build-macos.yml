@@ -39,7 +39,9 @@ jobs:
     name: Resolve edition commits
     runs-on: ubuntu-latest
     outputs:
-      matrix: ${{ steps.plan.outputs.matrix }}
+      standard: ${{ steps.plan.outputs.standard }}
+      remote_upload: ${{ steps.plan.outputs.remote_upload }}
+      remote_sha: ${{ steps.plan.outputs.remote_sha }}
       standard_sha: ${{ steps.plan.outputs.standard_sha }}
       build_windows: ${{ steps.plan.outputs.build_windows }}
     steps:
@@ -61,305 +63,29 @@ jobs:
           name: desktop-build-plan
           path: desktop-build-plan.json
 
-  quality:
-    name: Analyze and test (${{ matrix.edition }})
+  standard:
+    name: Standard edition
     needs: plan
-    strategy:
-      fail-fast: false
-      matrix: ${{ fromJson(needs.plan.outputs.matrix) }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - name: Check out source
-        uses: actions/checkout@v7
-        with:
-          ref: ${{ matrix.sha }}
+    if: needs.plan.outputs.standard_sha != ''
+    uses: ./.github/workflows/build-desktop-edition.yml
+    with:
+      edition: standard
+      source_sha: ${{ fromJson(needs.plan.outputs.standard).sha }}
+      release_version: ${{ fromJson(needs.plan.outputs.standard).version }}
+      dmg_name: ${{ fromJson(needs.plan.outputs.standard).dmg }}
+      dmg_volume: ${{ fromJson(needs.plan.outputs.standard).volume }}
+      artifact_name: ${{ fromJson(needs.plan.outputs.standard).artifact }}
+      build_windows: ${{ needs.plan.outputs.build_windows == 'true' }}
 
-      - name: Set up Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          flutter-version: '3.44.2'
-          channel: stable
-          cache: true
-
-      - name: Resolve locked dependencies
-        run: flutter pub get --enforce-lockfile
-
-      - name: Analyze
-        run: flutter analyze --no-pub
-
-      - name: Test
-        run: flutter test --no-pub --concurrency=2
-
-      - name: Test edition build planning
-        run: python3 tool/test_desktop_build_plan.py
-
-  # Windows 那半截(剪贴板读写、原生拦 Ctrl+V)在本机没有任何编译机会:
-  # Swift 只build macOS,C++ 要 MSVC。这里把 Windows 构建和原生单测都跑起来 ——
-  # 少了这一趟,那半边代码就只能等用户实机报错。
-  windows:
-    name: Build and test Windows (standard)
-    needs: [plan, quality]
-    if: needs.plan.outputs.build_windows == 'true'
-    runs-on: windows-latest
-    timeout-minutes: 45
-    steps:
-      - name: Check out source
-        uses: actions/checkout@v7
-        with:
-          ref: ${{ needs.plan.outputs.standard_sha }}
-
-      - name: Set up Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          flutter-version: '3.44.2'
-          channel: stable
-          cache: true
-
-      - name: Resolve locked dependencies
-        run: flutter pub get --enforce-lockfile
-
-      - name: Build release app
-        run: flutter build windows --release --no-pub
-
-      - name: Windows package version tests
-        shell: pwsh
-        run: ./tool/test_windows_package_version.ps1
-
-      - name: Native clipboard tests
-        shell: cmd
-        run: |
-          cmake -S test/native -B build/native -A x64
-          cmake --build build/native --config Release
-          ctest --test-dir build/native -C Release --output-on-failure
-
-      - name: Upload Windows build
-        uses: actions/upload-artifact@v7
-        with:
-          name: Plana-App-Desktop-Windows-x64
-          path: build/windows/x64/runner/Release/
-          if-no-files-found: error
-
-  macos:
-    name: Build macOS (${{ matrix.edition }})
-    needs: [plan, quality]
-    strategy:
-      fail-fast: false
-      matrix: ${{ fromJson(needs.plan.outputs.matrix) }}
-    env:
-      DMG_NAME: ${{ matrix.dmg }}
-      DMG_VOLUME: ${{ matrix.volume }}
-      PLANA_RELEASE_VERSION: ${{ matrix.version }}
-    runs-on: macos-15
-    timeout-minutes: 45
-    steps:
-      - name: Check out source
-        uses: actions/checkout@v7
-        with:
-          ref: ${{ matrix.sha }}
-
-      - name: Set up Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          flutter-version: '3.44.2'
-          channel: stable
-          cache: true
-
-      - name: Resolve locked dependencies
-        run: flutter pub get --enforce-lockfile
-
-      - name: Test macOS updater native arguments
-        run: flutter test --no-pub --reporter expanded test/macos_update_script_test.dart
-
-      - name: Build release app
-        run: flutter build macos --release --no-pub
-
-      - name: Validate macOS application
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          app_path="build/macos/Build/Products/Release/Plana App Desktop.app"
-          plist_path="$app_path/Contents/Info.plist"
-          entitlements_path="$RUNNER_TEMP/plana-release-entitlements.plist"
-          executable_name="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$plist_path")"
-          executable_path="$app_path/Contents/MacOS/$executable_name"
-
-          # Disk images retain POSIX modes. Keep the bundle usable when the
-          # mounted volume's numeric owner differs from the local macOS user.
-          chmod -R a+rX "$app_path"
-
-          while IFS= read -r -d '' candidate; do
-            if file "$candidate" | grep -q 'Mach-O'; then
-              chmod a+x "$candidate"
-              architectures="$(lipo -archs "$candidate")"
-              echo "$candidate: $architectures"
-              grep -qw arm64 <<<"$architectures"
-            fi
-          done < <(find "$app_path" -type f -print0)
-
-          # GitHub-hosted builds have no Developer ID certificate. Release is
-          # intentionally non-sandboxed and uses the classic login Keychain,
-          # while file_picker requires the user-selected file entitlement even
-          # outside the sandbox. Keep that entitlement in the ad-hoc signature.
-          codesign --force --sign - \
-            --entitlements macos/Runner/Release.entitlements "$app_path"
-
-          test -x "$executable_path"
-          test "$executable_name" = "Plana App"
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleName' "$plist_path")" = "Plana App Desktop"
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$plist_path")" = "com.sora214.plana.app"
-          test "$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "$plist_path")" = "14.0"
-          expected_version="$(printf '%s' "${PLANA_RELEASE_VERSION%%+*}" | tr -cd '0-9.')"
-          expected_build="${PLANA_RELEASE_VERSION##*+}"
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$plist_path")" = "$expected_version"
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$plist_path")" = "$expected_build"
-          printf 'Validated macOS bundle version %s, build %s\n' "$expected_version" "$expected_build"
-          codesign --verify --deep --strict --verbose=4 "$app_path"
-          codesign --display --entitlements - --xml "$app_path" > "$entitlements_path"
-          plutil -lint "$entitlements_path"
-          cat "$entitlements_path"
-
-          test "$(/usr/libexec/PlistBuddy \
-            -c 'Print :com.apple.security.files.user-selected.read-write' \
-            "$entitlements_path")" = "true"
-
-          for forbidden_entitlement in \
-            com.apple.security.get-task-allow \
-            com.apple.security.app-sandbox; do
-            entitlement_value="$(
-              /usr/libexec/PlistBuddy \
-                -c "Print :$forbidden_entitlement" \
-                "$entitlements_path" 2>/dev/null || true
-            )"
-            if [[ "$entitlement_value" == "true" ]]; then
-              echo "::error::Ad-hoc signature contains $forbidden_entitlement=true"
-              exit 1
-            fi
-          done
-
-          keychain_smoke_log="$RUNNER_TEMP/plana-keychain-smoke.log"
-          PLANA_MACOS_KEYCHAIN_SMOKE_TEST=1 \
-            "$executable_path" >"$keychain_smoke_log" 2>&1 &
-          keychain_smoke_pid=$!
-          (
-            sleep 20
-            kill -TERM "$keychain_smoke_pid" 2>/dev/null || true
-          ) &
-          keychain_watchdog_pid=$!
-
-          keychain_smoke_status=0
-          wait "$keychain_smoke_pid" || keychain_smoke_status=$?
-          kill "$keychain_watchdog_pid" 2>/dev/null || true
-          wait "$keychain_watchdog_pid" 2>/dev/null || true
-          cat "$keychain_smoke_log"
-          if [[ "$keychain_smoke_status" -ne 0 ]]; then
-            echo "::error::macOS Keychain smoke test failed with status $keychain_smoke_status"
-            exit 1
-          fi
-
-          # 剪贴板通道同理:Swift 文件漏进工程,构建和启动都不会报错,只有用户
-          # 按 ⌘V 才发现。这一步真往系统剪贴板写一张 2×2 的图再读回来。
-          clipboard_smoke_log="$RUNNER_TEMP/plana-clipboard-smoke.log"
-          PLANA_MACOS_CLIPBOARD_SMOKE_TEST=1 \
-            "$executable_path" >"$clipboard_smoke_log" 2>&1 &
-          clipboard_smoke_pid=$!
-          (
-            sleep 20
-            kill -TERM "$clipboard_smoke_pid" 2>/dev/null || true
-          ) &
-          clipboard_watchdog_pid=$!
-
-          clipboard_smoke_status=0
-          wait "$clipboard_smoke_pid" || clipboard_smoke_status=$?
-          kill "$clipboard_watchdog_pid" 2>/dev/null || true
-          wait "$clipboard_watchdog_pid" 2>/dev/null || true
-          cat "$clipboard_smoke_log"
-          if [[ "$clipboard_smoke_status" -ne 0 ]]; then
-            echo "::error::macOS clipboard smoke test failed with status $clipboard_smoke_status"
-            exit 1
-          fi
-
-      - name: Create ad-hoc DMG
-        shell: bash
-        run: |
-          set -euo pipefail
-          dmg_root="$RUNNER_TEMP/plana-dmg-root"
-          mkdir -p "$dmg_root"
-          ditto "build/macos/Build/Products/Release/Plana App Desktop.app" \
-            "$dmg_root/Plana App Desktop.app"
-          # Existing clients locate this exact path inside a DMG. The hidden
-          # link lets their updater copy the renamed bundle without a reinstall.
-          ln -s "Plana App Desktop.app" "$dmg_root/Plana App.app"
-          chflags -h hidden "$dmg_root/Plana App.app"
-          hdiutil create -volname "$DMG_VOLUME" -srcfolder "$dmg_root" \
-            -ov -format UDZO "$DMG_NAME"
-
-      - name: Create update checksum
-        run: shasum -a 256 "$DMG_NAME" > "$DMG_NAME.sha256"
-
-      - name: Validate packaged macOS image
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          mount_point="$(mktemp -d)"
-          smoke_log="$RUNNER_TEMP/plana-macos-smoke.log"
-          cleanup() {
-            hdiutil detach "$mount_point" || true
-            rmdir "$mount_point" || true
-          }
-          trap cleanup EXIT
-
-          hdiutil attach -readonly -nobrowse -mountpoint "$mount_point" "$DMG_NAME"
-          app_path="$mount_point/Plana App Desktop.app"
-          plist_path="$app_path/Contents/Info.plist"
-          executable_name="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$plist_path")"
-          executable_path="$app_path/Contents/MacOS/$executable_name"
-
-          test -x "$executable_path"
-          file "$executable_path"
-          lipo -archs "$executable_path" | grep -qw arm64
-          codesign --verify --deep --strict --verbose=4 "$app_path"
-
-          # Verify the legacy updater's ditto operation follows the hidden link
-          # and produces a complete bundle, with its original executable name.
-          test -L "$mount_point/Plana App.app"
-          legacy_copy="$RUNNER_TEMP/plana-legacy-update.app"
-          ditto "$mount_point/Plana App.app" "$legacy_copy"
-          test -d "$legacy_copy"
-          test ! -L "$legacy_copy"
-          test -x "$legacy_copy/Contents/MacOS/Plana App"
-          codesign --verify --deep --strict --verbose=4 "$legacy_copy"
-
-          open -n -W -g "$app_path" >"$smoke_log" 2>&1 &
-          open_pid=$!
-          sleep 8
-          if ! kill -0 "$open_pid" 2>/dev/null; then
-            cat "$smoke_log"
-            log show --last 2m --style compact \
-              --predicate 'process == "Plana App" OR eventMessage CONTAINS[c] "com.sora214.plana.app"' \
-              | tail -200 || true
-            exit 1
-          fi
-
-          app_pid="$(pgrep -x "$executable_name" | head -1)"
-          test -n "$app_pid"
-          kill "$app_pid"
-          for _ in {1..20}; do
-            if ! kill -0 "$app_pid" 2>/dev/null; then
-              break
-            fi
-            sleep 0.25
-          done
-          kill -9 "$app_pid" 2>/dev/null || true
-          wait "$open_pid" || true
-
-      - name: Upload macOS image
-        uses: actions/upload-artifact@v7
-        with:
-          name: ${{ matrix.artifact }}
-          path: |
-            ${{ matrix.dmg }}
-            ${{ matrix.dmg }}.sha256
-          if-no-files-found: error
+  remote_upload:
+    name: Remote upload edition
+    needs: plan
+    if: needs.plan.outputs.remote_sha != ''
+    uses: ./.github/workflows/build-desktop-edition.yml
+    with:
+      edition: remoteUpload
+      source_sha: ${{ fromJson(needs.plan.outputs.remote_upload).sha }}
+      release_version: ${{ fromJson(needs.plan.outputs.remote_upload).version }}
+      dmg_name: ${{ fromJson(needs.plan.outputs.remote_upload).dmg }}
+      dmg_volume: ${{ fromJson(needs.plan.outputs.remote_upload).volume }}
+      artifact_name: ${{ fromJson(needs.plan.outputs.remote_upload).artifact }}

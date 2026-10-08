@@ -49,6 +49,27 @@ class BuildPlanTest(unittest.TestCase):
             entries = json.loads(outputs["matrix"])["include"]
             self.assertEqual([e["edition"] for e in entries], ["standard", "remoteUpload"])
             self.assertEqual(outputs["standard_sha"], "desktop/merge-windows45-sha")
+            self.assertEqual(json.loads(outputs["standard"]), entries[0])
+            self.assertEqual(json.loads(outputs["remote_upload"]), entries[1])
+            self.assertEqual(outputs["remote_sha"], "feature/remote-upload-sha")
+            self.assertEqual(outputs["build_windows"], "false")
+
+    def test_standard_only_has_no_remote_pipeline(self):
+        with self.run_plan(BUILD_EDITIONS="standard", BUILD_WINDOWS="true"):
+            plan.main()
+            outputs = self.outputs()
+            self.assertEqual(json.loads(outputs["standard"])["edition"], "standard")
+            self.assertEqual(json.loads(outputs["remote_upload"]), {})
+            self.assertEqual(outputs["remote_sha"], "")
+            self.assertEqual(outputs["build_windows"], "true")
+
+    def test_remote_only_has_no_standard_pipeline(self):
+        with self.run_plan(BUILD_EDITIONS="remote-upload", BUILD_WINDOWS="true"):
+            plan.main()
+            outputs = self.outputs()
+            self.assertEqual(json.loads(outputs["standard"]), {})
+            self.assertEqual(outputs["standard_sha"], "")
+            self.assertEqual(json.loads(outputs["remote_upload"])["edition"], "remoteUpload")
             self.assertEqual(outputs["build_windows"], "false")
 
     def test_feature_push_never_builds_windows(self):
@@ -66,6 +87,8 @@ class BuildPlanTest(unittest.TestCase):
             entries = json.loads(outputs["matrix"])["include"]
             self.assertEqual([e["edition"] for e in entries], ["standard", "remoteUpload"])
             self.assertEqual(outputs["standard_sha"], "tag-sha")
+            self.assertEqual(json.loads(outputs["standard"])["sha"], "tag-sha")
+            self.assertEqual(json.loads(outputs["remote_upload"])["sha"], outputs["remote_sha"])
 
     def test_release_tag_must_match_source_version(self):
         with self.run_plan(BUILD_EVENT="push", BUILD_REF_TYPE="tag", BUILD_BRANCH="v1.1.3-desktop"):
@@ -85,6 +108,17 @@ class BuildPlanTest(unittest.TestCase):
         with patch.object(plan, "git", side_effect=git):
             with self.assertRaisesRegex(ValueError, "not the remoteUpload edition"):
                 plan.entry("remoteUpload", "feature/remote-upload", "remote-sha")
+
+    def test_both_edition_packages_are_arm64(self):
+        for edition in ["standard", "remoteUpload"]:
+            def git(*args):
+                if args[0] == "show":
+                    return "version: 1.1.2-desktop+65" if args[1].endswith("pubspec.yaml") else f"const kDesktopEdition = DesktopEdition.{edition};"
+                return ""
+            with patch.object(plan, "git", side_effect=git):
+                item = plan.entry(edition, "source-branch", "source-sha")
+            self.assertEqual(item["architecture"], "arm64")
+            self.assertTrue(item["dmg"].endswith("-arm64.dmg"))
 
 
 if __name__ == "__main__":
