@@ -705,10 +705,8 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
                       return Row(
                         children: [
                           Expanded(child: categories),
-                          const SizedBox(
-                            width: 300,
-                            child: CodexPickerButton(),
-                          ),
+                          const SizedBox(width: 12),
+                          const CodexPickerButton(),
                         ],
                       );
                     }

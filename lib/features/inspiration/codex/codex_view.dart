@@ -5,6 +5,7 @@ import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../../core/platform/desktop.dart';
 import '../../../core/store/ui_prefs.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/ui/pinch_columns.dart';
@@ -851,47 +852,68 @@ class CodexPickerButton extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final scheme = context.scheme;
+    final desktop = ref.watch(desktopModeProvider);
     final index = ref.watch(codexIndexProvider).value;
-    if (index == null || index.isEmpty) return const SizedBox(height: 44);
+    if (index == null || index.isEmpty) {
+      return SizedBox(height: desktop ? 36 : 44);
+    }
     final meta = resolveSelectedCodex(index, ref.watch(selectedCodexProvider));
-    return Material(
-      color: scheme.surfaceContainerHigh,
-      borderRadius: BorderRadius.circular(22),
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: () async {
-          final id = await showCodexPickerSheet(context, index, meta.id);
-          if (id != null) {
-            ref.read(selectedCodexProvider.notifier).select(id);
-          }
-        },
-        child: Container(
-          height: 44,
-          padding: const EdgeInsets.fromLTRB(14, 0, 8, 0),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Flexible(
-                child: Text(
-                  meta.displayTitle,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: context.texts.titleSmall!.copyWith(
-                    fontWeight: FontWeight.w800,
+    return ConstrainedBox(
+      constraints: desktop
+          ? const BoxConstraints(maxWidth: 320)
+          : const BoxConstraints(),
+      child: Tooltip(
+        message: '选择法典：${meta.displayTitle}',
+        child: Material(
+          color: scheme.surfaceContainerHigh,
+          borderRadius: BorderRadius.circular(desktop ? 10 : 22),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            key: const ValueKey('codex-picker-button'),
+            onTap: () async {
+              final id = await showCodexPickerSheet(context, index, meta.id);
+              if (id != null && context.mounted) {
+                ref.read(selectedCodexProvider.notifier).select(id);
+              }
+            },
+            child: Container(
+              height: desktop ? null : 44,
+              constraints: const BoxConstraints(minHeight: 36),
+              padding: desktop
+                  ? const EdgeInsets.fromLTRB(12, 6, 8, 6)
+                  : const EdgeInsets.fromLTRB(14, 0, 8, 0),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Flexible(
+                    child: Text(
+                      meta.displayTitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style:
+                          (desktop
+                                  ? context.texts.labelLarge
+                                  : context.texts.titleSmall)!
+                              .copyWith(
+                                fontWeight: desktop
+                                    ? FontWeight.w600
+                                    : FontWeight.w800,
+                              ),
+                    ),
                   ),
-                ),
+                  if (meta.nsfw) ...[
+                    const SizedBox(width: 6),
+                    _miniTag(context, 'R18', scheme.error),
+                  ],
+                  const SizedBox(width: 4),
+                  Icon(
+                    Icons.keyboard_arrow_down,
+                    size: desktop ? 18 : 20,
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ],
               ),
-              if (meta.nsfw) ...[
-                const SizedBox(width: 6),
-                _miniTag(context, 'R18', scheme.error),
-              ],
-              const SizedBox(width: 4),
-              Icon(
-                Icons.keyboard_arrow_down,
-                size: 20,
-                color: scheme.onSurfaceVariant,
-              ),
-            ],
+            ),
           ),
         ),
       ),
