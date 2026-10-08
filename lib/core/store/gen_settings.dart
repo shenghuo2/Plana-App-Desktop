@@ -9,7 +9,7 @@ import 'app_stores.dart';
 /// 固定间隔 [retryDelaySecs] 秒(0 = 立即),最多 [retryCount] 次。
 /// [genNotify]:生成进度前台通知(可上灵动岛/状态栏胶囊),默认开。
 /// [streamGen]:直连流式生成(逐步预览),默认开;关了改走一次性端点。
-/// [notifyPrimed]:首启的通知说明页是否已过(过了就不再挡在进主界面之前)。
+/// [notifyPrimed]:首次欢迎引导是否已完成,沿用历史字段名兼容已有设置。
 class GenSettings {
   const GenSettings({
     this.retryOn429 = true,

@@ -123,8 +123,8 @@ class PlanaApp extends ConsumerWidget {
   }
 }
 
-/// 启动 gate:欢迎流程没走完(没过通知那步)或没选接入方式 → 欢迎页;
-/// 否则主界面。首帧 loading 时垫占位,避免闪主界面。
+/// 启动 gate:桌面端直接进入工作台;移动端欢迎流程未完成或未选接入方式时
+/// 进入欢迎页。首帧 loading 时垫占位,避免闪主界面。
 class _AuthGate extends ConsumerWidget {
   const _AuthGate();
 
