@@ -23,7 +23,7 @@ Future<void> showDesktopImageViewer(
   String? sourceAlbum,
 }) => showDialog<void>(
   context: context,
-  barrierDismissible: false,
+  barrierDismissible: true,
   builder: (_) => _DesktopImageViewer(
     images: images,
     initialIndex: index,
