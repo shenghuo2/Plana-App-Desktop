@@ -1,4 +1,4 @@
-"""Pin both editions before building; reject mismatched release versions."""
+"""Build saved release branches or pin development refs for both editions."""
 
 import json
 import os
@@ -42,19 +42,48 @@ def entry(edition, branch, sha):
 
 def validate_versions(entries):
     if len({e["version"] for e in entries}) != 1:
-        raise ValueError("Edition versions/build numbers differ; merge the release version into feature/remote-upload first")
+        raise ValueError("Edition versions/build numbers differ; synchronize both source branches first")
+
+
+def release_branches(version):
+    if not re.fullmatch(r"\d+\.\d+\.\d+-desktop(?:\.[0-9A-Za-z-]+)*", version):
+        raise ValueError("Invalid desktop release version; use a version such as 1.2.0-desktop.1 without +build")
+    return f"release/{version}", f"release/remote-upload/{version}"
+
+
+def release_branch_version(branch):
+    for prefix in ("release/remote-upload/", "release/"):
+        if branch.startswith(prefix):
+            return branch.removeprefix(prefix)
+    return ""
 
 
 def main():
     dispatch = os.environ["BUILD_EVENT"] == "workflow_dispatch"
     release_tag = not dispatch and os.environ.get("BUILD_REF_TYPE") == "tag"
+    branch = os.environ["BUILD_BRANCH"]
+    requested_input = os.environ.get("RELEASE_VERSION", "").strip() if dispatch else ""
+    requested = requested_input.removeprefix("v")
+    if requested_input:
+        release_branches(requested)
+    derived = branch.removeprefix("v") if release_tag else release_branch_version(branch)
+    if requested and derived and requested != derived:
+        raise ValueError("Requested release version differs from the selected release branch")
+    version = derived or requested
     entries = []
-    if release_tag:
-        entries.append(entry("standard", os.environ["BUILD_BRANCH"], os.environ["BUILD_SHA"]))
-        remote = os.environ["REMOTE_BRANCH"]
-        entries.append(entry("remoteUpload", remote, branch_sha(remote)))
-        if entries[0]["version"].split("+")[0] != os.environ["BUILD_BRANCH"].removeprefix("v"):
-            raise ValueError("Release tag does not match pubspec version")
+    if version:
+        if dispatch and os.environ["BUILD_EDITIONS"] != "both":
+            raise ValueError("Release builds must include both editions")
+        standard, remote = release_branches(version)
+        standard_sha, remote_sha = branch_sha(standard), branch_sha(remote)
+        if release_tag and standard_sha != os.environ["BUILD_SHA"]:
+            raise ValueError("Release tag does not point to the saved standard release branch")
+        if not dispatch and not release_tag:
+            pushed_sha = standard_sha if branch == standard else remote_sha
+            if pushed_sha != os.environ["BUILD_SHA"]:
+                raise ValueError("Release branch changed after the build was triggered")
+        entries.append(entry("standard", standard, standard_sha))
+        entries.append(entry("remoteUpload", remote, remote_sha))
     elif dispatch:
         selection = os.environ["BUILD_EDITIONS"]
         if selection not in {"both", "standard", "remote-upload"}:
@@ -67,10 +96,11 @@ def main():
                 branch = os.environ[key]
                 entries.append(entry(edition, branch, branch_sha(branch)))
     else:
-        branch = os.environ["BUILD_BRANCH"]
         edition = "remoteUpload" if branch == "feature/remote-upload" else "standard"
         entries.append(entry(edition, branch, os.environ["BUILD_SHA"]))
     validate_versions(entries)
+    if version and entries[0]["version"].split("+")[0] != version:
+        raise ValueError("Saved release branches do not match the requested release version")
     standard = next((e for e in entries if e["edition"] == "standard"), None)
     remote_upload = next((e for e in entries if e["edition"] == "remoteUpload"), None)
     windows = standard is not None and (

@@ -1,4 +1,4 @@
-> Plana App Desktop：基于 windows.45 桌面重构，合入 Android 1.2.0 功能的 Windows / macOS 桌面版。标准版与远端上传版的构建说明见 [桌面双版构建](https://github.com/shenghuo2/Plana-App-Desktop/blob/desktop/merge-windows45/DESKTOP-EDITIONS.md)。
+> Plana App Desktop：基于 windows.45 桌面重构，合入 Android 1.2.0 功能的 Windows / macOS 桌面版。标准版与远端上传版的构建说明见 [桌面双版构建](https://github.com/shenghuo2/Plana-App-Desktop/blob/main/DESKTOP-EDITIONS.md)。
 
 <div align="center">
 
@@ -26,12 +26,14 @@
 本项目基于 [Plana App](https://github.com/mc5024/Plana-App) 及其 [Windows 重构版](https://github.com/LingXia979/Plana-App-for-windows/tree/Plana-app-for-windows)，提供 Windows 与 macOS 桌面适配，应用统一命名为 **Plana App Desktop**。
 最新预发布为 **1.2.0-desktop.1（构建 69，Pre-release）**，安装包与完整更新说明见 [发布页](https://github.com/shenghuo2/Plana-App-Desktop/releases/tag/v1.2.0-desktop.1)。`desktop.1`、`desktop.2` 等后缀表示基于上游 1.2.0 的桌面修订，构建号独立递增。Android 1.2.0 的合并范围与数据迁移说明见 [合并记录](https://github.com/shenghuo2/Plana-App-Desktop/blob/v1.2.0-desktop.1/docs/ANDROID-1.2.0-INTEGRATION.md)。
 
-- [`desktop/merge-windows45`](https://github.com/shenghuo2/Plana-App-Desktop/tree/desktop/merge-windows45)：标准版的 Windows / macOS 桌面源码。
+- [`main`](https://github.com/shenghuo2/Plana-App-Desktop/tree/main)：标准版的 Windows / macOS 桌面源码。
 - [`feature/remote-upload`](https://github.com/shenghuo2/Plana-App-Desktop/tree/feature/remote-upload)：在标准版上增加远端上传与「收藏自动上传」，单独构建 macOS DMG；两版使用相同版本号。
 - [`Plana-app-for-windows`](https://github.com/LingXia979/Plana-App-for-windows/tree/Plana-app-for-windows)：Windows 重构上游分支。
 - Android 原版介绍与下载请前往[上游仓库](https://github.com/mc5024/Plana-App)。
 
-`desktop/macos` 保留早期 macOS 移植源码；开发和构建请使用上述标准版或远端上传版分支。
+`main` 为默认分支与日常开发主线。每次发版保留 `release/<版本号>` 和 `release/remote-upload/<版本号>` 两条发布分支，安装包从对应发布分支构建，发布标签指向标准版发布分支的提交。
+
+当前 `1.2.0-desktop.1` 的构建源码保存在 [标准版发布分支](https://github.com/shenghuo2/Plana-App-Desktop/tree/release/1.2.0-desktop.1)和 [远端上传版发布分支](https://github.com/shenghuo2/Plana-App-Desktop/tree/release/remote-upload/1.2.0-desktop.1)。
 
 ## 本版更新
 
@@ -75,7 +77,7 @@ macOS 需要 **14 或更新版本**，目前发布 Apple Silicon（ARM64）安�
 
 ### 开发构建与 Actions 产物
 
-在 [Build desktop 工作流](https://github.com/shenghuo2/Plana-App-Desktop/actions/workflows/build-macos.yml)中打开成功的构建，登录 GitHub 后下载页面底部的 Artifacts。手动运行时请选择 `desktop/merge-windows45` 分支，发布构建使用 `editions=both`。
+在 [Build desktop 工作流](https://github.com/shenghuo2/Plana-App-Desktop/actions/workflows/build-macos.yml)中打开成功的构建，登录 GitHub 后下载页面底部的 Artifacts。手动运行时请选择 `main` 分支。发版或重建已发布版本时填写 `release_version`（例如 `1.2.0-desktop.1`）并选择 `editions=both`，工作流会从该版本的两条发布分支构建。`release_version` 留空用于开发分支构建。
 
 | 版本 | Artifact | 安装包 |
 |---|---|---|
@@ -83,7 +85,7 @@ macOS 需要 **14 或更新版本**，目前发布 Apple Silicon（ARM64）安�
 | macOS 远端上传版 | `Plana-App-Desktop-RemoteUpload-macOS-ad-hoc` | `Plana-App-Desktop-RemoteUpload-macOS-arm64.dmg` |
 | Windows 标准版 | `Plana-App-Desktop-Windows-x64` | 完整 Release 目录，运行 `plana_app_for_windows.exe` |
 
-开发与打包说明见 [桌面双版构建](https://github.com/shenghuo2/Plana-App-Desktop/blob/desktop/merge-windows45/DESKTOP-EDITIONS.md)、[Windows 使用说明](https://github.com/shenghuo2/Plana-App-Desktop/blob/desktop/merge-windows45/WINDOWS-README.md)、[macOS 适配说明](https://github.com/shenghuo2/Plana-App-Desktop/blob/desktop/merge-windows45/docs/desktop-comparison.md)与[应用内更新说明](https://github.com/shenghuo2/Plana-App-Desktop/blob/desktop/merge-windows45/docs/desktop-updates.md)。
+开发与打包说明见 [桌面双版构建](https://github.com/shenghuo2/Plana-App-Desktop/blob/main/DESKTOP-EDITIONS.md)、[Windows 使用说明](https://github.com/shenghuo2/Plana-App-Desktop/blob/main/WINDOWS-README.md)、[macOS 适配说明](https://github.com/shenghuo2/Plana-App-Desktop/blob/main/docs/desktop-comparison.md)与[应用内更新说明](https://github.com/shenghuo2/Plana-App-Desktop/blob/main/docs/desktop-updates.md)。
 
 ## 界面预览
 
