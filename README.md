@@ -35,6 +35,8 @@
 
 当前 `1.2.0-desktop.1` 的构建源码保存在 [标准版发布分支](https://github.com/shenghuo2/Plana-App-Desktop/tree/release/1.2.0-desktop.1)和 [远端上传版发布分支](https://github.com/shenghuo2/Plana-App-Desktop/tree/release/remote-upload/1.2.0-desktop.1)。
 
+开发主线已集成 Android 1.2.1，源码版本为 `1.2.1-desktop+70`。功能与冲突处理见 [合并记录](docs/ANDROID-1.2.1-INTEGRATION.md)。
+
 ## 本版更新
 
 - **多画布切换**：支持滚轮、横向滚动和拖动滚动；完整画布下拉列表可选择超出可见宽度的画布，切换或调整窗口后自动显示当前画布。
@@ -149,10 +151,11 @@ macOS 需要 **14 或更新版本**，目前发布 Apple Silicon（ARM64）安�
 | [DanbooruSearchOnline](https://github.com/SuzumiyaAkizuki/DanbooruSearchOnline) · SuzumiyaAkizuki | 增强补全的在线中文搜词、译名与一句话简介 |
 | [quicktagcloud](https://novelai.quicktagcloud.com/) | 法典图鉴的全部数据(词条 / 画师串 / 合集 / 例图)。只读接入,数据不随包分发,本应用不修改也不发布法典内容,所有内容归原作者所有 |
 | [@huggingface/tokenizers](https://github.com/huggingface/tokenizers) | T5 分词器移植的参照实现 |
+| [nai5-prompting](https://github.com/Miint-Sunny/nai5-prompting) · Miint-Sunny | AI 助手预设的漫画部分(`assets/prompts/nai5.json`,随包分发)(GPL-3.0) |
 | [anime_censor_detection](https://huggingface.co/deepghs/anime_censor_detection) · deepghs | 自动打码的检测模型(`assets/models/censor_n.ort`,随包分发),即其 `censor_detect_v1.0_n`,本项目只做了格式转换与量化(MIT) |
 | [NovelAI](https://novelai.net/) · Anlatan | 图像生成服务本身 |
 
-第三方内容的版权归其各自作者所有;其中随包分发的部分(标签库、T5 词表、打码模型)见
+第三方内容的版权归其各自作者所有;其中随包分发的部分(标签库、T5 词表、打码模型、漫画预设)见
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md),其余仅作运行时索引与调用。
 
 ### 开源库

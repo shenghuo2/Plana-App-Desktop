@@ -90,6 +90,11 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
   /// 每分类已选 id(我的/公共库两 scope 共用一套,对齐 web selectionMap)。
   final Map<TagCategory, Set<String>> _selected = {};
 
+  /// 公共库里点开过原图的打码条目(`分类/id`),本次运行内一直显示原图。
+  final _revealed = <String>{};
+
+  static String _revealKey(TagEntry e) => '${e.category.name}/${e.id}';
+
   String _search = '';
   final _searchController = TextEditingController();
   double _desktopGridWidth = 0;
@@ -1741,10 +1746,15 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
                               ? pubPreview[e.publicId]
                               : null) ??
                           e.previewUrl;
+                      final masked =
+                          isPublic &&
+                          e.mosaic &&
+                          !_revealed.contains(_revealKey(e));
                       return _TagCard(
                         key: ValueKey(e.id),
                         entry: e,
                         desktop: library,
+                        mosaic: masked,
                         previewUrl: preview,
                         decodeWidth: decodeW,
                         selected: _sel.contains(e.id),
@@ -1758,7 +1768,13 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
                                   publicId: e.publicId,
                                   name: e.name,
                                 ),
-                        onTap: () => _toggle(e),
+                        onTap: () {
+                          if (masked) {
+                            setState(() => _revealed.add(_revealKey(e)));
+                          } else {
+                            _toggle(e);
+                          }
+                        },
                         onSecondaryTapDown: library
                             ? (details) =>
                                   _showSelectionMenu(details.globalPosition, e)
@@ -2339,11 +2355,13 @@ class _CardPreview extends StatelessWidget {
     required this.name,
     this.decodeWidth,
     this.fit = BoxFit.cover,
+    this.mosaic = false,
   });
 
   final String? url;
   final String name;
   final BoxFit fit;
+  final bool mosaic;
 
   /// 远端图的解码宽(逻辑像素);null = 按布局宽。
   final double? decodeWidth;
@@ -2360,13 +2378,18 @@ class _CardPreview extends StatelessWidget {
           ? RemoteImage(
               u,
               fit: fit,
-              decodeWidth: decodeWidth,
+              decodeWidth: mosaic
+                  ? 12 / MediaQuery.devicePixelRatioOf(context)
+                  : decodeWidth,
+              filterQuality: mosaic ? FilterQuality.none : FilterQuality.medium,
               gaplessPlayback: true,
               frameBuilder: frame,
               errorBuilder: _stripes,
             )
           : Image.file(
               File(u),
+              cacheWidth: mosaic ? 12 : null,
+              filterQuality: mosaic ? FilterQuality.none : FilterQuality.medium,
               fit: fit,
               gaplessPlayback: true,
               frameBuilder: frame,
@@ -2392,11 +2415,13 @@ class _TagCard extends StatelessWidget {
     this.onMenu,
     this.decodeWidth,
     this.desktop = false,
+    this.mosaic = false,
     this.onSecondaryTapDown,
   });
 
   final TagEntry entry;
   final bool desktop;
+  final bool mosaic;
 
   /// 实际渲染的预览(可能是按 publicId 从公共库补的 http,覆盖 entry 自身)。
   final String? previewUrl;
@@ -2421,6 +2446,26 @@ class _TagCard extends StatelessWidget {
           builder: (context, c) =>
               _card(context, compact: c.maxWidth < 100 || c.maxHeight < 100),
         );
+
+  Widget _mosaicHint(BuildContext context) => Center(
+    child: Tooltip(
+      message: '点击显示原图',
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: context.scheme.surface.withValues(alpha: .92),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.visibility_off_outlined, size: 20),
+            if (desktop) ...[const SizedBox(width: 6), const Text('点击显示原图')],
+          ],
+        ),
+      ),
+    ),
+  );
 
   Widget _desktopCard(BuildContext context) {
     final scheme = context.scheme;
@@ -2454,7 +2499,9 @@ class _TagCard extends StatelessWidget {
                       name: entry.name,
                       decodeWidth: decodeWidth,
                       fit: BoxFit.contain,
+                      mosaic: mosaic,
                     ),
+                    if (mosaic) _mosaicHint(context),
                     if (modelGroups.isNotEmpty)
                       Positioned(
                         left: 10,
@@ -2490,7 +2537,11 @@ class _TagCard extends StatelessWidget {
                         color: scheme.surface.withValues(alpha: .94),
                         borderRadius: BorderRadius.circular(10),
                         child: Tooltip(
-                          message: selected ? '取消选择' : '选择用于创作',
+                          message: mosaic
+                              ? '点击显示原图'
+                              : selected
+                              ? '取消选择'
+                              : '选择用于创作',
                           child: Checkbox(
                             key: ValueKey('inspiration-select-${entry.id}'),
                             value: selected,
@@ -2636,7 +2687,9 @@ class _TagCard extends StatelessWidget {
                 url: previewUrl,
                 name: entry.name,
                 decodeWidth: decodeWidth,
+                mosaic: mosaic,
               ),
+              if (mosaic) _mosaicHint(context),
               Positioned(
                 left: 0,
                 right: 0,

@@ -32,15 +32,16 @@ Future<void> showTagEditor(
   BuildContext context, {
   required TagCategory cat,
   TagEntry? edit,
+  TagDraft? draft,
 }) {
   final desktop = ProviderScope.containerOf(
     context,
     listen: false,
   ).read(desktopModeProvider);
   if (!desktop) {
-    return Navigator.of(
-      context,
-    ).push<void>(sharedAxisRoute(TagEditorPage(cat: cat, edit: edit)));
+    return Navigator.of(context).push<void>(
+      sharedAxisRoute(TagEditorPage(cat: cat, edit: edit, draft: draft)),
+    );
   }
   final navigator = Navigator.of(context, rootNavigator: true);
   final existing = _openTagEditors[navigator];
@@ -58,7 +59,12 @@ Future<void> showTagEditor(
       child: SizedBox(
         width: 920,
         height: 680,
-        child: TagEditorPage(cat: cat, edit: edit, floating: true),
+        child: TagEditorPage(
+          cat: cat,
+          edit: edit,
+          draft: draft,
+          floating: true,
+        ),
       ),
     ),
   );
@@ -66,6 +72,9 @@ Future<void> showTagEditor(
   _openTagEditors[navigator] = result;
   return result;
 }
+
+/// 新建时预填的名字和正负向(创作页「存到灵感库」带进来的)。
+typedef TagDraft = ({String name, String positive, String negative});
 
 /// 折叠式条目编辑器(创建/编辑统一,4 分类字段差异由配置驱动;
 /// UI 框架对齐设计稿 handoff 的手风琴方案,配色走 app 主题):
@@ -79,12 +88,16 @@ class TagEditorPage extends ConsumerStatefulWidget {
     super.key,
     required this.cat,
     this.edit,
+    this.draft,
     this.floating = false,
   });
 
   final TagCategory cat;
   final TagEntry? edit;
   final bool floating;
+
+  /// 新建时预填;[edit] 不为 null 时不看它。
+  final TagDraft? draft;
 
   @override
   ConsumerState<TagEditorPage> createState() => _TagEditorPageState();
@@ -110,9 +123,15 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
   late final bool _locked = _edit?.origin == TagOrigin.favorited;
   late final String _entryId = _edit?.id ?? TagLibrary.newId(widget.cat);
 
-  late final _name = TextEditingController(text: _edit?.name ?? '');
-  late final _positive = TextEditingController(text: _edit?.positive ?? '');
-  late final _negative = TextEditingController(text: _edit?.negative ?? '');
+  late final _name = TextEditingController(
+    text: _edit?.name ?? widget.draft?.name ?? '',
+  );
+  late final _positive = TextEditingController(
+    text: _edit?.positive ?? widget.draft?.positive ?? '',
+  );
+  late final _negative = TextEditingController(
+    text: _edit?.negative ?? widget.draft?.negative ?? '',
+  );
   late final List<String> _aliases = [...?_edit?.aliases];
   late final Set<String> _tags = {...?_edit?.tags};
 
@@ -156,7 +175,7 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
   @override
   void initState() {
     super.initState();
-    _showNegative = (_edit?.negative.trim().isNotEmpty ?? false);
+    _showNegative = _negative.text.trim().isNotEmpty;
     _showAliases = _aliases.isNotEmpty;
     // 必填联动进度环/校验态
     _name.addListener(() => setState(() {}));
@@ -1214,6 +1233,8 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
   }
 
   /// 手风琴字段卡:同刻最多展开一张;必填缺失且校验可见时红框+「必填」。
+  /// 底色同创作页的卡(亮色是灰底上的白卡),卡里的输入框、小按钮那一档灰
+  /// 才分得出来;收起的卡不描边,展开的描主色。
   Widget _section({
     required String id,
     required String title,
@@ -1230,14 +1251,14 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
       curve: Motion.standard,
       margin: const EdgeInsets.symmetric(vertical: 5),
       decoration: BoxDecoration(
-        color: scheme.surfaceContainer,
+        color: scheme.surfaceContainerLow,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
           color: errored
               ? scheme.error.withValues(alpha: .55)
               : expanded
               ? scheme.primary.withValues(alpha: .45)
-              : scheme.outlineVariant,
+              : Colors.transparent,
         ),
       ),
       child: Column(

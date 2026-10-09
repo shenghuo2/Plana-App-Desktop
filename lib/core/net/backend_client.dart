@@ -264,6 +264,7 @@ class PublicOcMeta {
     this.createdBy,
     this.ownerId,
     this.createdAt = 0,
+    this.mosaic = false,
   });
 
   final String enName; // 服务端主键
@@ -275,6 +276,9 @@ class PublicOcMeta {
   final String? createdBy;
   final String? ownerId;
   final int createdAt; // 秒
+
+  /// 预览图要先打码,点开才显示原图(`mosaic`;缺省 = 不码)。
+  final bool mosaic;
 
   String get displayName =>
       zhName != null && zhName!.isNotEmpty ? zhName! : enName;
@@ -446,6 +450,8 @@ class BillingParty {
     this.v5Calls = 0,
     this.localCalls = 0,
     this.anlasUsed = 0,
+    this.relayCalls = 0,
+    this.relayFee = 0,
     this.totalFee = 0,
   });
 
@@ -464,19 +470,27 @@ class BillingParty {
   final int localCalls;
 
   final int anlasUsed;
+
+  /// 中转出图张数与金额(按张直计)。settlement / estimate 的 [totalFee] 已含这笔。
+  final int relayCalls;
+  final double relayFee;
+
   final double totalFee;
 
   factory BillingParty.fromJson(Map<String, dynamic> j) {
     final total = (j['total_fee'] as num?)?.toDouble();
     final imgFee = (j['image_fee'] as num?)?.toDouble() ?? 0;
     final anlasFee = (j['anlas_fee'] as num?)?.toDouble() ?? 0;
+    final relayFee = (j['relay_fee'] as num?)?.toDouble() ?? 0;
     return BillingParty(
       tierName: j['tier_name'] as String? ?? '免费',
       imageCalls: (j['image_calls'] as num?)?.toInt() ?? 0,
       v5Calls: (j['v5_calls'] as num?)?.toInt() ?? 0,
       localCalls: (j['local_calls'] as num?)?.toInt() ?? 0,
       anlasUsed: (j['anlas_used'] as num?)?.toInt() ?? 0,
-      totalFee: total ?? (imgFee + anlasFee),
+      relayCalls: (j['relay_calls'] as num?)?.toInt() ?? 0,
+      relayFee: relayFee,
+      totalFee: total ?? (imgFee + anlasFee + relayFee),
     );
   }
 }
@@ -1810,6 +1824,7 @@ class BackendClient {
             createdBy: o['created_by'] as String?,
             ownerId: o['owner_id'] as String?,
             createdAt: (o['created_at'] as num?)?.toInt() ?? 0,
+            mosaic: o['mosaic'] == true,
           ),
     ];
   }

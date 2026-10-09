@@ -54,6 +54,7 @@ class ThemeSettings {
     this.showTools = true,
     this.pageAlignment = PageAlignment.center,
     this.textScale = 1.0,
+    this.compactCharCards = false,
   });
 
   final ThemeMode mode;
@@ -77,6 +78,8 @@ class ThemeSettings {
   /// 相对于桌面默认字号的用户倍率，叠加在系统文字缩放上。
   final double textScale;
 
+  final bool compactCharCards;
+
   ThemeSeed get seed => themeSeeds.firstWhere(
     (s) => s.key == seedKey,
     orElse: () => themeSeeds.firstWhere((s) => s.key == kDefaultSeedKey),
@@ -90,6 +93,7 @@ class ThemeSettings {
     bool? showTools,
     PageAlignment? pageAlignment,
     double? textScale,
+    bool? compactCharCards,
   }) => ThemeSettings(
     mode: mode ?? this.mode,
     seedKey: seedKey ?? this.seedKey,
@@ -98,6 +102,7 @@ class ThemeSettings {
     showTools: showTools ?? this.showTools,
     pageAlignment: pageAlignment ?? this.pageAlignment,
     textScale: textScale == null ? this.textScale : _textScale(textScale),
+    compactCharCards: compactCharCards ?? this.compactCharCards,
   );
 
   /// 脏数据(旧版本/已下架的档位,如早先那档深蓝)回退默认。
@@ -113,6 +118,7 @@ class ThemeSettings {
         PageAlignment.values.asNameMap()[j['pageAlignment']] ??
         PageAlignment.center,
     textScale: _textScale(j['textScale']),
+    compactCharCards: j['compactCharCards'] == true,
   );
 
   Map<String, dynamic> toJson() => {
@@ -123,6 +129,7 @@ class ThemeSettings {
     'showTools': showTools,
     'pageAlignment': pageAlignment.name,
     'textScale': textScale,
+    'compactCharCards': compactCharCards,
   };
 
   @override
@@ -134,7 +141,8 @@ class ThemeSettings {
       other.showAssistant == showAssistant &&
       other.showTools == showTools &&
       other.pageAlignment == pageAlignment &&
-      other.textScale == textScale;
+      other.textScale == textScale &&
+      other.compactCharCards == compactCharCards;
 
   @override
   int get hashCode => Object.hash(
@@ -145,6 +153,7 @@ class ThemeSettings {
     showTools,
     pageAlignment,
     textScale,
+    compactCharCards,
   );
 }
 

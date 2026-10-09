@@ -8,6 +8,7 @@ import '../../../core/util/nai_tokenizer.dart';
 import '../../editor/editor_models.dart'
     show outputOf, parseFolds, pickEditorText;
 import '../../editor/editor_page.dart';
+import '../../editor/editor_state.dart' show editorSessionsProvider;
 import '../../inspiration/codex/codex_favorites.dart' show CodexFavorite;
 import '../../inspiration/codex/codex_models.dart' show CodexMeta, CodexType;
 import '../../inspiration/codex/codex_providers.dart' show codexIndexProvider;
@@ -22,23 +23,63 @@ import '../prompt_presets.dart';
 import '../prompt_sections.dart';
 import '../style_recipes.dart';
 import 'common.dart';
+import 'section_save.dart';
 
 /// 提示词卡:头部 token 进度条 + 正文 + 负面单行(带 +N 溢出与独立计数)。
-/// 常驻展开。卡头三颗按钮与角色卡同序:清空正向(可撤销)/ 灵感库 / 添加分区。
+/// 常驻展开。卡头按钮与角色卡同序:清空正向(可撤销)/ 灵感库 / 添加分区。
 ///
 /// 没分区时正文是两行段落预览;分了区就一格一行,操作照角色卡:点行编辑这一格、
-/// 点名字改名、⏻ 停用、删除(可撤销)、长按拖动调顺序(顺序即拼接顺序)。
-/// 主体那一行就是原来的主提示词,不能停用、删除。
-class PromptCard extends ConsumerWidget {
+/// 点名字改名、⏻ 停用、删除(可撤销)。
+/// 主体那一行就是原来的主提示词,停用 / 删除只管它的正向(负面那行是整张卡的)。
+/// 长按一格进多选:点行是勾选,拖左边的把手调顺序(顺序即拼接顺序);卡头换成
+/// 选择栏:退出、已选几格,停用 / 删除 / 存到灵感库 / 合并。
+class PromptCard extends ConsumerStatefulWidget {
   const PromptCard({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<PromptCard> createState() => _PromptCardState();
+}
+
+class _PromptCardState extends ConsumerState<PromptCard> {
+  /// 多选态(长按一格进,点卡头的退出或做完一次合并 / 删除 / 存就退)。
+  bool _selecting = false;
+
+  /// 勾了哪几格(分区 id,主体是 [kMainSectionId])。
+  final _picked = <String>{};
+
+  void _exitSelect() => setState(() {
+    _selecting = false;
+    _picked.clear();
+  });
+
+  /// 进多选,勾上 [id] 那一格。
+  void _enterSelect(String id) {
+    ref.read(editorSessionsProvider).flushPending();
+    setState(() {
+      _selecting = true;
+      _picked
+        ..clear()
+        ..add(id);
+    });
+  }
+
+  void _togglePick(String id) => setState(
+    () => _picked.contains(id) ? _picked.remove(id) : _picked.add(id),
+  );
+
+  @override
+  Widget build(BuildContext context) {
     final desktop = ref.watch(desktopModeProvider);
     final state = ref.watch(generateProvider);
     final notifier = ref.read(generateProvider.notifier);
     final scheme = context.scheme;
-    final sections = state.sections;
+    final sections = withMainRow(state.sections, state.prompt);
+    // 切了画布就退出多选:勾的是那张画布的格子
+    ref.listen(
+      canvasWorkspaceProvider.select((w) => w.activeId),
+      (_, _) => _exitSelect(),
+    );
+    final selecting = _selecting && sections.isNotEmpty;
     // web totalTokenCount 口径:主串 + 启用分区 + 启用角色串 + 激活预设(都实际
     // 参与生成)。角色串取 countedCharactersProvider —— 模块不可见(anima 等)
     // 时为空,不然会出现「切到 anima 计数凭空变大」的幽灵。
@@ -47,7 +88,7 @@ class PromptCard extends ConsumerWidget {
     final chars = ref.watch(countedCharactersProvider);
     final promptTokens = totalPromptTokens(
       tok,
-      main: state.prompt,
+      main: mainEnabled(sections) ? state.prompt : '',
       parts: [
         ...sectionTexts(sections, positive: true),
         for (final c in chars) c.positive,
@@ -79,65 +120,86 @@ class PromptCard extends ConsumerWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(15, 8, 13, 4),
-            child: Row(
-              children: [
-                Icon(Icons.subject, size: 20, color: scheme.onSurfaceVariant),
-                const SizedBox(width: 9),
-                Text(
-                  '提示词',
-                  style: context.texts.bodyLarge!.copyWith(
-                    fontWeight: FontWeight.w600,
+            padding: EdgeInsets.fromLTRB(selecting ? 9 : 15, 8, 13, 4),
+            child: selecting
+                ? _selectHeader(context, sections, state.prompt, actionSize)
+                : Row(
+                    children: [
+                      Icon(
+                        Icons.subject,
+                        size: 20,
+                        color: scheme.onSurfaceVariant,
+                      ),
+                      const SizedBox(width: 9),
+                      Text(
+                        '提示词',
+                        style: context.texts.bodyLarge!.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      if (!desktop) ...[
+                        const SizedBox(width: 9),
+                        Text(
+                          '$promptTokens',
+                          style:
+                              mono(
+                                context,
+                                size: 11,
+                                weight: FontWeight.w700,
+                              ).copyWith(
+                                color: over ? scheme.error : scheme.onSurface,
+                              ),
+                        ),
+                        Expanded(
+                          child: Text(
+                            ' / $limit',
+                            maxLines: 1,
+                            softWrap: false,
+                            overflow: TextOverflow.fade,
+                            style: mono(
+                              context,
+                              size: 11,
+                            ).copyWith(color: scheme.outline),
+                          ),
+                        ),
+                      ] else ...[
+                        const Spacer(),
+                        if (sections.isNotEmpty)
+                          TextButton.icon(
+                            key: const ValueKey('prompt-section-select'),
+                            onPressed: () => _enterSelect(sections.first.id),
+                            icon: const Icon(Icons.checklist, size: 18),
+                            label: const Text('多选'),
+                          ),
+                      ],
+                      if (state.prompt.trim().isNotEmpty ||
+                          sections.isNotEmpty) ...[
+                        RoundIconBtn(
+                          Icons.delete_sweep_outlined,
+                          size: actionSize,
+                          tooltip: sections.isEmpty ? '清空正向提示词' : '清空提示词和分区',
+                          color: scheme.onSurfaceVariant,
+                          onTap: () => _clearPositive(context, ref),
+                        ),
+                        const SizedBox(width: 6),
+                      ],
+                      // 与角色卡头「角色库」同一枚图标
+                      RoundIconBtn(
+                        Icons.grid_view,
+                        size: actionSize,
+                        tooltip: '灵感库',
+                        color: scheme.onSurfaceVariant,
+                        onTap: () => _importFromLibrary(context, ref),
+                      ),
+                      const SizedBox(width: 6),
+                      RoundIconBtn(
+                        Icons.add,
+                        size: actionSize,
+                        tooltip: '添加分区',
+                        onTap: notifier.addSection,
+                      ),
+                    ],
                   ),
-                ),
-                const SizedBox(width: 9),
-                if (!desktop) ...[
-                  Text(
-                    '$promptTokens',
-                    style: mono(
-                      context,
-                      size: 11,
-                      weight: FontWeight.w700,
-                    ).copyWith(color: over ? scheme.error : scheme.onSurface),
-                  ),
-                  Text(
-                    ' / $limit',
-                    style: mono(
-                      context,
-                      size: 11,
-                      weight: FontWeight.w500,
-                    ).copyWith(color: scheme.outline),
-                  ),
-                ],
-                const Spacer(),
-                // 没东西可清就不给(同角色卡:没有角色时不出清空)
-                if (state.prompt.trim().isNotEmpty || sections.isNotEmpty) ...[
-                  RoundIconBtn(
-                    Icons.delete_sweep_outlined,
-                    size: actionSize,
-                    tooltip: sections.isEmpty ? '清空正向提示词' : '清空提示词和分区',
-                    color: scheme.onSurfaceVariant,
-                    onTap: () => _clearPositive(context, ref),
-                  ),
-                  const SizedBox(width: 6),
-                ],
-                // 与角色卡头「角色库」同一枚图标、同一个位置
-                RoundIconBtn(
-                  Icons.grid_view,
-                  size: actionSize,
-                  tooltip: '灵感库',
-                  color: scheme.onSurfaceVariant,
-                  onTap: () => _importFromLibrary(context, ref),
-                ),
-                const SizedBox(width: 6),
-                RoundIconBtn(
-                  Icons.add,
-                  size: actionSize,
-                  tooltip: '添加分区',
-                  onTap: notifier.addSection,
-                ),
-              ],
-            ),
           ),
           // token 用量进度条
           if (!desktop)
@@ -185,9 +247,14 @@ class PromptCard extends ConsumerWidget {
                   ),
                 )
               else
-                const Padding(
-                  padding: EdgeInsets.only(top: 6),
-                  child: _SectionRows(),
+                Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: _SectionRows(
+                    selecting: selecting,
+                    picked: _picked,
+                    onToggle: _togglePick,
+                    onHold: _enterSelect,
+                  ),
                 ),
               // 负面:块标 + 单行(+N)+ 独立计数
               if (!desktop)
@@ -232,6 +299,186 @@ class PromptCard extends ConsumerWidget {
     );
   }
 
+  /// 多选态的卡头:左边退出 + 已选几格,右边停用 / 删除 / 存到灵感库 / 合并,
+  /// 还是卡头那排圆钮。合并至少勾两格,存只勾一格、且这格不空;用不了的灰着。
+  Widget _selectHeader(
+    BuildContext context,
+    List<PromptSection> sections,
+    String mainPrompt,
+    double size,
+  ) {
+    final scheme = context.scheme;
+    final notifier = ref.read(generateProvider.notifier);
+    final picked = [
+      for (final s in sections)
+        if (_picked.contains(s.id)) s,
+    ];
+    final rows = picked;
+    final anyOn = rows.any((s) => s.enabled);
+    final canMerge = picked.length >= 2;
+    final canSave =
+        picked.length == 1 &&
+        sectionSaveText(picked.single, mainPrompt).positive.isNotEmpty;
+    return Row(
+      children: [
+        RoundIconBtn(
+          Icons.close,
+          size: size,
+          tooltip: '退出多选',
+          color: scheme.onSurfaceVariant,
+          onTap: _exitSelect,
+        ),
+        const SizedBox(width: 9),
+        Text(
+          '已选 ${picked.length}',
+          style: context.texts.bodyLarge!.copyWith(fontWeight: FontWeight.w600),
+        ),
+        const Spacer(),
+        RoundIconBtn(
+          Icons.power_settings_new,
+          size: size,
+          tooltip: rows.isEmpty || anyOn ? '停用' : '启用',
+          color: rows.isEmpty ? scheme.outline : scheme.primary,
+          onTap: rows.isEmpty
+              ? null
+              : () {
+                  ref.read(editorSessionsProvider).flushPending();
+                  notifier.setSectionsEnabled({
+                    for (final s in rows) s.id,
+                  }, !anyOn);
+                },
+        ),
+        const SizedBox(width: 6),
+        RoundIconBtn(
+          Icons.delete_outline,
+          size: size,
+          tooltip: '删除',
+          color: rows.isEmpty ? scheme.outline : scheme.error,
+          onTap: rows.isEmpty ? null : () => _deletePicked(context, rows),
+        ),
+        const SizedBox(width: 6),
+        // 分类猜不出来时分类下拉从这颗钮底下弹,要它自己的 context
+        Builder(
+          builder: (anchor) => RoundIconBtn(
+            Icons.save_outlined,
+            size: size,
+            tooltip: '存到灵感库',
+            color: canSave ? scheme.primary : scheme.outline,
+            onTap: canSave ? () => _savePicked(anchor, picked.single) : null,
+          ),
+        ),
+        const SizedBox(width: 6),
+        // 合并是这一栏的正事:勾够两格就填主色
+        Tooltip(
+          message: '合并',
+          child: Material(
+            color: canMerge ? scheme.primary : scheme.surfaceContainerHigh,
+            shape: const CircleBorder(),
+            clipBehavior: Clip.antiAlias,
+            child: InkWell(
+              onTap: canMerge ? () => _mergePicked(context, picked) : null,
+              child: SizedBox(
+                width: size,
+                height: size,
+                child: Icon(
+                  Icons.call_merge,
+                  size: 20,
+                  color: canMerge ? scheme.onPrimary : scheme.outline,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// 删掉勾的几格,提示条给撤销:整列分区放回,勾了主体还把它的正向放回,
+  /// 还给删除时那张画布。
+  void _deletePicked(BuildContext context, List<PromptSection> rows) {
+    ref.read(editorSessionsProvider).flushPending();
+    final s = ref.read(generateProvider);
+    final old = (
+      prompt: s.prompt,
+      raw: s.promptRaw,
+      links: s.promptFoldLinks,
+      sections: s.sections,
+    );
+    final canvases = ref.read(canvasWorkspaceProvider.notifier);
+    final canvasId = ref.read(canvasWorkspaceProvider).activeId;
+    ref.read(generateProvider.notifier).removeSections({
+      for (final s in rows) s.id,
+    });
+    _exitSelect();
+    hintSnack(
+      context,
+      '已删除 ${rows.length} 个分区',
+      icon: Icons.delete_outline,
+      actionLabel: '撤销',
+      onAction: () => canvases.updatePrompts(
+        canvasId,
+        (p) => p.copyWith(
+          prompt: old.prompt,
+          promptRaw: old.raw,
+          promptFoldLinks: old.links,
+          sections: old.sections,
+        ),
+      ),
+    );
+  }
+
+  /// 合并勾的几格(见 mergeSectionsIn),提示条给撤销:主体的词和整列分区放回。
+  void _mergePicked(BuildContext context, List<PromptSection> rows) {
+    ref.read(editorSessionsProvider).flushPending();
+    final s = ref.read(generateProvider);
+    final old = (
+      prompt: s.prompt,
+      raw: s.promptRaw,
+      neg: s.negativePrompt,
+      negRaw: s.negativePromptRaw,
+      links: s.promptFoldLinks,
+      sections: s.sections,
+    );
+    final canvases = ref.read(canvasWorkspaceProvider.notifier);
+    final canvasId = ref.read(canvasWorkspaceProvider).activeId;
+    final into = ref.read(generateProvider.notifier).mergeSections({
+      for (final x in rows) x.id,
+    });
+    if (into == null) return;
+    _exitSelect();
+    hintSnack(
+      context,
+      '已合并到「${into.name}」',
+      icon: Icons.call_merge,
+      actionLabel: '撤销',
+      onAction: () => canvases.updatePrompts(
+        canvasId,
+        (p) => p.copyWith(
+          prompt: old.prompt,
+          promptRaw: old.raw,
+          promptFoldLinks: old.links,
+          negativePrompt: old.neg,
+          negativePromptRaw: old.negRaw,
+          sections: old.sections,
+        ),
+      ),
+    );
+  }
+
+  /// 勾的那一格进灵感页的新建页(见 saveSectionToLibrary),进了就退出多选。
+  Future<void> _savePicked(BuildContext anchor, PromptSection section) async {
+    ref.read(editorSessionsProvider).flushPending();
+    final current = ref.read(generateProvider);
+    final source = withMainRow(
+      current.sections,
+      current.prompt,
+    ).where((s) => s.id == section.id).firstOrNull;
+    if (source == null) return;
+    if (await saveSectionToLibrary(anchor, ref, source) && mounted) {
+      _exitSelect();
+    }
+  }
+
   void _openEditor(BuildContext context, {required bool positive}) {
     Navigator.of(context).push(sharedAxisRoute(EditorPage(positive: positive)));
   }
@@ -239,8 +486,14 @@ class PromptCard extends ConsumerWidget {
   /// 清空:主体的正向清空,分区整列清掉,主体的负面留着。撤销条挂几秒,
   /// 期间切了画布也要还给清空的那张。
   void _clearPositive(BuildContext context, WidgetRef ref) {
+    ref.read(editorSessionsProvider).flushPending();
     final s = ref.read(generateProvider);
-    final old = (prompt: s.prompt, raw: s.promptRaw, sections: s.sections);
+    final old = (
+      prompt: s.prompt,
+      raw: s.promptRaw,
+      links: s.promptFoldLinks,
+      sections: s.sections,
+    );
     if (old.prompt.isEmpty && old.sections.isEmpty) return;
     final canvases = ref.read(canvasWorkspaceProvider.notifier);
     final canvasId = ref.read(canvasWorkspaceProvider).activeId;
@@ -256,6 +509,7 @@ class PromptCard extends ConsumerWidget {
         (p) => p.copyWith(
           prompt: old.prompt,
           promptRaw: old.raw,
+          promptFoldLinks: old.links,
           // 分区原样放回;撤销条挂着这几秒里新加的格子接在后面
           sections: old.sections.isEmpty
               ? null
@@ -322,31 +576,48 @@ class PromptCard extends ConsumerWidget {
   }
 }
 
-/// 分了区之后的正文:一格一行,长按拖动调顺序。
+/// 分了区之后的正文:一格一行,长按一格进多选。多选态下点行是勾选,拖左边的
+/// 把手排序。
 class _SectionRows extends ConsumerWidget {
-  const _SectionRows();
+  const _SectionRows({
+    required this.selecting,
+    required this.picked,
+    required this.onToggle,
+    required this.onHold,
+  });
+
+  final bool selecting;
+  final Set<String> picked;
+  final ValueChanged<String> onToggle;
+
+  /// 长按一格(多选态之外)。
+  final ValueChanged<String> onHold;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final state = ref.watch(generateProvider);
     final notifier = ref.read(generateProvider.notifier);
     final tok = ref.watch(naiTokenizerProvider).value;
-    final sections = state.sections;
+    final sections = withMainRow(state.sections, state.prompt);
     var k = 0; // 非主体分区的序号,改名留空时的默认名用
     return ReorderableListView(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
+      // 长按留给进多选,排序只走多选态每行左边的把手
+      buildDefaultDragHandles: false,
       proxyDecorator: _rowDragProxy,
-      onReorderStart: dragStartHaptic,
+      onReorderStart: (index) {
+        ref.read(editorSessionsProvider).flushPending();
+        dragStartHaptic(index);
+      },
       onReorderEnd: dragEndHaptic,
-      buildDefaultDragHandles: !ref.watch(desktopModeProvider),
       onReorderItem: notifier.reorderSections,
       children: [
-        for (final s in sections)
+        for (final (i, s) in sections.indexed)
           _SectionRow(
             key: ValueKey('sec${s.id}'),
+            index: i,
             section: s,
-            index: sections.indexOf(s),
             fallbackName: s.isMain
                 ? '主体'
                 : s.artist
@@ -359,6 +630,10 @@ class _SectionRows extends ConsumerWidget {
               tok,
               main: s.isMain ? state.prompt : s.positive,
             ),
+            selecting: selecting,
+            picked: picked.contains(s.id),
+            onToggle: () => onToggle(s.id),
+            onHold: () => onHold(s.id),
           ),
       ],
     );
@@ -387,15 +662,29 @@ Widget _rowDragProxy(Widget child, int index, Animation<double> animation) =>
 class _SectionRow extends ConsumerWidget {
   const _SectionRow({
     super.key,
-    required this.section,
     required this.index,
+    required this.section,
     required this.fallbackName,
     required this.draft,
     required this.tokens,
+    this.selecting = false,
+    this.picked = false,
+    this.onToggle,
+    this.onHold,
   });
 
-  final PromptSection section;
+  /// 多选态:点行 / 点名字都是勾选,行尾换成勾选圈,左边多出移动把手。
+  final bool selecting;
+  final bool picked;
+  final VoidCallback? onToggle;
+
+  /// 在列表里的位置(把手拖动用)。
   final int index;
+
+  /// 长按这一行(多选态之外)。
+  final VoidCallback? onHold;
+
+  final PromptSection section;
 
   /// 改名留空时回落的名字。
   final String fallbackName;
@@ -413,76 +702,116 @@ class _SectionRow extends ConsumerWidget {
       return Padding(
         padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
         child: Material(
-          color: scheme.surface,
+          color: selecting && picked ? scheme.primaryContainer : scheme.surface,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(10),
-            side: BorderSide(color: scheme.outlineVariant),
+            side: BorderSide(
+              color: selecting && picked
+                  ? scheme.primary
+                  : scheme.outlineVariant,
+            ),
           ),
-          child: Column(
-            children: [
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Align(
-                        alignment: Alignment.centerLeft,
-                        child: _NameChip(
-                          name: s.name,
-                          enabled: s.enabled,
-                          onTap: () => _rename(context, notifier),
-                        ),
-                      ),
-                    ),
-                    ReorderableDragStartListener(
-                      index: index,
-                      child: Tooltip(
-                        message: '拖动分区排序',
-                        child: Icon(
-                          Icons.drag_indicator,
-                          size: 18,
-                          color: scheme.outline,
-                        ),
-                      ),
-                    ),
-                    if (!s.isMain) ...[
-                      IconButton(
-                        tooltip: s.enabled ? '停用分区' : '启用分区',
-                        onPressed: () =>
-                            notifier.updateSection(s.id, enabled: !s.enabled),
-                        icon: Icon(
-                          Icons.power_settings_new,
-                          size: 18,
-                          color: s.enabled ? scheme.primary : scheme.outline,
-                        ),
-                      ),
-                      IconButton(
-                        tooltip: '删除分区',
-                        onPressed: () => _remove(context, ref),
-                        icon: Icon(
-                          Icons.delete_outline,
-                          size: 18,
-                          color: scheme.error,
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-              if (s.isMain || s.enabled)
+          child: InkWell(
+            onTap: selecting ? onToggle : null,
+            onLongPress: selecting ? null : onHold,
+            child: Column(
+              children: [
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(10, 0, 10, 8),
-                  child: DesktopPromptCard(
-                    key: ValueKey('desktop-section-editor-${s.id}'),
-                    sectionId: s.isMain ? null : s.id,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
                   ),
-                )
-              else
-                Padding(
-                  padding: const EdgeInsets.all(10),
-                  child: Text('已停用', style: context.texts.bodySmall),
+                  child: Row(
+                    children: [
+                      if (selecting)
+                        Checkbox(
+                          key: ValueKey('prompt-section-pick-${s.id}'),
+                          value: picked,
+                          onChanged: (_) => onToggle?.call(),
+                          visualDensity: VisualDensity.compact,
+                        ),
+                      Expanded(
+                        child: Align(
+                          alignment: Alignment.centerLeft,
+                          child: _NameChip(
+                            name: s.name,
+                            enabled: s.enabled,
+                            onTap: selecting
+                                ? onToggle!
+                                : () => _rename(context, notifier),
+                          ),
+                        ),
+                      ),
+                      ReorderableDragStartListener(
+                        index: index,
+                        child: Tooltip(
+                          message: '拖动分区排序',
+                          child: Padding(
+                            padding: const EdgeInsets.all(8),
+                            child: Icon(
+                              Icons.drag_indicator,
+                              size: 18,
+                              color: scheme.outline,
+                            ),
+                          ),
+                        ),
+                      ),
+                      if (!selecting) ...[
+                        IconButton(
+                          tooltip: s.enabled ? '停用分区' : '启用分区',
+                          onPressed: () {
+                            ref.read(editorSessionsProvider).flushPending();
+                            notifier.updateSection(s.id, enabled: !s.enabled);
+                          },
+                          icon: Icon(
+                            Icons.power_settings_new,
+                            size: 18,
+                            color: s.enabled ? scheme.primary : scheme.outline,
+                          ),
+                        ),
+                        IconButton(
+                          tooltip: '删除分区',
+                          onPressed: () => _remove(context, ref),
+                          icon: Icon(
+                            Icons.delete_outline,
+                            size: 18,
+                            color: scheme.error,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
                 ),
-            ],
+                if (!selecting && (s.isMain || s.enabled))
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(10, 0, 10, 8),
+                    child: DesktopPromptCard(
+                      key: ValueKey('desktop-section-editor-${s.id}'),
+                      sectionId: s.isMain ? null : s.id,
+                    ),
+                  )
+                else
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+                    child: Row(
+                      children: [
+                        if (!s.enabled) ...[
+                          Text(
+                            '已停用',
+                            style: context.texts.bodySmall!.copyWith(
+                              color: scheme.outline,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                        ],
+                        Expanded(
+                          child: _Preview(draft: draft, enabled: s.enabled),
+                        ),
+                      ],
+                    ),
+                  ),
+              ],
+            ),
           ),
         ),
       );
@@ -493,19 +822,39 @@ class _SectionRow extends ConsumerWidget {
     // 与角色卡的开关 / 删除同一尺寸(窄屏同样收到 32)
     final btnSize = MediaQuery.sizeOf(context).width < 350 ? 32.0 : 36.0;
     return InkWell(
-      onTap: () => Navigator.of(context).push(
-        sharedAxisRoute(
-          EditorPage(positive: true, sectionId: s.isMain ? null : s.id),
-        ),
-      ),
+      onLongPress: selecting ? null : onHold,
+      onTap: selecting
+          ? onToggle
+          : () => Navigator.of(context).push(
+              sharedAxisRoute(
+                EditorPage(positive: true, sectionId: s.isMain ? null : s.id),
+              ),
+            ),
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(15, 4, 13, 4),
+        padding: EdgeInsets.fromLTRB(selecting ? 0 : 15, 4, 13, 4),
         child: Row(
           children: [
+            if (selecting)
+              // 按下就能拖;把手连同左边距一起算,图标和卡头的退出钮对齐
+              ReorderableDragStartListener(
+                index: index,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(15, 0, 8, 0),
+                  child: SizedBox(
+                    width: 24,
+                    height: btnSize,
+                    child: Icon(
+                      Icons.drag_indicator,
+                      size: 20,
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
+                ),
+              ),
             _NameChip(
               name: s.name,
               enabled: on,
-              onTap: () => _rename(context, notifier),
+              onTap: selecting ? onToggle! : () => _rename(context, notifier),
             ),
             const SizedBox(width: 8),
             Expanded(
@@ -525,9 +874,13 @@ class _SectionRow extends ConsumerWidget {
               ),
             ),
             const SizedBox(width: 6),
-            if (s.isMain)
-              // 主体不能停用、删除;留出同样的宽度,各行计数对齐
-              SizedBox(width: btnSize * 2 + 6, height: btnSize)
+            if (selecting)
+              // 勾选圈放在删除钮那一格,和卡头最右那颗对齐
+              SizedBox(
+                width: btnSize,
+                height: btnSize,
+                child: Center(child: _PickDot(picked: picked)),
+              )
             else ...[
               RoundIconBtn(
                 Icons.power_settings_new,
@@ -584,10 +937,14 @@ class _SectionRow extends ConsumerWidget {
     );
   }
 
-  /// 直接删,不弹确认;提示条给撤销,还回删除时那张画布的原位。
+  /// 直接删,不弹确认;提示条给撤销,还回删除时那张画布的原位。删的是主体:
+  /// 它的正向一并清空,撤销连正向一起放回。
   void _remove(BuildContext context, WidgetRef ref) {
+    ref.read(editorSessionsProvider).flushPending();
     final canvases = ref.read(canvasWorkspaceProvider.notifier);
     final canvasId = ref.read(canvasWorkspaceProvider).activeId;
+    final s = ref.read(generateProvider);
+    final old = (prompt: s.prompt, raw: s.promptRaw, links: s.promptFoldLinks);
     final r = ref.read(generateProvider.notifier).removeSection(section.id);
     if (r == null) return;
     hintSnack(
@@ -600,6 +957,9 @@ class _SectionRow extends ConsumerWidget {
         (p) => p.sections.any((x) => x.id == r.section.id)
             ? p
             : p.copyWith(
+                prompt: r.section.isMain ? old.prompt : null,
+                promptRaw: r.section.isMain ? old.raw : null,
+                promptFoldLinks: r.section.isMain ? old.links : null,
                 sections: restoreSection(
                   p.sections,
                   r.section,
@@ -608,6 +968,31 @@ class _SectionRow extends ConsumerWidget {
                 ),
               ),
       ),
+    );
+  }
+}
+
+/// 多选态行尾的勾选圈。
+class _PickDot extends StatelessWidget {
+  const _PickDot({required this.picked});
+
+  final bool picked;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = context.scheme;
+    return AnimatedContainer(
+      duration: Motion.fast,
+      width: 24,
+      height: 24,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: picked ? scheme.primary : Colors.transparent,
+        border: picked ? null : Border.all(color: scheme.outline, width: 1.5),
+      ),
+      child: picked
+          ? Icon(Icons.check, size: 16, color: scheme.onPrimary)
+          : null,
     );
   }
 }

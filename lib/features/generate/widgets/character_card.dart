@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/theme/app_theme.dart';
 import '../../../core/platform/desktop.dart';
+import '../../../core/theme/theme_settings.dart';
 import '../../../core/util/nai_tokenizer.dart';
 import '../../editor/editor_page.dart';
 import '../../editor/editor_models.dart' show outputOf, draftOf;
@@ -289,6 +290,9 @@ class _CharacterTile extends ConsumerWidget {
     if (!desktop) return _buildMobile(context, ref);
     final scheme = context.scheme;
     final enabled = char.enabled;
+    final compact = ref.watch(
+      themeSettingsProvider.select((t) => t.compactCharCards),
+    );
     // 只有站位徽章的写法跟模型走(见下),select 一下别让整张卡跟着全局状态重建。
     final isV5 = ref.watch(
       generateProvider.select((s) => isNai5Model(s.params.model)),
@@ -333,8 +337,39 @@ class _CharacterTile extends ConsumerWidget {
                 _header(context, ref, notifier, autoPos: autoPos, isV5: isV5),
                 // 行 2 是点进编辑器的主要落点(行 1 那排全是各管各的按钮),
                 // 所以空当只往它上下加:4 → 8、下边距 10 → 14,这条带子 42 → 50。
-                const SizedBox(height: 8),
-                if (desktop) ...[
+                if (compact)
+                  ExpansionTile(
+                    key: PageStorageKey('compact-character-${char.id}'),
+                    tilePadding: EdgeInsets.zero,
+                    childrenPadding: const EdgeInsets.only(top: 4),
+                    shape: const Border(),
+                    collapsedShape: const Border(),
+                    maintainState: true,
+                    title: Text(
+                      char.positive.isEmpty ? '点击展开编辑提示词…' : char.positive,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: context.texts.bodyMedium,
+                    ),
+                    subtitle: char.negative.isEmpty
+                        ? null
+                        : Text(
+                            char.negative,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: context.texts.bodySmall!.copyWith(
+                              color: scheme.error,
+                            ),
+                          ),
+                    children: [
+                      DesktopPromptCard(
+                        key: ValueKey(char.id),
+                        charId: char.id,
+                      ),
+                    ],
+                  )
+                else if (desktop) ...[
+                  const SizedBox(height: 8),
                   Divider(
                     height: 16,
                     color: scheme.outlineVariant.withValues(alpha: .6),
@@ -420,31 +455,48 @@ class _CharacterTile extends ConsumerWidget {
         ? 0.0
         : 4 + textWidth('已禁用', context.texts.labelSmall!);
     // Avatar, toggle, name padding, separation and trailing controls.
-    final leadingWidth = 34 + 5 + 38 + 8 + nameWidth + statusWidth;
+    final compact = ref.watch(
+      themeSettingsProvider.select((t) => t.compactCharCards),
+    );
+    final leadingWidth =
+        (compact ? 30 : 34) + 5 + 38 + 8 + nameWidth + statusWidth;
     final actionsWidth = 16 + 15 + 5 + positionWidth + 2 + 30 + 18;
     final requiredWidth = leadingWidth + 8 + actionsWidth;
     final leading = Row(
       children: [
-        Tooltip(
-          message: '从角色库选择',
-          child: InkWell(
-            key: ValueKey('character-avatar-${char.id}'),
-            onTap: () => _pickFromLibrary(context, ref),
-            borderRadius: BorderRadius.circular(8),
-            child: ClipRRect(
+        if (compact)
+          SizedBox(
+            width: 30,
+            height: 34,
+            child: IconButton(
+              key: ValueKey('character-avatar-${char.id}'),
+              padding: EdgeInsets.zero,
+              tooltip: '从角色库选择',
+              icon: const Icon(Icons.grid_view, size: 20),
+              onPressed: () => _pickFromLibrary(context, ref),
+            ),
+          )
+        else
+          Tooltip(
+            message: '从角色库选择',
+            child: InkWell(
+              key: ValueKey('character-avatar-${char.id}'),
+              onTap: () => _pickFromLibrary(context, ref),
               borderRadius: BorderRadius.circular(8),
-              child: SizedBox(
-                width: 34,
-                height: 34,
-                child: TagCardPreview(
-                  url: char.avatar,
-                  name: char.name,
-                  decodeWidth: 34,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: SizedBox(
+                  width: 34,
+                  height: 34,
+                  child: TagCardPreview(
+                    url: char.avatar,
+                    name: char.name,
+                    decodeWidth: 34,
+                  ),
                 ),
               ),
             ),
           ),
-        ),
         const SizedBox(width: 5),
         // 电源开关(裸图标)
         IconButton(
@@ -630,6 +682,9 @@ class _CharacterTile extends ConsumerWidget {
     final autoPos = ref.watch(
       generateProvider.select((s) => !s.params.useCoords),
     );
+    final compact = ref.watch(
+      themeSettingsProvider.select((t) => t.compactCharCards),
+    );
     final tokenizer = ref.watch(naiTokenizerProvider).value;
     final hasNeg = char.negative.trim().isNotEmpty;
     final positionLabel = autoPos
@@ -646,6 +701,104 @@ class _CharacterTile extends ConsumerWidget {
       weight: FontWeight.w500,
     ).copyWith(color: scheme.outline);
 
+    final name = InkWell(
+      onTap: () => _rename(context, notifier),
+      borderRadius: BorderRadius.circular(8),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 3),
+        child: Text(
+          char.name,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: context.texts.bodyLarge!.copyWith(
+            fontWeight: FontWeight.w700,
+            color: enabled ? scheme.onSurface : scheme.outline,
+          ),
+        ),
+      ),
+    );
+    final toggleBtn = RoundIconBtn(
+      Icons.power_settings_new,
+      size: controlSize,
+      color: enabled ? scheme.primary : scheme.outline,
+      onTap: () => notifier.updateCharacter(char.id, enabled: !enabled),
+      tooltip: enabled ? '停用(保留配置)' : '启用',
+    );
+    final deleteBtn = RoundIconBtn(
+      Icons.delete_outline,
+      size: controlSize,
+      color: scheme.error,
+      onTap: () => notifier.removeCharacter(char.id),
+      tooltip: '删除角色',
+    );
+    void openPosition() => showPositionGridDialog(context, char.id);
+    final positionTip = '设置角色位置：$positionLabel';
+    final positive = Padding(
+      padding: const EdgeInsets.only(right: 4),
+      child: Row(
+        crossAxisAlignment: compact
+            ? CrossAxisAlignment.center
+            : CrossAxisAlignment.end,
+        children: [
+          // 紧凑版的位置签排在正向预览左侧
+          if (compact) ...[
+            _PositionChip(
+              label: positionLabel,
+              auto: autoPos || positionLabel == 'AUTO',
+              enabled: enabled,
+              onTap: openPosition,
+            ),
+            const SizedBox(width: 8),
+          ],
+          Expanded(
+            child: Text(
+              char.positive.isEmpty ? '点击编辑提示词…' : char.positive,
+              maxLines: compact || hasNeg ? 1 : 2,
+              overflow: TextOverflow.ellipsis,
+              style: promptStyle.copyWith(
+                color: char.positive.isEmpty || !enabled
+                    ? scheme.outline
+                    : scheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+          if (char.positive.isNotEmpty) ...[
+            const SizedBox(width: 8),
+            Text(
+              '${totalPromptTokens(tokenizer, main: char.positive)}',
+              style: countStyle,
+            ),
+          ],
+        ],
+      ),
+    );
+    final negative = InkWell(
+      onTap: () => _openEditor(context, positive: false),
+      borderRadius: BorderRadius.circular(6),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(0, 3, 4, 3),
+        child: Row(
+          children: [
+            Icon(Icons.block, size: 14, color: negColor),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                negativePreview(char.negative),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: promptStyle.copyWith(color: negColor),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              '${totalPromptTokens(tokenizer, main: char.negative)}',
+              style: countStyle,
+            ),
+          ],
+        ),
+      ),
+    );
+
     return Material(
       color: scheme.surfaceContainer,
       borderRadius: BorderRadius.circular(12),
@@ -653,160 +806,151 @@ class _CharacterTile extends ConsumerWidget {
       child: InkWell(
         onTap: () => _openEditor(context, positive: true),
         child: Padding(
-          padding: const EdgeInsets.all(8),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _Avatar(
-                url: char.avatar,
-                name: char.name,
-                enabled: enabled,
-                onTap: () => _pickFromLibrary(context, ref),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
+          // 紧凑版没有头像垫在左边,文字离卡边留宽一些
+          padding: compact
+              ? const EdgeInsets.fromLTRB(14, 8, 8, 8)
+              : const EdgeInsets.all(8),
+          child: compact
+              // 紧凑:名称 + 三个圆钮一行,下面位置签 + 提示词铺满整行。
+              ? Column(
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    // 名称与三个等大的公共圆形按钮共用顶行。
                     Row(
                       children: [
-                        Expanded(
-                          child: InkWell(
-                            onTap: () => _rename(context, notifier),
-                            borderRadius: BorderRadius.circular(8),
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(vertical: 3),
-                              child: Text(
-                                char.name,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: context.texts.bodyLarge!.copyWith(
-                                  fontWeight: FontWeight.w700,
-                                  color: enabled
-                                      ? scheme.onSurface
-                                      : scheme.outline,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
+                        Expanded(child: name),
                         const SizedBox(width: 4),
                         RoundIconBtn(
                           Icons.location_on_outlined,
                           size: controlSize,
                           color: posColor,
-                          onTap: () => showPositionGridDialog(context, char.id),
-                          tooltip: '设置角色位置：$positionLabel',
+                          onTap: openPosition,
+                          tooltip: positionTip,
                         ),
                         const SizedBox(width: 6),
-                        RoundIconBtn(
-                          Icons.power_settings_new,
-                          size: controlSize,
-                          color: enabled ? scheme.primary : scheme.outline,
-                          onTap: () => notifier.updateCharacter(
-                            char.id,
-                            enabled: !enabled,
-                          ),
-                          tooltip: enabled ? '停用(保留配置)' : '启用',
-                        ),
+                        toggleBtn,
                         const SizedBox(width: 6),
-                        RoundIconBtn(
-                          Icons.delete_outline,
-                          size: controlSize,
-                          color: scheme.error,
-                          onTap: () => notifier.removeCharacter(char.id),
-                          tooltip: '删除角色',
-                        ),
-                      ],
-                    ),
-                    // 坐标读数与名字分开,位置按钮只占一个图标的宽度。
-                    Row(
-                      children: [
-                        Icon(
-                          Icons.location_on_outlined,
-                          size: 14,
-                          color: posColor,
-                        ),
-                        const SizedBox(width: 4),
-                        Expanded(
-                          child: Text(
-                            autoPos ? '自动定位' : positionLabel,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: context.texts.bodySmall!.copyWith(
-                              fontWeight: FontWeight.w500,
-                              color: posColor,
-                            ),
-                          ),
-                        ),
+                        deleteBtn,
                       ],
                     ),
                     const SizedBox(height: 6),
-                    // 名称和提示词都占满预览图右侧。
-                    Padding(
-                      padding: const EdgeInsets.only(right: 4),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        children: [
-                          Expanded(
-                            child: Text(
-                              char.positive.isEmpty
-                                  ? '点击编辑提示词…'
-                                  : char.positive,
-                              maxLines: hasNeg ? 1 : 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: promptStyle.copyWith(
-                                color: char.positive.isEmpty || !enabled
-                                    ? scheme.outline
-                                    : scheme.onSurfaceVariant,
-                              ),
-                            ),
-                          ),
-                          if (char.positive.isNotEmpty) ...[
-                            const SizedBox(width: 8),
-                            Text(
-                              '${totalPromptTokens(tokenizer, main: char.positive)}',
-                              style: countStyle,
-                            ),
-                          ],
-                        ],
-                      ),
+                    positive,
+                    if (hasNeg) ...[const SizedBox(height: 2), negative],
+                  ],
+                )
+              : Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _Avatar(
+                      url: char.avatar,
+                      name: char.name,
+                      enabled: enabled,
+                      onTap: () => _pickFromLibrary(context, ref),
                     ),
-                    if (hasNeg) ...[
-                      const SizedBox(height: 4),
-                      InkWell(
-                        onTap: () => _openEditor(context, positive: false),
-                        borderRadius: BorderRadius.circular(6),
-                        child: Padding(
-                          padding: const EdgeInsets.fromLTRB(0, 3, 4, 3),
-                          child: Row(
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          // 名称与三个等大的公共圆形按钮共用顶行。
+                          Row(
                             children: [
-                              Icon(Icons.block, size: 14, color: negColor),
+                              Expanded(child: name),
+                              const SizedBox(width: 4),
+                              RoundIconBtn(
+                                Icons.location_on_outlined,
+                                size: controlSize,
+                                color: posColor,
+                                onTap: openPosition,
+                                tooltip: positionTip,
+                              ),
                               const SizedBox(width: 6),
+                              toggleBtn,
+                              const SizedBox(width: 6),
+                              deleteBtn,
+                            ],
+                          ),
+                          // 坐标读数与名字分开,位置按钮只占一个图标的宽度。
+                          Row(
+                            children: [
+                              Icon(
+                                Icons.location_on_outlined,
+                                size: 14,
+                                color: posColor,
+                              ),
+                              const SizedBox(width: 4),
                               Expanded(
                                 child: Text(
-                                  negativePreview(char.negative),
+                                  autoPos ? '自动定位' : positionLabel,
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
-                                  style: promptStyle.copyWith(color: negColor),
+                                  style: context.texts.bodySmall!.copyWith(
+                                    fontWeight: FontWeight.w500,
+                                    color: posColor,
+                                  ),
                                 ),
-                              ),
-                              const SizedBox(width: 8),
-                              Text(
-                                '${totalPromptTokens(tokenizer, main: char.negative)}',
-                                style: countStyle,
                               ),
                             ],
                           ),
-                        ),
+                          const SizedBox(height: 6),
+                          // 名称和提示词都占满预览图右侧。
+                          positive,
+                          if (hasNeg) ...[const SizedBox(height: 4), negative],
+                        ],
                       ),
-                    ],
+                    ),
                   ],
                 ),
-              ),
-            ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 紧凑角色卡正向预览左侧的位置签:定了位是填色签,自动定位 / 停用是描边灰字。
+/// 点它打开定位面板。
+class _PositionChip extends StatelessWidget {
+  const _PositionChip({
+    required this.label,
+    required this.auto,
+    required this.enabled,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool auto;
+  final bool enabled;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = context.scheme;
+    final filled = enabled && !auto;
+    return Material(
+      color: filled ? scheme.primaryContainer : Colors.transparent,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(6),
+        side: filled
+            ? BorderSide.none
+            : BorderSide(color: scheme.outlineVariant),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+          child: Text(
+            auto ? '自动' : label,
+            maxLines: 1,
+            style: context.texts.labelMedium!.copyWith(
+              fontWeight: FontWeight.w600,
+              color: filled
+                  ? scheme.onPrimaryContainer
+                  : enabled
+                  ? scheme.onSurfaceVariant
+                  : scheme.outline,
+            ),
           ),
         ),
       ),

@@ -67,6 +67,7 @@ bool _noiseSupported(String? n) => n != null && noiseSchedules.contains(n);
 String? _modelFromSource(String source) {
   final s = source.toLowerCase();
   if (s.contains('v5')) {
+    if (naiSourceIsV5Medium(source)) return 'NAI 5.0 Full Medium';
     return naiSourceIsV5Full(source) ? 'NAI 5.0 Full' : 'NAI 5.0 Curated';
   }
   if (s.contains('v4.5 curated')) return 'NAI 4.5 Curated';
@@ -2847,7 +2848,7 @@ class _ImportImagePanelState extends ConsumerState<ImportImagePanel> {
         _useAsBtn(
           scheme,
           Icons.palette_outlined,
-          '风格',
+          'Vibe',
           _useAsVibe,
           blocked: _moduleBlocked(GenModule.vibe),
         ),
@@ -2855,7 +2856,7 @@ class _ImportImagePanelState extends ConsumerState<ImportImagePanel> {
         _useAsBtn(
           scheme,
           Icons.face_retouching_natural,
-          '角色',
+          '参考',
           _useAsCharRef,
           blocked: _moduleBlocked(GenModule.charRef),
         ),

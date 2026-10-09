@@ -488,8 +488,16 @@ class AssistantNotifier extends Notifier<AssistantState> {
       // 没有 Bot 授权只能走前一条:后端渠道要授权(界面上也不列)。
       final endpoint = ref.read(assistantEndpointProvider);
       if (sid.isEmpty && endpoint == null) {
-        _pushError('没有 Bot 授权时只能用自定义接口,先在顶部选一个', AssistErrorKind.auth);
-        return;
+        try {
+          await ref.read(agentModelsProvider.future);
+        } catch (_) {}
+        if (!ref.mounted || !identical(state.msgs, original) || state.running) {
+          return;
+        }
+        if (ref.read(assistantModelKeyProvider).isEmpty) {
+          _pushError('没有 Bot 授权时只能用免费模型或自定义接口,先在顶部选一个', AssistErrorKind.auth);
+          return;
+        }
       }
       if (endpoint == null && base.trim().isEmpty) {
         _pushError('未配置后端地址，原对话已保留。', AssistErrorKind.unknown);
@@ -743,6 +751,12 @@ class AssistantNotifier extends Notifier<AssistantState> {
         },
         onError: (Object e) {
           if (seq != _seq) return;
+          if (sid.isEmpty &&
+              endpoint == null &&
+              e is BackendException &&
+              (e.status == 401 || e.status == 403)) {
+            ref.invalidate(agentModelsProvider);
+          }
           final msg = e is BackendException ? e.message : '$e';
           _pushError(msg, _kindOf(e));
         },
