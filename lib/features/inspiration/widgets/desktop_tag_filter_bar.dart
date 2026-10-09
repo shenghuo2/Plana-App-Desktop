@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
@@ -32,6 +33,9 @@ class _DesktopTagFilterBarState extends State<DesktopTagFilterBar> {
   final _scroll = ScrollController();
   final _selectedChip = GlobalKey();
   double _stripWidth = 0;
+  double? _viewportWidth;
+  double? _contentWidth;
+  bool _revealScheduled = false;
   bool _overflow = false;
   bool _canScrollBack = false;
   bool _canScrollForward = false;
@@ -47,7 +51,10 @@ class _DesktopTagFilterBarState extends State<DesktopTagFilterBar> {
   @override
   void didUpdateWidget(DesktopTagFilterBar oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.selectedTag != widget.selectedTag) _revealSelection();
+    if (oldWidget.selectedTag != widget.selectedTag ||
+        !listEquals(oldWidget.tags, widget.tags)) {
+      _revealSelection();
+    }
   }
 
   @override
@@ -78,7 +85,10 @@ class _DesktopTagFilterBarState extends State<DesktopTagFilterBar> {
   }
 
   void _revealSelection() {
+    if (_revealScheduled || widget.selectedTag == null) return;
+    _revealScheduled = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      _revealScheduled = false;
       if (!mounted || !_scroll.hasClients) return;
       final target = _selectedChip.currentContext?.findRenderObject();
       if (target == null) return;
@@ -89,6 +99,20 @@ class _DesktopTagFilterBarState extends State<DesktopTagFilterBar> {
         curve: Curves.easeOut,
       );
     });
+    WidgetsBinding.instance.ensureVisualUpdate();
+  }
+
+  bool _metricsChanged(ScrollMetricsNotification notification) {
+    final metrics = notification.metrics;
+    final contentWidth = metrics.maxScrollExtent + metrics.viewportDimension;
+    if (_viewportWidth != metrics.viewportDimension ||
+        _contentWidth != contentWidth) {
+      _viewportWidth = metrics.viewportDimension;
+      _contentWidth = contentWidth;
+      _revealSelection();
+    }
+    _syncScrollControls();
+    return false;
   }
 
   void _scrollBy(int direction) {
@@ -254,10 +278,10 @@ class _DesktopTagFilterBarState extends State<DesktopTagFilterBar> {
   Widget _tagStrip(BuildContext context) => LayoutBuilder(
     builder: (context, constraints) {
       _stripWidth = constraints.maxWidth;
-      final labelWidth = (_stripWidth - (_overflow ? 56 : 0) - 40).clamp(
-        40.0,
-        220.0,
-      );
+      // Keep chip widths independent of arrow visibility. Otherwise showing
+      // the arrows can shrink the content enough to hide them again forever.
+      // Reserve both arrows so a long chip also fits the smaller viewport.
+      final labelWidth = (_stripWidth - 56 - 40).clamp(40.0, 220.0);
       return Row(
         children: [
           if (_overflow)
@@ -269,6 +293,7 @@ class _DesktopTagFilterBarState extends State<DesktopTagFilterBar> {
               direction: -1,
             ),
           Expanded(
+            key: const ValueKey('inspiration-tag-viewport'),
             child: MouseRegion(
               cursor: _overflow
                   ? SystemMouseCursors.grab
@@ -276,10 +301,7 @@ class _DesktopTagFilterBarState extends State<DesktopTagFilterBar> {
               child: Listener(
                 onPointerSignal: _onWheel,
                 child: NotificationListener<ScrollMetricsNotification>(
-                  onNotification: (_) {
-                    _syncScrollControls();
-                    return false;
-                  },
+                  onNotification: _metricsChanged,
                   child: SizedBox(
                     height: MediaQuery.textScalerOf(context).scale(13) + 28,
                     child: ScrollConfiguration(
