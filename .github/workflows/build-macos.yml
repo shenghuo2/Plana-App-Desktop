@@ -3,17 +3,21 @@ name: Build desktop
 on:
   workflow_dispatch:
     inputs:
+      release_version:
+        description: Release version to build from its saved branches (blank for development)
+        type: string
+        default: ''
       editions:
         description: macOS editions to build (release builds use both)
         type: choice
         options: [both, standard, remote-upload]
         default: both
       standard_ref:
-        description: Standard edition branch
-        default: desktop/merge-windows45
+        description: Standard development branch
+        default: main
         type: string
       remote_ref:
-        description: Remote upload edition branch
+        description: Remote upload development branch
         default: feature/remote-upload
         type: string
       build_windows:
@@ -22,8 +26,9 @@ on:
         default: true
   push:
     branches:
-      - 'desktop/**'
+      - 'main'
       - 'feature/remote-upload'
+      - 'release/*'
     tags:
       - 'v*-desktop*'
 
@@ -53,8 +58,9 @@ jobs:
           BUILD_BRANCH: ${{ github.ref_name }}
           BUILD_REF_TYPE: ${{ github.ref_type }}
           BUILD_SHA: ${{ github.sha }}
+          RELEASE_VERSION: ${{ inputs.release_version }}
           BUILD_EDITIONS: ${{ inputs.editions || 'both' }}
-          STANDARD_BRANCH: ${{ inputs.standard_ref || 'desktop/merge-windows45' }}
+          STANDARD_BRANCH: ${{ inputs.standard_ref || 'main' }}
           REMOTE_BRANCH: ${{ inputs.remote_ref || 'feature/remote-upload' }}
           BUILD_WINDOWS: ${{ inputs.build_windows }}
         run: python3 tool/desktop_build_plan.py

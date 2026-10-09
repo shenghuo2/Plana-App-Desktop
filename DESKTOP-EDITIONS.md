@@ -1,39 +1,78 @@
 # Plana App Desktop 版本构建
 
-标准版使用 `desktop/merge-windows45`，远端上传版使用 `feature/remote-upload`。
-远端上传版只构建 macOS DMG；两版使用同一版本号和构建号。
-两版的应用名称均为 **Plana App Desktop**，远端上传版在关于页另标明版本类型。
+标准版的默认分支与日常开发主线为 `main`，远端上传版使用
+`feature/remote-upload`。远端上传版只构建 macOS DMG；两版使用同一版本号
+和构建号，应用名称均为 **Plana App Desktop**。
 
-基于 Android 1.2.0 的桌面修订依次使用 `1.2.0-desktop.1`、
-`1.2.0-desktop.2` 等版本号，构建号独立递增；不占用上游的 `1.2.1`。
+## 开发与发布分支
 
-发版前将标准分支的版本提交合入特性分支。然后手动运行 **Build desktop**，
-选择 `editions=both`（默认值）。工作流会固定两个分支的提交 SHA，校验版本号及
-构建号一致。标准版与远端上传版使用独立流水线，每版的 macOS 构建只等待
-自己的分析与测试；另一版失败不会阻止本版构建。标准版的 Windows 构建
-也只等待标准版测试。`desktop-build-plan` 产物记录实际源码提交及架构。
+| 分支 | 用途 | 产物 |
+|---|---|---|
+| `main` | 标准版日常开发 | Windows x64、macOS ARM64 |
+| `feature/remote-upload` | 远端上传版日常开发 | macOS ARM64 |
+| `release/<版本号>` | 对应版本的标准版源码 | Windows x64、macOS ARM64 |
+| `release/remote-upload/<版本号>` | 对应版本的远端上传版源码 | macOS ARM64 |
 
-当前构建流程中，macOS 仅生成 **arm64** 包，暂停 Intel / x64 构建。
-`tool/build_macos_arm64.sh` 参考 Aaalice 的单架构构建流程，在编译期间排除
-x86_64，并裁剪预编译框架中的其他架构，然后重新签名；构建完成及 DMG
-挂载后均检查所有 Mach-O 文件只有 arm64，发现其他架构会中止产物上传。
-实际体积、签名与启动验证结果以对应版本的 GitHub Actions 构建记录为准。
+每次发版都保留两条对应版本的发布分支。完成发布后，后续开发继续写入开发
+分支；重建已发布版本时读取对应发布分支。发布标签必须指向标准版发布分支
+的提交。基于 Android 1.2.0 的桌面修订依次使用 `1.2.0-desktop.1`、
+`1.2.0-desktop.2` 等版本号，构建号独立递增。
 
-产物为：
+当前 `1.2.0-desktop.1` 的源码快照已保留：
 
-- `Plana-App-Desktop-macOS-arm64.dmg` 及对应 `.sha256`：标准版。
-- `Plana-App-Desktop-RemoteUpload-macOS-arm64.dmg` 及对应 `.sha256`：远端上传版。
-- `build_windows=true` 时额外构建标准 Windows 版；只要 DMG 时选 `false`。
+- 标准版：`release/1.2.0-desktop.1`，提交 `ab1e831`。
+- 远端上传版：`release/remote-upload/1.2.0-desktop.1`，提交 `ca37c7d`。
 
-发布时将两组 DMG 和校验文件放到同一 GitHub Release，先上传标准版 DMG，
-再上传远端上传版 DMG，以兼容早期客户端按第一个 DMG 选择安装包的行为。
+两条分支的提交取自该版本的实际构建计划。
+
+## 发版与重建流程
+
+1. 在 `main` 更新 `pubspec.yaml` 与 `lib/core/app_info.dart` 的版本号和构建号，
+   并将版本提交及待发布修复合入 `feature/remote-upload`。
+2. 从两条开发分支各创建对应版本的发布分支，并一起推送。例如下一版：
+
+   ```bash
+   git branch release/1.2.0-desktop.2 main
+   git branch release/remote-upload/1.2.0-desktop.2 feature/remote-upload
+   git push --atomic origin release/1.2.0-desktop.2 release/remote-upload/1.2.0-desktop.2
+   ```
+
+3. 手动运行 **Build desktop**，工作流分支选择 `main`，填写
+   `release_version=1.2.0-desktop.2`，选择 `editions=both`，默认同时构建标准版
+   Windows；只需要两份 DMG 时将 `build_windows` 设为 `false`。
+4. 检查两版测试及平台构建结果，将标准版发布分支的提交标记为
+   `v1.2.0-desktop.2`，上传安装包与校验文件，再公开 GitHub Release。
+
+填写 `release_version` 后，源码始终来自该版本的两条发布分支。
+`standard_ref` / `remote_ref` 用于开发构建。缺少发布分支、两版版本号或构建号
+不一致、版本与分支名称不符，以及标签指向其他提交时，工作流会提前失败。
+发布构建要求 `editions=both`。
+
+推送 `release/<版本号>` 或 `v*-desktop*` 标签也可触发对应版本的双版构建；
+带 `[skip ci]` 的提交使用上述手动入口构建。推送远端上传版的发布分支不重复
+触发整组构建，标准版发布分支会读取对应的远端上传版发布分支。
+
+两版各自固定提交 SHA，`desktop-build-plan.json` 记录版本号、分支和实际源码
+提交。标准版与远端上传版使用独立流水线，每版的 macOS 构建只等待自己的
+分析与测试；标准版 Windows 也只等待标准版测试。
+
+开发构建将 `release_version` 留空，可选择 `editions=both`、`standard` 或
+`remote-upload`。推送 `main` 构建标准版，推送 `feature/remote-upload` 只构建
+远端上传版。
+
+## 架构与产物
+
+当前 macOS 仅生成 **ARM64** 包。`tool/build_macos_arm64.sh` 在编译期间排除
+x86_64，裁剪预编译框架中的其他架构并重新签名；构建完成和 DMG 挂载后均
+检查 Mach-O 文件的架构。实际体积、签名与启动验证结果见对应 Actions 记录。
+
+- `Plana-App-Desktop-macOS-arm64.dmg` 及 `.sha256`：标准版。
+- `Plana-App-Desktop-RemoteUpload-macOS-arm64.dmg` 及 `.sha256`：远端上传版。
+- `build_windows=true` 时额外构建标准 Windows 版。
+
+将两组 DMG 和校验文件放到同一 GitHub Release，先上传标准版 DMG，再上传
+远端上传版 DMG，以兼容早期客户端按第一个 DMG 选择安装包的行为。
 当前客户端会按自身版本类型选择更新包，更新缓存也校验版本类型。
-
-推送 `v*-desktop*` 发布标签也会自动构建两版；标准版固定在该标签提交，
-远端上传版固定在特性分支提交，标签必须与源码版本相符。
-
-推送标准分支保留标准版构建；推送特性分支只验证和构建远端上传版，
-不会构建其 Windows 版。发布构建始终选择 `both`，版本不一致时会提前失败。
 
 ## 名称与升级兼容
 
