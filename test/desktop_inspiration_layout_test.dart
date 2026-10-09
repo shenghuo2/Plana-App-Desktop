@@ -107,7 +107,7 @@ void main() {
   });
   Finder key(String name) => find.byKey(ValueKey(name));
 
-  Future<void> mount(WidgetTester tester) async {
+  Future<void> mount(WidgetTester tester, {bool embedded = false}) async {
     tester.view.physicalSize = const Size(1500, 900);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
@@ -126,7 +126,20 @@ void main() {
                 fontFamily: 'Microsoft YaHei',
               ),
             ),
-            home: const InspirationPage(),
+            home: embedded
+                ? const Scaffold(
+                    body: Align(
+                      alignment: Alignment.topRight,
+                      child: SizedBox(
+                        width: 330,
+                        child: MediaQuery(
+                          data: MediaQueryData(size: Size(330, 900)),
+                          child: InspirationPage(embedded: true),
+                        ),
+                      ),
+                    ),
+                  )
+                : const InspirationPage(),
           ),
         ),
       ),
@@ -140,6 +153,267 @@ void main() {
     expect(tester.takeException(), isNull);
   }
 
+  void seedTagPools() {
+    File('${temp.path}/tag_library.json').writeAsStringSync(
+      jsonEncode({
+        'entries': [
+          ...entries.map((entry) => entry.toJson()),
+          for (final category in TagCategory.values)
+            TagEntry(
+              id: 'tail-${category.name}',
+              category: category,
+              name: '末尾标签测试',
+              positive: 'forest',
+              tags: const ['tag-39'],
+            ).toJson(),
+        ],
+        'pools': {
+          for (final category in TagCategory.values)
+            tagCategoryDef(category).webId: [
+              for (var i = 0; i < 40; i++)
+                'tag-${i.toString().padLeft(2, '0')}',
+              '非常长的标签名称，用于验证窄侧栏里完整标签仍然可以选择和取消',
+            ],
+        },
+      }),
+    );
+  }
+
+  testWidgets(
+    'all four tag pools scroll to their last tag and keep the selection visible',
+    (tester) async {
+      seedTagPools();
+      await mount(tester);
+      for (final category in TagCategory.values) {
+        await tester.tap(key('inspiration-category-${category.name}'));
+        await tester.pumpAndSettle();
+        final scope = tagCategoryDef(category).hasPublic
+            ? findsOneWidget
+            : findsNothing;
+        expect(key('inspiration-scope-mine'), scope);
+        expect(key('inspiration-scope-public'), scope);
+        final filters = tester.getRect(
+          key('inspiration-tag-filters-${category.name}'),
+        );
+        final manage = tester.getRect(key('inspiration-manage-tags'));
+        expect(manage.right, closeTo(filters.right, 0.01));
+        expect(
+          manage.center.dy,
+          closeTo(tester.getCenter(key('inspiration-all-tags')).dy, 0.01),
+        );
+        final count = find.text(
+          '${container.read(tagLibraryProvider).value!.of(category).length} 个条目',
+        );
+        expect(tester.getTopLeft(count).dx - manage.right, closeTo(12, 0.01));
+        if (!tagCategoryDef(category).hasPublic) {
+          expect(filters.left, 24);
+        }
+        final strip = key('inspiration-tag-strip');
+        await tester.sendEventToBinding(
+          PointerScrollEvent(
+            position: tester.getCenter(strip),
+            scrollDelta: const Offset(0, 5000),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(
+          find.widgetWithText(ChoiceChip, 'tag-39').hitTestable(),
+          findsOneWidget,
+        );
+        await tester.tap(find.widgetWithText(ChoiceChip, 'tag-39'));
+        await tester.pumpAndSettle();
+        expect(key('inspiration-tag-picker'), findsNothing);
+        expect(
+          find.widgetWithText(ChoiceChip, 'tag-39').hitTestable(),
+          findsOneWidget,
+        );
+        expect(key('inspiration-card-tail-${category.name}'), findsOneWidget);
+        if (category == TagCategory.character) {
+          expect(key('inspiration-card-char0'), findsNothing);
+        }
+        await tester.tap(find.widgetWithText(ChoiceChip, 'tag-39'));
+        await tester.pumpAndSettle();
+        expect(
+          tester
+              .widget<ChoiceChip>(find.widgetWithText(ChoiceChip, '全部'))
+              .selected,
+          isTrue,
+        );
+      }
+      await captureDesktop(tester, capture, 'desktop-inspiration-tag-filters');
+      await finish(tester);
+    },
+  );
+
+  testWidgets(
+    'mouse drag, horizontal wheel and arrows browse tags without selecting them',
+    (tester) async {
+      seedTagPools();
+      await mount(tester);
+      final strip = key('inspiration-tag-strip');
+      final scroll = tester.widget<SingleChildScrollView>(strip).controller!;
+      await tester.drag(
+        strip,
+        const Offset(-280, 0),
+        kind: PointerDeviceKind.mouse,
+      );
+      await tester.pumpAndSettle();
+      expect(scroll.offset, greaterThan(0));
+      expect(key('inspiration-card-char0'), findsOneWidget);
+      expect(
+        tester
+            .widget<ChoiceChip>(find.widgetWithText(ChoiceChip, '全部'))
+            .selected,
+        isTrue,
+      );
+
+      final afterDrag = scroll.offset;
+      await tester.sendEventToBinding(
+        PointerScrollEvent(
+          position: tester.getCenter(strip),
+          scrollDelta: const Offset(-120, 0),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(scroll.offset, lessThan(afterDrag));
+
+      final tail = find.widgetWithText(ChoiceChip, 'tag-39');
+      for (var i = 0; i < 20 && tail.hitTestable().evaluate().isEmpty; i++) {
+        await tester.tap(key('inspiration-tags-right'));
+        await tester.pumpAndSettle();
+      }
+      expect(tail.hitTestable(), findsOneWidget);
+      await tester.tap(tail);
+      await tester.pumpAndSettle();
+      expect(key('inspiration-card-char0'), findsNothing);
+      expect(key('inspiration-card-tail-character'), findsOneWidget);
+      await tester.tap(find.widgetWithText(ChoiceChip, '全部'));
+      await tester.pumpAndSettle();
+      expect(key('inspiration-card-char0'), findsOneWidget);
+
+      await tester.sendEventToBinding(
+        PointerScrollEvent(
+          position: tester.getCenter(strip),
+          scrollDelta: const Offset(-5000, 0),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(scroll.offset, 0);
+      expect(
+        tester.widget<IconButton>(key('inspiration-tags-left')).onPressed,
+        isNull,
+      );
+      await finish(tester);
+    },
+  );
+
+  testWidgets(
+    'tag search, Enter, dismissal and deleted filters preserve the right results',
+    (tester) async {
+      seedTagPools();
+      await mount(tester);
+      await tester.tap(key('inspiration-all-tags'));
+      await tester.pumpAndSettle();
+      await tester.enterText(key('inspiration-tag-search'), 'TAG-39');
+      await tester.pumpAndSettle();
+      expect(find.widgetWithText(ListTile, 'tag-39'), findsOneWidget);
+      expect(find.widgetWithText(ListTile, 'tag-00'), findsNothing);
+      await captureDesktop(tester, capture, 'desktop-inspiration-tag-search');
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.pumpAndSettle();
+      expect(key('inspiration-card-char0'), findsNothing);
+      expect(key('inspiration-card-tail-character'), findsOneWidget);
+
+      await tester.tap(key('inspiration-all-tags'));
+      await tester.pumpAndSettle();
+      await tester.enterText(key('inspiration-tag-search'), 'missing-tag');
+      await tester.pumpAndSettle();
+      expect(find.text('没有匹配的标签'), findsOneWidget);
+      await tester.tap(find.byTooltip('清空搜索'));
+      await tester.pumpAndSettle();
+      expect(key('inspiration-tag-list'), findsOneWidget);
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+      expect(key('inspiration-card-char0'), findsNothing);
+
+      await tester.tap(key('inspiration-all-tags'));
+      await tester.pumpAndSettle();
+      await tester.tap(key('inspiration-tag-clear'));
+      await tester.pumpAndSettle();
+      expect(key('inspiration-card-char0'), findsOneWidget);
+
+      await tester.tap(find.widgetWithText(ChoiceChip, '收藏'));
+      await tester.pumpAndSettle();
+      await tester.tap(key('inspiration-all-tags'));
+      await tester.pumpAndSettle();
+      await tester.enterText(key('inspiration-tag-search'), 'tag-39');
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.pumpAndSettle();
+      expect(key('inspiration-card-tail-character'), findsOneWidget);
+      await tester.runAsync(
+        () => container
+            .read(tagLibraryProvider.notifier)
+            .removePoolTag(TagCategory.character, 'tag-39'),
+      );
+      await tester.pumpAndSettle();
+      expect(find.widgetWithText(ChoiceChip, 'tag-39'), findsNothing);
+      expect(key('inspiration-card-char0'), findsOneWidget);
+      expect(
+        tester
+            .widget<ChoiceChip>(find.widgetWithText(ChoiceChip, '全部'))
+            .selected,
+        isTrue,
+      );
+      await finish(tester);
+    },
+  );
+
+  testWidgets(
+    'narrow embedded tag pools support long labels and anchored selection',
+    (tester) async {
+      seedTagPools();
+      await mount(tester, embedded: true);
+      final filters = tester.getRect(key('inspiration-tag-filters-character'));
+      expect(
+        tester.getRect(key('inspiration-manage-tags')).right,
+        closeTo(filters.right, 0.01),
+      );
+      expect(
+        tester.getTopLeft(key('inspiration-all-tags')).dy,
+        greaterThan(
+          tester.getBottomLeft(find.widgetWithText(ChoiceChip, '全部')).dy,
+        ),
+      );
+      await tester.tap(key('inspiration-all-tags'));
+      await tester.pumpAndSettle();
+      final panel = tester.getRect(key('inspiration-tag-picker'));
+      expect(panel.right, lessThanOrEqualTo(1500));
+      expect(panel.width, 360);
+      await tester.enterText(key('inspiration-tag-search'), '非常长的标签名称');
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.pumpAndSettle();
+      final longChip = find.widgetWithText(
+        ChoiceChip,
+        '非常长的标签名称，用于验证窄侧栏里完整标签仍然可以选择和取消',
+      );
+      expect(longChip.hitTestable(), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await captureDesktop(
+        tester,
+        capture,
+        'desktop-inspiration-embedded-tags',
+      );
+      await tester.tap(longChip);
+      await tester.pumpAndSettle();
+      await tester.tap(key('inspiration-manage-tags'));
+      await tester.pumpAndSettle();
+      expect(find.text('角色标签池'), findsOneWidget);
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+      await finish(tester);
+    },
+  );
+
   testWidgets(
     'desktop toolbar, responsive cards, filters and details preserve browsing state',
     (tester) async {
@@ -147,8 +421,11 @@ void main() {
       final search = key('tag-search-character');
       expect(tester.getSize(search).width, 300);
       expect(
-        tester.getTopLeft(search).dy,
-        closeTo(tester.getTopLeft(key('inspiration-category-character')).dy, 4),
+        tester.getCenter(search).dy,
+        closeTo(
+          tester.getCenter(key('inspiration-category-character')).dy,
+          0.01,
+        ),
       );
       expect(
         tester.getTopLeft(key('inspiration-card-char0')).dy,
@@ -191,8 +468,13 @@ void main() {
       expect(key('inspiration-card-char1'), findsNothing);
       await tester.tap(key('inspiration-category-scene'));
       await tester.pumpAndSettle();
+      expect(key('inspiration-scope-mine'), findsNothing);
       expect(key('inspiration-scope-public'), findsNothing);
       expect(key('inspiration-card-scene0'), findsOneWidget);
+      await tester.tap(key('inspiration-category-other'));
+      await tester.pumpAndSettle();
+      expect(key('inspiration-scope-mine'), findsNothing);
+      expect(key('inspiration-scope-public'), findsNothing);
       await finish(tester);
     },
   );

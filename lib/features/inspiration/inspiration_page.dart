@@ -27,6 +27,7 @@ import 'public_tags.dart';
 import 'tag_editor_page.dart';
 import 'tag_library.dart';
 import 'tag_models.dart';
+import 'widgets/desktop_tag_filter_bar.dart';
 import 'widgets/tag_filter_sheet.dart';
 import 'widgets/tag_sheets.dart';
 import '../../core/util/haptics.dart';
@@ -604,68 +605,13 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
       body: Column(
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(24, 12, 24, 8),
+            padding: const EdgeInsets.fromLTRB(24, 16, 24, 8),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        '灵感',
-                        style: context.texts.titleMedium!.copyWith(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                    if (!_codex) ...[
-                      if (_cat == TagCategory.scene ||
-                          _cat == TagCategory.other)
-                        TextButton.icon(
-                          key: const ValueKey('inspiration-add-examples'),
-                          onPressed: _busy ? null : _addPreviewExamples,
-                          icon: const Icon(
-                            Icons.photo_library_outlined,
-                            size: 18,
-                          ),
-                          label: const Text('添加预览示例'),
-                        ),
-                      IconButton(
-                        tooltip: '数据备份',
-                        onPressed: () => showTagBackupSheet(context, ref),
-                        icon: const Icon(Icons.cloud_outlined, size: 21),
-                      ),
-                      const SizedBox(width: 8),
-                      FilledButton.icon(
-                        key: const ValueKey('inspiration-new'),
-                        onPressed: () => showTagEditor(context, cat: _cat),
-                        icon: const Icon(Icons.add, size: 18),
-                        label: Text(
-                          '新建${_cat == TagCategory.other ? '提示词' : _def.label}',
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-                const SizedBox(height: 10),
                 LayoutBuilder(
                   builder: (context, constraints) {
-                    final categories = Wrap(
-                      spacing: 6,
-                      runSpacing: 6,
-                      children: [
-                        for (final category in TagCategory.values)
-                          _desktopCategory(
-                            category,
-                            category == TagCategory.other
-                                ? '提示词'
-                                : tagCategoryDef(category).label,
-                            !_codex && category == _cat,
-                          ),
-                        _desktopCategory(_kCodexSel, '法典', _codex),
-                      ],
-                    );
+                    final categories = _desktopCategories(scheme);
                     final search = TextField(
                       key: ValueKey('tag-search-${_def.webId}'),
                       controller: _searchController,
@@ -695,34 +641,68 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
                         ),
                       ),
                     );
-                    if (_codex) {
-                      if (constraints.maxWidth < 760) {
-                        return Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            categories,
-                            const SizedBox(height: 8),
-                            const CodexPickerButton(),
-                          ],
-                        );
-                      }
-                      return Row(
-                        children: [
-                          Expanded(child: categories),
-                          const SizedBox(
-                            width: 300,
-                            child: CodexPickerButton(),
-                          ),
-                        ],
-                      );
-                    }
-                    if (constraints.maxWidth < 760) {
+                    final tools = _codex
+                        ? const SizedBox(width: 300, child: CodexPickerButton())
+                        : Wrap(
+                            alignment: WrapAlignment.end,
+                            spacing: 12,
+                            runSpacing: 8,
+                            crossAxisAlignment: WrapCrossAlignment.center,
+                            children: [
+                              SizedBox(width: 300, child: search),
+                              Wrap(
+                                alignment: WrapAlignment.end,
+                                spacing: 8,
+                                runSpacing: 6,
+                                crossAxisAlignment: WrapCrossAlignment.center,
+                                children: [
+                                  if (_cat == TagCategory.scene ||
+                                      _cat == TagCategory.other)
+                                    TextButton.icon(
+                                      key: const ValueKey(
+                                        'inspiration-add-examples',
+                                      ),
+                                      onPressed: _busy
+                                          ? null
+                                          : _addPreviewExamples,
+                                      icon: const Icon(
+                                        Icons.photo_library_outlined,
+                                        size: 18,
+                                      ),
+                                      label: const Text('添加预览示例'),
+                                    ),
+                                  IconButton(
+                                    tooltip: '数据备份',
+                                    onPressed: () =>
+                                        showTagBackupSheet(context, ref),
+                                    icon: const Icon(
+                                      Icons.cloud_outlined,
+                                      size: 21,
+                                    ),
+                                  ),
+                                  FilledButton.icon(
+                                    key: const ValueKey('inspiration-new'),
+                                    onPressed: () =>
+                                        showTagEditor(context, cat: _cat),
+                                    icon: const Icon(Icons.add, size: 18),
+                                    label: Text(
+                                      '新建${_cat == TagCategory.other ? '提示词' : _def.label}',
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          );
+                    final textScale =
+                        MediaQuery.textScalerOf(context).scale(15) / 15;
+                    if (constraints.maxWidth <
+                        (_codex ? 960 : 1320) * textScale) {
                       return Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
                           categories,
-                          const SizedBox(height: 8),
-                          search,
+                          const SizedBox(height: 12),
+                          Align(alignment: Alignment.centerRight, child: tools),
                         ],
                       );
                     }
@@ -730,34 +710,35 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
                       children: [
                         Expanded(child: categories),
                         const SizedBox(width: 16),
-                        SizedBox(width: 300, child: search),
+                        tools,
                       ],
                     );
                   },
                 ),
                 if (!_codex) ...[
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 12),
                   Row(
                     children: [
-                      ChoiceChip(
-                        key: const ValueKey('inspiration-scope-mine'),
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 4,
-                        ),
-                        labelStyle: const TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                        ),
-                        avatar: const Icon(Icons.bookmark_outline, size: 17),
-                        visualDensity: VisualDensity.compact,
-                        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        label: Text('我的 · ${mine.length}'),
-                        selected: !public,
-                        showCheckmark: false,
-                        onSelected: (_) => _tab.animateTo(0),
-                      ),
                       if (_def.hasPublic) ...[
+                        ChoiceChip(
+                          key: const ValueKey('inspiration-scope-mine'),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 4,
+                          ),
+                          labelStyle: const TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                          ),
+                          avatar: const Icon(Icons.bookmark_outline, size: 17),
+                          visualDensity: VisualDensity.compact,
+                          materialTapTargetSize:
+                              MaterialTapTargetSize.shrinkWrap,
+                          label: Text('我的 · ${mine.length}'),
+                          selected: !public,
+                          showCheckmark: false,
+                          onSelected: (_) => _tab.animateTo(0),
+                        ),
                         const SizedBox(width: 8),
                         ChoiceChip(
                           key: const ValueKey('inspiration-scope-public'),
@@ -780,7 +761,7 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
                         ),
                       ],
                       if (!public && inlineFilters) ...[
-                        const SizedBox(width: 18),
+                        if (_def.hasPublic) const SizedBox(width: 18),
                         Expanded(child: _filterChips(lib)),
                         const SizedBox(width: 12),
                       ] else
@@ -834,32 +815,131 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
     );
   }
 
-  Widget _desktopCategory(
-    Object category,
-    String label,
-    bool selected,
-  ) => TextButton(
-    key: ValueKey(
-      'inspiration-category-${category is TagCategory ? category.name : 'codex'}',
-    ),
-    onPressed: () => _onPickCat(category),
-    style: TextButton.styleFrom(
-      minimumSize: const Size(68, 36),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-      backgroundColor: selected
-          ? context.scheme.primaryContainer
-          : Colors.transparent,
-      foregroundColor: selected
-          ? context.scheme.onPrimaryContainer
-          : context.scheme.onSurface,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-    ),
-    child: Text(
-      label,
-      style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
-    ),
+  Widget _desktopCategories(ColorScheme scheme) => LayoutBuilder(
+    builder: (context, constraints) {
+      final library = DecoratedBox(
+        decoration: BoxDecoration(
+          color: scheme.surfaceContainer,
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(4),
+          child: Wrap(
+            spacing: 4,
+            runSpacing: 4,
+            children: [
+              for (final category in TagCategory.values)
+                _desktopCategory(
+                  category,
+                  category == TagCategory.other
+                      ? '提示词'
+                      : tagCategoryDef(category).label,
+                  !_codex && category == _cat,
+                ),
+            ],
+          ),
+        ),
+      );
+      final codex = Tooltip(
+        message: '在线法典图鉴',
+        child: _desktopCategory(_kCodexSel, '法典', _codex),
+      );
+      final textScale = MediaQuery.textScalerOf(context).scale(15) / 15;
+      if (constraints.maxWidth < 620 * textScale) {
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            library,
+            const SizedBox(height: 10),
+            Divider(
+              key: const ValueKey('inspiration-codex-divider'),
+              height: 1,
+              color: scheme.outlineVariant,
+            ),
+            const SizedBox(height: 10),
+            codex,
+          ],
+        );
+      }
+      return Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          library,
+          const SizedBox(width: 14),
+          SizedBox(
+            height: 32,
+            child: VerticalDivider(
+              key: const ValueKey('inspiration-codex-divider'),
+              width: 1,
+              color: scheme.outlineVariant,
+            ),
+          ),
+          const SizedBox(width: 14),
+          codex,
+        ],
+      );
+    },
   );
+
+  Widget _desktopCategory(Object category, String label, bool selected) {
+    final scheme = context.scheme;
+    final isCodex = category == _kCodexSel;
+    final foreground = selected
+        ? scheme.onPrimary
+        : isCodex
+        ? scheme.onSecondaryContainer
+        : scheme.onSurfaceVariant;
+    return Semantics(
+      selected: selected,
+      child: TextButton.icon(
+        key: ValueKey(
+          'inspiration-category-${category is TagCategory ? category.name : 'codex'}',
+        ),
+        onPressed: () => _onPickCat(category),
+        style: TextButton.styleFrom(
+          minimumSize: const Size(104, 48),
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          backgroundColor: selected
+              ? scheme.primary
+              : isCodex
+              ? scheme.secondaryContainer
+              : scheme.surfaceContainerLow,
+          foregroundColor: foreground,
+          textStyle: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
+        ),
+        icon: Icon(
+          category is TagCategory
+              ? tagCategoryDef(category).icon
+              : Icons.menu_book_outlined,
+          size: 20,
+        ),
+        label: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(label),
+            if (isCodex) ...[
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: foreground.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(5),
+                ),
+                child: const Text(
+                  '在线',
+                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.w500),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
 
   Widget _topBar(ColorScheme scheme, TagLibraryState lib) {
     if (widget.embedded) {
@@ -1347,6 +1427,20 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
     final scheme = context.scheme;
     final tags = lib.knownTags(_cat);
     final filter = _validFilter(lib);
+    if (ref.watch(desktopModeProvider)) {
+      return Padding(
+        padding: EdgeInsets.symmetric(horizontal: _desktopLibrary ? 0 : _kEdge),
+        child: DesktopTagFilterBar(
+          key: ValueKey('inspiration-tag-filters-${_cat.name}'),
+          tags: tags,
+          selectedTag: filter == _kFavFilter ? null : filter,
+          favoritesSelected: filter == _kFavFilter,
+          onTagSelected: (tag) => setState(() => _filter = tag),
+          onFavoritesSelected: () => setState(() => _filter = _kFavFilter),
+          onManage: (anchor) => showTagPoolSheet(anchor, ref, _cat),
+        ),
+      );
+    }
     Widget chip(String label, bool sel, VoidCallback onTap, {IconData? icon}) =>
         Padding(
           padding: const EdgeInsets.only(right: 8),
