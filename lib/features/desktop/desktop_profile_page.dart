@@ -115,49 +115,45 @@ class _DesktopProfilePageState extends ConsumerState<DesktopProfilePage>
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      '我的',
-                      style: context.texts.headlineSmall!.copyWith(
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                  if (!sidebar)
-                    PopupMenuButton<_Section>(
-                      key: const ValueKey('profile-section-menu'),
-                      tooltip: '设置分类',
-                      initialValue: _selected,
-                      onSelected: _select,
-                      itemBuilder: (context) => [
-                        for (final section in sections)
-                          CheckedPopupMenuItem(
-                            value: section,
-                            checked: section == _selected,
-                            child: Text(section.label),
-                          ),
-                      ],
-                      child: Padding(
-                        padding: const EdgeInsets.all(8),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(_selected.label),
-                            const SizedBox(width: 8),
-                            const Icon(Icons.expand_more, size: 18),
-                          ],
+              Padding(
+                padding: EdgeInsets.only(left: sidebar ? 22 : 0),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        '账户、创作偏好与应用设置',
+                        style: context.texts.bodySmall!.copyWith(
+                          color: scheme.onSurfaceVariant,
                         ),
                       ),
                     ),
-                ],
-              ),
-              const SizedBox(height: 6),
-              Text(
-                '账户、创作偏好与应用设置',
-                style: context.texts.bodySmall!.copyWith(
-                  color: scheme.onSurfaceVariant,
+                    if (!sidebar)
+                      PopupMenuButton<_Section>(
+                        key: const ValueKey('profile-section-menu'),
+                        tooltip: '设置分类',
+                        initialValue: _selected,
+                        onSelected: _select,
+                        itemBuilder: (context) => [
+                          for (final section in sections)
+                            CheckedPopupMenuItem(
+                              value: section,
+                              checked: section == _selected,
+                              child: Text(section.label),
+                            ),
+                        ],
+                        child: Padding(
+                          padding: const EdgeInsets.all(8),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(_selected.label),
+                              const SizedBox(width: 8),
+                              const Icon(Icons.expand_more, size: 18),
+                            ],
+                          ),
+                        ),
+                      ),
+                  ],
                 ),
               ),
               const SizedBox(height: 18),
