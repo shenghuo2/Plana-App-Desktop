@@ -7,8 +7,9 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 Future<void> loadDesktopCaptureFonts() async {
-  if (!Platform.isWindows ||
-      Platform.environment['PLANA_DESKTOP_CAPTURE'] != '1') {
+  final fontDirectory = Platform.environment['PLANA_DESKTOP_CAPTURE_FONT_DIR'];
+  if (Platform.environment['PLANA_DESKTOP_CAPTURE'] != '1' ||
+      (!Platform.isWindows && fontDirectory == null)) {
     return;
   }
   for (final font in [
@@ -19,7 +20,11 @@ Future<void> loadDesktopCaptureFonts() async {
       r'D:\Android\flutter\bin\cache\artifacts\material_fonts\MaterialIcons-Regular.otf',
     ),
   ]) {
-    final file = File(font.$2);
+    final file = File(
+      fontDirectory == null
+          ? font.$2
+          : '$fontDirectory/${font.$2.split(r'\').last}',
+    );
     if (file.existsSync()) {
       await (FontLoader(
         font.$1,
