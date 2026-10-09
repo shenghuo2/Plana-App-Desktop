@@ -20,6 +20,7 @@ import 'package:plana_app/features/inspiration/tag_library.dart';
 import 'package:plana_app/features/inspiration/tag_models.dart';
 
 import 'support/desktop_capture.dart';
+import 'support/pump_until.dart';
 
 class _Acknowledged extends CodexIntro {
   @override
@@ -69,6 +70,7 @@ void main() {
       positive: 'cherry blossoms',
     ),
   ];
+  var maskPublic = false;
   const publicEntry = TagEntry(
     id: 'pub_cat',
     category: TagCategory.character,
@@ -80,6 +82,7 @@ void main() {
 
   setUpAll(loadDesktopCaptureFonts);
   setUp(() {
+    maskPublic = false;
     FlutterSecureStorage.setMockInitialValues({});
     temp = Directory.systemTemp.createTempSync('plana_inspiration_layout_');
     File('${temp.path}/tag_library.json').writeAsStringSync(
@@ -113,7 +116,9 @@ void main() {
         ),
         codexTagZhProvider.overrideWith((ref, id) async => null),
         publicTagsProvider.overrideWith(
-          (ref, cat) async => cat == TagCategory.character ? [publicEntry] : [],
+          (ref, cat) async => cat == TagCategory.character
+              ? [publicEntry.copyWith(mosaic: maskPublic)]
+              : [],
         ),
         tagAuthorNamesProvider.overrideWith((ref) async => {'10001': '示例作者'}),
         tagTranslationServiceProvider.overrideWith((ref) {
@@ -725,6 +730,95 @@ void main() {
             .length,
         1,
       );
+      await finish(tester);
+    },
+  );
+  testWidgets(
+    'desktop public mosaic reveals before selection and survives a scope switch',
+    (tester) async {
+      maskPublic = true;
+      await mount(tester);
+      await tester.tap(key('inspiration-scope-public'));
+      await tester.pumpAndSettle();
+      expect(find.byIcon(Icons.visibility_off_outlined), findsOneWidget);
+      final card = key('inspiration-card-pub_cat');
+      final check = key('inspiration-select-pub_cat');
+      expect(tester.widget<Checkbox>(check).value, isFalse);
+      await tester.tap(card);
+      await tester.pumpAndSettle();
+      expect(find.byIcon(Icons.visibility_off_outlined), findsNothing);
+      expect(tester.widget<Checkbox>(check).value, isFalse);
+      await tester.tap(card);
+      await tester.pumpAndSettle();
+      expect(tester.widget<Checkbox>(check).value, isTrue);
+      await tester.tap(key('inspiration-scope-mine'));
+      await tester.pumpAndSettle();
+      await tester.tap(key('inspiration-scope-public'));
+      await tester.pumpAndSettle();
+      expect(find.byIcon(Icons.visibility_off_outlined), findsNothing);
+      await finish(tester);
+    },
+  );
+
+  testWidgets(
+    'mouse grips reorder all four pools and persist the displayed filter order',
+    (tester) async {
+      seedTagPools();
+      await mount(tester);
+      for (final cat in TagCategory.values) {
+        await tester.tap(key('inspiration-category-${cat.name}'));
+        await tester.pumpAndSettle();
+        final before = container.read(tagLibraryProvider).value!.knownTags(cat);
+        await tester.tap(key('inspiration-manage-tags'));
+        await tester.pumpAndSettle();
+        final from = key('tag-pool-drag-${before[0]}');
+        final to = key('tag-pool-drag-${before[1]}');
+        final start = tester.getCenter(from);
+        final end = tester.getCenter(to) + const Offset(0, 12);
+        final gesture = await tester.startGesture(
+          start,
+          kind: PointerDeviceKind.mouse,
+        );
+        for (var i = 1; i <= 12; i++) {
+          await gesture.moveTo(Offset.lerp(start, end, i / 12)!);
+          await tester.pump(const Duration(milliseconds: 50));
+        }
+        await tester.pump(const Duration(milliseconds: 300));
+        await gesture.up();
+        await tester.pumpAndSettle();
+        final order = container.read(tagLibraryProvider).value!.knownTags(cat);
+        expect(order.take(2), [before[1], before[0]]);
+        await pumpUntilComplete(
+          tester,
+          container.read(tagLibraryProvider.notifier).settled,
+        );
+        final disk =
+            jsonDecode(File('${temp.path}/tag_library.json').readAsStringSync())
+                as Map;
+        expect((disk['pools'] as Map)[tagCategoryDef(cat).webId], order);
+        await tester.tap(find.byTooltip('关闭'));
+        await tester.pumpAndSettle();
+        expect(
+          tester
+              .getRect(
+                find.descendant(
+                  of: key('inspiration-tag-strip'),
+                  matching: find.text(before[1]),
+                ),
+              )
+              .left,
+          lessThan(
+            tester
+                .getRect(
+                  find.descendant(
+                    of: key('inspiration-tag-strip'),
+                    matching: find.text(before[0]),
+                  ),
+                )
+                .left,
+          ),
+        );
+      }
       await finish(tester);
     },
   );

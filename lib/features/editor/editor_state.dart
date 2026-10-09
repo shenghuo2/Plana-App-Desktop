@@ -313,6 +313,12 @@ class EditorNotifier extends Notifier<EditorState> {
           promptRaw: posRaw,
           negativePromptRaw: negRaw,
           promptFoldLinks: links,
+          sections: p.prompt != pos && pos.trim().isNotEmpty
+              ? normalizeSections([
+                  for (final section in p.sections)
+                    section.isMain ? section.copyWith(enabled: true) : section,
+                ])
+              : null,
         );
       }
       final c = p.characters.where((c) => c.id == id).firstOrNull;

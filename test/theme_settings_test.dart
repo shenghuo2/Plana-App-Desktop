@@ -70,4 +70,25 @@ void main() {
     expect(ThemeSettings.fromJson(changed.toJson()), changed);
     expect(settings, isNot(settings.copyWith(showTools: true)));
   });
+  test(
+    'compact character cards default off and preserve desktop preferences',
+    () {
+      expect(ThemeSettings.fromJson({}).compactCharCards, isFalse);
+      expect(
+        ThemeSettings.fromJson({'compactCharCards': 1}).compactCharCards,
+        isFalse,
+      );
+      const settings = ThemeSettings(
+        compactCharCards: true,
+        textScale: 1.2,
+        showTools: false,
+      );
+      expect(ThemeSettings.fromJson(settings.toJson()), settings);
+      final changed = settings.copyWith(seedKey: 'teal');
+      expect(changed.compactCharCards, isTrue);
+      expect(changed.showTools, isFalse);
+      expect(changed.textScale, 1.2);
+      expect(settings.copyWith(compactCharCards: false), isNot(settings));
+    },
+  );
 }
