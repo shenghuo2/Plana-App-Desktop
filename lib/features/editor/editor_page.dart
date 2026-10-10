@@ -50,11 +50,15 @@ class EditorPage extends ConsumerStatefulWidget {
     required this.positive,
     this.charId,
     this.embedded = false,
+    this.floatingPanels = false,
     this.sectionId,
   });
 
   final bool positive;
   final bool embedded;
+
+  /// Desktop dialog actions float at the selection without resizing the editor.
+  final bool floatingPanels;
 
   /// 编辑目标:null = 创作页主提示词,否则 = 该 id 的角色提示词。
   final String? charId;
@@ -382,7 +386,9 @@ class _EditorPageState extends ConsumerState<EditorPage>
     if (_muting) return;
     final prevSel = _prevSel;
     _prevSel = _controller.selection;
-    if (widget.embedded && !_chipMode && _prevSel != prevSel) {
+    if ((widget.embedded || widget.floatingPanels) &&
+        !_chipMode &&
+        _prevSel != prevSel) {
       setState(() => _panelAnchorRevision++);
     }
     final text = _controller.text;
@@ -1659,7 +1665,8 @@ class _EditorPageState extends ConsumerState<EditorPage>
     // 权重面板(词条栏 / 批量面板)一弹出,顶栏就让位;补全条不算。
     // 拖光标期间 dock 是冻住的那份,顶栏跟着不动,松手再定。
     final dock = _dock();
-    final weightDock = dock is TagPanel || dock is BatchPanel;
+    final weightDock =
+        !widget.floatingPanels && (dock is TagPanel || dock is BatchPanel);
 
     if (widget.embedded) {
       final prefix = widget.charId != null
@@ -1806,131 +1813,159 @@ class _EditorPageState extends ConsumerState<EditorPage>
               _setChipSel({});
             }
           },
-          child: Scaffold(
-            body: SafeArea(
-              child: Column(
-                children: [
-                  // 滚动正文时、或权重面板在时整栏收起:贴底对齐 + 裁切,
-                  // 读起来是往上滑走。见 [_onContentScroll]。
-                  ClipRect(
-                    child: AnimatedAlign(
-                      duration: Motion.fast,
-                      curve: Motion.standard,
-                      alignment: Alignment.bottomCenter,
-                      heightFactor: _chromeHidden || weightDock ? 0 : 1,
-                      child: EditorTopBar(
-                        charName: _charName,
-                        character: widget.charId != null,
-                        sectionId: widget.charId == null
-                            ? widget.sectionId
-                            : null,
-                        onBack: () {
-                          // 先收键盘再出栈:让退场动画一开始就是完整半屏,
-                          // 不是「键盘收一半、页面滑一半」两段各走各的
-                          _dismissKeyboard();
-                          Navigator.of(context).maybePop();
-                        },
-                        onSettings: _openSettings,
-                      ),
-                    ),
-                  ),
-                  Expanded(
-                    // 两种正文形态。切正/负时编辑区随方向轻滑 + 淡入
-                    // (单实例,不复制 TextField——controller/focus 不能
-                    // 同时挂两棵树)
-                    child: NotificationListener<ScrollNotification>(
-                      onNotification: _onContentScroll,
-                      child: settings.chipMode
-                          ? ChipFlowView(
-                              controller: _controller,
-                              foldBodies: foldBodies,
-                              selection: _chipSel,
-                              onSelectionChanged: _setChipSel,
-                              onLongPressChip: _chipLongPress,
-                              onMove: _moveUnits,
-                              input: _input,
-                              inputFocus: _inputFocus,
-                              onInputChanged: _onInputChanged,
-                              onInputSubmitted: (_) => _commitInput(),
-                              placing: _chipPlacing,
-                              translating: _transSvc.isPending,
-                              showTrans: settings.showTranslation,
-                              fontSize: settings.chipFontSize,
-                            )
-                          : ClipRect(
-                              child: SlideTransition(
-                                position: _tabSlide,
-                                child: FadeTransition(
-                                  opacity: _tabAnim.drive(
-                                    Tween(begin: .25, end: 1.0),
-                                  ),
-                                  child: AnnotatedField(
-                                    controller: _controller,
-                                    focusNode: _focus,
-                                    scrollController: _scroll,
-                                    showTrans: settings.showTranslation,
-                                    showWeightWash: settings.showWeightWash,
-                                    fontSize: settings.fontSize,
-                                    onCursorDrag: _setCursorDragging,
-                                    onFoldTap: _unfoldByName,
-                                    hint: '点击输入标签,可输入中文自动触发翻译与联想',
-                                  ),
-                                ),
-                              ),
-                            ),
-                    ),
-                  ),
-                  // 滚动收起:贴顶对齐 + 裁切,往下沉进底栏后面。补全条不收。
-                  ClipRect(
-                    child: AnimatedAlign(
-                      duration: Motion.fast,
-                      curve: Motion.standard,
-                      alignment: Alignment.topCenter,
-                      heightFactor: _chromeHidden && _query.isEmpty ? 0 : 1,
-                      // 拖光标期间只是**淡出**,位置照占:见 [_setCursorDragging]。
-                      child: AnimatedOpacity(
-                        duration: Motion.quick,
+          child: DesktopTagPopover(
+            visible:
+                widget.floatingPanels &&
+                !_cursorDragging &&
+                !_chipDragging &&
+                (_panelTok != null ||
+                    _multiRange != null ||
+                    _chipSel.isNotEmpty),
+            anchor: _desktopPanelAnchor,
+            anchorRevision: _panelAnchorRevision,
+            panel: _query.isEmpty ? dock : const SizedBox.shrink(),
+            onDismiss: _dismissDesktopPanel,
+            child: Scaffold(
+              body: SafeArea(
+                child: Column(
+                  children: [
+                    // 滚动正文时、或权重面板在时整栏收起:贴底对齐 + 裁切,
+                    // 读起来是往上滑走。见 [_onContentScroll]。
+                    ClipRect(
+                      child: AnimatedAlign(
+                        duration: Motion.fast,
                         curve: Motion.standard,
-                        opacity: _cursorDragging ? 0 : 1,
-                        child: IgnorePointer(
-                          ignoring: _cursorDragging,
-                          child:
-                              // dock 入场:淡入 + 轻微上滑(高度瞬时占位,不撑盒子,避免橡皮筋)
-                              // 离场(关面板/收补全)比入场快:走了就别在路上磨蹭。
-                              AnimatedSwitcher(
-                                duration: Motion.fast,
-                                reverseDuration: Motion.quick,
-                                switchInCurve: Motion.emphasized,
-                                switchOutCurve: Motion.standard,
-                                layoutBuilder: (current, previous) => Stack(
-                                  alignment: Alignment.bottomCenter,
-                                  children: [...previous, ?current],
-                                ),
-                                transitionBuilder: (child, anim) =>
-                                    FadeTransition(
-                                      opacity: anim,
-                                      child: SlideTransition(
-                                        position: Tween<Offset>(
-                                          begin: const Offset(0, 0.06),
-                                          end: Offset.zero,
-                                        ).animate(anim),
-                                        child: child,
-                                      ),
-                                    ),
-                                child: dock,
-                              ),
+                        alignment: Alignment.bottomCenter,
+                        heightFactor: _chromeHidden || weightDock ? 0 : 1,
+                        child: EditorTopBar(
+                          charName: _charName,
+                          character: widget.charId != null,
+                          sectionId: widget.charId == null
+                              ? widget.sectionId
+                              : null,
+                          onBack: () {
+                            // 先收键盘再出栈:让退场动画一开始就是完整半屏,
+                            // 不是「键盘收一半、页面滑一半」两段各走各的
+                            _dismissKeyboard();
+                            Navigator.of(context).maybePop();
+                          },
+                          onSettings: _openSettings,
                         ),
                       ),
                     ),
-                  ),
-                  EditorBottomBar(
-                    onToggleMode: _toggleChipMode,
-                    chipMode: settings.chipMode,
-                    trayOpen: _trayOpen,
-                    onToggleTray: _toggleTray,
-                    onInsertFavorite: _insertFavorite,
-                  ),
-                ],
+                    Expanded(
+                      // 两种正文形态。切正/负时编辑区随方向轻滑 + 淡入
+                      // (单实例,不复制 TextField——controller/focus 不能
+                      // 同时挂两棵树)
+                      child: NotificationListener<ScrollNotification>(
+                        onNotification: _onContentScroll,
+                        child: settings.chipMode
+                            ? ChipFlowView(
+                                key: widget.floatingPanels
+                                    ? _inlineChipKey
+                                    : null,
+                                desktopDrag: widget.floatingPanels,
+                                onDragChanged: (dragging) =>
+                                    setState(() => _chipDragging = dragging),
+                                onChipTap: (index) {
+                                  _chipAnchor = index;
+                                  _panelAnchorRevision++;
+                                },
+                                controller: _controller,
+                                foldBodies: foldBodies,
+                                selection: _chipSel,
+                                onSelectionChanged: _setChipSel,
+                                onLongPressChip: _chipLongPress,
+                                onMove: _moveUnits,
+                                input: _input,
+                                inputFocus: _inputFocus,
+                                onInputChanged: _onInputChanged,
+                                onInputSubmitted: (_) => _commitInput(),
+                                placing: _chipPlacing,
+                                translating: _transSvc.isPending,
+                                showTrans: settings.showTranslation,
+                                fontSize: settings.chipFontSize,
+                              )
+                            : ClipRect(
+                                child: SlideTransition(
+                                  position: _tabSlide,
+                                  child: FadeTransition(
+                                    opacity: _tabAnim.drive(
+                                      Tween(begin: .25, end: 1.0),
+                                    ),
+                                    child: AnnotatedField(
+                                      key: widget.floatingPanels
+                                          ? _inlineTextKey
+                                          : null,
+                                      controller: _controller,
+                                      focusNode: _focus,
+                                      scrollController: _scroll,
+                                      showTrans: settings.showTranslation,
+                                      showWeightWash: settings.showWeightWash,
+                                      fontSize: settings.fontSize,
+                                      onCursorDrag: _setCursorDragging,
+                                      onFoldTap: _unfoldByName,
+                                      hint: '点击输入标签,可输入中文自动触发翻译与联想',
+                                    ),
+                                  ),
+                                ),
+                              ),
+                      ),
+                    ),
+                    // 滚动收起:贴顶对齐 + 裁切,往下沉进底栏后面。补全条不收。
+                    ClipRect(
+                      child: AnimatedAlign(
+                        duration: Motion.fast,
+                        curve: Motion.standard,
+                        alignment: Alignment.topCenter,
+                        heightFactor: _chromeHidden && _query.isEmpty ? 0 : 1,
+                        // 拖光标期间只是**淡出**,位置照占:见 [_setCursorDragging]。
+                        child: AnimatedOpacity(
+                          duration: Motion.quick,
+                          curve: Motion.standard,
+                          opacity: _cursorDragging ? 0 : 1,
+                          child: IgnorePointer(
+                            ignoring: _cursorDragging,
+                            child:
+                                // dock 入场:淡入 + 轻微上滑(高度瞬时占位,不撑盒子,避免橡皮筋)
+                                // 离场(关面板/收补全)比入场快:走了就别在路上磨蹭。
+                                AnimatedSwitcher(
+                                  duration: Motion.fast,
+                                  reverseDuration: Motion.quick,
+                                  switchInCurve: Motion.emphasized,
+                                  switchOutCurve: Motion.standard,
+                                  layoutBuilder: (current, previous) => Stack(
+                                    alignment: Alignment.bottomCenter,
+                                    children: [...previous, ?current],
+                                  ),
+                                  transitionBuilder: (child, anim) =>
+                                      FadeTransition(
+                                        opacity: anim,
+                                        child: SlideTransition(
+                                          position: Tween<Offset>(
+                                            begin: const Offset(0, 0.06),
+                                            end: Offset.zero,
+                                          ).animate(anim),
+                                          child: child,
+                                        ),
+                                      ),
+                                  child: widget.floatingPanels && _query.isEmpty
+                                      ? const SizedBox.shrink()
+                                      : dock,
+                                ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    EditorBottomBar(
+                      onToggleMode: _toggleChipMode,
+                      chipMode: settings.chipMode,
+                      trayOpen: _trayOpen,
+                      onToggleTray: _toggleTray,
+                      onInsertFavorite: _insertFavorite,
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
