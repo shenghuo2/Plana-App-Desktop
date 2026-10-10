@@ -238,4 +238,25 @@ void main() {
     expect(b[4].text, '本次更新**旧版本**无法使用'); // 行内粗体留给渲染
     expect(b[5].marker, '1.');
   });
+
+  test('应用内保留 Release 简报,跳过 GitHub 折叠任务详情与图片', () {
+    const raw =
+        '## 本版变化\r\n- 标签池支持拖拽排序\r\n\r\n'
+        '<details>\r\n<summary>标签池：说明与对比图</summary>\r\n\r\n'
+        '**原来**：无法排序\r\n'
+        '![前后对比](https://github.com/example/repo/releases/download/v1/tags.png)\r\n'
+        '</details>\r\n\r\n## 验证\r\n- 相关回归通过';
+    final blocks = parseReleaseNotes(raw);
+    expect(blocks.map((b) => b.text), ['本版变化', '标签池支持拖拽排序', '验证', '相关回归通过']);
+  });
+
+  test('折叠任务支持嵌套、属性和同一行开闭,区外正文继续显示', () {
+    const raw =
+        '前文<DETAILS open><summary>详情</summary>\n'
+        '隐藏正文<details class="nested">嵌套正文</details>\n'
+        '仍然隐藏</DETAILS>后文\n\n'
+        '<details><summary>另一任务</summary>隐藏</details>\n'
+        '- 安装方法照常显示';
+    expect(parseReleaseNotes(raw).map((b) => b.text), ['前文', '后文', '安装方法照常显示']);
+  });
 }

@@ -3,6 +3,7 @@
 /// 只认发版时实际会写的几样:`#` 标题、单独成行的粗体(当小标题)、`-` / `1.` 列表、
 /// 行内粗体与代码;链接只留文字。其余原样当正文 —— 认不出的多几个符号而已,
 /// 不值得为它引一整个 Markdown 包。
+/// GitHub 的 `<details>` 区域用于任务明细与对比图,应用内只显示区域外的简报。
 library;
 
 import 'package:flutter/material.dart';
@@ -25,10 +26,13 @@ final _rule = RegExp(r'^([-*_])(\s*\1){2,}$');
 
 final _inline = RegExp(r'\*\*(.+?)\*\*|`([^`]+)`|\[([^\]]+)\]\([^)]*\)');
 
+final _detailsTag = RegExp(r'<(/?)details\b[^>]*>', caseSensitive: false);
+
 /// 按行切块。GitHub 存的正文是 `\r\n`,`trimRight` 顺手去掉 `\r`。
 List<NoteBlock> parseReleaseNotes(String raw) {
   final out = <NoteBlock>[];
   final para = <String>[];
+  var detailsDepth = 0;
 
   void flush() {
     if (para.isEmpty) return;
@@ -42,7 +46,23 @@ List<NoteBlock> parseReleaseNotes(String raw) {
   }
 
   for (final rawLine in raw.split('\n')) {
-    final line = rawLine.trimRight();
+    // 折叠区内包含 HTML、图片与重复的任务说明,留给 GitHub 展示。
+    // 按标签跟踪深度,也支持同一行开闭及嵌套折叠区。
+    final visible = StringBuffer();
+    var offset = 0;
+    for (final tag in _detailsTag.allMatches(rawLine)) {
+      if (detailsDepth == 0) {
+        visible.write(rawLine.substring(offset, tag.start));
+      }
+      if (tag[1]!.isEmpty) {
+        detailsDepth++;
+      } else if (detailsDepth > 0) {
+        detailsDepth--;
+      }
+      offset = tag.end;
+    }
+    if (detailsDepth == 0) visible.write(rawLine.substring(offset));
+    final line = visible.toString().trimRight();
     final t = line.trim();
     if (t.isEmpty || _rule.hasMatch(t)) {
       flush();
