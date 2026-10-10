@@ -94,9 +94,14 @@ void main() {
           .patch((s) => s.copyWith(compactCharCards: true));
       await mount(tester, const CharacterCard());
       expect(input('desktop-character-$id'), findsNothing);
-      expect(find.byType(TagCardPreview), findsNothing);
+      expect(find.byType(TagCardPreview), findsOneWidget);
+      final libraryPosition = tester.getTopLeft(key('character-library-$id'));
+      final avatarPosition = tester.getTopLeft(key('character-avatar-$id'));
+      expect(libraryPosition.dx, lessThan(avatarPosition.dx));
       expect(find.text('traveler, white shirt'), findsOneWidget);
       await tap(tester, 'character-collapse-$id');
+      expect(tester.getTopLeft(key('character-library-$id')), libraryPosition);
+      expect(tester.getTopLeft(key('character-avatar-$id')), avatarPosition);
       expect(find.byType(TagCardPreview), findsOneWidget);
       expect(input('desktop-character-$id'), findsOneWidget);
       expect(find.byType(ExpansionTile), findsNothing);

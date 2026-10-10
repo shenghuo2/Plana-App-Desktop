@@ -444,45 +444,43 @@ class _CharacterTileState extends ConsumerState<_CharacterTile> {
         ? 0.0
         : 4 + textWidth('已禁用', context.texts.labelSmall!);
     // Avatar, toggle, name padding, separation and trailing controls.
-    final leadingWidth =
-        (compact ? 30 : 34) + 5 + 38 + 8 + nameWidth + statusWidth;
+    final leadingWidth = 30 + 5 + 34 + 5 + 38 + 8 + nameWidth + statusWidth;
     final actionsWidth = 36 + 16 + 15 + 5 + positionWidth + 2 + 30 + 18;
     final requiredWidth = leadingWidth + 8 + actionsWidth;
     final leading = Row(
       children: [
-        if (compact)
-          SizedBox(
-            width: 30,
-            height: 34,
-            child: IconButton(
-              key: ValueKey('character-avatar-${char.id}'),
-              padding: EdgeInsets.zero,
-              tooltip: '从角色库选择',
-              icon: const Icon(Icons.grid_view, size: 20),
-              onPressed: () => _pickFromLibrary(context, ref),
-            ),
-          )
-        else
-          Tooltip(
-            message: '从角色库选择',
-            child: InkWell(
-              key: ValueKey('character-avatar-${char.id}'),
-              onTap: () => _pickFromLibrary(context, ref),
+        SizedBox(
+          width: 30,
+          height: 34,
+          child: IconButton(
+            key: ValueKey('character-library-${char.id}'),
+            padding: EdgeInsets.zero,
+            tooltip: '从角色库选择',
+            icon: const Icon(Icons.grid_view, size: 20),
+            onPressed: () => _pickFromLibrary(context, ref),
+          ),
+        ),
+        const SizedBox(width: 5),
+        Tooltip(
+          message: '从角色库选择',
+          child: InkWell(
+            key: ValueKey('character-avatar-${char.id}'),
+            onTap: () => _pickFromLibrary(context, ref),
+            borderRadius: BorderRadius.circular(8),
+            child: ClipRRect(
               borderRadius: BorderRadius.circular(8),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(8),
-                child: SizedBox(
-                  width: 34,
-                  height: 34,
-                  child: TagCardPreview(
-                    url: char.avatar,
-                    name: char.name,
-                    decodeWidth: 34,
-                  ),
+              child: SizedBox(
+                width: 34,
+                height: 34,
+                child: TagCardPreview(
+                  url: char.avatar,
+                  name: char.name,
+                  decodeWidth: 34,
                 ),
               ),
             ),
           ),
+        ),
         const SizedBox(width: 5),
         // 电源开关(裸图标)
         IconButton(
