@@ -262,4 +262,68 @@ void main() {
       await finish(tester);
     },
   );
+  for (final target in ['main', 'section', 'character']) {
+    testWidgets('large editor saves $target and synchronizes the sidebar', (
+      tester,
+    ) async {
+      final gen = container.read(generateProvider.notifier);
+      gen.setPrompts(positive: 'solo', negative: 'lowres');
+      String? id;
+      if (target == 'character') {
+        gen.addCharacter();
+        id = container.read(generateProvider).characters.single.id;
+        gen.updateCharacter(id, positive: 'traveler', negative: 'hat');
+      } else if (target == 'section') {
+        gen.addSection();
+        id = container.read(generateProvider).sections.last.id;
+      }
+      await mount(
+        tester,
+        target == 'character' ? const CharacterCard() : const PromptCard(),
+      );
+      final prefix = target == 'character'
+          ? 'desktop-character-$id'
+          : target == 'section'
+          ? 'desktop-section-$id'
+          : 'desktop-prompt';
+      await tester.enterText(input(prefix), 'fresh sidebar edit');
+      await tap(
+        tester,
+        target == 'character'
+            ? 'character-fullscreen-$id'
+            : 'prompt-fullscreen-${id ?? 'main'}',
+      );
+      final dialog = find.byType(Dialog);
+      expect(dialog, findsOneWidget);
+      expect(tester.getSize(dialog).width, greaterThan(500));
+      final field = find
+          .descendant(of: dialog, matching: find.byType(TextField))
+          .first;
+      expect(
+        tester.widget<TextField>(field).controller!.text,
+        'fresh sidebar edit',
+      );
+      await tester.enterText(field, 'large window edit');
+      await tester.tap(find.byTooltip('保存并返回'));
+      await tester.pumpAndSettle();
+      expect(dialog, findsNothing);
+      expect(
+        tester.widget<TextField>(input(prefix)).controller!.text,
+        'large window edit',
+      );
+      final state = container.read(generateProvider);
+      if (target == 'character') {
+        expect(state.characters.single.positive, 'large window edit');
+        expect(state.characters.single.negative, 'hat');
+        expect(state.prompt, 'solo');
+      } else if (target == 'section') {
+        expect(state.sections.last.positive, 'large window edit');
+        expect(state.prompt, 'solo');
+      } else {
+        expect(state.prompt, 'large window edit');
+      }
+      expect(state.negativePrompt, 'lowres');
+      await finish(tester);
+    });
+  }
 }
