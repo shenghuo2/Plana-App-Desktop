@@ -797,7 +797,7 @@ class _SectionRowState extends ConsumerState<_SectionRow> {
                 Padding(
                   padding: const EdgeInsets.symmetric(
                     horizontal: 8,
-                    vertical: 4,
+                    vertical: 10,
                   ),
                   child: Row(
                     children: [
@@ -813,6 +813,7 @@ class _SectionRowState extends ConsumerState<_SectionRow> {
                           alignment: Alignment.centerLeft,
                           child: _NameChip(
                             name: s.name,
+                            desktop: true,
                             enabled: s.enabled,
                             onTap: selecting
                                 ? onToggle!
@@ -875,9 +876,18 @@ class _SectionRowState extends ConsumerState<_SectionRow> {
                   maintainState: true,
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(10, 0, 10, 8),
-                    child: DesktopPromptCard(
-                      key: ValueKey('desktop-section-editor-${s.id}'),
-                      sectionId: s.isMain ? null : s.id,
+                    child: Column(
+                      children: [
+                        Divider(
+                          height: 16,
+                          color: scheme.outlineVariant.withValues(alpha: .6),
+                        ),
+                        DesktopPromptCard(
+                          key: ValueKey('desktop-section-editor-${s.id}'),
+                          sectionId: s.isMain ? null : s.id,
+                          framed: false,
+                        ),
+                      ],
                     ),
                   ),
                 ),
@@ -1094,8 +1104,10 @@ class _NameChip extends StatelessWidget {
     required this.name,
     required this.enabled,
     required this.onTap,
+    this.desktop = false,
   });
 
+  final bool desktop;
   final String name;
   final bool enabled;
   final VoidCallback onTap;
@@ -1115,15 +1127,19 @@ class _NameChip extends StatelessWidget {
       child: InkWell(
         onTap: onTap,
         child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 76),
+          constraints: BoxConstraints(maxWidth: desktop ? 120 : 76),
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+            padding: EdgeInsets.symmetric(
+              horizontal: desktop ? 10 : 7,
+              vertical: desktop ? 5 : 3,
+            ),
             child: Text(
               name,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: context.texts.labelMedium!.copyWith(
-                fontWeight: FontWeight.w600,
+                fontSize: desktop ? 16 : null,
+                fontWeight: desktop ? FontWeight.w700 : FontWeight.w600,
                 color: enabled ? scheme.onPrimaryContainer : scheme.outline,
               ),
             ),
