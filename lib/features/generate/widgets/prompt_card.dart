@@ -797,7 +797,7 @@ class _SectionRowState extends ConsumerState<_SectionRow> {
                 Padding(
                   padding: const EdgeInsets.symmetric(
                     horizontal: 8,
-                    vertical: 10,
+                    vertical: 4,
                   ),
                   child: Row(
                     children: [
@@ -879,7 +879,7 @@ class _SectionRowState extends ConsumerState<_SectionRow> {
                     child: Column(
                       children: [
                         Divider(
-                          height: 16,
+                          height: 1,
                           color: scheme.outlineVariant.withValues(alpha: .6),
                         ),
                         DesktopPromptCard(
