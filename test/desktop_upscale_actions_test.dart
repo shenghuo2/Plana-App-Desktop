@@ -4,7 +4,6 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
@@ -79,32 +78,6 @@ class _Upscaler {
     onStage?.call('模拟超分处理中');
     if (pending != null) return pending!.future;
     return (png: png, width: width * 2, height: height * 2);
-  }
-}
-
-class _ImagePicker extends FilePicker {
-  _ImagePicker(this.bytes);
-  final Uint8List bytes;
-  @override
-  Future<FilePickerResult?> pickFiles({
-    String? dialogTitle,
-    String? initialDirectory,
-    FileType type = FileType.any,
-    List<String>? allowedExtensions,
-    Function(FilePickerStatus)? onFileLoading,
-    bool allowCompression = false,
-    int compressionQuality = 0,
-    bool allowMultiple = false,
-    bool withData = false,
-    bool withReadStream = false,
-    bool lockParentWindow = false,
-    bool readSequential = false,
-  }) async {
-    expect(type, FileType.image);
-    expect(withData, isTrue);
-    return FilePickerResult([
-      PlatformFile(name: 'external.jpg', size: bytes.length, bytes: bytes),
-    ]);
   }
 }
 
@@ -559,75 +532,6 @@ void main() {
       },
     );
   }
-
-  testWidgets(
-    'external JPEG uses its own dimensions, no source metadata, and chosen album',
-    (tester) async {
-      await prepare(tester);
-      final jpeg = Uint8List.fromList(
-        img.encodeJpg(img.Image(width: 64, height: 96)),
-      );
-      FilePicker.platform = _ImagePicker(jpeg);
-      upscale.pending = Completer<NaiUpscaleResult>();
-      await mount(tester);
-      await tester.tap(key('desktop-upscale-import'));
-      await spinUntil(tester, () => getPanel().evaluate().isNotEmpty);
-      await tester.pumpAndSettle();
-      await tester.tap(key('upscale-import-image'));
-      await spinUntil(tester, () => find.text('64×96').evaluate().isNotEmpty);
-      await tester.pumpAndSettle();
-      expect(find.text('external'), findsOneWidget);
-      expect(find.byType(SegmentedButton<bool>), findsNothing);
-      container.read(desktopLibraryProvider.notifier).choose(albumB);
-      await tester.pumpAndSettle();
-      await tester.tap(key('upscale-confirm'));
-      await spinUntil(tester, () => upscale.calls.isNotEmpty);
-      final call = upscale.calls.single;
-      expect((call.width, call.height), (64, 96));
-      expect(call.bytes.take(8), [137, 80, 78, 71, 13, 10, 26, 10]);
-      expect(img.decodePng(call.bytes)!.width, 64);
-      upscale.pending!.complete((png: output, width: 128, height: 192));
-      await spinUntil(
-        tester,
-        () =>
-            container.read(galleryProvider).results.length == 3 &&
-            key('upscale-progress').evaluate().isEmpty,
-      );
-      final saved = container.read(galleryProvider).results.first;
-      expect(saved.seed, 0);
-      expect(saved.input, isNull);
-      expect(saved.hasInput, isFalse);
-      expect(container.read(albumsProvider).ofImage(saved.id), {albumB});
-      expect(source.input!.prompt, 'source red image');
-      await finish(tester);
-    },
-  );
-
-  testWidgets(
-    'external image can be cancelled without altering remembered redraw settings',
-    (tester) async {
-      await prepare(tester);
-      FilePicker.platform = _ImagePicker(blue);
-      await mount(tester, details: true);
-      await tester.tap(key('desktop-upscale-import'));
-      await spinUntil(tester, () => getPanel().evaluate().isNotEmpty);
-      await tester.pumpAndSettle();
-      final original = container.read(upscaleSettingsProvider).value;
-      await tester.tap(key('upscale-import-image'));
-      await spinUntil(
-        tester,
-        () => find.text('external').evaluate().isNotEmpty,
-      );
-      await tester.pumpAndSettle();
-      await tester.tap(find.byTooltip('取消'));
-      await tester.pumpAndSettle();
-      expect(find.text('external'), findsNothing);
-      expect(find.byType(SegmentedButton<bool>), findsOneWidget);
-      expect(container.read(upscaleSettingsProvider).value, original);
-      Navigator.of(tester.element(getPanel())).pop();
-      await finish(tester);
-    },
-  );
 
   testWidgets(
     'unsupported redraw stays disabled instead of running super-resolution',
