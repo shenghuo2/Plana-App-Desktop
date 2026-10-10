@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/theme/app_theme.dart';
+import '../../../core/theme/theme_settings.dart';
 import '../../../core/platform/desktop.dart';
 import 'desktop_prompt_card.dart';
 import '../../../core/util/nai_tokenizer.dart';
@@ -41,6 +42,8 @@ class PromptCard extends ConsumerStatefulWidget {
 }
 
 class _PromptCardState extends ConsumerState<PromptCard> {
+  bool? _mainCollapsed;
+
   /// 多选态(长按一格进,点卡头的退出或做完一次合并 / 删除 / 存就退)。
   bool _selecting = false;
 
@@ -74,6 +77,10 @@ class _PromptCardState extends ConsumerState<PromptCard> {
     final notifier = ref.read(generateProvider.notifier);
     final scheme = context.scheme;
     final sections = withMainRow(state.sections, state.prompt);
+    final bool defaultCollapsed = ref.watch(
+      themeSettingsProvider.select((t) => t.compactCharCards),
+    );
+    final mainCollapsed = _mainCollapsed ?? defaultCollapsed;
     // 切了画布就退出多选:勾的是那张画布的格子
     ref.listen(
       canvasWorkspaceProvider.select((w) => w.activeId),
@@ -172,6 +179,19 @@ class _PromptCardState extends ConsumerState<PromptCard> {
                             label: const Text('多选'),
                           ),
                       ],
+                      if (desktop && sections.isEmpty)
+                        IconButton(
+                          key: const ValueKey('prompt-section-collapse-main'),
+                          tooltip: mainCollapsed ? '展开提示词' : '收起提示词',
+                          onPressed: () =>
+                              setState(() => _mainCollapsed = !mainCollapsed),
+                          icon: Icon(
+                            mainCollapsed
+                                ? Icons.expand_more
+                                : Icons.expand_less,
+                            size: 22,
+                          ),
+                        ),
                       if (state.prompt.trim().isNotEmpty ||
                           sections.isNotEmpty) ...[
                         RoundIconBtn(
@@ -223,9 +243,47 @@ class _PromptCardState extends ConsumerState<PromptCard> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               if (desktop && sections.isEmpty)
-                const Padding(
+                Padding(
                   padding: EdgeInsets.fromLTRB(8, 0, 8, 8),
-                  child: DesktopPromptCard(),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Visibility(
+                        visible: !mainCollapsed,
+                        maintainState: true,
+                        child: const DesktopPromptCard(),
+                      ),
+                      if (mainCollapsed)
+                        InkWell(
+                          onTap: () => setState(() => _mainCollapsed = false),
+                          child: Padding(
+                            padding: const EdgeInsets.all(12),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                Text(
+                                  state.prompt.isEmpty
+                                      ? '点击展开编辑提示词…'
+                                      : state.prompt,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: context.texts.bodyMedium,
+                                ),
+                                if (state.negativePrompt.isNotEmpty)
+                                  Text(
+                                    state.negativePrompt,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: context.texts.bodySmall!.copyWith(
+                                      color: scheme.error,
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
                 )
               else if (sections.isEmpty)
                 // 正面:段落预览
@@ -659,7 +717,7 @@ Widget _rowDragProxy(Widget child, int index, Animation<double> animation) =>
       },
     );
 
-class _SectionRow extends ConsumerWidget {
+class _SectionRow extends ConsumerStatefulWidget {
   const _SectionRow({
     super.key,
     required this.index,
@@ -694,10 +752,30 @@ class _SectionRow extends ConsumerWidget {
   final int tokens;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_SectionRow> createState() => _SectionRowState();
+}
+
+class _SectionRowState extends ConsumerState<_SectionRow> {
+  bool? _collapsed;
+  int get index => widget.index;
+  PromptSection get section => widget.section;
+  String get fallbackName => widget.fallbackName;
+  String get draft => widget.draft;
+  int get tokens => widget.tokens;
+  bool get selecting => widget.selecting;
+  bool get picked => widget.picked;
+  VoidCallback? get onToggle => widget.onToggle;
+  VoidCallback? get onHold => widget.onHold;
+
+  @override
+  Widget build(BuildContext context) {
     final notifier = ref.read(generateProvider.notifier);
     final scheme = context.scheme;
     final s = section;
+    final bool defaultCollapsed = ref.watch(
+      themeSettingsProvider.select((t) => t.compactCharCards),
+    );
+    final collapsed = _collapsed ?? defaultCollapsed;
     if (ref.watch(desktopModeProvider)) {
       return Padding(
         padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
@@ -758,6 +836,16 @@ class _SectionRow extends ConsumerWidget {
                       ),
                       if (!selecting) ...[
                         IconButton(
+                          key: ValueKey('prompt-section-collapse-${s.id}'),
+                          tooltip: collapsed ? '展开分区提示词' : '收起分区提示词',
+                          onPressed: () =>
+                              setState(() => _collapsed = !collapsed),
+                          icon: Icon(
+                            collapsed ? Icons.expand_more : Icons.expand_less,
+                            size: 22,
+                          ),
+                        ),
+                        IconButton(
                           tooltip: s.enabled ? '停用分区' : '启用分区',
                           onPressed: () {
                             ref.read(editorSessionsProvider).flushPending();
@@ -782,15 +870,18 @@ class _SectionRow extends ConsumerWidget {
                     ],
                   ),
                 ),
-                if (!selecting && (s.isMain || s.enabled))
-                  Padding(
+                Visibility(
+                  visible: !selecting && !collapsed && (s.isMain || s.enabled),
+                  maintainState: true,
+                  child: Padding(
                     padding: const EdgeInsets.fromLTRB(10, 0, 10, 8),
                     child: DesktopPromptCard(
                       key: ValueKey('desktop-section-editor-${s.id}'),
                       sectionId: s.isMain ? null : s.id,
                     ),
-                  )
-                else
+                  ),
+                ),
+                if (selecting || collapsed || (!s.isMain && !s.enabled))
                   Padding(
                     padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
                     child: Row(

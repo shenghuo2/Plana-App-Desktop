@@ -199,8 +199,10 @@ class AppearancePage extends ConsumerWidget {
             children: [
               _SwitchRow(
                 icon: Icons.view_agenda_outlined,
-                title: '紧凑角色卡',
-                subtitle: '收起头像预览，保留名称、位置与提示词',
+                title: desktop ? '默认收起提示词卡' : '紧凑角色卡',
+                subtitle: desktop
+                    ? '主体、分区与角色显示摘要，点击顶部箭头恢复完整卡片'
+                    : '收起头像预览，保留名称、位置与提示词',
                 value: ts.compactCharCards,
                 onChanged: (v) =>
                     notifier.patch((x) => x.copyWith(compactCharCards: v)),
