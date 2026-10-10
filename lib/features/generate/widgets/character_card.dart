@@ -181,13 +181,22 @@ class CharacterCard extends ConsumerWidget {
   }
 }
 
-class _CharacterTile extends ConsumerWidget {
+class _CharacterTile extends ConsumerStatefulWidget {
   const _CharacterTile({required this.char, required this.index});
 
   final CharacterPrompt char;
 
   /// 行序,只用来算改名留空时回落的默认名。
   final int index;
+
+  @override
+  ConsumerState<_CharacterTile> createState() => _CharacterTileState();
+}
+
+class _CharacterTileState extends ConsumerState<_CharacterTile> {
+  CharacterPrompt get char => widget.char;
+  int get index => widget.index;
+  bool? _collapsed;
 
   /// 点名字改名。留空 = 回到默认的「角色 N」,N 按当前行序算,与新增时同一口径
   /// (名字本就不是稳定句柄,认人靠 id)。
@@ -284,15 +293,16 @@ class _CharacterTile extends ConsumerWidget {
   }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final notifier = ref.read(generateProvider.notifier);
     final desktop = ref.watch(desktopModeProvider);
     if (!desktop) return _buildMobile(context, ref);
     final scheme = context.scheme;
     final enabled = char.enabled;
-    final compact = ref.watch(
+    final bool defaultCollapsed = ref.watch(
       themeSettingsProvider.select((t) => t.compactCharCards),
     );
+    final compact = _collapsed ?? defaultCollapsed;
     // 只有站位徽章的写法跟模型走(见下),select 一下别让整张卡跟着全局状态重建。
     final isV5 = ref.watch(
       generateProvider.select((s) => isNai5Model(s.params.model)),
@@ -301,10 +311,6 @@ class _CharacterTile extends ConsumerWidget {
     // 坐标一直在,只是模型不理会。同样 select 一下,别让整张卡跟着全局重建。
     final autoPos = ref.watch(
       generateProvider.select((s) => !s.params.useCoords),
-    );
-    final tokens = totalPromptTokens(
-      ref.watch(naiTokenizerProvider).value,
-      main: char.positive,
     );
 
     return AnimatedOpacity(
@@ -334,78 +340,60 @@ class _CharacterTile extends ConsumerWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                _header(context, ref, notifier, autoPos: autoPos, isV5: isV5),
-                // 行 2 是点进编辑器的主要落点(行 1 那排全是各管各的按钮),
-                // 所以空当只往它上下加:4 → 8、下边距 10 → 14,这条带子 42 → 50。
+                _header(
+                  context,
+                  ref,
+                  notifier,
+                  autoPos: autoPos,
+                  isV5: isV5,
+                  compact: compact,
+                ),
                 if (compact)
-                  ExpansionTile(
-                    key: PageStorageKey('compact-character-${char.id}'),
-                    tilePadding: EdgeInsets.zero,
-                    childrenPadding: const EdgeInsets.only(top: 4),
-                    shape: const Border(),
-                    collapsedShape: const Border(),
-                    maintainState: true,
-                    title: Text(
-                      char.positive.isEmpty ? '点击展开编辑提示词…' : char.positive,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: context.texts.bodyMedium,
-                    ),
-                    subtitle: char.negative.isEmpty
-                        ? null
-                        : Text(
-                            char.negative,
-                            maxLines: 1,
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: InkWell(
+                      onTap: () => setState(() => _collapsed = false),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Text(
+                            char.positive.isEmpty
+                                ? '点击展开编辑提示词…'
+                                : char.positive,
+                            maxLines: 2,
                             overflow: TextOverflow.ellipsis,
-                            style: context.texts.bodySmall!.copyWith(
-                              color: scheme.error,
-                            ),
+                            style: context.texts.bodyMedium,
                           ),
+                          if (char.negative.isNotEmpty)
+                            Text(
+                              char.negative,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: context.texts.bodySmall!.copyWith(
+                                color: scheme.error,
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
+                Visibility(
+                  visible: !compact,
+                  maintainState: true,
+                  child: Column(
                     children: [
+                      const SizedBox(height: 8),
+                      Divider(
+                        height: 16,
+                        color: scheme.outlineVariant.withValues(alpha: .6),
+                      ),
                       DesktopPromptCard(
                         key: ValueKey(char.id),
                         charId: char.id,
                       ),
                     ],
-                  )
-                else if (desktop) ...[
-                  const SizedBox(height: 8),
-                  Divider(
-                    height: 16,
-                    color: scheme.outlineVariant.withValues(alpha: .6),
                   ),
-                  DesktopPromptCard(key: ValueKey(char.id), charId: char.id),
-                ] else
-                  Padding(
-                    padding: const EdgeInsets.only(left: 4, right: 6),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            char.positive.isEmpty ? '点击编辑提示词…' : char.positive,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: context.texts.bodyMedium!.copyWith(
-                              color: char.positive.isEmpty
-                                  ? scheme.outline
-                                  : (enabled
-                                        ? scheme.onSurfaceVariant
-                                        : scheme.outline),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          '$tokens',
-                          style: mono(
-                            context,
-                            size: 11,
-                            weight: FontWeight.w500,
-                          ).copyWith(color: scheme.outline),
-                        ),
-                      ],
-                    ),
-                  ),
+                ),
               ],
             ),
           ),
@@ -422,6 +410,7 @@ class _CharacterTile extends ConsumerWidget {
     GenerateNotifier notifier, {
     required bool autoPos,
     required bool isV5,
+    required bool compact,
   }) {
     final scheme = context.scheme;
     final enabled = char.enabled;
@@ -455,12 +444,9 @@ class _CharacterTile extends ConsumerWidget {
         ? 0.0
         : 4 + textWidth('已禁用', context.texts.labelSmall!);
     // Avatar, toggle, name padding, separation and trailing controls.
-    final compact = ref.watch(
-      themeSettingsProvider.select((t) => t.compactCharCards),
-    );
     final leadingWidth =
         (compact ? 30 : 34) + 5 + 38 + 8 + nameWidth + statusWidth;
-    final actionsWidth = 16 + 15 + 5 + positionWidth + 2 + 30 + 18;
+    final actionsWidth = 36 + 16 + 15 + 5 + positionWidth + 2 + 30 + 18;
     final requiredWidth = leadingWidth + 8 + actionsWidth;
     final leading = Row(
       children: [
@@ -569,6 +555,14 @@ class _CharacterTile extends ConsumerWidget {
       spacing: 2,
       runSpacing: 4,
       children: [
+        IconButton(
+          key: ValueKey('character-collapse-${char.id}'),
+          tooltip: compact ? '展开角色提示词' : '收起角色提示词',
+          onPressed: () => setState(() => _collapsed = !compact),
+          icon: Icon(compact ? Icons.expand_more : Icons.expand_less, size: 22),
+          constraints: const BoxConstraints.tightFor(width: 34, height: 38),
+          padding: EdgeInsets.zero,
+        ),
         // 站位徽章
         Material(
           color: scheme.surfaceContainerHighest,
