@@ -233,4 +233,28 @@ void main() {
       await finish(tester);
     },
   );
+  testWidgets(
+    'disabled sections remain expandable and editing does not enable them',
+    (tester) async {
+      final gen = container.read(generateProvider.notifier);
+      gen.addSection();
+      final id = container.read(generateProvider).sections.last.id;
+      gen.updateSection(id, enabled: false);
+      container
+          .read(themeSettingsProvider.notifier)
+          .patch((s) => s.copyWith(compactCharCards: true));
+      await mount(tester, const PromptCard());
+      expect(input('desktop-section-$id'), findsNothing);
+      await tap(tester, 'prompt-section-collapse-$id');
+      expect(input('desktop-section-$id'), findsOneWidget);
+      await tester.enterText(input('desktop-section-$id'), 'disabled draft');
+      await tap(tester, 'prompt-section-collapse-$id');
+      expect(
+        container.read(generateProvider).sections.last.positive,
+        'disabled draft',
+      );
+      expect(container.read(generateProvider).sections.last.enabled, isFalse);
+      await finish(tester);
+    },
+  );
 }

@@ -871,7 +871,7 @@ class _SectionRowState extends ConsumerState<_SectionRow> {
                   ),
                 ),
                 Visibility(
-                  visible: !selecting && !collapsed && (s.isMain || s.enabled),
+                  visible: !selecting && !collapsed,
                   maintainState: true,
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(10, 0, 10, 8),
@@ -881,7 +881,7 @@ class _SectionRowState extends ConsumerState<_SectionRow> {
                     ),
                   ),
                 ),
-                if (selecting || collapsed || (!s.isMain && !s.enabled))
+                if (selecting || collapsed)
                   Padding(
                     padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
                     child: Row(
