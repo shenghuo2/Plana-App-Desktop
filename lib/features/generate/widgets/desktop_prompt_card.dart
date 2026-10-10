@@ -101,6 +101,7 @@ class PromptFullscreenButton extends ConsumerWidget {
                       ],
                       child: EditorPage(
                         positive: true,
+                        floatingPanels: true,
                         charId: charId,
                         sectionId: sectionId,
                       ),
