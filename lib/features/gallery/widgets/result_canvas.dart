@@ -543,16 +543,6 @@ class _ActionRailState extends ConsumerState<ResultActions> {
               label: const Text('保存'),
             ),
           ),
-          const SizedBox(height: 8),
-          OutlinedButton.icon(
-            key: const ValueKey('desktop-upscale-import'),
-            style: actionStyle,
-            onPressed: widget.enabled && !_upscaling
-                ? () => _upscale(context, ref)
-                : null,
-            icon: const Icon(Icons.add_photo_alternate_outlined, size: 17),
-            label: const Text('放大其他图片'),
-          ),
         ],
       );
     }
@@ -736,18 +726,6 @@ class _ActionRailState extends ConsumerState<ResultActions> {
                         ),
                         label: const Text('超分辨率'),
                       ),
-                    ),
-                    TextButton.icon(
-                      key: const ValueKey('desktop-upscale-import'),
-                      style: style,
-                      onPressed: canAct && !_upscaling
-                          ? () => _upscale(context, ref)
-                          : null,
-                      icon: const Icon(
-                        Icons.add_photo_alternate_outlined,
-                        size: 18,
-                      ),
-                      label: const Text('放大其他图片'),
                     ),
                     TextButton.icon(
                       key: const ValueKey('canvas-import'),
@@ -1715,7 +1693,8 @@ class _SeedChip extends ConsumerWidget {
 ///  - **图生图放大**:以更高分辨率重新生成,画面会变。选倍率 + Magnitude 档,
 ///    强度/噪声两个滑杆可继续微调。
 ///
-/// 标题栏「导入图片」换成手机里的外部图,此时只有 V5 超分。
+/// 移动端标题栏「导入图片」可换成外部图,此时只有 V5 超分。
+/// 桌面端外部图片放大统一从现有导入窗口进入。
 class _UpscalePanel extends ConsumerStatefulWidget {
   const _UpscalePanel({
     super.key,
@@ -1912,7 +1891,7 @@ class _UpscalePanelState extends ConsumerState<_UpscalePanel> {
                     ],
                   ),
                 ),
-                if (!widget.redrawOnly)
+                if (!widget.redrawOnly && !ref.watch(desktopModeProvider))
                   TextButton.icon(
                     key: const ValueKey('upscale-import-image'),
                     onPressed: _importing ? null : _importImage,
