@@ -445,7 +445,7 @@ class _CharacterTileState extends ConsumerState<_CharacterTile> {
         : 4 + textWidth('已禁用', context.texts.labelSmall!);
     // Avatar, toggle, name padding, separation and trailing controls.
     final leadingWidth = 30 + 5 + 34 + 5 + 38 + 8 + nameWidth + statusWidth;
-    final actionsWidth = 36 + 16 + 15 + 5 + positionWidth + 2 + 30 + 18;
+    final actionsWidth = 26 + 36 + 16 + 15 + 5 + positionWidth + 2 + 30 + 18;
     final requiredWidth = leadingWidth + 8 + actionsWidth;
     final leading = Row(
       children: [
@@ -553,6 +553,10 @@ class _CharacterTileState extends ConsumerState<_CharacterTile> {
       spacing: 2,
       runSpacing: 4,
       children: [
+        PromptFullscreenButton(
+          key: ValueKey('character-fullscreen-${char.id}'),
+          charId: char.id,
+        ),
         IconButton(
           key: ValueKey('character-collapse-${char.id}'),
           tooltip: compact ? '展开角色提示词' : '收起角色提示词',

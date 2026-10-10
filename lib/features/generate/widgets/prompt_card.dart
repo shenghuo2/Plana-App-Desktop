@@ -180,8 +180,17 @@ class _PromptCardState extends ConsumerState<PromptCard> {
                           ),
                       ],
                       if (desktop && sections.isEmpty)
+                        const PromptFullscreenButton(
+                          key: ValueKey('prompt-fullscreen-main'),
+                        ),
+                      if (desktop && sections.isEmpty)
                         IconButton(
                           key: const ValueKey('prompt-section-collapse-main'),
+                          constraints: const BoxConstraints.tightFor(
+                            width: 34,
+                            height: 38,
+                          ),
+                          padding: EdgeInsets.zero,
                           tooltip: mainCollapsed ? '展开提示词' : '收起提示词',
                           onPressed: () =>
                               setState(() => _mainCollapsed = !mainCollapsed),
@@ -836,8 +845,17 @@ class _SectionRowState extends ConsumerState<_SectionRow> {
                         ),
                       ),
                       if (!selecting) ...[
+                        PromptFullscreenButton(
+                          key: ValueKey('prompt-fullscreen-${s.id}'),
+                          sectionId: s.isMain ? null : s.id,
+                        ),
                         IconButton(
                           key: ValueKey('prompt-section-collapse-${s.id}'),
+                          constraints: const BoxConstraints.tightFor(
+                            width: 34,
+                            height: 38,
+                          ),
+                          padding: EdgeInsets.zero,
                           tooltip: collapsed ? '展开分区提示词' : '收起分区提示词',
                           onPressed: () =>
                               setState(() => _collapsed = !collapsed),
