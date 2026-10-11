@@ -40,10 +40,10 @@ Plana App Desktop 将 [Plana App](https://github.com/mc5024/Plana-App) 的绘图
 
 | 平台 | 安装包 | 选择建议 |
 |---|---|---|
-| Windows x64 | [标准版 ZIP](https://github.com/shenghuo2/Plana-App-Desktop/releases/download/v1.2.1-desktop/Plana-App-Desktop-Windows-1.2.1-desktop-x64.zip) | Windows 用户使用此版 |
+| Windows x64 | [安装程序 EXE](https://github.com/shenghuo2/Plana-App-Desktop/releases/download/v1.2.1-desktop/Plana-App-Desktop-Windows-1.2.1-desktop-x64-setup.exe) · [便携 ZIP](https://github.com/shenghuo2/Plana-App-Desktop/releases/download/v1.2.1-desktop/Plana-App-Desktop-Windows-1.2.1-desktop-x64.zip) | 安装版带中文向导与开始菜单入口；ZIP 适合便携使用 |
 | macOS 14+ · Apple Silicon | [标准版 DMG](https://github.com/shenghuo2/Plana-App-Desktop/releases/download/v1.2.1-desktop/Plana-App-Desktop-macOS-arm64.dmg) | 日常绘图与本地作品管理 |
 
-**Windows**：完整解压 ZIP，运行目录中的 `plana_app_for_windows.exe`。如果提示缺少运行库，安装 [Visual C++ Redistributable x64](https://aka.ms/vc14/vc_redist.x64.exe)。移动便携目录时，请连同 `output` 作品文件夹一起移动。
+**Windows**：运行 `-setup.exe`，按中文向导选择可写入的安装目录，可选桌面快捷方式；默认安装到当前用户目录，无需管理员权限。使用便携版时，完整解压 ZIP 后运行 `plana_app_for_windows.exe`，移动时连同 `output` 作品文件夹一起移动。两种包均附带所需运行库。
 
 **macOS**：退出旧应用，打开 DMG，将 `Plana App Desktop.app` 拖入「应用程序」后运行。目前提供 ARM64 包，适用于 Apple Silicon Mac。
 

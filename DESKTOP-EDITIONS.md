@@ -68,7 +68,9 @@ x86_64，裁剪预编译框架中的其他架构并重新签名；构建完成�
 
 - `Plana-App-Desktop-macOS-arm64.dmg` 及 `.sha256`：标准版。
 - `Plana-App-Desktop-RemoteUpload-macOS-arm64.dmg` 及 `.sha256`：远端上传版。
-- `build_windows=true` 时额外构建标准 Windows 版。
+- `build_windows=true` 时额外构建标准 Windows 版的中文 EXE 安装包与便携 ZIP，
+  两种包都附带运行库、对应源码及独立的 `.sha256` 校验文件。CI 验证安装、
+  覆盖升级和卸载后保留作品目录。
 
 将两组 DMG 和校验文件放到同一 GitHub Release，先上传标准版 DMG，再上传
 远端上传版 DMG，以兼容早期客户端按第一个 DMG 选择安装包的行为。

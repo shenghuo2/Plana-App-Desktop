@@ -2,7 +2,9 @@
     [string]$OutputDirectory,
     [string]$SevenZipDirectory,
     [string]$RuntimeCab,
-    [string]$IsccPath
+    [string]$RuntimeDirectory,
+    [string]$IsccPath,
+    [switch]$SkipBuild
 )
 
 $ErrorActionPreference = 'Stop'
@@ -16,14 +18,17 @@ $sevenZip = Join-Path $SevenZipDirectory '7z.exe'
 foreach ($required in @($sevenZip)) {
     if (!(Test-Path -LiteralPath $required -PathType Leaf)) { throw "Missing packaging tool: $required" }
 }
-if (!$RuntimeCab) {
+if (!$RuntimeCab -and !$RuntimeDirectory) {
     $RuntimeCab = Get-ChildItem -LiteralPath 'C:/ProgramData/Package Cache' -Filter cab1.cab -File -Recurse -ErrorAction SilentlyContinue |
         Where-Object { $_.FullName -match 'v14\.[^\\]+\\packages\\vcRuntimeMinimum_amd64\\cab1\.cab$' } |
         Sort-Object { [version]([regex]::Match($_.FullName, 'v(14\.[0-9.]+)\\packages').Groups[1].Value) } -Descending |
         Select-Object -First 1 -ExpandProperty FullName
 }
-if (!$RuntimeCab -or !(Test-Path -LiteralPath $RuntimeCab -PathType Leaf)) {
+if (!$RuntimeDirectory -and (!$RuntimeCab -or !(Test-Path -LiteralPath $RuntimeCab -PathType Leaf))) {
     throw 'Supply -RuntimeCab with the x64 vcRuntimeMinimum cab from Microsoft Visual C++ Redistributable.'
+}
+if ($RuntimeDirectory -and !(Test-Path -LiteralPath $RuntimeDirectory -PathType Container)) {
+    throw 'RuntimeDirectory must be the x64 Visual Studio redistributable CRT directory.'
 }
 
 $version = [regex]::Match((Get-Content -LiteralPath (Join-Path $projectRoot 'pubspec.yaml') -Raw), '(?m)^version:\s*(\S+)').Groups[1].Value
@@ -35,12 +40,14 @@ $bundle = Join-Path $OutputDirectory $packageName
 $zipPath = Join-Path $OutputDirectory ($packageName + '.zip')
 $setupPath = Join-Path $OutputDirectory ($packageName + '-setup.exe')
 $checksumPath = Join-Path $OutputDirectory ($packageName + '-SHA256.txt')
-foreach ($target in @($bundle, $zipPath, $setupPath, $checksumPath)) {
+foreach ($target in @($bundle, $zipPath, $setupPath, $checksumPath, ($zipPath + '.sha256'), ($setupPath + '.sha256'))) {
     if (Test-Path -LiteralPath $target) { throw "Output already exists; choose a new output directory: $target" }
 }
 
-& "$env:SystemRoot/System32/WindowsPowerShell/v1.0/powershell.exe" -NoLogo -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'start_windows.ps1') -BuildOnly -Offline
-if ($LASTEXITCODE -ne 0) { throw 'Release build validation failed' }
+if (!$SkipBuild) {
+    & "$env:SystemRoot/System32/WindowsPowerShell/v1.0/powershell.exe" -NoLogo -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'start_windows.ps1') -BuildOnly -Offline
+    if ($LASTEXITCODE -ne 0) { throw 'Release build validation failed' }
+}
 $release = Join-Path $projectRoot 'build/windows/x64/runner/Release'
 if ((Get-Item -LiteralPath (Join-Path $release 'plana_app_for_windows.exe')).VersionInfo.FileVersion -ne $version) {
     throw 'Release executable version does not match source'
@@ -63,15 +70,28 @@ function Invoke-Archive([string[]]$ArchiveArguments) {
 
 try {
     $runtimeWork = Join-Path $work 'runtime'
-    Invoke-Archive -ArchiveArguments @('x', $RuntimeCab, ('-o' + $runtimeWork), '-y', '-bso0', '-bsp0')
+    if (!$RuntimeDirectory) {
+        Invoke-Archive -ArchiveArguments @('x', $RuntimeCab, ('-o' + $runtimeWork), '-y', '-bso0', '-bsp0')
+    }
     $runtimeNames = @('concrt140', 'msvcp140', 'msvcp140_1', 'msvcp140_2', 'msvcp140_atomic_wait', 'msvcp140_codecvt_ids', 'vccorlib140', 'vcruntime140', 'vcruntime140_1', 'vcruntime140_threads')
     foreach ($name in $runtimeNames) {
-        $inputDll = Join-Path $runtimeWork ($name + '.dll_amd64')
+        $inputDll = if ($RuntimeDirectory) {
+            Join-Path $RuntimeDirectory ($name + '.dll')
+        } else {
+            Join-Path $runtimeWork ($name + '.dll_amd64')
+        }
+        # Visual Studio versions can omit legacy or newly added optional DLLs.
+        if ($RuntimeDirectory -and !(Test-Path -LiteralPath $inputDll -PathType Leaf)) { continue }
         $signature = Get-AuthenticodeSignature -LiteralPath $inputDll
         if (!$signature.SignerCertificate -or $signature.SignerCertificate.Subject -notmatch 'Microsoft Corporation') {
             throw "Unexpected runtime DLL signer: $name"
         }
         Copy-Item -LiteralPath $inputDll -Destination (Join-Path $bundle ($name + '.dll'))
+    }
+    foreach ($required in @('vcruntime140.dll', 'vcruntime140_1.dll', 'msvcp140.dll')) {
+        if (!(Test-Path -LiteralPath (Join-Path $bundle $required) -PathType Leaf)) {
+            throw "Missing required Visual C++ runtime: $required"
+        }
     }
     $runtimeVersion = (Get-Item -LiteralPath (Join-Path $bundle 'vcruntime140.dll')).VersionInfo.FileVersion
 
@@ -89,7 +109,8 @@ Windows runtime components
 
 Microsoft Visual C++ Runtime $runtimeVersion (x64).
 Copyright (c) Microsoft Corporation. All rights reserved.
-Unmodified DLLs extracted from the Microsoft Visual C++ Redistributable package.
+Unmodified DLLs from the Microsoft Visual C++ Redistributable package or the
+Visual Studio x64 redistributable CRT directory.
 Redistribution information: https://learn.microsoft.com/en-us/cpp/windows/redistributing-visual-cpp-files
 
 ONNX Runtime 1.22.0 for Windows x64: see ONNXRuntime-LICENSE.txt and ONNXRuntime-ThirdPartyNotices.txt.
@@ -167,7 +188,7 @@ Windows source for Plana $version
 Install Flutter and Visual Studio with Desktop development with C++.
 From plana-app-windows, run: flutter pub get
 Then run: flutter build windows --release
-The verified build used Flutter 3.44.9 / Dart 3.12.2.
+The release workflow uses Flutter 3.44.2 / Dart 3.12.2.
 To package the Chinese installer and portable ZIP, install Inno Setup 6.5+
 and 7-Zip, then run tool/package_windows.ps1 (see WINDOWS-README.md).
 Project license: GPL-3.0. See LICENSE and THIRD_PARTY_NOTICES.md.
@@ -188,6 +209,10 @@ Project license: GPL-3.0. See LICENSE and THIRD_PARTY_NOTICES.md.
     } finally { Pop-Location }
     & (Join-Path $PSScriptRoot 'build_windows_installer.ps1') -BundleDirectory $bundle -OutputDirectory $OutputDirectory -IsccPath $IsccPath | Out-Host
     $artifacts = @($zipPath, $setupPath) | ForEach-Object { Get-Item -LiteralPath $_ }
+    $artifacts | ForEach-Object {
+        '{0}  {1}' -f (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash, $_.Name |
+            Set-Content -LiteralPath ($_.FullName + '.sha256') -Encoding ASCII
+    }
     $artifacts | ForEach-Object { '{0}  {1}' -f (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash, $_.Name } |
         Set-Content -LiteralPath $checksumPath -Encoding ASCII
     $artifacts | ForEach-Object { [pscustomobject]@{Path=$_.FullName;Bytes=$_.Length;SHA256=(Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash} } | ConvertTo-Json
