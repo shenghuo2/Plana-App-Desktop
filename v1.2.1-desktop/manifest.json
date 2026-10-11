@@ -1,0 +1,81 @@
+{
+  "release_tag": "v1.2.1-desktop",
+  "source_commits": {
+    "standard": "f0943f561c31a14ab80d194464a76c4e26f5cf66",
+    "remoteUpload": "d92b2a71e4dacda244f326dbb6f308b4a94329df"
+  },
+  "images": [
+    {
+      "name": "comparison-01-model.png",
+      "sha256": "995f48fbfacb496791991c139313363a0eba2f4c58c6f6a1849199309cfa65c7"
+    },
+    {
+      "name": "comparison-02-select.png",
+      "sha256": "f8126c5aaa5afd8d6f371d40f191cb0857ca1076af37ae17c64150c0e936a8eb"
+    },
+    {
+      "name": "comparison-03-merge.png",
+      "sha256": "8a81b49ec278d00ee79b43ff54da306b0ea3decf47983d0d9c181bcdcdd4f27c"
+    },
+    {
+      "name": "comparison-04-main.png",
+      "sha256": "6e6b915040b656261cb643cd7eea7b35632185632fe09f22812f8ec15c175d79"
+    },
+    {
+      "name": "comparison-05-save.png",
+      "sha256": "14eb7b66b86ffbf36235afa3ba7550c6e349c9e4a41f7aa7628876ee40c59190"
+    },
+    {
+      "name": "comparison-07-free.png",
+      "sha256": "af3b3c35afc492cdc6aad3bed860c27f75450b4f5f019487669042edaeb8a246"
+    },
+    {
+      "name": "comparison-09-tags.png",
+      "sha256": "2447c07cb566cd182f009294c6beb704362be480ed15c42a9375de9df78a5d1b"
+    },
+    {
+      "name": "comparison-10-mosaic.png",
+      "sha256": "31819a53b841580847b784bd3a2ac4dd2806d5741a1f96605ae41ded19fb8083"
+    },
+    {
+      "name": "comparison-11-billing.png",
+      "sha256": "0fb23be105448bfb7df20d31cf5527621750dd2ec2a34558603452cbd5971798"
+    },
+    {
+      "name": "comparison-character-persistent-header.png",
+      "sha256": "5f6225952f68bebb1856bc2b1d6ecc6d08244c0dbccbd38bbda561cb4e9a5d6c"
+    },
+    {
+      "name": "comparison-prompt-unified-section-header.png",
+      "sha256": "a0e33c81da2474882279b91d16fa1f5523183fea9e0ce1ce6e25308f07dcd12b"
+    },
+    {
+      "name": "comparison-desktop-chip-primary-font.png",
+      "sha256": "f78f2bb6e2490f274af6b7affdfa718ba2c856d0faf74e055bc78a037be0558a"
+    },
+    {
+      "name": "comparison-prompt-large-editor-dismiss.png",
+      "sha256": "91b3c283dba635d249d71d3972847f1c3e865cb263d0c8233bb4eab9875f1338"
+    },
+    {
+      "name": "comparison-desktop-completion-mouse-click.png",
+      "sha256": "2cacbd0a387999f8862edffbf55bbf162349bbe24c455479a3dd8aa6c6b79e0b"
+    },
+    {
+      "name": "comparison-prompt-folding-feature.png",
+      "sha256": "48c6daea37087b88b5e7c52c52bd2cdb6ca658f1b7ab693f4e11618898300ecd"
+    },
+    {
+      "name": "comparison-prompt-large-editor-width.png",
+      "sha256": "c9dc57abde402e07519d1b315b57e00a1204d4930c8e1afb6e68ff19082ef575"
+    },
+    {
+      "name": "comparison-prompt-narrow-header.png",
+      "sha256": "6261280dd084842785659201bac9cfa7036b3e177bcdf2bb9e1456450dda716a"
+    },
+    {
+      "name": "comparison-sidebar-inspiration-filter.png",
+      "sha256": "4bffab1073b55be19a81139990e982a0f18673d90b87fa0f75bcc6595de243dc"
+    }
+  ]
+}
