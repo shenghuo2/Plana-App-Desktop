@@ -15,7 +15,7 @@ if (!$SevenZipDirectory) {
     $SevenZipDirectory = Join-Path $env:USERPROFILE 'scoop/apps/7zip/current'
 }
 $sevenZip = Join-Path $SevenZipDirectory '7z.exe'
-foreach ($required in @($sevenZip)) {
+foreach ($required in @($sevenZip, (Join-Path $SevenZipDirectory 'License.txt'))) {
     if (!(Test-Path -LiteralPath $required -PathType Leaf)) { throw "Missing packaging tool: $required" }
 }
 if (!$RuntimeCab -and !$RuntimeDirectory) {

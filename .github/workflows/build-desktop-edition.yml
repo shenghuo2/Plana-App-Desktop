@@ -118,7 +118,8 @@ jobs:
             Sort-Object { [version]$_.Parent.Parent.Name } -Descending |
             Select-Object -First 1
           if (!$crt) { throw 'Visual Studio x64 redistributable CRT was not found' }
-          $sevenZip = Split-Path (Get-Command 7z.exe -ErrorAction Stop).Source -Parent
+          # PATH can point to Chocolatey's shim, which has no license file.
+          $sevenZip = Join-Path $env:ProgramFiles '7-Zip'
           ./tool/package_windows.ps1 -SkipBuild -OutputDirectory build/windows-packages `
             -SevenZipDirectory $sevenZip -RuntimeDirectory $crt.FullName -IsccPath $iscc
 
