@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -9,6 +10,11 @@ import 'package:plana_app/core/theme/app_theme.dart';
 import 'package:plana_app/core/theme/theme_settings.dart';
 import 'package:plana_app/features/editor/editor_settings.dart';
 import 'package:plana_app/features/editor/editor_page.dart';
+import 'package:plana_app/features/editor/widgets/chip_flow_view.dart';
+import 'package:plana_app/features/editor/widgets/annotated_field.dart';
+import 'package:plana_app/features/editor/widgets/editor_top_bar.dart';
+import 'package:plana_app/features/editor/widgets/tag_panel.dart';
+import 'package:plana_app/features/editor/data/suggestions.dart';
 import 'package:plana_app/features/editor/data/tag_translation_service.dart';
 import 'package:plana_app/features/generate/generate_state.dart';
 import 'package:plana_app/features/generate/canvas_state.dart';
@@ -326,4 +332,158 @@ void main() {
       await finish(tester);
     });
   }
+  testWidgets('outside click closes the text dialog and retains fresh edits', (
+    tester,
+  ) async {
+    container
+        .read(generateProvider.notifier)
+        .setPrompts(positive: 'solo', negative: 'lowres');
+    await mount(tester, const PromptCard());
+    await tap(tester, 'prompt-fullscreen-main');
+    final field = find
+        .descendant(of: find.byType(Dialog), matching: find.byType(TextField))
+        .first;
+    await tester.enterText(field, 'fresh text edit');
+    await tester.tapAt(const Offset(8, 8));
+    await tester.pumpAndSettle();
+    expect(find.byType(Dialog), findsNothing);
+    expect(
+      tester.widget<TextField>(input('desktop-prompt')).controller!.text,
+      'fresh text edit',
+    );
+    expect(container.read(generateProvider).negativePrompt, 'lowres');
+    expect(tester.takeException(), isNull);
+    await finish(tester);
+  });
+
+  for (final selectedCount in [0, 1, 2]) {
+    testWidgets(
+      'outside click saves chip input with $selectedCount selected tags',
+      (tester) async {
+        final gen = container.read(generateProvider.notifier);
+        gen.setPrompts(positive: 'solo', negative: 'lowres');
+        gen.addCharacter();
+        final id = container.read(generateProvider).characters.single.id;
+        gen.updateCharacter(
+          id,
+          positive: 'traveler, white shirt',
+          negative: 'hat',
+        );
+        await container.read(editorSettingsProvider.future);
+        unawaited(
+          container
+              .read(editorSettingsProvider.notifier)
+              .patch((s) => s.copyWith(chipMode: true)),
+        );
+        await mount(tester, const CharacterCard());
+        await tap(tester, 'character-fullscreen-$id');
+        final dialog = find.byType(Dialog);
+        final flow = find.descendant(
+          of: dialog,
+          matching: find.byType(ChipFlowView),
+        );
+        final chipState = tester.state<ChipFlowViewState>(flow);
+        final bodyRect = tester.getRect(flow);
+        final headerRect = tester.getRect(find.byType(EditorTopBar));
+        for (var i = 0; i < selectedCount; i++) {
+          await tester.tapAt(chipState.chipAnchor(i)!.center);
+          await tester.pumpAndSettle();
+        }
+        if (selectedCount > 0) {
+          expect(key('desktop-tag-popover'), findsOneWidget);
+          expect(
+            find.byType(selectedCount == 1 ? TagPanel : BatchPanel),
+            findsOneWidget,
+          );
+          expect(tester.getRect(flow), bodyRect);
+          expect(tester.getRect(find.byType(EditorTopBar)), headerRect);
+        }
+        final tail = find.descendant(
+          of: flow,
+          matching: find.byType(TextField),
+        );
+        await tester.enterText(tail, 'blue sky');
+        expect(
+          tester.widget<ChipFlowView>(flow).selection.length,
+          selectedCount,
+        );
+        await tester.tapAt(const Offset(8, 8));
+        await tester.pumpAndSettle();
+        expect(dialog, findsNothing);
+        expect(key('desktop-tag-popover'), findsNothing);
+        expect(
+          container.read(generateProvider).characters.single.positive,
+          'traveler, white shirt, blue sky',
+        );
+        expect(
+          container.read(generateProvider).characters.single.negative,
+          'hat',
+        );
+        expect(container.read(generateProvider).prompt, 'solo');
+        await tap(tester, 'character-fullscreen-$id');
+        final reopened = find.descendant(
+          of: dialog,
+          matching: find.byType(ChipFlowView),
+        );
+        expect(
+          tester.widget<ChipFlowView>(reopened).controller.text,
+          'traveler, white shirt, blue sky',
+        );
+        await tester.tapAt(const Offset(8, 8));
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+        await finish(tester);
+      },
+    );
+  }
+
+  testWidgets(
+    'chip names use the same smaller font in the sidebar and dialog',
+    (tester) async {
+      cacheTagMeta('ocean', trans: '海洋');
+      container.read(generateProvider.notifier).setPrompts(positive: 'ocean');
+      await container.read(editorSettingsProvider.future);
+      unawaited(
+        container
+            .read(editorSettingsProvider.notifier)
+            .patch(
+              (s) => s.copyWith(
+                chipMode: true,
+                showTranslation: true,
+                chipFontSize: 20,
+              ),
+            ),
+      );
+      await mount(tester, const PromptCard());
+      Finder label(Finder flow, String value) =>
+          find.descendant(of: flow, matching: find.text(value));
+      void check(Finder flow) {
+        expect(tester.widget<Text>(label(flow, 'ocean')).style!.fontSize, 16);
+        expect(tester.widget<Text>(label(flow, '海洋')).style!.fontSize, 16);
+      }
+
+      check(find.byType(ChipFlowView));
+      await tap(tester, 'prompt-fullscreen-main');
+      check(
+        find.descendant(
+          of: find.byType(Dialog),
+          matching: find.byType(ChipFlowView),
+        ),
+      );
+      await tester.tapAt(const Offset(8, 8));
+      await tester.pumpAndSettle();
+      unawaited(
+        container
+            .read(editorSettingsProvider.notifier)
+            .patch((s) => s.copyWith(chipMode: false)),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        tester.widget<AnnotatedField>(find.byType(AnnotatedField)).fontSize,
+        16,
+      );
+      expect(tester.takeException(), isNull);
+      await finish(tester);
+    },
+  );
 }
