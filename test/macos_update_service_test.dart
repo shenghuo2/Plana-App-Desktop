@@ -17,10 +17,13 @@ GithubRelease _release(
   List<int> bytes, {
   String? digest,
   bool checksum = false,
+  String? checksumName,
 }) {
   const name = 'Plana-macOS-x64.dmg';
-  const url =
-      'https://github.com/$kGithubRepo/releases/download/v1.1.1-desktop.46/$name';
+  const baseUrl =
+      'https://github.com/$kGithubRepo/releases/download/v1.1.1-desktop.46';
+  const url = '$baseUrl/$name';
+  final checksumFile = checksumName ?? '$name.sha256';
   return GithubRelease(
     tag: 'v1.1.1-desktop.46',
     name: '',
@@ -32,10 +35,14 @@ GithubRelease _release(
         name: name,
         url: url,
         size: bytes.length,
-        digest: checksum ? null : digest ?? 'sha256:${sha256.convert(bytes)}',
+        digest: digest ?? (checksum ? null : 'sha256:${sha256.convert(bytes)}'),
       ),
       if (checksum)
-        const GithubAsset(name: '$name.sha256', url: '$url.sha256', size: 90),
+        GithubAsset(
+          name: checksumFile,
+          url: '$baseUrl/$checksumFile',
+          size: 1024,
+        ),
     ],
   );
 }
@@ -149,6 +156,82 @@ void main() {
     );
     expect(requests.length, 2);
     expect(requests.first.path.endsWith('.sha256'), isTrue);
+  });
+
+  test('汇总校验清单中按完整文件名选择当前 DMG', () async {
+    final requests = <Uri>[];
+    final service = MacOSUpdateService(
+      directory: root,
+      clientFactory: () => MockClient((request) async {
+        requests.add(request.url);
+        if (request.url.path.endsWith('/SHA256SUMS.txt')) {
+          return http.Response(
+            '${'0' * 64}  Plana-RemoteUpload-macOS-x64.dmg\r\n'
+            '${'0' * 64}  Plana-Windows-x64-setup.exe\r\n'
+            '${sha256.convert(bytes).toString().toUpperCase()} *Plana-macOS-x64.dmg\r\n',
+            200,
+          );
+        }
+        return http.Response.bytes(bytes, 200);
+      }),
+    );
+    final result = await service.download(
+      _release(bytes, checksum: true, checksumName: 'SHA256SUMS.txt'),
+      architecture: 'x64',
+      onProgress: (_, _) {},
+    );
+    expect(result.sha256, sha256.convert(bytes).toString());
+    expect(requests.length, 2);
+    expect(requests.first.path, endsWith('/SHA256SUMS.txt'));
+  });
+
+  for (final entry in {
+    '缺少当前文件': '${sha256.convert(bytes)}  Plana-RemoteUpload-macOS-x64.dmg\n',
+    '校验不符': '${'0' * 64}  Plana-macOS-x64.dmg\n',
+  }.entries) {
+    test('汇总清单${entry.key}时拒绝更新', () async {
+      final service = MacOSUpdateService(
+        directory: root,
+        clientFactory: () => MockClient((request) async {
+          if (request.url.path.endsWith('/SHA256SUMS.txt')) {
+            return http.Response(entry.value, 200);
+          }
+          return http.Response.bytes(bytes, 200);
+        }),
+      );
+      await expectLater(
+        service.download(
+          _release(bytes, checksum: true, checksumName: 'SHA256SUMS.txt'),
+          architecture: 'x64',
+          onProgress: (_, _) {},
+        ),
+        throwsA(isA<UpdateException>()),
+      );
+      expect(root.listSync().whereType<File>(), isEmpty);
+    });
+  }
+
+  test('GitHub 提供 digest 时优先使用,无需读取汇总清单', () async {
+    var requests = 0;
+    final service = MacOSUpdateService(
+      directory: root,
+      clientFactory: () => MockClient((request) async {
+        requests++;
+        expect(request.url.path, endsWith('.dmg'));
+        return http.Response.bytes(bytes, 200);
+      }),
+    );
+    await service.download(
+      _release(
+        bytes,
+        digest: 'sha256:${sha256.convert(bytes)}',
+        checksum: true,
+        checksumName: 'SHA256SUMS.txt',
+      ),
+      architecture: 'x64',
+      onProgress: (_, _) {},
+    );
+    expect(requests, 1);
   });
 
   test('取消后清理未完成文件,可以重试', () async {

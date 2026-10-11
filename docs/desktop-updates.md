@@ -25,9 +25,12 @@ macOS 的流程参考 `shenghuo2/Aaalice_NAI_Launcher`:用户点击下载,完成
   工作流从对应的发布分支构建两版，安装时按 Flutter 的 macOS 版号规则核对 Bundle 版本。
 - 发布 DMG 的架构必须写进文件名,例如 `Plana-App-Desktop-macOS-arm64.dmg` 或
   `Plana-App-Desktop-macOS-x64.dmg`。通用包可使用 `universal`。
-- 将 DMG 与同名 `.sha256` 文件一同上传 GitHub Release。GitHub API 有 `sha256:`
-  digest 时优先使用它;否则读取 `.sha256`。缺少校验信息时可到发布页手动下载。
-- 现有 macOS CI 会产出 arm64 DMG 及校验文件。只有发布为 Release 的版本会被检测,
+- 正式 Release 用一份 `SHA256SUMS.txt` 汇总所有安装包，每行包含 SHA-256 与完整
+  文件名。更新器优先使用 GitHub API 的 `sha256:` digest；否则从汇总清单按当前
+  DMG 的完整文件名读取校验值，同时兼容旧版本的同名 `.sha256` 文件。
+- 公开发布前确认 GitHub 为各 DMG 返回 `sha256:` digest，以支持已发布的旧客户端。
+- macOS CI 产出 arm64 DMG，各平台构建后由汇总任务生成 `SHA256SUMS.txt`。
+  只有发布为 Release 的版本会被检测,
   CI 构建完成并不会自动成为新版本。
 
 当前 CI 的签名为 ad-hoc;安装助手验证签名完整性,不把它描述为 Apple 公证。

@@ -95,3 +95,36 @@ jobs:
       dmg_name: ${{ fromJson(needs.plan.outputs.remote_upload).dmg }}
       dmg_volume: ${{ fromJson(needs.plan.outputs.remote_upload).volume }}
       artifact_name: ${{ fromJson(needs.plan.outputs.remote_upload).artifact }}
+
+  checksums:
+    name: Collect release checksums
+    needs: [plan, standard, remote_upload]
+    if: >-
+      ${{ !cancelled() && needs.plan.result == 'success' &&
+          (needs.standard.result == 'success' || needs.standard.result == 'skipped') &&
+          (needs.remote_upload.result == 'success' || needs.remote_upload.result == 'skipped') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - name: Test release checksum collection
+        run: python3 tool/test_desktop_release_checksums.py
+      - name: Download edition builds and plan
+        uses: actions/download-artifact@v8
+        with:
+          path: build/release-artifacts
+      - name: Generate combined package checksums
+        env:
+          BUILD_WINDOWS: ${{ needs.plan.outputs.build_windows }}
+        run: |
+          args=()
+          if [[ "$BUILD_WINDOWS" == "true" ]]; then args+=(--build-windows); fi
+          python3 tool/desktop_release_checksums.py \
+            --artifacts build/release-artifacts \
+            --plan build/release-artifacts/desktop-build-plan/desktop-build-plan.json \
+            --output build/release-checksums/SHA256SUMS.txt "${args[@]}"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: desktop-release-checksums
+          path: build/release-checksums/SHA256SUMS.txt
+          if-no-files-found: error

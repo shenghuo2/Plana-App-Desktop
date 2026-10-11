@@ -47,7 +47,7 @@ Plana App Desktop 将 [Plana App](https://github.com/mc5024/Plana-App) 的绘图
 
 **macOS**：退出旧应用，打开 DMG，将 `Plana App Desktop.app` 拖入「应用程序」后运行。目前提供 ARM64 包，适用于 Apple Silicon Mac。
 
-每份安装包都有同名 `.sha256` 校验文件。Windows 包未做代码签名；macOS 包使用 ad-hoc 签名，尚未经过 Apple 公证。
+发布页提供安装包的 SHA-256 校验值，后续版本统一使用 `SHA256SUMS.txt`。Windows 包未做代码签名；macOS 包使用 ad-hoc 签名，尚未经过 Apple 公证。
 
 ## 主要功能
 
