@@ -36,12 +36,12 @@ Plana App Desktop 将 [Plana App](https://github.com/mc5024/Plana-App) 的绘图
 
 ## 下载与安装
 
-当前公开预发布为 **1.2.0-desktop.1（构建 69）**。从 [发布页](https://github.com/shenghuo2/Plana-App-Desktop/releases/tag/v1.2.0-desktop.1) 下载，无需登录 GitHub。
+当前公开预发布为 **1.2.1-desktop（构建 70）**。从 [发布页](https://github.com/shenghuo2/Plana-App-Desktop/releases/tag/v1.2.1-desktop) 下载，无需登录 GitHub。
 
 | 平台 | 安装包 | 选择建议 |
 |---|---|---|
-| Windows x64 | [标准版 ZIP](https://github.com/shenghuo2/Plana-App-Desktop/releases/download/v1.2.0-desktop.1/Plana-App-Desktop-Windows-1.2.0-desktop.1-x64.zip) | Windows 用户使用此版 |
-| macOS 14+ · Apple Silicon | [标准版 DMG](https://github.com/shenghuo2/Plana-App-Desktop/releases/download/v1.2.0-desktop.1/Plana-App-Desktop-macOS-arm64.dmg) | 日常绘图与本地作品管理 |
+| Windows x64 | [标准版 ZIP](https://github.com/shenghuo2/Plana-App-Desktop/releases/download/v1.2.1-desktop/Plana-App-Desktop-Windows-1.2.1-desktop-x64.zip) | Windows 用户使用此版 |
+| macOS 14+ · Apple Silicon | [标准版 DMG](https://github.com/shenghuo2/Plana-App-Desktop/releases/download/v1.2.1-desktop/Plana-App-Desktop-macOS-arm64.dmg) | 日常绘图与本地作品管理 |
 
 **Windows**：完整解压 ZIP，运行目录中的 `plana_app_for_windows.exe`。如果提示缺少运行库，安装 [Visual C++ Redistributable x64](https://aka.ms/vc14/vc_redist.x64.exe)。移动便携目录时，请连同 `output` 作品文件夹一起移动。
 
@@ -53,7 +53,7 @@ Plana App Desktop 将 [Plana App](https://github.com/mc5024/Plana-App) 的绘图
 
 | 你要做的事 | 桌面版提供的操作 |
 |---|---|
-| 编辑与切换提示词 | 多画布、正负提示词分区、标签／文本视图、预设切换；角色提示词直接在侧栏编辑 |
+| 编辑与切换提示词 | 多画布、正负提示词分区、标签／文本视图、预设切换；提示词卡片可折叠，也可打开大屏编辑 |
 | 使用图片参考 | 文件多选、拖入、剪贴板粘贴；图生图、Vibe、角色参考与图片元数据导入 |
 | 放大或重绘图片 | 独立的图生图放大与 2× 超分辨率入口；导入窗口也可对外部图片执行超分 |
 | 借助 AI 整理想法 | 独立对话页与创作侧栏，多图附件、会话管理、消息编辑、提示词提案和生成图查看 |
@@ -97,8 +97,7 @@ Plana App Desktop 将 [Plana App](https://github.com/mc5024/Plana-App) 的绘图
 
 | 版本 | 状态 | 说明 |
 |---|---|---|
-| `1.2.0-desktop.1+69` | 已公开预发布 | [安装包、更新内容与验证记录](https://github.com/shenghuo2/Plana-App-Desktop/releases/tag/v1.2.0-desktop.1) |
-| `1.2.1-desktop+70` | 开发源码 | 已合入 Android 1.2.1；[合并范围与桌面适配](docs/ANDROID-1.2.1-INTEGRATION.md) |
+| `1.2.1-desktop+70` | 已公开预发布 | [安装包、更新内容与验证记录](https://github.com/shenghuo2/Plana-App-Desktop/releases/tag/v1.2.1-desktop)；[Android 1.2.1 合并范围](docs/ANDROID-1.2.1-INTEGRATION.md) |
 
 公开安装包以 Releases 为准。`main` 是标准版开发主线，`feature/remote-upload` 是远端上传版开发分支。每次发版分别保留 `release/<版本号>` 与 `release/remote-upload/<版本号>`，从对应分支构建两版。
 

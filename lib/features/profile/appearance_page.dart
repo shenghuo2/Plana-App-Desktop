@@ -198,14 +198,20 @@ class AppearancePage extends ConsumerWidget {
           SettingsCard(
             children: [
               _SwitchRow(
+                key: const ValueKey('appearance-collapse-prompts'),
                 icon: Icons.view_agenda_outlined,
-                title: desktop ? '默认收起提示词卡' : '紧凑角色卡',
+                title: desktop ? '提示词卡片折叠' : '紧凑角色卡',
                 subtitle: desktop
-                    ? '主体、分区与角色显示摘要，点击顶部箭头恢复完整卡片'
+                    ? '允许折叠主体、分区和角色提示词，关闭后卡片始终展开'
                     : '收起头像预览，保留名称、位置与提示词',
-                value: ts.compactCharCards,
-                onChanged: (v) =>
-                    notifier.patch((x) => x.copyWith(compactCharCards: v)),
+                value: desktop
+                    ? ts.collapsiblePromptCards
+                    : ts.compactCharCards,
+                onChanged: (v) => notifier.patch(
+                  (x) => desktop
+                      ? x.copyWith(collapsiblePromptCards: v)
+                      : x.copyWith(compactCharCards: v),
+                ),
               ),
             ],
           ),
@@ -233,6 +239,7 @@ class AppearancePage extends ConsumerWidget {
 /// 卡片里的一行开关。整行可点。
 class _SwitchRow extends StatelessWidget {
   const _SwitchRow({
+    super.key,
     required this.icon,
     required this.title,
     required this.value,

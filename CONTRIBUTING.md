@@ -36,10 +36,10 @@ flutter run -d macos
 | `release/<版本号>` | 对应版本的标准版构建源码 |
 | `release/remote-upload/<版本号>` | 对应版本的远端上传版构建源码 |
 
-当前开发源码为 `1.2.1-desktop+70`。已发布 `1.2.0-desktop.1` 的标准版源码保留在
-[`release/1.2.0-desktop.1`](https://github.com/shenghuo2/Plana-App-Desktop/tree/release/1.2.0-desktop.1)，
+当前预发布版本为 `1.2.1-desktop+70`。标准版源码保留在
+[`release/1.2.1-desktop`](https://github.com/shenghuo2/Plana-App-Desktop/tree/release/1.2.1-desktop)，
 远端上传版保留在
-[`release/remote-upload/1.2.0-desktop.1`](https://github.com/shenghuo2/Plana-App-Desktop/tree/release/remote-upload/1.2.0-desktop.1)。
+[`release/remote-upload/1.2.1-desktop`](https://github.com/shenghuo2/Plana-App-Desktop/tree/release/remote-upload/1.2.1-desktop)。
 
 发布标签指向标准版发布分支的提交。两版保持相同版本号与构建号，各自保存实际
 构建提交；详细创建、校验与重建步骤见 [双版本构建流程](DESKTOP-EDITIONS.md)。

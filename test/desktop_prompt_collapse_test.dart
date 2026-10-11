@@ -61,7 +61,13 @@ void main() {
       UncontrolledProviderScope(
         container: container,
         child: MaterialApp(
-          theme: AppTheme.light(),
+          theme: AppTheme.light().copyWith(
+            visualDensity: VisualDensity.compact,
+            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            dialogTheme: const DialogThemeData(
+              constraints: BoxConstraints(maxWidth: 760),
+            ),
+          ),
           home: Scaffold(
             body: SingleChildScrollView(
               child: SizedBox(width: 500, child: child),
@@ -85,7 +91,7 @@ void main() {
   }
 
   testWidgets(
-    'compact character expands to the complete card and preserves editor session',
+    'character folding starts enabled and preserves the complete editor session',
     (tester) async {
       final gen = container.read(generateProvider.notifier);
       gen.addCharacter();
@@ -95,10 +101,9 @@ void main() {
         positive: 'traveler, white shirt',
         negative: 'hat',
       );
-      container
-          .read(themeSettingsProvider.notifier)
-          .patch((s) => s.copyWith(compactCharCards: true));
       await mount(tester, const CharacterCard());
+      expect(input('desktop-character-$id'), findsOneWidget);
+      await tap(tester, 'character-collapse-$id');
       expect(input('desktop-character-$id'), findsNothing);
       expect(find.byType(TagCardPreview), findsOneWidget);
       final libraryPosition = tester.getTopLeft(key('character-library-$id'));
@@ -127,6 +132,20 @@ void main() {
         'traveler, blue shirt',
       );
       expect(input('desktop-character-$id'), findsNothing);
+      container
+          .read(themeSettingsProvider.notifier)
+          .patch((s) => s.copyWith(collapsiblePromptCards: false));
+      await tester.pumpAndSettle();
+      expect(key('character-collapse-$id'), findsNothing);
+      expect(input('desktop-character-$id'), findsOneWidget);
+      expect(
+        tester.widget<TextField>(input('desktop-character-$id')).controller,
+        same(field.controller),
+      );
+      container
+          .read(themeSettingsProvider.notifier)
+          .patch((s) => s.copyWith(collapsiblePromptCards: true));
+      await tester.pumpAndSettle();
       await tap(tester, 'character-collapse-$id');
       expect(
         tester.widget<TextField>(input('desktop-character-$id')).controller,
@@ -195,55 +214,80 @@ void main() {
         container.read(generateProvider).sections.last.negative,
         'indoors',
       );
+      await tap(tester, 'prompt-section-collapse-$id');
+      container
+          .read(themeSettingsProvider.notifier)
+          .patch((s) => s.copyWith(collapsiblePromptCards: false));
+      await tester.pumpAndSettle();
+      expect(input('desktop-prompt'), findsOneWidget);
+      expect(input('desktop-section-$id'), findsOneWidget);
+      expect(key('prompt-section-collapse-main'), findsNothing);
+      expect(key('prompt-section-collapse-$id'), findsNothing);
+      expect(
+        tester.widget<TextField>(input('desktop-section-$id')).controller,
+        same(controller),
+      );
       await finish(tester);
     },
   );
 
-  testWidgets(
-    'default collapsed preference covers main and all section cards',
-    (tester) async {
-      final gen = container.read(generateProvider.notifier);
-      gen.setPrompts(positive: 'solo');
-      gen.addSection();
-      container
-          .read(themeSettingsProvider.notifier)
-          .patch((s) => s.copyWith(compactCharCards: true));
-      await mount(tester, const PromptCard());
-      expect(find.byType(EditorPage), findsNothing);
-      await tap(tester, 'prompt-section-collapse-main');
-      expect(input('desktop-prompt'), findsOneWidget);
-      expect(find.byType(EditorPage), findsOneWidget);
-      await finish(tester);
-    },
-  );
-  testWidgets(
-    'main prompt without sections supports the same default and preserves edits',
-    (tester) async {
-      final gen = container.read(generateProvider.notifier);
-      gen.setPrompts(positive: 'solo', negative: 'lowres');
-      container
-          .read(themeSettingsProvider.notifier)
-          .patch((s) => s.copyWith(compactCharCards: true));
-      await mount(tester, const PromptCard());
-      expect(input('desktop-prompt'), findsNothing);
-      expect(find.text('solo'), findsOneWidget);
-      await tap(tester, 'prompt-section-collapse-main');
-      await tester.enterText(input('desktop-prompt'), 'solo, rain');
-      final controller = tester
-          .widget<TextField>(input('desktop-prompt'))
-          .controller;
-      await tap(tester, 'prompt-section-collapse-main');
-      expect(input('desktop-prompt'), findsNothing);
-      expect(container.read(generateProvider).prompt, 'solo, rain');
-      await tap(tester, 'prompt-section-collapse-main');
-      expect(
-        tester.widget<TextField>(input('desktop-prompt')).controller,
-        same(controller),
-      );
-      expect(container.read(generateProvider).negativePrompt, 'lowres');
-      await finish(tester);
-    },
-  );
+  testWidgets('disabling folding keeps main and all section cards expanded', (
+    tester,
+  ) async {
+    final gen = container.read(generateProvider.notifier);
+    gen.setPrompts(positive: 'solo');
+    gen.addSection();
+    container
+        .read(themeSettingsProvider.notifier)
+        .patch((s) => s.copyWith(collapsiblePromptCards: false));
+    await mount(tester, const PromptCard());
+    expect(input('desktop-prompt'), findsOneWidget);
+    expect(find.byType(EditorPage), findsNWidgets(2));
+    expect(key('prompt-section-collapse-main'), findsNothing);
+    final id = container.read(generateProvider).sections.last.id;
+    expect(input('desktop-section-$id'), findsOneWidget);
+    expect(key('prompt-section-collapse-$id'), findsNothing);
+    await finish(tester);
+  });
+  testWidgets('turning folding off expands the main card and retains edits', (
+    tester,
+  ) async {
+    final gen = container.read(generateProvider.notifier);
+    gen.setPrompts(positive: 'solo', negative: 'lowres');
+    container
+        .read(themeSettingsProvider.notifier)
+        .patch((s) => s.copyWith(collapsiblePromptCards: true));
+    await mount(tester, const PromptCard());
+    expect(input('desktop-prompt'), findsOneWidget);
+    await tap(tester, 'prompt-section-collapse-main');
+    expect(input('desktop-prompt'), findsNothing);
+    expect(find.text('solo'), findsOneWidget);
+    await tap(tester, 'prompt-section-collapse-main');
+    await tester.enterText(input('desktop-prompt'), 'solo, rain');
+    final controller = tester
+        .widget<TextField>(input('desktop-prompt'))
+        .controller;
+    await tap(tester, 'prompt-section-collapse-main');
+    expect(input('desktop-prompt'), findsNothing);
+    expect(container.read(generateProvider).prompt, 'solo, rain');
+    container
+        .read(themeSettingsProvider.notifier)
+        .patch((s) => s.copyWith(collapsiblePromptCards: false));
+    await tester.pumpAndSettle();
+    expect(key('prompt-section-collapse-main'), findsNothing);
+    expect(input('desktop-prompt'), findsOneWidget);
+    container
+        .read(themeSettingsProvider.notifier)
+        .patch((s) => s.copyWith(collapsiblePromptCards: true));
+    await tester.pumpAndSettle();
+    await tap(tester, 'prompt-section-collapse-main');
+    expect(
+      tester.widget<TextField>(input('desktop-prompt')).controller,
+      same(controller),
+    );
+    expect(container.read(generateProvider).negativePrompt, 'lowres');
+    await finish(tester);
+  });
   testWidgets(
     'disabled sections remain expandable and editing does not enable them',
     (tester) async {
@@ -253,8 +297,9 @@ void main() {
       gen.updateSection(id, enabled: false);
       container
           .read(themeSettingsProvider.notifier)
-          .patch((s) => s.copyWith(compactCharCards: true));
+          .patch((s) => s.copyWith(collapsiblePromptCards: true));
       await mount(tester, const PromptCard());
+      await tap(tester, 'prompt-section-collapse-$id');
       expect(input('desktop-section-$id'), findsNothing);
       await tap(tester, 'prompt-section-collapse-$id');
       expect(input('desktop-section-$id'), findsOneWidget);
@@ -301,7 +346,13 @@ void main() {
       );
       final dialog = find.byType(Dialog);
       expect(dialog, findsOneWidget);
-      expect(tester.getSize(dialog).width, greaterThan(500));
+      final largeEditor = find.byWidgetPredicate(
+        (widget) => widget is EditorPage && widget.floatingPanels,
+      );
+      expect(
+        tester.getSize(largeEditor).width,
+        tester.view.physicalSize.width / tester.view.devicePixelRatio - 48,
+      );
       final field = find
           .descendant(of: dialog, matching: find.byType(TextField))
           .first;
@@ -332,6 +383,42 @@ void main() {
       await finish(tester);
     });
   }
+  testWidgets('large editor fills and resizes with the desktop window', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1600, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    container
+        .read(generateProvider.notifier)
+        .setPrompts(positive: 'solo', negative: 'lowres');
+    await mount(tester, const PromptCard());
+    await tap(tester, 'prompt-fullscreen-main');
+    final largeEditor = find.byWidgetPredicate(
+      (widget) => widget is EditorPage && widget.floatingPanels,
+    );
+    for (final size in [
+      const Size(1600, 1000),
+      const Size(1000, 800),
+      const Size(700, 700),
+    ]) {
+      tester.view.physicalSize = size;
+      await tester.pumpAndSettle();
+      expect(
+        tester.getRect(largeEditor),
+        Rect.fromLTWH(24, 24, size.width - 48, size.height - 48),
+      );
+      expect(tester.takeException(), isNull);
+    }
+    await tester.tapAt(const Offset(8, 8));
+    await tester.pumpAndSettle();
+    expect(find.byType(Dialog), findsNothing);
+    expect(container.read(generateProvider).prompt, 'solo');
+    expect(container.read(generateProvider).negativePrompt, 'lowres');
+    await finish(tester);
+  });
+
   testWidgets('outside click closes the text dialog and retains fresh edits', (
     tester,
   ) async {

@@ -136,6 +136,39 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  testWidgets('prompt folding is enabled by default and its switch persists', (
+    tester,
+  ) async {
+    await mount(tester);
+    final setting = key('appearance-collapse-prompts');
+    final toggle = find.descendant(of: setting, matching: find.byType(Switch));
+    await tester.ensureVisible(setting);
+    await tester.pumpAndSettle();
+    expect(find.text('提示词卡片折叠'), findsOneWidget);
+    expect(find.text('默认收起提示词卡'), findsNothing);
+    expect(tester.widget<Switch>(toggle).value, isTrue);
+    await tester.tap(toggle);
+    await tester.pumpAndSettle();
+    expect(tester.widget<Switch>(toggle).value, isFalse);
+    final restored = await reloadTheme(tester);
+    expect(restored.collapsiblePromptCards, isFalse);
+    expect(restored.compactCharCards, isFalse);
+    container.dispose();
+    container = ProviderContainer(
+      overrides: [
+        appStoresProvider.overrideWithValue(stores),
+        desktopModeProvider.overrideWithValue(true),
+        themeInitProvider.overrideWithValue(restored),
+      ],
+    );
+    await mount(tester);
+    await tester.ensureVisible(setting);
+    await tester.pumpAndSettle();
+    expect(tester.widget<Switch>(toggle).value, isFalse);
+    await tester.pumpWidget(const SizedBox());
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets(
     'font setting updates the app, keeps drafts and survives reload',
     (tester) async {

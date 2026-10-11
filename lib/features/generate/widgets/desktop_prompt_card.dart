@@ -88,6 +88,7 @@ class PromptFullscreenButton extends ConsumerWidget {
               container: container,
               child: Dialog(
                 insetPadding: const EdgeInsets.all(24),
+                constraints: const BoxConstraints(),
                 clipBehavior: Clip.antiAlias,
                 child: SizedBox(
                   width: size.width - 48,
