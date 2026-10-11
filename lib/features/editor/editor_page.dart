@@ -1759,6 +1759,7 @@ class _EditorPageState extends ConsumerState<EditorPage>
                           translating: _transSvc.isPending,
                           showTrans: settings.showTranslation,
                           fontSize: settings.chipFontSize,
+                          primaryFontScale: .8,
                           scrollable: false,
                           padding: const EdgeInsets.symmetric(vertical: 4),
                         ),
@@ -1795,13 +1796,15 @@ class _EditorPageState extends ConsumerState<EditorPage>
       data: editorTheme(context),
       child: Builder(
         builder: (context) => PopScope(
-          // 托盘展开着时返回键先收托盘;芯片模式选中着东西时先退选(形态本身
-          // 是常驻偏好,不该被返回键改掉)。收完再按一次才离开编辑器
+          // 桌面弹窗可直接关闭。移动端返回先收托盘或退选，再离开编辑器。
           canPop:
-              !_trayOpen &&
-              !(settings.chipMode && (_chipSel.isNotEmpty || _chipPlacing)),
+              widget.floatingPanels ||
+              (!_trayOpen &&
+                  !(settings.chipMode &&
+                      (_chipSel.isNotEmpty || _chipPlacing))),
           onPopInvokedWithResult: (didPop, _) {
             if (didPop) {
+              if (widget.floatingPanels) _prepareInputForSwitch();
               _save();
               _dismissKeyboard(); // 系统返回手势也走这里,不能只挂在返回按钮上
             } else if (_trayOpen) {
@@ -1885,6 +1888,9 @@ class _EditorPageState extends ConsumerState<EditorPage>
                                 translating: _transSvc.isPending,
                                 showTrans: settings.showTranslation,
                                 fontSize: settings.chipFontSize,
+                                primaryFontScale: widget.floatingPanels
+                                    ? .8
+                                    : 1,
                               )
                             : ClipRect(
                                 child: SlideTransition(

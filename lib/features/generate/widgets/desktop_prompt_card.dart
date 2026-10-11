@@ -81,7 +81,7 @@ class PromptFullscreenButton extends ConsumerWidget {
         final container = ProviderScope.containerOf(context);
         await showDialog<void>(
           context: context,
-          barrierDismissible: false,
+          barrierDismissible: true,
           builder: (context) {
             final size = MediaQuery.sizeOf(context);
             return UncontrolledProviderScope(

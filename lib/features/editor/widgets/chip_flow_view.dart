@@ -119,6 +119,7 @@ class ChipFlowView extends StatefulWidget {
     this.placing = false,
     this.showTrans = true,
     this.fontSize = 16,
+    this.primaryFontScale = 1,
     this.scrollable = true,
     this.onChipTap,
     this.desktopDrag = false,
@@ -177,12 +178,17 @@ class ChipFlowView extends StatefulWidget {
   /// 正文字号(编辑器设置 14/16/18):chip 整体大小跟着走,和注音富文本同一档。
   final double fontSize;
 
+  /// Scale names and input text independently of translations and weight badges.
+  final double primaryFontScale;
+
   @override
   State<ChipFlowView> createState() => ChipFlowViewState();
 }
 
 class ChipFlowViewState extends State<ChipFlowView>
     with TickerProviderStateMixin {
+  double get _primaryFontSize => widget.fontSize * widget.primaryFontScale;
+
   final GlobalKey _stackKey = GlobalKey();
   final List<GlobalKey> _chipKeys = [];
   final _dragPortal = OverlayPortalController();
@@ -419,7 +425,7 @@ class ChipFlowViewState extends State<ChipFlowView>
                               ? '#${units[i].fold!.name}'
                               : units[i].tok!.name,
                           style: TextStyle(
-                            fontSize: widget.fontSize,
+                            fontSize: _primaryFontSize,
                             fontWeight: FontWeight.w600,
                           ),
                         ),
@@ -770,7 +776,7 @@ class ChipFlowViewState extends State<ChipFlowView>
 
   Widget _inputBox(bool empty) {
     final scheme = context.scheme;
-    final fs = widget.fontSize;
+    final fs = _primaryFontSize;
     const pad = EdgeInsets.symmetric(vertical: 7);
     final hintStyle = TextStyle(fontSize: fs, color: scheme.outline);
     return SizedBox(
@@ -865,6 +871,7 @@ class ChipFlowViewState extends State<ChipFlowView>
         name: u.fold!.name,
         count: _memberCount(u.fold!),
         fontSize: widget.fontSize,
+        primaryFontSize: _primaryFontSize,
         selected: sel.contains(i),
         onTap: () => _tapChip(i),
         onLongPress: longPress,
@@ -879,6 +886,7 @@ class ChipFlowViewState extends State<ChipFlowView>
         translating: translating,
         pulse: _pulse,
         fontSize: widget.fontSize,
+        primaryFontSize: _primaryFontSize,
         band: band,
         selected: sel.contains(i),
         onTap: () => _tapChip(i),
@@ -1180,6 +1188,7 @@ class _FoldChip extends StatelessWidget {
     required this.name,
     required this.count,
     required this.fontSize,
+    required this.primaryFontSize,
     required this.selected,
     required this.onTap,
     required this.onLongPress,
@@ -1188,6 +1197,7 @@ class _FoldChip extends StatelessWidget {
   final String name;
   final int count;
   final double fontSize;
+  final double primaryFontSize;
   final bool selected;
   final VoidCallback onTap;
   final VoidCallback? onLongPress;
@@ -1223,7 +1233,7 @@ class _FoldChip extends StatelessWidget {
               Text(
                 '#',
                 style: TextStyle(
-                  fontSize: fontSize,
+                  fontSize: primaryFontSize,
                   fontWeight: FontWeight.w700,
                   color: scheme.primary,
                 ),
@@ -1234,7 +1244,7 @@ class _FoldChip extends StatelessWidget {
                   name,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                    fontSize: fontSize,
+                    fontSize: primaryFontSize,
                     fontWeight: FontWeight.w600,
                     color: scheme.onSurface,
                   ),
@@ -1265,6 +1275,7 @@ class _TagChip extends StatelessWidget {
     required this.translating,
     required this.pulse,
     required this.fontSize,
+    required this.primaryFontSize,
     required this.selected,
     required this.onTap,
     required this.onLongPress,
@@ -1284,6 +1295,7 @@ class _TagChip extends StatelessWidget {
   final Animation<double> pulse;
 
   final double fontSize;
+  final double primaryFontSize;
   final bool selected;
   final VoidCallback onTap;
   final VoidCallback? onLongPress;
@@ -1373,7 +1385,7 @@ class _TagChip extends StatelessWidget {
                     child: Text(
                       tok.name,
                       style: TextStyle(
-                        fontSize: fontSize,
+                        fontSize: primaryFontSize,
                         fontWeight: FontWeight.w600,
                         color: tok.disabled ? scheme.outline : scheme.onSurface,
                         decoration: tok.disabled
