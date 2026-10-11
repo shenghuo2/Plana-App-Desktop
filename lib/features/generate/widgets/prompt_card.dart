@@ -42,7 +42,7 @@ class PromptCard extends ConsumerStatefulWidget {
 }
 
 class _PromptCardState extends ConsumerState<PromptCard> {
-  bool? _mainCollapsed;
+  bool _mainCollapsed = false;
 
   /// 多选态(长按一格进,点卡头的退出或做完一次合并 / 删除 / 存就退)。
   bool _selecting = false;
@@ -77,10 +77,10 @@ class _PromptCardState extends ConsumerState<PromptCard> {
     final notifier = ref.read(generateProvider.notifier);
     final scheme = context.scheme;
     final sections = withMainRow(state.sections, state.prompt);
-    final bool defaultCollapsed = ref.watch(
-      themeSettingsProvider.select((t) => t.compactCharCards),
+    final collapsible = ref.watch(
+      themeSettingsProvider.select((t) => t.collapsiblePromptCards),
     );
-    final mainCollapsed = _mainCollapsed ?? defaultCollapsed;
+    final mainCollapsed = collapsible && _mainCollapsed;
     // 切了画布就退出多选:勾的是那张画布的格子
     ref.listen(
       canvasWorkspaceProvider.select((w) => w.activeId),
@@ -118,6 +118,51 @@ class _PromptCardState extends ConsumerState<PromptCard> {
     final barColor = over ? scheme.error : scheme.primary;
     // 窄屏只收紧公共圆形按钮尺寸,与角色卡头同一口径。
     final actionSize = MediaQuery.sizeOf(context).width < 350 ? 32.0 : 36.0;
+    final headerActions = <Widget>[
+      if (desktop && sections.isNotEmpty)
+        TextButton.icon(
+          key: const ValueKey('prompt-section-select'),
+          onPressed: () => _enterSelect(sections.first.id),
+          icon: const Icon(Icons.checklist, size: 18),
+          label: const Text('多选'),
+        ),
+      if (desktop && sections.isEmpty) ...[
+        const PromptFullscreenButton(key: ValueKey('prompt-fullscreen-main')),
+        if (collapsible)
+          IconButton(
+            key: const ValueKey('prompt-section-collapse-main'),
+            constraints: const BoxConstraints.tightFor(width: 34, height: 38),
+            padding: EdgeInsets.zero,
+            tooltip: mainCollapsed ? '展开提示词' : '收起提示词',
+            onPressed: () => setState(() => _mainCollapsed = !mainCollapsed),
+            icon: Icon(
+              mainCollapsed ? Icons.expand_more : Icons.expand_less,
+              size: 22,
+            ),
+          ),
+      ],
+      if (state.prompt.trim().isNotEmpty || sections.isNotEmpty)
+        RoundIconBtn(
+          Icons.delete_sweep_outlined,
+          size: actionSize,
+          tooltip: sections.isEmpty ? '清空正向提示词' : '清空提示词和分区',
+          color: scheme.onSurfaceVariant,
+          onTap: () => _clearPositive(context, ref),
+        ),
+      RoundIconBtn(
+        Icons.grid_view,
+        size: actionSize,
+        tooltip: '灵感库',
+        color: scheme.onSurfaceVariant,
+        onTap: () => _importFromLibrary(context, ref),
+      ),
+      RoundIconBtn(
+        Icons.add,
+        size: actionSize,
+        tooltip: '添加分区',
+        onTap: notifier.addSection,
+      ),
+    ];
 
     return Material(
       color: scheme.surfaceContainerLow,
@@ -169,64 +214,22 @@ class _PromptCardState extends ConsumerState<PromptCard> {
                             ).copyWith(color: scheme.outline),
                           ),
                         ),
+                        for (var i = 0; i < headerActions.length; i++) ...[
+                          if (i > 0) const SizedBox(width: 6),
+                          headerActions[i],
+                        ],
                       ] else ...[
-                        const Spacer(),
-                        if (sections.isNotEmpty)
-                          TextButton.icon(
-                            key: const ValueKey('prompt-section-select'),
-                            onPressed: () => _enterSelect(sections.first.id),
-                            icon: const Icon(Icons.checklist, size: 18),
-                            label: const Text('多选'),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Wrap(
+                            alignment: WrapAlignment.end,
+                            crossAxisAlignment: WrapCrossAlignment.center,
+                            spacing: 2,
+                            runSpacing: 4,
+                            children: headerActions,
                           ),
+                        ),
                       ],
-                      if (desktop && sections.isEmpty)
-                        const PromptFullscreenButton(
-                          key: ValueKey('prompt-fullscreen-main'),
-                        ),
-                      if (desktop && sections.isEmpty)
-                        IconButton(
-                          key: const ValueKey('prompt-section-collapse-main'),
-                          constraints: const BoxConstraints.tightFor(
-                            width: 34,
-                            height: 38,
-                          ),
-                          padding: EdgeInsets.zero,
-                          tooltip: mainCollapsed ? '展开提示词' : '收起提示词',
-                          onPressed: () =>
-                              setState(() => _mainCollapsed = !mainCollapsed),
-                          icon: Icon(
-                            mainCollapsed
-                                ? Icons.expand_more
-                                : Icons.expand_less,
-                            size: 22,
-                          ),
-                        ),
-                      if (state.prompt.trim().isNotEmpty ||
-                          sections.isNotEmpty) ...[
-                        RoundIconBtn(
-                          Icons.delete_sweep_outlined,
-                          size: actionSize,
-                          tooltip: sections.isEmpty ? '清空正向提示词' : '清空提示词和分区',
-                          color: scheme.onSurfaceVariant,
-                          onTap: () => _clearPositive(context, ref),
-                        ),
-                        const SizedBox(width: 6),
-                      ],
-                      // 与角色卡头「角色库」同一枚图标
-                      RoundIconBtn(
-                        Icons.grid_view,
-                        size: actionSize,
-                        tooltip: '灵感库',
-                        color: scheme.onSurfaceVariant,
-                        onTap: () => _importFromLibrary(context, ref),
-                      ),
-                      const SizedBox(width: 6),
-                      RoundIconBtn(
-                        Icons.add,
-                        size: actionSize,
-                        tooltip: '添加分区',
-                        onTap: notifier.addSection,
-                      ),
                     ],
                   ),
           ),
@@ -386,6 +389,61 @@ class _PromptCardState extends ConsumerState<PromptCard> {
     final canSave =
         picked.length == 1 &&
         sectionSaveText(picked.single, mainPrompt).positive.isNotEmpty;
+    final actions = <Widget>[
+      RoundIconBtn(
+        Icons.power_settings_new,
+        size: size,
+        tooltip: rows.isEmpty || anyOn ? '停用' : '启用',
+        color: rows.isEmpty ? scheme.outline : scheme.primary,
+        onTap: rows.isEmpty
+            ? null
+            : () {
+                ref.read(editorSessionsProvider).flushPending();
+                notifier.setSectionsEnabled({
+                  for (final s in rows) s.id,
+                }, !anyOn);
+              },
+      ),
+      RoundIconBtn(
+        Icons.delete_outline,
+        size: size,
+        tooltip: '删除',
+        color: rows.isEmpty ? scheme.outline : scheme.error,
+        onTap: rows.isEmpty ? null : () => _deletePicked(context, rows),
+      ),
+      // 分类猜不出来时分类下拉从这颗钮底下弹,要它自己的 context
+      Builder(
+        builder: (anchor) => RoundIconBtn(
+          Icons.save_outlined,
+          size: size,
+          tooltip: '存到灵感库',
+          color: canSave ? scheme.primary : scheme.outline,
+          onTap: canSave ? () => _savePicked(anchor, picked.single) : null,
+        ),
+      ),
+      // 合并是这一栏的正事:勾够两格就填主色
+      Tooltip(
+        message: '合并',
+        child: Material(
+          color: canMerge ? scheme.primary : scheme.surfaceContainerHigh,
+          shape: const CircleBorder(),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            onTap: canMerge ? () => _mergePicked(context, picked) : null,
+            child: SizedBox(
+              width: size,
+              height: size,
+              child: Icon(
+                Icons.call_merge,
+                size: 20,
+                color: canMerge ? scheme.onPrimary : scheme.outline,
+              ),
+            ),
+          ),
+        ),
+      ),
+    ];
+    final desktop = ref.watch(desktopModeProvider);
     return Row(
       children: [
         RoundIconBtn(
@@ -400,62 +458,24 @@ class _PromptCardState extends ConsumerState<PromptCard> {
           '已选 ${picked.length}',
           style: context.texts.bodyLarge!.copyWith(fontWeight: FontWeight.w600),
         ),
-        const Spacer(),
-        RoundIconBtn(
-          Icons.power_settings_new,
-          size: size,
-          tooltip: rows.isEmpty || anyOn ? '停用' : '启用',
-          color: rows.isEmpty ? scheme.outline : scheme.primary,
-          onTap: rows.isEmpty
-              ? null
-              : () {
-                  ref.read(editorSessionsProvider).flushPending();
-                  notifier.setSectionsEnabled({
-                    for (final s in rows) s.id,
-                  }, !anyOn);
-                },
-        ),
-        const SizedBox(width: 6),
-        RoundIconBtn(
-          Icons.delete_outline,
-          size: size,
-          tooltip: '删除',
-          color: rows.isEmpty ? scheme.outline : scheme.error,
-          onTap: rows.isEmpty ? null : () => _deletePicked(context, rows),
-        ),
-        const SizedBox(width: 6),
-        // 分类猜不出来时分类下拉从这颗钮底下弹,要它自己的 context
-        Builder(
-          builder: (anchor) => RoundIconBtn(
-            Icons.save_outlined,
-            size: size,
-            tooltip: '存到灵感库',
-            color: canSave ? scheme.primary : scheme.outline,
-            onTap: canSave ? () => _savePicked(anchor, picked.single) : null,
-          ),
-        ),
-        const SizedBox(width: 6),
-        // 合并是这一栏的正事:勾够两格就填主色
-        Tooltip(
-          message: '合并',
-          child: Material(
-            color: canMerge ? scheme.primary : scheme.surfaceContainerHigh,
-            shape: const CircleBorder(),
-            clipBehavior: Clip.antiAlias,
-            child: InkWell(
-              onTap: canMerge ? () => _mergePicked(context, picked) : null,
-              child: SizedBox(
-                width: size,
-                height: size,
-                child: Icon(
-                  Icons.call_merge,
-                  size: 20,
-                  color: canMerge ? scheme.onPrimary : scheme.outline,
-                ),
-              ),
+        if (desktop) ...[
+          const SizedBox(width: 8),
+          Expanded(
+            child: Wrap(
+              alignment: WrapAlignment.end,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              spacing: 6,
+              runSpacing: 4,
+              children: actions,
             ),
           ),
-        ),
+        ] else ...[
+          const Spacer(),
+          for (var i = 0; i < actions.length; i++) ...[
+            if (i > 0) const SizedBox(width: 6),
+            actions[i],
+          ],
+        ],
       ],
     );
   }
@@ -765,7 +785,7 @@ class _SectionRow extends ConsumerStatefulWidget {
 }
 
 class _SectionRowState extends ConsumerState<_SectionRow> {
-  bool? _collapsed;
+  bool _collapsed = false;
   int get index => widget.index;
   PromptSection get section => widget.section;
   String get fallbackName => widget.fallbackName;
@@ -781,10 +801,10 @@ class _SectionRowState extends ConsumerState<_SectionRow> {
     final notifier = ref.read(generateProvider.notifier);
     final scheme = context.scheme;
     final s = section;
-    final bool defaultCollapsed = ref.watch(
-      themeSettingsProvider.select((t) => t.compactCharCards),
+    final collapsible = ref.watch(
+      themeSettingsProvider.select((t) => t.collapsiblePromptCards),
     );
-    final collapsed = _collapsed ?? defaultCollapsed;
+    final collapsed = collapsible && _collapsed;
     if (ref.watch(desktopModeProvider)) {
       return Padding(
         padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
@@ -849,21 +869,22 @@ class _SectionRowState extends ConsumerState<_SectionRow> {
                           key: ValueKey('prompt-fullscreen-${s.id}'),
                           sectionId: s.isMain ? null : s.id,
                         ),
-                        IconButton(
-                          key: ValueKey('prompt-section-collapse-${s.id}'),
-                          constraints: const BoxConstraints.tightFor(
-                            width: 34,
-                            height: 38,
+                        if (collapsible)
+                          IconButton(
+                            key: ValueKey('prompt-section-collapse-${s.id}'),
+                            constraints: const BoxConstraints.tightFor(
+                              width: 34,
+                              height: 38,
+                            ),
+                            padding: EdgeInsets.zero,
+                            tooltip: collapsed ? '展开分区提示词' : '收起分区提示词',
+                            onPressed: () =>
+                                setState(() => _collapsed = !collapsed),
+                            icon: Icon(
+                              collapsed ? Icons.expand_more : Icons.expand_less,
+                              size: 22,
+                            ),
                           ),
-                          padding: EdgeInsets.zero,
-                          tooltip: collapsed ? '展开分区提示词' : '收起分区提示词',
-                          onPressed: () =>
-                              setState(() => _collapsed = !collapsed),
-                          icon: Icon(
-                            collapsed ? Icons.expand_more : Icons.expand_less,
-                            size: 22,
-                          ),
-                        ),
                         IconButton(
                           tooltip: s.enabled ? '停用分区' : '启用分区',
                           onPressed: () {

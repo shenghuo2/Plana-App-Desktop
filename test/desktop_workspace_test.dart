@@ -317,6 +317,66 @@ void main() {
     }),
   );
 
+  for (final sections in [false, true]) {
+    for (final scale in [1.0, 1.4]) {
+      testWidgets(
+        '300 宽侧栏提示词卡头无溢出且操作可用：分区=$sections，字号=$scale',
+        (tester) async {
+          await tester.runAsync(
+            () => stores.prefs.write(
+              key: 'desktop_left_pane_width',
+              value: '300',
+            ),
+          );
+          c
+              .read(themeSettingsProvider.notifier)
+              .patch((settings) => settings.copyWith(textScale: scale));
+          final gen = c.read(generateProvider.notifier);
+          gen.setPrompts(positive: 'solo');
+          if (sections) gen.addSection();
+          await mount(tester, const Size(1440, 900));
+          expect(tester.takeException(), isNull);
+          final controls = key('desktop-controls');
+          for (final tooltip in [
+            '添加分区',
+            '灵感库',
+            sections ? '清空提示词和分区' : '清空正向提示词',
+          ]) {
+            expect(
+              find
+                  .descendant(of: controls, matching: find.byTooltip(tooltip))
+                  .hitTestable(),
+              findsOneWidget,
+            );
+          }
+          if (sections) {
+            await tester.tap(key('prompt-section-select'));
+            await tester.pumpAndSettle();
+            expect(
+              key('prompt-section-pick-main').hitTestable(),
+              findsOneWidget,
+            );
+          } else {
+            await tester.tap(key('prompt-fullscreen-main'));
+            await tester.pumpAndSettle();
+            expect(find.byType(Dialog), findsOneWidget);
+            await tester.tapAt(const Offset(8, 8));
+            await tester.pumpAndSettle();
+            expect(find.byType(Dialog), findsNothing);
+          }
+          expect(c.read(generateProvider).prompt, 'solo');
+          expect(tester.takeException(), isNull);
+          await tester.pumpWidget(const SizedBox());
+          await drainWrites(tester);
+        },
+        variant: TargetPlatformVariant({
+          TargetPlatform.windows,
+          TargetPlatform.macOS,
+        }),
+      );
+    }
+  }
+
   testWidgets(
     '放大字号时角色位置单行显示，窄侧栏的操作与导航仍然可用',
     (tester) async {

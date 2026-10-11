@@ -70,6 +70,28 @@ void main() {
     expect(ThemeSettings.fromJson(changed.toJson()), changed);
     expect(settings, isNot(settings.copyWith(showTools: true)));
   });
+  test('桌面提示词折叠功能默认开启，关闭偏好可以恢复且独立于移动端', () {
+    expect(const ThemeSettings().collapsiblePromptCards, isTrue);
+    for (final oldSettings in [
+      <String, dynamic>{},
+      {'compactCharCards': false},
+      {'compactCharCards': true},
+    ]) {
+      expect(
+        ThemeSettings.fromJson(oldSettings).collapsiblePromptCards,
+        isTrue,
+      );
+    }
+    const off = ThemeSettings(
+      collapsiblePromptCards: false,
+      compactCharCards: true,
+    );
+    expect(ThemeSettings.fromJson(off.toJson()), off);
+    final changed = off.copyWith(textScale: 1.2);
+    expect(changed.collapsiblePromptCards, isFalse);
+    expect(changed.compactCharCards, isTrue);
+    expect(off.copyWith(collapsiblePromptCards: true), isNot(off));
+  });
   test(
     'compact character cards default off and preserve desktop preferences',
     () {

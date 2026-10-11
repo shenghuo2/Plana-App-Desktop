@@ -196,7 +196,7 @@ class _CharacterTile extends ConsumerStatefulWidget {
 class _CharacterTileState extends ConsumerState<_CharacterTile> {
   CharacterPrompt get char => widget.char;
   int get index => widget.index;
-  bool? _collapsed;
+  bool _collapsed = false;
 
   /// 点名字改名。留空 = 回到默认的「角色 N」,N 按当前行序算,与新增时同一口径
   /// (名字本就不是稳定句柄,认人靠 id)。
@@ -299,10 +299,10 @@ class _CharacterTileState extends ConsumerState<_CharacterTile> {
     if (!desktop) return _buildMobile(context, ref);
     final scheme = context.scheme;
     final enabled = char.enabled;
-    final bool defaultCollapsed = ref.watch(
-      themeSettingsProvider.select((t) => t.compactCharCards),
+    final collapsible = ref.watch(
+      themeSettingsProvider.select((t) => t.collapsiblePromptCards),
     );
-    final compact = _collapsed ?? defaultCollapsed;
+    final compact = collapsible && _collapsed;
     // 只有站位徽章的写法跟模型走(见下),select 一下别让整张卡跟着全局状态重建。
     final isV5 = ref.watch(
       generateProvider.select((s) => isNai5Model(s.params.model)),
@@ -347,6 +347,7 @@ class _CharacterTileState extends ConsumerState<_CharacterTile> {
                   autoPos: autoPos,
                   isV5: isV5,
                   compact: compact,
+                  collapsible: collapsible,
                 ),
                 if (compact)
                   Padding(
@@ -411,6 +412,7 @@ class _CharacterTileState extends ConsumerState<_CharacterTile> {
     required bool autoPos,
     required bool isV5,
     required bool compact,
+    required bool collapsible,
   }) {
     final scheme = context.scheme;
     final enabled = char.enabled;
@@ -445,7 +447,8 @@ class _CharacterTileState extends ConsumerState<_CharacterTile> {
         : 4 + textWidth('已禁用', context.texts.labelSmall!);
     // Avatar, toggle, name padding, separation and trailing controls.
     final leadingWidth = 30 + 5 + 34 + 5 + 38 + 8 + nameWidth + statusWidth;
-    final actionsWidth = 26 + 36 + 16 + 15 + 5 + positionWidth + 2 + 30 + 18;
+    final actionsWidth =
+        26 + (collapsible ? 36 : 0) + 16 + 15 + 5 + positionWidth + 2 + 30 + 18;
     final requiredWidth = leadingWidth + 8 + actionsWidth;
     final leading = Row(
       children: [
@@ -557,14 +560,18 @@ class _CharacterTileState extends ConsumerState<_CharacterTile> {
           key: ValueKey('character-fullscreen-${char.id}'),
           charId: char.id,
         ),
-        IconButton(
-          key: ValueKey('character-collapse-${char.id}'),
-          tooltip: compact ? '展开角色提示词' : '收起角色提示词',
-          onPressed: () => setState(() => _collapsed = !compact),
-          icon: Icon(compact ? Icons.expand_more : Icons.expand_less, size: 22),
-          constraints: const BoxConstraints.tightFor(width: 34, height: 38),
-          padding: EdgeInsets.zero,
-        ),
+        if (collapsible)
+          IconButton(
+            key: ValueKey('character-collapse-${char.id}'),
+            tooltip: compact ? '展开角色提示词' : '收起角色提示词',
+            onPressed: () => setState(() => _collapsed = !compact),
+            icon: Icon(
+              compact ? Icons.expand_more : Icons.expand_less,
+              size: 22,
+            ),
+            constraints: const BoxConstraints.tightFor(width: 34, height: 38),
+            padding: EdgeInsets.zero,
+          ),
         // 站位徽章
         Material(
           color: scheme.surfaceContainerHighest,
