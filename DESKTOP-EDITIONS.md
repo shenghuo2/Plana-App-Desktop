@@ -40,8 +40,9 @@
 3. 手动运行 **Build desktop**，工作流分支选择 `main`，填写
    `release_version=1.2.1-desktop`，选择 `editions=both`，默认同时构建标准版
    Windows；只需要两份 DMG 时将 `build_windows` 设为 `false`。
-4. 检查两版测试及平台构建结果，将标准版发布分支的提交标记为
-   `v1.2.1-desktop`，上传安装包与校验文件，再公开 GitHub Release。
+4. 检查两版测试、平台构建与 **Collect release checksums** 结果，将标准版发布
+   分支的提交标记为 `v1.2.1-desktop`。上传所有安装包、
+   `desktop-release-checksums` 中的 `SHA256SUMS.txt` 和构建清单，再公开 GitHub Release。
 
 填写 `release_version` 后，源码始终来自该版本的两条发布分支。
 `standard_ref` / `remote_ref` 用于开发构建。缺少发布分支、两版版本号或构建号
@@ -72,7 +73,12 @@ x86_64，裁剪预编译框架中的其他架构并重新签名；构建完成�
   两种包都附带运行库、对应源码及独立的 `.sha256` 校验文件。CI 验证安装、
   覆盖升级和卸载后保留作品目录。
 
-将两组 DMG 和校验文件放到同一 GitHub Release，先上传标准版 DMG，再上传
+各平台构建完成后，汇总任务按构建计划核对安装包集合，再生成一份
+`SHA256SUMS.txt`，每行包含 SHA-256 和完整文件名。缺包、重复包名或多出其他
+安装包时汇总失败；单版开发构建仅汇总实际选择的版本。
+
+正式 Release 放入所有安装包、这一份 `SHA256SUMS.txt` 和构建清单。
+各包独立的 `.sha256` 仅保留在 Actions Artifact 中。先上传标准版 DMG，再上传
 远端上传版 DMG，以兼容早期客户端按第一个 DMG 选择安装包的行为。
 当前客户端会按自身版本类型选择更新包，更新缓存也校验版本类型。
 

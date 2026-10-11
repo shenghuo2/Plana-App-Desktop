@@ -214,9 +214,11 @@ class MacOSUpdateService {
         RegExp(r'^sha256:[a-fA-F0-9]{64}$').hasMatch(digest)) {
       return digest.substring(7).toLowerCase();
     }
-    final checksum = release.assets
-        .where((a) => a.name == '${asset.name}.sha256')
-        .firstOrNull;
+    final checksum =
+        release.assets.where((a) => a.name == 'SHA256SUMS.txt').firstOrNull ??
+        release.assets
+            .where((a) => a.name == '${asset.name}.sha256')
+            .firstOrNull;
     if (checksum == null || checksum.size > 16384) {
       throw const UpdateException('发布版缺少更新包校验信息,请从发布页下载');
     }

@@ -77,10 +77,15 @@ macOS 更新或平台打包修改还需对应系统的构建与检查。测试�
 | macOS 远端上传版 | `Plana-App-Desktop-RemoteUpload-macOS-ad-hoc` | `Plana-App-Desktop-RemoteUpload-macOS-arm64.dmg` 与校验文件 |
 | Windows 标准版 | `Plana-App-Desktop-Windows-x64` | 中文 EXE 安装包、便携 ZIP 及各自的 SHA-256 校验文件 |
 | 构建计划 | `desktop-build-plan` | 两版实际分支、提交 SHA、版本与架构 |
+| 校验汇总 | `desktop-release-checksums` | `SHA256SUMS.txt`，涵盖本次构建的全部安装包 |
 
 登录 GitHub 后可下载成功构建底部的 Artifacts。Actions 产物需要另行发布为
 GitHub Release，才会成为应用更新源。发布流程与兼容规则见
 [DESKTOP-EDITIONS.md](DESKTOP-EDITIONS.md) 和 [桌面更新说明](docs/desktop-updates.md)。
+
+正式 Release 上传所有安装包、`SHA256SUMS.txt` 和构建清单。各平台 Artifact 中的
+独立校验文件供构建检查，Release 使用汇总文件；截图引用 `release-media` 分支的
+固定提交地址。
 
 Windows 上游操作与打包资料见 [WINDOWS-README.md](WINDOWS-README.md)，
 macOS 移植背景见 [适配记录](docs/desktop-comparison.md)。
