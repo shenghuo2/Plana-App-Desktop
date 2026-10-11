@@ -531,7 +531,15 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
               // 挤到屏幕外。挂这儿两个 scope 都有,且不多占一行高度。
               // 只给有公共库的两类(角色/画风)—— 场景/其他的条目全是自己的,
               // 没有「别人」可筛。
-              suffixIcon: def.hasPublic ? _filterButton(scheme, context) : null,
+              // 以按钮为锚点；独立语义边界保留漏斗与筛选药丸切换时的节点。
+              suffixIcon: def.hasPublic
+                  ? Builder(
+                      builder: (anchor) => Semantics(
+                        container: true,
+                        child: _filterButton(scheme, anchor),
+                      ),
+                    )
+                  : null,
               suffixIconConstraints: const BoxConstraints(
                 minWidth: 0,
                 maxWidth: 190,

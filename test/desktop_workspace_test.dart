@@ -33,6 +33,8 @@ import 'package:plana_app/features/update/desktop_update.dart';
 import 'package:plana_app/features/update/update_service.dart';
 import 'package:plana_app/features/shell/shell_state.dart';
 import 'package:plana_app/features/inpaint/inpaint_overlay.dart';
+import 'package:plana_app/features/inspiration/tag_library.dart';
+import 'package:plana_app/features/inspiration/tag_models.dart';
 import 'package:plana_app/main.dart';
 
 import 'support/pump_until.dart';
@@ -1118,6 +1120,103 @@ void main() {
     await tester.pump(const Duration(seconds: 1));
     await drainWrites(tester);
   });
+
+  for (final scale in [1.0, 1.4]) {
+    testWidgets(
+      '创作侧栏灵感筛选完整显示并可操作：字号=$scale',
+      (tester) async {
+        const paths = MethodChannel('plugins.flutter.io/path_provider');
+        tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          paths,
+          (_) async => stores.desktopOutput.root.parent.path,
+        );
+        addTearDown(() {
+          tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+            paths,
+            null,
+          );
+        });
+        await tester.runAsync(() async {
+          await c.read(tagLibraryProvider.future);
+          await c
+              .read(tagLibraryProvider.notifier)
+              .upsert(
+                const TagEntry(
+                  id: 'sidebar-character',
+                  category: TagCategory.character,
+                  name: '旅行者',
+                  createdBy: '123456',
+                ),
+              );
+        });
+        c
+            .read(themeSettingsProvider.notifier)
+            .patch((s) => s.copyWith(textScale: scale));
+        await mount(tester, const Size(1440, 900));
+        await tester.tap(key('desktop-inspiration-tab'));
+        await tester.pumpAndSettle();
+        final search = key('tag-search-character');
+        final filter = find.descendant(
+          of: search,
+          matching: find.byTooltip('筛选'),
+        );
+        final anchor = tester.getRect(filter);
+        await tester.tap(filter);
+        await tester.pumpAndSettle();
+        final panel = tester.getRect(key('desktop-popover'));
+        expect(panel.top, closeTo(anchor.bottom + 8, 1));
+        expect(panel.bottom, lessThanOrEqualTo(888));
+        expect(panel.height, greaterThan(180));
+        expect(find.text('123456').hitTestable(), findsOneWidget);
+        final input = find.descendant(
+          of: key('desktop-popover'),
+          matching: find.byType(TextField),
+        );
+        expect(input.hitTestable(), findsOneWidget);
+        await tester.enterText(input, '123');
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('123456'));
+        await tester.pumpAndSettle();
+        expect(key('desktop-popover'), findsNothing);
+        expect(
+          find.descendant(of: search, matching: find.text('123456')),
+          findsOneWidget,
+        );
+        // The active filter pill must also anchor the panel to itself.
+        await tester.tap(
+          find.descendant(of: search, matching: find.text('123456')),
+        );
+        await tester.pumpAndSettle();
+        expect(find.text('重置').hitTestable(), findsOneWidget);
+        await tester.tap(find.text('重置'));
+        await tester.pumpAndSettle();
+        expect(filter, findsOneWidget);
+        await tester.tap(filter);
+        await tester.pumpAndSettle();
+        await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+        await tester.pumpAndSettle();
+        expect(key('desktop-popover'), findsNothing);
+        await tester.tap(find.text('画风').hitTestable());
+        await tester.pumpAndSettle();
+        await tester.tap(find.byTooltip('筛选').hitTestable());
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('适用模型').hitTestable());
+        await tester.pumpAndSettle();
+        expect(find.text('NAI 4 / 4.5').hitTestable(), findsOneWidget);
+        await tester.tap(find.text('NAI 4 / 4.5'));
+        await tester.pumpAndSettle();
+        expect(key('desktop-popover'), findsNothing);
+        expect(find.text('NAI 4 / 4.5').hitTestable(), findsOneWidget);
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox());
+        await drainWrites(tester);
+      },
+      variant: TargetPlatformVariant({
+        TargetPlatform.windows,
+        TargetPlatform.macOS,
+      }),
+    );
+  }
 
   testWidgets('多标签拖动显示落点预览与按原顺序排列的浮层', (tester) async {
     debugDisableShadows = false;
