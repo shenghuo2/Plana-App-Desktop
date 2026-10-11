@@ -15,33 +15,33 @@
 
 每次发版都保留两条对应版本的发布分支。完成发布后，后续开发继续写入开发
 分支；重建已发布版本时读取对应发布分支。发布标签必须指向标准版发布分支
-的提交。基于 Android 1.2.0 的桌面修订依次使用 `1.2.0-desktop.1`、
-`1.2.0-desktop.2` 等版本号，构建号独立递增。
+的提交。桌面版使用 `1.2.1-desktop`，后续修订可使用
+`1.2.1-desktop.1`、`1.2.1-desktop.2` 等版本号，构建号独立递增。
 
-当前 `1.2.0-desktop.1` 的源码快照已保留：
+当前 `1.2.1-desktop+70` 的源码快照保留在：
 
-- 标准版：`release/1.2.0-desktop.1`，提交 `ab1e831`。
-- 远端上传版：`release/remote-upload/1.2.0-desktop.1`，提交 `ca37c7d`。
+- 标准版：`release/1.2.1-desktop`。
+- 远端上传版：`release/remote-upload/1.2.1-desktop`。
 
-两条分支的提交取自该版本的实际构建计划。
+实际构建提交记录在对应发布的 `desktop-build-plan.json`。
 
 ## 发版与重建流程
 
 1. 在 `main` 更新 `pubspec.yaml` 与 `lib/core/app_info.dart` 的版本号和构建号，
    并将版本提交及待发布修复合入 `feature/remote-upload`。
-2. 从两条开发分支各创建对应版本的发布分支，并一起推送。例如下一版：
+2. 从两条开发分支各创建对应版本的发布分支，并一起推送。例如 `1.2.1-desktop`：
 
    ```bash
-   git branch release/1.2.0-desktop.2 main
-   git branch release/remote-upload/1.2.0-desktop.2 feature/remote-upload
-   git push --atomic origin release/1.2.0-desktop.2 release/remote-upload/1.2.0-desktop.2
+   git branch release/1.2.1-desktop main
+   git branch release/remote-upload/1.2.1-desktop feature/remote-upload
+   git push --atomic origin release/1.2.1-desktop release/remote-upload/1.2.1-desktop
    ```
 
 3. 手动运行 **Build desktop**，工作流分支选择 `main`，填写
-   `release_version=1.2.0-desktop.2`，选择 `editions=both`，默认同时构建标准版
+   `release_version=1.2.1-desktop`，选择 `editions=both`，默认同时构建标准版
    Windows；只需要两份 DMG 时将 `build_windows` 设为 `false`。
 4. 检查两版测试及平台构建结果，将标准版发布分支的提交标记为
-   `v1.2.0-desktop.2`，上传安装包与校验文件，再公开 GitHub Release。
+   `v1.2.1-desktop`，上传安装包与校验文件，再公开 GitHub Release。
 
 填写 `release_version` 后，源码始终来自该版本的两条发布分支。
 `standard_ref` / `remote_ref` 用于开发构建。缺少发布分支、两版版本号或构建号
@@ -89,9 +89,7 @@ macOS 内部可执行文件名保留为 `Plana App`，DMG 附带隐藏的旧名�
 旧版更新器仍可通过 `Plana App.app` 复制完整应用并校验原执行文件名；新版更新器
 优先读取新名称，也接受旧包。打包冒烟会检查该链接及复制后的签名。
 
-1.1.3 构建 67 修正了 `lipo` 架构检查参数，并参考
-`Aaalice_NAI_Launcher/lib/core/services/macos_update_script.dart` 的显式身份、
-版本拒绝和退出超时处理，避免 macOS Bash 3.2 忽略部分失败校验。
-macOS CI 使用系统 `/bin/bash` 检查安装、拒绝错误包、退出超时与回滚，
-并用真实 `lipo` 验证生成的命令。1.1.2 与 1.1.3 构建 66 用户需手动安装
-构建 67，因为重新下载 DMG 不会替换旧客户端内置的安装脚本。
+## 远端上传版
+
+远端上传版用于把作品同步到个人服务，上传服务对应的项目是
+[pic-manager](https://github.com/shenghuo2/pic-manager)。
