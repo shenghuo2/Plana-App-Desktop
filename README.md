@@ -111,7 +111,6 @@ Plana App Desktop 将 [Plana App](https://github.com/mc5024/Plana-App) 的绘图
 
 - [mc5024/Plana-App](https://github.com/mc5024/Plana-App)：原版应用与 Android 上游。
 - [LingXia979/Plana-App-for-windows](https://github.com/LingXia979/Plana-App-for-windows/tree/Plana-app-for-windows)：Windows 桌面重构。
-- [Aaalice_NAI_Launcher](https://github.com/shenghuo2/Aaalice_NAI_Launcher)：macOS 应用内更新流程的参考。
 
 标签、模型、预设和开源库的完整来源保留在 [致谢与数据来源](docs/ACKNOWLEDGEMENTS.md)，随包分发内容的许可见 [第三方声明](THIRD_PARTY_NOTICES.md)。
 
