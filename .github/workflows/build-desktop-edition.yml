@@ -91,7 +91,9 @@ jobs:
 
       - name: Windows package version tests
         shell: pwsh
-        run: ./tool/test_windows_package_version.ps1
+        run: |
+          ./tool/test_windows_package_version.ps1
+          ./tool/test_windows_runtime_files.ps1
 
       - name: Native clipboard tests
         shell: cmd
@@ -100,11 +102,45 @@ jobs:
           cmake --build build/native --config Release
           ctest --test-dir build/native -C Release --output-on-failure
 
+      - name: Package Windows installer and portable ZIP
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $iscc = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6/ISCC.exe'
+          if (!(Test-Path -LiteralPath $iscc)) {
+            choco install innosetup --yes --no-progress
+            if ($LASTEXITCODE -ne 0) { throw 'Inno Setup installation failed' }
+          }
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
+          $visualStudio = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (!$visualStudio) { throw 'Visual Studio with x64 tools was not found' }
+          $crt = Get-ChildItem -Path (Join-Path $visualStudio 'VC/Redist/MSVC/*/x64/Microsoft.VC*.CRT') -Directory |
+            Sort-Object { [version]$_.Parent.Parent.Name } -Descending |
+            Select-Object -First 1
+          if (!$crt) { throw 'Visual Studio x64 redistributable CRT was not found' }
+          $sevenZip = Split-Path (Get-Command 7z.exe -ErrorAction Stop).Source -Parent
+          ./tool/package_windows.ps1 -SkipBuild -OutputDirectory build/windows-packages `
+            -SevenZipDirectory $sevenZip -RuntimeDirectory $crt.FullName -IsccPath $iscc
+
+      - name: Verify Windows install, upgrade and uninstall
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          . ./tool/windows_package_version.ps1
+          $version = [regex]::Match((Get-Content pubspec.yaml -Raw), '(?m)^version:\s*(\S+)').Groups[1].Value
+          $packageName = (Get-PlanaWindowsPackageVersion $version).PackageName
+          ./tool/test_windows_installation.ps1 `
+            -BundleDirectory "build/windows-packages/$packageName" `
+            -InstallerPath "build/windows-packages/$packageName-setup.exe"
+
       - name: Upload Windows build
         uses: actions/upload-artifact@v7
         with:
           name: Plana-App-Desktop-Windows-x64
-          path: build/windows/x64/runner/Release/
+          path: |
+            build/windows-packages/*.zip
+            build/windows-packages/*-setup.exe
+            build/windows-packages/*.sha256
           if-no-files-found: error
 
   macos:

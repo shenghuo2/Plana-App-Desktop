@@ -4,13 +4,13 @@
 
 ## 发给别人测试
 
-工作区根目录 `dist/` 提供 Windows x64 **中文安装包 `-setup.exe`** 和便携 ZIP。推荐发送安装包：双击后按中文向导选择安装目录，可选桌面快捷方式，安装后可从开始菜单启动。默认安装到当前用户的 `%LOCALAPPDATA%\Programs\Plana`，无需管理员权限，也可选择 D 盘等可写入的专用文件夹。便携 ZIP 解压后打开整个程序目录中的 `plana_app_for_windows.exe`。运行库、资源、使用说明、许可证及对应源码均随包提供，测试者无需安装 Flutter 或 Visual Studio；首次使用自行配置服务账号。
+GitHub Release 提供 Windows x64 **中文安装包 `-setup.exe`** 和便携 ZIP。推荐发送安装包：双击后按中文向导选择安装目录，可选桌面快捷方式，安装后可从开始菜单启动。默认安装到当前用户的 `%LOCALAPPDATA%\Programs\Plana`，无需管理员权限，也可选择 D 盘等可写入的专用文件夹。便携 ZIP 解压后打开整个程序目录中的 `plana_app_for_windows.exe`。运行库、资源、使用说明、许可证及对应源码均随包提供，测试者无需安装 Flutter 或 Visual Studio；首次使用自行配置服务账号。
 
 安装包支持沿用原位置升级及 Windows「设置 → 应用」卸载；升级前先正常关闭旧版。卸载只移除安装的程序文件，保留个人作品、设置、图库和历史。自动作品保存在程序根目录的 `output` 文件夹，与 `plana_app_for_windows.exe` 同级；源码构建版则使用 `plana-app-windows/output`。移动便携版时连同 `output` 一起移动。旧版「作品」目录会自动迁移，设置、内部图库和历史仍属于当前 Windows 用户的应用数据；从便携版切换到安装版时，先关闭旧版，首次打开新版后确认旧作品迁移完成，再清理旧目录。
 
 分发包不包含个人 API、Bot/Web 授权、提示词草稿或个人 tag 库。全新用户的账号列表与工作台正负提示词均为空；程序自带的通用词库、公开预设和 AI 规则仍保留。在原 Windows 用户下重装后看到原账号和 tag，是读取了该用户的本地存档，不代表这些数据被装进分发包。
 
-重新打包：在项目目录使用 Windows PowerShell 5.1 运行 `./tool/package_windows.ps1`。脚本先通过原启动器校验 Release，然后生成 ZIP、中文安装包及 SHA-256 清单；已有同名输出会停止，避免覆盖。构建机需安装 Inno Setup 6.5+ 和 7-Zip，可指定 `-OutputDirectory`、`-SevenZipDirectory`、`-RuntimeCab` 和 `-IsccPath`。默认从 `ISCC` 环境变量、PATH 或 Inno Setup 6 常用位置查找编译器，从微软安装缓存选择 x64 Visual C++ 运行库 CAB，不修改系统运行库。安装器源码位于 `installer/Plana.iss`，中文语言文件及许可一并存入源码包。`tool/build_windows_installer.ps1` 只接受通过白名单及 SHA-256 清单验证的分发目录；不会递归收集正在使用的程序目录或个人数据。
+重新打包：在项目目录使用 Windows PowerShell 5.1 运行 `./tool/package_windows.ps1`。脚本先通过原启动器校验 Release，然后生成 ZIP、中文安装包及 SHA-256 清单；已有同名输出会停止，避免覆盖。构建机需安装 Inno Setup 6.5+ 和 7-Zip，可指定 `-OutputDirectory`、`-SevenZipDirectory`、`-RuntimeCab` 或 `-RuntimeDirectory`，以及 `-IsccPath`。CI 使用 `-SkipBuild` 打包已完成的 Release 构建，并从 Visual Studio 的 x64 可再分发 CRT 目录收集运行库。默认从 `ISCC` 环境变量、PATH 或 Inno Setup 6 常用位置查找编译器，从微软安装缓存选择 x64 Visual C++ 运行库 CAB，不修改系统运行库。安装器源码位于 `installer/Plana.iss`，中文语言文件及许可一并存入源码包。`tool/build_windows_installer.ps1` 只接受通过白名单及 SHA-256 清单验证的分发目录；不会递归收集正在使用的程序目录或个人数据。
 
 发布包使用明确的运行文件和公开源码白名单生成，个人备份、应用数据及过程记录不参与打包。
 

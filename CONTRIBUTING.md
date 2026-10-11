@@ -75,7 +75,7 @@ macOS 更新或平台打包修改还需对应系统的构建与检查。测试�
 |---|---|---|
 | macOS 标准版 | `Plana-App-Desktop-macOS-ad-hoc` | `Plana-App-Desktop-macOS-arm64.dmg` 与校验文件 |
 | macOS 远端上传版 | `Plana-App-Desktop-RemoteUpload-macOS-ad-hoc` | `Plana-App-Desktop-RemoteUpload-macOS-arm64.dmg` 与校验文件 |
-| Windows 标准版 | `Plana-App-Desktop-Windows-x64` | 完整 Release 目录，运行 `plana_app_for_windows.exe` |
+| Windows 标准版 | `Plana-App-Desktop-Windows-x64` | 中文 EXE 安装包、便携 ZIP 及各自的 SHA-256 校验文件 |
 | 构建计划 | `desktop-build-plan` | 两版实际分支、提交 SHA、版本与架构 |
 
 登录 GitHub 后可下载成功构建底部的 Artifacts。Actions 产物需要另行发布为
