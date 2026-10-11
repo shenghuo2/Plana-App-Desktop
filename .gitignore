@@ -51,11 +51,12 @@ app.*.map.json
 *.jks
 *.keystore
 
-# 内部工作文档保留在本地；分发许可证与版本兼容记录公开。
+# 内部工作文档保留在本地；分发许可证、版本兼容记录与用户文档公开。
 docs/*
 !docs/runtime-licenses/
 !docs/ANDROID-1.2.0-INTEGRATION.md
 !docs/ANDROID-1.2.1-INTEGRATION.md
+!docs/ACKNOWLEDGEMENTS.md
 recovery-backup-*/
 
 # Local user data and publication work must never be committed.
