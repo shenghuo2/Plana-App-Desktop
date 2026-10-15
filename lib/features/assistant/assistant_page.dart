@@ -22,7 +22,6 @@ import 'package:flutter/services.dart';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../core/store/app_stores.dart';
 import '../../core/platform/clipboard_image.dart';
 import '../../core/platform/desktop.dart';
 import '../../core/theme/app_theme.dart';
@@ -45,6 +44,7 @@ import 'preset_rules.dart' show RulesFamily, rulesFamilyOf;
 import 'widgets/history_sheet.dart';
 import 'widgets/inline_images.dart';
 import 'widgets/intro_dialog.dart';
+import 'widgets/message_image.dart';
 import 'widgets/mode_sheet.dart';
 import 'widgets/model_sheet.dart';
 import 'widgets/proposal_actions.dart';
@@ -1525,24 +1525,10 @@ class _MsgTile extends ConsumerWidget {
                 runSpacing: 6,
                 children: [
                   for (var index = 0; index < msg.imageHashes.length; index++)
-                    FutureBuilder(
+                    AssistantMessageImage(
                       key: ValueKey('assistant-message-image-${msg.id}-$index'),
-                      future: ref
-                          .read(appStoresProvider)
-                          .assistant
-                          .image(msg.imageHashes[index]),
-                      builder: (context, snap) => snap.data == null
-                          ? const SizedBox(width: 96, height: 96)
-                          : ClipRRect(
-                              borderRadius: BorderRadius.circular(12),
-                              child: Image.memory(
-                                snap.data!,
-                                width: 96,
-                                height: 96,
-                                cacheWidth: 192,
-                                fit: BoxFit.cover,
-                              ),
-                            ),
+                      imageHash: msg.imageHashes[index],
+                      title: '消息附图 ${index + 1} / ${msg.imageHashes.length}',
                     ),
                 ],
               ),
