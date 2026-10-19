@@ -5,6 +5,7 @@ import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -28,6 +29,7 @@ import 'censor_ops.dart';
 import 'inpaint_ops.dart';
 import 'expand_canvas_dialog.dart';
 import '../../core/util/haptics.dart';
+import '../../core/util/image_resources.dart';
 
 /// 内容层功能色(画在图片上,与 app 主题无关):
 /// 遮罩紫与 web 一致;裁切青取深档保证浅色底上可读。
@@ -325,19 +327,17 @@ class _InpaintOverlayState extends ConsumerState<InpaintOverlay>
   /// 「底色/加载圈 → 图突现」的闪烁。解码失败直接退出会话(防锁死)。
   Future<void> _decode() async {
     try {
-      final codec = await ui.instantiateImageCodec(widget.session.imageBytes);
-      final frame = await codec.getNextFrame();
-      codec.dispose();
+      final decoded = await decodeFirstImage(widget.session.imageBytes);
       if (!mounted) {
-        frame.image.dispose();
+        decoded.dispose();
         return;
       }
       setState(() {
-        _img = frame.image;
-        _grid = MaskGrid(frame.image.width, frame.image.height);
+        _img = decoded;
+        _grid = MaskGrid(decoded.width, decoded.height);
       });
       _restoreMask();
-      _restoreMode(frame.image);
+      _restoreMode(decoded);
       unawaited(_ac.forward());
     } catch (_) {
       if (mounted) ref.read(inpaintSessionProvider.notifier).close();
@@ -1112,6 +1112,29 @@ class _InpaintOverlayState extends ConsumerState<InpaintOverlay>
 
   // ---------- 手势 ----------
 
+  void _onPointerSignal(PointerSignalEvent event) {
+    if (!_desktop ||
+        event is! PointerScrollEvent ||
+        _rawPointers > 0 ||
+        !event.scrollDelta.dy.isFinite ||
+        event.scrollDelta.dy == 0) {
+      return;
+    }
+    GestureBinding.instance.pointerSignalResolver.register(event, (signal) {
+      final scroll = signal as PointerScrollEvent;
+      final anchor = scroll.localPosition;
+      final imagePoint = _toImg(anchor);
+      final factor = math.exp(-scroll.scrollDelta.dy.clamp(-400.0, 400.0) / 200);
+      final next = (_scale * factor).clamp(_fitScale * 0.5, _fitScale * 10.0);
+      if (next == _scale) return;
+      setState(() {
+        _scale = next;
+        _offset = anchor - imagePoint * next;
+        _hoverPoint = _insideImage(imagePoint) ? imagePoint : null;
+      });
+    });
+  }
+
   void _onScaleStart(ScaleStartDetails d) {
     _lastPointers = d.pointerCount;
     _cropDismissOrigin = null;
@@ -1357,16 +1380,15 @@ class _InpaintOverlayState extends ConsumerState<InpaintOverlay>
         block: block,
       );
       if (!mounted) return;
-      final codec = await ui.instantiateImageCodec(png);
-      final frame = await codec.getNextFrame();
+      final decoded = await decodeFirstImage(png);
       // 等这一趟的功夫用户又拖了滑杆 —— 这张已经过期,直接扔
       if (!mounted || _censorBlock != block) {
-        frame.image.dispose();
+        decoded.dispose();
         return;
       }
       final old = _censorPreview;
       setState(() {
-        _censorPreview = frame.image;
+        _censorPreview = decoded;
         _censorPreviewBlock = block;
       });
       // 旧底片延到下一帧再放:当场 dispose 有可能砍掉一张还没光栅化的
@@ -1760,6 +1782,7 @@ class _InpaintOverlayState extends ConsumerState<InpaintOverlay>
                                     fit: StackFit.expand,
                                     children: [
                                       Listener(
+                                        onPointerSignal: _onPointerSignal,
                                         // raw 层手指计数:标记双指会话(其
                                         // 余波单指重启不算涂抹),全离手复位
                                         onPointerDown: (_) {

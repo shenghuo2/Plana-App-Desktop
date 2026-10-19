@@ -121,6 +121,10 @@ ClipboardChannel::ClipboardChannel(HWND owner, flutter::BinaryMessenger* messeng
                  result) { HandleMethodCall(call, std::move(result)); });
 }
 
+ClipboardChannel::~ClipboardChannel() {
+  channel_->SetMethodCallHandler(nullptr);
+}
+
 void ClipboardChannel::HandleMethodCall(
     const flutter::MethodCall<flutter::EncodableValue>& call,
     std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result) {

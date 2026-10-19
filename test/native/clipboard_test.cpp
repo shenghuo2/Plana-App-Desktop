@@ -117,9 +117,30 @@ void ShortcutTests() {
   DestroyWindow(window);
 }
 
+void TextTests() {
+  const wchar_t normal[] = L"hello";
+  Require(ClipboardUnicodeText(normal, sizeof(normal)) == L"hello",
+          "bounded Unicode clipboard text");
+  const wchar_t early_end[] = {L'a', L'\0', L'b'};
+  Require(ClipboardUnicodeText(early_end, sizeof(early_end)) == L"a",
+          "text ends at its first terminator");
+  const wchar_t unterminated[] = {L'a', L'b'};
+  bool rejected = false;
+  try { ClipboardUnicodeText(unterminated, sizeof(unterminated)); }
+  catch (const std::invalid_argument&) { rejected = true; }
+  Require(rejected, "unterminated text never reads past its memory block");
+  for (size_t length : {size_t{0}, size_t{1}, size_t{3}}) {
+    rejected = false;
+    try { ClipboardUnicodeText(unterminated, length); }
+    catch (const std::invalid_argument&) { rejected = true; }
+    Require(rejected, "short or odd text blocks rejected");
+  }
+}
+
 int main() {
   try {
     BitmapTests();
+    TextTests();
     ShortcutTests();
     std::cout << "Clipboard bitmap and shortcut tests passed; system clipboard untouched.\n";
     return 0;

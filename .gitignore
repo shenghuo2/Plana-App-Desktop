@@ -57,6 +57,7 @@ docs/*
 !docs/ANDROID-1.2.0-INTEGRATION.md
 !docs/ANDROID-1.2.1-INTEGRATION.md
 !docs/ACKNOWLEDGEMENTS.md
+!docs/diagnostics.md
 recovery-backup-*/
 
 # Local user data and publication work must never be committed.

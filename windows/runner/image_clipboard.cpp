@@ -73,6 +73,20 @@ std::string Utf8(const std::wstring& text) {
 }
 }  // namespace
 
+std::wstring ClipboardUnicodeText(const void* data, size_t byte_length) {
+  if (!data || byte_length < sizeof(wchar_t) ||
+      byte_length % sizeof(wchar_t) != 0 || byte_length > kMaxImageBytes) {
+    throw std::invalid_argument("Invalid clipboard text size.");
+  }
+  const auto* first = static_cast<const wchar_t*>(data);
+  const auto* limit = first + byte_length / sizeof(wchar_t);
+  const auto* end = std::find(first, limit, L'\0');
+  if (end == limit) {
+    throw std::invalid_argument("Clipboard text is not terminated.");
+  }
+  return std::wstring(first, end);
+}
+
 std::vector<uint8_t> ClipboardBitmapFile(const std::vector<uint8_t>& dib) {
   if (dib.size() > kMaxImageBytes) {
     throw std::invalid_argument("The clipboard bitmap is too large.");
@@ -145,10 +159,15 @@ ClipboardImage ReadClipboardImage(HWND owner) {
   try {
     if (HANDLE text = GetClipboardData(CF_UNICODETEXT)) {
       if (const auto* data = static_cast<const wchar_t*>(GlobalLock(text))) {
-        const std::wstring value(data);
-        image.has_text = HasUsableText(value);
-        image.text = Utf8(value);
-        GlobalUnlock(text);
+        try {
+          const auto value = ClipboardUnicodeText(data, GlobalSize(text));
+          image.has_text = HasUsableText(value);
+          image.text = Utf8(value);
+          GlobalUnlock(text);
+        } catch (...) {
+          GlobalUnlock(text);
+          throw;
+        }
       }
     }
     // A copied image file owns the paste even if Explorer also advertises a
