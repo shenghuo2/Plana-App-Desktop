@@ -30,6 +30,41 @@ function Assert-InstalledFiles {
     if ($exe.VersionInfo.FileVersion -ne $manifest.Version) { throw 'Installed application version does not match' }
 }
 
+function Test-InstalledDiagnostics {
+    $directory = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Plana App Desktop/diagnostics'
+    $process = Start-Process -FilePath (Join-Path $installRoot 'plana_app_for_windows.exe') -PassThru
+    try {
+        $deadline = [DateTime]::UtcNow.AddSeconds(45)
+        do {
+            if ($process.HasExited) { throw "Installed app exited during diagnostics smoke test: $($process.ExitCode)" }
+            $native = @(Get-ChildItem -Path (Join-Path $directory "native-*-$($process.Id).log") -ErrorAction SilentlyContinue)
+            $dart = @(Get-ChildItem -Path (Join-Path $directory "dart-*-$($process.Id)-*.log") -ErrorAction SilentlyContinue)
+            if ($native.Count -eq 1 -and $dart.Count -eq 1 -and
+                (Get-Content $native[0].FullName -Raw) -match 'first-frame' -and
+                (Get-Content $dart[0].FullName -Raw) -match 'app-started') { break }
+            Start-Sleep -Milliseconds 250
+        } while ([DateTime]::UtcNow -lt $deadline)
+        if (!$native.Count -or !$dart.Count -or
+            (Get-Content $native[0].FullName -Raw) -notmatch 'first-frame' -or
+            (Get-Content $dart[0].FullName -Raw) -notmatch 'app-started') {
+            throw 'Installed app did not persist native and Dart startup diagnostics'
+        }
+        # Simulate abrupt termination: diagnostics must already be on disk.
+        Stop-Process -Id $process.Id -Force
+        $process.WaitForExit()
+        foreach ($file in @($native[0].FullName, $dart[0].FullName)) {
+            if (!(Test-Path -LiteralPath $file) -or (Get-Item $file).Length -eq 0) {
+                throw 'Diagnostic log did not survive process termination'
+            }
+        }
+        Write-Host 'PASS: installed app persisted native and Dart startup logs through abrupt termination.'
+        return @($native[0].FullName, $dart[0].FullName)
+    } finally {
+        if (!$process.HasExited) { Stop-Process -Id $process.Id -Force }
+        $process.Dispose()
+    }
+}
+
 try {
     # Validation mode disables shortcuts, auto-launch and shared uninstall keys.
     # All installed files stay inside this newly created temporary directory.
@@ -37,6 +72,8 @@ try {
         ('/DIR="' + $installRoot + '"'))
     Invoke-Setup $installer ($arguments + ('/LOG="' + (Join-Path $testRoot 'install.log') + '"'))
     Assert-InstalledFiles
+    $diagnosticFiles = @(Test-InstalledDiagnostics)
+    if ($diagnosticFiles.Count -ne 2) { throw 'Expected native and Dart diagnostic files' }
 
     $artwork = Join-Path $installRoot 'output/preserved.txt'
     New-Item -ItemType Directory -Path (Split-Path $artwork -Parent) | Out-Null
@@ -55,6 +92,9 @@ try {
     }
     if ((Get-FileHash -LiteralPath $artwork -Algorithm SHA256).Hash -ne $artworkHash) {
         throw 'Uninstall modified existing artwork'
+    }
+    foreach ($file in $diagnosticFiles) {
+        if (!(Test-Path -LiteralPath $file)) { throw 'Uninstall removed diagnostic evidence' }
     }
     Write-Output "PASS: installed $($manifest.Files.Count) verified files; reinstall and uninstall preserved artwork."
 } catch {

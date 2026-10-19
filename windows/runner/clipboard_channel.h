@@ -17,6 +17,7 @@ class ClipboardChannel {
   // |owner| 是窗口句柄:剪贴板要有个属主,别的程序才知道这块剪贴板是谁占的
   // (WM_DESTROYCLIPBOARD 通知也才发得出去)。传空也能用,但不该这么用。
   ClipboardChannel(HWND owner, flutter::BinaryMessenger* messenger);
+  ~ClipboardChannel();
 
   ClipboardChannel(const ClipboardChannel&) = delete;
   ClipboardChannel& operator=(const ClipboardChannel&) = delete;

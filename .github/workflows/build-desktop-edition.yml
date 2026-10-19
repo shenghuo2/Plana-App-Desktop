@@ -95,7 +95,7 @@ jobs:
           ./tool/test_windows_package_version.ps1
           ./tool/test_windows_runtime_files.ps1
 
-      - name: Native clipboard tests
+      - name: Native clipboard and crash diagnostics tests
         shell: cmd
         run: |
           cmake -S test/native -B build/native -A x64

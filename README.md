@@ -105,6 +105,8 @@ Plana App Desktop 将 [Plana App](https://github.com/mc5024/Plana-App) 的绘图
 
 遇到问题或有建议，请提交到 [本仓库 Issues](https://github.com/shenghuo2/Plana-App-Desktop/issues)，注明系统与芯片架构、应用版本、复现步骤和相关截图。贴日志前请移除 API Key 等凭据。
 
+开发分支已增加本地诊断日志保留，收集方法与保留规则见[诊断记录说明](docs/diagnostics.md)。此功能尚未包含在当前公开安装包中。
+
 参与开发请阅读 [开发与贡献](CONTRIBUTING.md)，其中包含源码运行、检查命令和 Actions 构建入口。两版打包及发布分支规则见 [桌面双版本构建](DESKTOP-EDITIONS.md)。
 
 ## 来源与致谢
