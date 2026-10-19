@@ -36,18 +36,18 @@ Plana App Desktop 将 [Plana App](https://github.com/mc5024/Plana-App) 的绘图
 
 ## 下载与安装
 
-当前公开预发布为 **1.2.1-desktop（构建 70）**。从 [发布页](https://github.com/shenghuo2/Plana-App-Desktop/releases/tag/v1.2.1-desktop) 下载，无需登录 GitHub。
+当前公开预发布为 **1.2.1-desktop.1（构建 71）**。从 [发布页](https://github.com/shenghuo2/Plana-App-Desktop/releases/tag/v1.2.1-desktop.1) 下载，无需登录 GitHub。
 
 | 平台 | 安装包 | 选择建议 |
 |---|---|---|
-| Windows x64 | [安装程序 EXE](https://github.com/shenghuo2/Plana-App-Desktop/releases/download/v1.2.1-desktop/Plana-App-Desktop-Windows-1.2.1-desktop-x64-setup.exe) · [便携 ZIP](https://github.com/shenghuo2/Plana-App-Desktop/releases/download/v1.2.1-desktop/Plana-App-Desktop-Windows-1.2.1-desktop-x64.zip) | 安装版带中文向导与开始菜单入口；ZIP 适合便携使用 |
-| macOS 14+ · Apple Silicon | [标准版 DMG](https://github.com/shenghuo2/Plana-App-Desktop/releases/download/v1.2.1-desktop/Plana-App-Desktop-macOS-arm64.dmg) | 日常绘图与本地作品管理 |
+| Windows x64 | [安装程序 EXE](https://github.com/shenghuo2/Plana-App-Desktop/releases/download/v1.2.1-desktop.1/Plana-App-Desktop-Windows-1.2.1-desktop.1-x64-setup.exe) · [便携 ZIP](https://github.com/shenghuo2/Plana-App-Desktop/releases/download/v1.2.1-desktop.1/Plana-App-Desktop-Windows-1.2.1-desktop.1-x64.zip) | 安装版带中文向导与开始菜单入口；ZIP 适合便携使用 |
+| macOS 14+ · Apple Silicon | [标准版 DMG](https://github.com/shenghuo2/Plana-App-Desktop/releases/download/v1.2.1-desktop.1/Plana-App-Desktop-macOS-arm64.dmg) | 日常绘图与本地作品管理 |
 
 **Windows**：运行 `-setup.exe`，按中文向导选择可写入的安装目录，可选桌面快捷方式；默认安装到当前用户目录，无需管理员权限。使用便携版时，完整解压 ZIP 后运行 `plana_app_for_windows.exe`，移动时连同 `output` 作品文件夹一起移动。两种包均附带所需运行库。
 
 **macOS**：退出旧应用，打开 DMG，将 `Plana App Desktop.app` 拖入「应用程序」后运行。目前提供 ARM64 包，适用于 Apple Silicon Mac。
 
-发布页提供安装包的 SHA-256 校验值，后续版本统一使用 `SHA256SUMS.txt`。Windows 包未做代码签名；macOS 包使用 ad-hoc 签名，尚未经过 Apple 公证。
+发布页统一提供安装包的 SHA-256 校验文件 `SHA256SUMS.txt`。Windows 包未做代码签名；macOS 包使用 ad-hoc 签名，尚未经过 Apple 公证。
 
 ## 主要功能
 
@@ -97,6 +97,7 @@ Plana App Desktop 将 [Plana App](https://github.com/mc5024/Plana-App) 的绘图
 
 | 版本 | 状态 | 说明 |
 |---|---|---|
+| `1.2.1-desktop.1+71` | 已公开预发布 | 本地诊断日志、图片资源释放与重绘滚轮缩放；[更新说明](https://github.com/shenghuo2/Plana-App-Desktop/releases/tag/v1.2.1-desktop.1) |
 | `1.2.1-desktop+70` | 已公开预发布 | [安装包、更新内容与验证记录](https://github.com/shenghuo2/Plana-App-Desktop/releases/tag/v1.2.1-desktop)；[Android 1.2.1 合并范围](docs/ANDROID-1.2.1-INTEGRATION.md) |
 
 公开安装包以 Releases 为准。`main` 是标准版开发主线，`feature/remote-upload` 是远端上传版开发分支。每次发版分别保留 `release/<版本号>` 与 `release/remote-upload/<版本号>`，从对应分支构建两版。
@@ -105,7 +106,7 @@ Plana App Desktop 将 [Plana App](https://github.com/mc5024/Plana-App) 的绘图
 
 遇到问题或有建议，请提交到 [本仓库 Issues](https://github.com/shenghuo2/Plana-App-Desktop/issues)，注明系统与芯片架构、应用版本、复现步骤和相关截图。贴日志前请移除 API Key 等凭据。
 
-开发分支已增加本地诊断日志保留，收集方法与保留规则见[诊断记录说明](docs/diagnostics.md)。此功能尚未包含在当前公开安装包中。
+1.2.1-desktop.1 起增加本地诊断日志保留，收集方法与保留规则见[诊断记录说明](docs/diagnostics.md)。
 
 参与开发请阅读 [开发与贡献](CONTRIBUTING.md)，其中包含源码运行、检查命令和 Actions 构建入口。两版打包及发布分支规则见 [桌面双版本构建](DESKTOP-EDITIONS.md)。
 
