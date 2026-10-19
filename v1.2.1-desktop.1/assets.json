@@ -1,0 +1,17 @@
+{
+  "image_base_url": null,
+  "assets": [
+    {
+      "name": "comparison-assistant-sent-attachment-preview.png",
+      "sha256": "3617ccecc83988ce4c4bde669cceacff1219a458764068c2c7556100939c8b2a",
+      "source_record": "/home/shenghuo2/dev/plana-desktop-dev/reviews/assistant-sent-image-preview/task-log.json",
+      "url": "assets/comparison-assistant-sent-attachment-preview.png"
+    },
+    {
+      "name": "comparison-inpaint-desktop-wheel-zoom.png",
+      "sha256": "355bad56a65fd279f520be2a27be4c97bd897de26d1bd64753eac644537638e3",
+      "source_record": "/home/shenghuo2/dev/plana-desktop-dev/reviews/inpaint-wheel-zoom/task-log.json",
+      "url": "assets/comparison-inpaint-desktop-wheel-zoom.png"
+    }
+  ]
+}
