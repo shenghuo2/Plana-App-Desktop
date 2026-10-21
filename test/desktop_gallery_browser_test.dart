@@ -347,6 +347,63 @@ void main() {
   );
 
   testWidgets(
+    'library counts and date matches include shared images and empty new libraries',
+    (tester) async {
+      final first = (await tester.runAsync(
+        () => container.read(albumsProvider.notifier).create('第一个图库'),
+      ))!;
+      final second = (await tester.runAsync(
+        () => container.read(albumsProvider.notifier).create('第二个图库'),
+      ))!;
+      final empty = (await tester.runAsync(
+        () => container.read(albumsProvider.notifier).create('空图库'),
+      ))!;
+      await tester.runAsync(
+        () => container
+            .read(albumsProvider.notifier)
+            .organize({'sample0', 'sample1'}, {first}),
+      );
+      await tester.runAsync(
+        () => container
+            .read(albumsProvider.notifier)
+            .organize({'sample0', 'sample2'}, {second}),
+      );
+      await mount(tester);
+      expect(
+        find.descendant(
+          of: key('desktop-library-card-all'),
+          matching: find.text('3 张作品'),
+        ),
+        findsOneWidget,
+      );
+      for (final id in [first, second]) {
+        expect(
+          find.descendant(
+            of: key('desktop-library-card-$id'),
+            matching: find.text('2 张作品'),
+          ),
+          findsOneWidget,
+        );
+      }
+      expect(
+        find.descendant(
+          of: key('desktop-library-card-$empty'),
+          matching: find.text('0 张作品'),
+        ),
+        findsOneWidget,
+      );
+      await tester.tap(key('desktop-gallery-date'));
+      await tester.pumpAndSettle();
+      await tester.tap(key('gallery-date-kind-today'));
+      await tester.pumpAndSettle();
+      for (final id in [first, second, empty]) {
+        expect(key('desktop-library-card-$id'), findsOneWidget);
+      }
+      await finish(tester);
+    },
+  );
+
+  testWidgets(
     'new library capsule reuses validation and reveals a created album after filtering',
     (tester) async {
       await tester.runAsync(
