@@ -91,6 +91,19 @@ void main() {
     expect(reopened.workspace.initial?.prompt, 'retry draft');
   });
 
+  test(
+    'failed editor writeback cancels exit before reporting a flush',
+    () async {
+      lifecycle.dispose();
+      lifecycle = createStorageLifecycleListener(
+        stores,
+        beforeFlush: () => throw StateError('editor writeback failed'),
+      );
+      expect(await binding.handleRequestAppExit(), AppExitResponse.cancel);
+      expect(stores.saveError.value, contains('保存未完成'));
+    },
+  );
+
   testWidgets('exit also commits a fullscreen editor with pending writeback', (
     tester,
   ) async {

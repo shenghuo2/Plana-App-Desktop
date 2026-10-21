@@ -20,8 +20,8 @@ AppLifecycleListener createStorageLifecycleListener(
   },
   onExitRequested: () async {
     RuntimeDiagnostics.current?.event('exit-requested');
-    beforeFlush?.call();
     try {
+      beforeFlush?.call();
       await stores.flushForExit();
       RuntimeDiagnostics.current?.event('exit-storage-flushed');
       return AppExitResponse.exit;

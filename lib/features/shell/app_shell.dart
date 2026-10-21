@@ -191,11 +191,12 @@ class _AppShellState extends ConsumerState<AppShell>
   }
 
   Future<void> _retrySave() async {
+    final stores = ref.read(appStoresProvider);
     try {
-      await ref.read(appStoresProvider).flushForExit();
+      await stores.flushForExit();
       if (mounted) hintSnack(context, '已保存', icon: Icons.check_circle_outline);
     } catch (_) {
-      ref.read(appStoresProvider).reportSaveError('保存仍未完成，请检查磁盘后重试');
+      if (mounted) stores.reportSaveError('保存仍未完成，请检查磁盘后重试');
     }
   }
 
