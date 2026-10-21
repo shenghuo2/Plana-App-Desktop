@@ -138,6 +138,12 @@ class _DesktopWorkspaceState extends ConsumerState<DesktopWorkspace>
     }
   }
 
+  void _generateFromShortcut() {
+    if (ref.read(shellIndexProvider) == kTabCreate) {
+      ref.read(generationProvider.notifier).generate();
+    }
+  }
+
   Widget _tabs({bool compact = false}) => SizedBox(
     height: 46,
     child: Padding(
@@ -217,11 +223,10 @@ class _DesktopWorkspaceState extends ConsumerState<DesktopWorkspace>
             _tool(0),
         const SingleActivator(LogicalKeyboardKey.keyI, alt: true): () =>
             _tool(1),
-        const SingleActivator(LogicalKeyboardKey.enter, control: true): () {
-          if (ref.read(shellIndexProvider) == kTabCreate) {
-            ref.read(generationProvider.notifier).generate();
-          }
-        },
+        const SingleActivator(LogicalKeyboardKey.enter, control: true):
+            _generateFromShortcut,
+        const SingleActivator(LogicalKeyboardKey.enter, meta: true):
+            _generateFromShortcut,
       },
       child: Focus(
         focusNode: shortcutFocus,

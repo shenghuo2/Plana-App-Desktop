@@ -23,6 +23,7 @@ import 'package:plana_app/features/assistant/assistant_state.dart';
 import 'package:plana_app/features/assistant/assistant_settings.dart';
 import 'package:plana_app/features/assistant/custom_endpoint.dart';
 import 'package:plana_app/features/gallery/albums/album_state.dart';
+import 'package:plana_app/features/gallery/albums/album_models.dart';
 import 'package:plana_app/features/gallery/gallery_state.dart';
 import 'package:plana_app/features/generate/generate_state.dart';
 import 'package:plana_app/features/generate/gen_jobs.dart';
@@ -72,6 +73,21 @@ class _HeaderGeneration extends GenerationNotifier {
         ),
     ],
   );
+}
+
+class _ShortcutGeneration extends GenerationNotifier {
+  int calls = 0;
+
+  @override
+  Future<GenOutcome> generate({
+    GallerySaveTarget? galleryTarget,
+    GenerateState? using,
+    bool stay = false,
+    void Function(String jobId)? onJob,
+  }) async {
+    calls++;
+    return GenOutcome.notCharged;
+  }
 }
 
 class _HeaderQueue extends GenQueueNotifier {
@@ -917,6 +933,32 @@ void main() {
     await screenshot(tester, 'assistant');
     await tester.pumpWidget(const SizedBox());
     await tester.pump(const Duration(seconds: 1));
+    await drainWrites(tester);
+  });
+
+  testWidgets('创作页接受 Command+Enter 与 Control+Enter 生成快捷键', (tester) async {
+    c.dispose();
+    final generation = _ShortcutGeneration();
+    c = ProviderContainer(
+      overrides: [
+        appStoresProvider.overrideWithValue(stores),
+        desktopModeProvider.overrideWithValue(true),
+        generationProvider.overrideWith(() => generation),
+      ],
+    );
+    await mount(tester, const Size(1440, 900));
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.metaLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.metaLeft);
+    await tester.pump();
+    expect(generation.calls, 1);
+
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+    await tester.pump();
+    expect(generation.calls, 2);
+    await tester.pumpWidget(const SizedBox());
     await drainWrites(tester);
   });
 
