@@ -51,6 +51,8 @@ class _EndpointSheetState extends ConsumerState<_EndpointSheet> {
 
   late AgentApiFormat _format = widget.source?.format ?? AgentApiFormat.openai;
   bool _loading = false;
+  bool _saving = false;
+  String? _saveError;
 
   @override
   void dispose() {
@@ -106,7 +108,18 @@ class _EndpointSheetState extends ConsumerState<_EndpointSheet> {
       hintSnack(context, '还没填 API Key', icon: Icons.key_off_outlined);
       return;
     }
-    await ref.read(customEndpointsProvider.notifier).put(draft);
+    setState(() {
+      _saving = true;
+      _saveError = null;
+    });
+    try {
+      await ref.read(customEndpointsProvider.notifier).put(draft);
+    } catch (_) {
+      if (mounted) setState(() => _saveError = '保存失败，请检查安全存储后重试');
+      return;
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
     if (mounted) unawaited(Navigator.of(context).maybePop());
   }
 
@@ -120,7 +133,18 @@ class _EndpointSheetState extends ConsumerState<_EndpointSheet> {
       confirmLabel: '删除',
     );
     if (!ok || !mounted) return;
-    await ref.read(customEndpointsProvider.notifier).remove(id);
+    setState(() {
+      _saving = true;
+      _saveError = null;
+    });
+    try {
+      await ref.read(customEndpointsProvider.notifier).remove(id);
+    } catch (_) {
+      if (mounted) setState(() => _saveError = '删除失败，请检查安全存储后重试');
+      return;
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
     if (mounted) unawaited(Navigator.of(context).maybePop());
   }
 
@@ -194,18 +218,39 @@ class _EndpointSheetState extends ConsumerState<_EndpointSheet> {
           ),
         ),
         _field('名称', _name, hint: '不填就显示模型名'),
+        if (_saveError != null)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
+            child: Row(
+              children: [
+                Icon(Icons.error_outline, size: 18, color: scheme.error),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    _saveError!,
+                    style: context.texts.bodySmall?.copyWith(
+                      color: scheme.error,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
         Padding(
           padding: const EdgeInsets.fromLTRB(20, 14, 20, 4),
           child: Row(
             children: [
               if (widget.source != null)
                 TextButton(
-                  onPressed: _delete,
+                  onPressed: _saving ? null : _delete,
                   style: TextButton.styleFrom(foregroundColor: scheme.error),
                   child: const Text('删除'),
                 ),
               const Spacer(),
-              FilledButton(onPressed: _save, child: const Text('保存')),
+              FilledButton(
+                onPressed: _saving ? null : _save,
+                child: const Text('保存'),
+              ),
             ],
           ),
         ),

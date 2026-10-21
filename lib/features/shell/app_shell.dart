@@ -67,11 +67,15 @@ class _AppShellState extends ConsumerState<AppShell>
 
   Timer? _updateTimer;
   DateTime? _lastDesktopUpdateAttempt;
+  late final ValueNotifier<String?> _saveError;
 
   @override
   void initState() {
     super.initState();
     _pc = PageController(initialPage: ref.read(shellIndexProvider));
+    _saveError = ref.read(appStoresProvider).saveError;
+    _saveError.addListener(_showSaveError);
+    if (_saveError.value != null) _showSaveError();
     WidgetsBinding.instance.addObserver(this);
     // 预热鉴权/后端配置(懒加载 AsyncNotifier 的 storage 首读在此触发,
     // 否则冷启动后立刻点「生成」会在 loading 态被误判成未授权/没 token)。
@@ -163,10 +167,36 @@ class _AppShellState extends ConsumerState<AppShell>
 
   @override
   void dispose() {
+    _saveError.removeListener(_showSaveError);
     WidgetsBinding.instance.removeObserver(this);
     _updateTimer?.cancel();
     _pc.dispose();
     super.dispose();
+  }
+
+  void _showSaveError() {
+    final message = _saveError.value;
+    if (message == null) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _saveError.value != message) return;
+      _saveError.value = null;
+      hintSnack(
+        context,
+        message,
+        icon: Icons.error_outline,
+        actionLabel: '重试',
+        onAction: () => unawaited(_retrySave()),
+      );
+    });
+  }
+
+  Future<void> _retrySave() async {
+    try {
+      await ref.read(appStoresProvider).flushForExit();
+      if (mounted) hintSnack(context, '已保存', icon: Icons.check_circle_outline);
+    } catch (_) {
+      ref.read(appStoresProvider).reportSaveError('保存仍未完成，请检查磁盘后重试');
+    }
   }
 
   /// 切到创作页的一刻:把「AI 页导入过、还没来看」的角标熄掉。
