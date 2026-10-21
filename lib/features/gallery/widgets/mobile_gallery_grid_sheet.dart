@@ -37,6 +37,7 @@ import '../save_settings.dart';
 import '../share_pipeline.dart';
 import 'album_name_sheet.dart';
 import 'gallery_date_sheet.dart';
+import 'gallery_grid_logic.dart';
 import 'result_badge_chip.dart';
 import 'result_thumb.dart';
 import 'stack_card.dart';
@@ -83,8 +84,9 @@ class _GalleryGridSheetState extends ConsumerState<_GalleryGridSheet>
   String? _activeAlbumId = _resumeAlbumId;
   String? _pendingAlbumId;
   bool? _pendingAlbumHome;
-  bool _selecting = false;
-  final Set<String> _picked = {};
+  final _selection = GalleryGridSelection();
+  bool get _selecting => _selection.selecting;
+  Set<String> get _picked => _selection.picked;
 
   /// 相册首页的多选勾的是整本相册(「全部相册」不在其列)。
   final Set<String> _pickedAlbums = {};
@@ -581,29 +583,11 @@ class _GalleryGridSheetState extends ConsumerState<_GalleryGridSheet>
     });
   }
 
-  // ---- 筛选谓词(模型 × 时间 × 搜索,全 AND) ----
-
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed && mounted && _dateFilter.active) {
       setState(() {});
     }
-  }
-
-  bool _passModel(ResultImage r, Map<String, GallerySearchMeta> byId) {
-    final want = _modelFilter;
-    if (want == null) return true;
-    return (byId[r.id]?.model ?? '') == want;
-  }
-
-  bool _passQuery(
-    ResultImage r,
-    Map<String, GallerySearchMeta> byId,
-    List<String> terms,
-  ) {
-    if (terms.isEmpty) return true;
-    final meta = byId[r.id];
-    return meta != null && searchMatch(meta.text, terms);
   }
 
   /// 单选弹层(模型/时间共用):选项 = (文案, 值, 计数);值用单元素 record
@@ -672,23 +656,10 @@ class _GalleryGridSheetState extends ConsumerState<_GalleryGridSheet>
     List<ResultImage> results,
     Map<String, GallerySearchMeta> byId,
   ) {
-    // 模型清单按整库统计(不按筛选后,免得选中一个后其余选项全消失)
-    final counts = <String, int>{};
-    for (final r in results) {
-      counts.update(byId[r.id]?.model ?? '', (v) => v + 1, ifAbsent: () => 1);
-    }
-    final models = [
-      for (final k in counts.keys)
-        if (k.isNotEmpty) k,
-    ]..sort((a, b) => counts[b]!.compareTo(counts[a]!));
     _pickFilter<String?>(
       title: '按模型筛选',
       current: _modelFilter,
-      options: [
-        ('全部', null, null),
-        for (final m in models) (m, m, counts[m]),
-        if ((counts[''] ?? 0) > 0) ('未知', '', counts['']),
-      ],
+      options: galleryModelFilterOptions(results, byId),
       onPick: (v) => setState(() => _modelFilter = v),
     );
   }
@@ -841,7 +812,7 @@ class _GalleryGridSheetState extends ConsumerState<_GalleryGridSheet>
                 ? [for (final r in g.items) r.id]
                 : const <String>[];
             final allOn =
-                _selecting && !_albumHome && ids.every(_picked.contains);
+                _selecting && !_albumHome && _selection.allSelected(ids);
             final cover = _albumHome
                 ? albumCoverOf(albumData, albumId, g.items)
                 : null;
@@ -874,7 +845,7 @@ class _GalleryGridSheetState extends ConsumerState<_GalleryGridSheet>
                     _pickedAlbums.add(albumId);
                   }
                 } else if (_selecting) {
-                  allOn ? _picked.removeAll(ids) : _picked.addAll(ids);
+                  _selection.toggleGroup(ids);
                 } else if (_albumHome) {
                   _openAlbum(g.key == _allAlbumKey ? null : g.key);
                 } else {
@@ -896,7 +867,7 @@ class _GalleryGridSheetState extends ConsumerState<_GalleryGridSheet>
   /// 照样竖着占满段头。
   Widget _groupHeader(ColorScheme scheme, GalleryGroup g) {
     final ids = [for (final r in g.items) r.id];
-    final allOn = ids.every(_picked.contains);
+    final allOn = _selection.allSelected(ids);
     return Stack(
       children: [
         Padding(
@@ -933,10 +904,7 @@ class _GalleryGridSheetState extends ConsumerState<_GalleryGridSheet>
               ),
               onPressed: _saving || _zipping
                   ? null
-                  : () => setState(
-                      () =>
-                          allOn ? _picked.removeAll(ids) : _picked.addAll(ids),
-                    ),
+                  : () => setState(() => _selection.toggleGroup(ids)),
               child: Text(allOn ? '取消' : '全选'),
             ),
           ),
@@ -946,22 +914,20 @@ class _GalleryGridSheetState extends ConsumerState<_GalleryGridSheet>
 
   void _enterSelect([String? pick]) {
     setState(() {
-      _selecting = true;
-      if (pick != null) _picked.add(pick);
+      _selection.enter(pick);
     });
   }
 
   void _exitSelect() {
     _dragSelectEnd();
     setState(() {
-      _selecting = false;
-      _picked.clear();
+      _selection.exit();
       _pickedAlbums.clear();
     });
   }
 
   void _toggle(String id) {
-    setState(() => _picked.contains(id) ? _picked.remove(id) : _picked.add(id));
+    setState(() => _selection.toggle(id));
   }
 
   // ---- 滑动选择 ----
@@ -1353,15 +1319,7 @@ class _GalleryGridSheetState extends ConsumerState<_GalleryGridSheet>
   }
 
   void _toggleAll(List<ResultImage> results) {
-    setState(() {
-      if (_picked.length == results.length) {
-        _picked.clear();
-      } else {
-        _picked
-          ..clear()
-          ..addAll([for (final r in results) r.id]);
-      }
-    });
+    setState(() => _selection.toggleAll(results));
   }
 
   /// 相册首页多选的操作栏:保存 / 打包 ZIP / 删除一行三颗,样式同图片多选首行。
@@ -1873,28 +1831,9 @@ class _GalleryGridSheetState extends ConsumerState<_GalleryGridSheet>
   Future<void> _deletePicked() async {
     final ids = _picked.toList();
     if (ids.isEmpty) return;
-    final scheme = context.scheme;
-    final yes = await showDialog<bool>(
-      context: context,
-      builder: (dctx) => AlertDialog(
-        title: Text('删除 ${ids.length} 张作品?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dctx).pop(false),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(
-              backgroundColor: scheme.error,
-              foregroundColor: scheme.onError,
-            ),
-            onPressed: () => Navigator.of(dctx).pop(true),
-            child: const Text('删除'),
-          ),
-        ],
-      ),
-    );
-    if (yes != true || !mounted) return;
+    if (!await confirmGalleryBatchDelete(context, ids.length) || !mounted) {
+      return;
+    }
     await ref.read(galleryProvider.notifier).deleteResults(ids);
     if (!mounted) return;
     _exitSelect();
@@ -1958,15 +1897,14 @@ class _GalleryGridSheetState extends ConsumerState<_GalleryGridSheet>
     final now = DateTime.now();
 
     // 筛选管线(先廉价的时间,再查表)
-    final terms = searchTerms(_query);
-    bool inDate(int timestamp) => _dateFilter.matches(timestamp, now);
-    final filtered = <ResultImage>[
-      for (final r in albumResults)
-        if (inDate(r.createdAt) &&
-            _passModel(r, search.byId) &&
-            _passQuery(r, search.byId, terms))
-          r,
-    ];
+    final filtered = filterGalleryImages(
+      images: albumResults,
+      date: _dateFilter,
+      now: now,
+      byId: search.byId,
+      query: _query,
+      model: _modelFilter,
+    );
     final filtering =
         _query.isNotEmpty || _modelFilter != null || _dateFilter.active;
 
@@ -1974,8 +1912,7 @@ class _GalleryGridSheetState extends ConsumerState<_GalleryGridSheet>
     // 批量操作永远只作用于当前可见集合,不留筛选外的"隐形勾选"。
     // 查表而不是逐个在列表里找:拖选贴边滚动时每帧都在重建,几百张已选 × 几千张
     // 作品逐个比就是每帧上百万次比较。
-    final visible = {for (final r in filtered) r.id};
-    _picked.removeWhere((id) => !visible.contains(id));
+    _selection.retainVisible(filtered);
 
     // 归属表只拉当前这个维度的 —— 另一个维度的 provider 不 watch 就不开算。
     // 还在算(冷启第一次点开)时先当空表:全落「未归类」,算完自然刷成正确的堆,
@@ -2027,12 +1964,12 @@ class _GalleryGridSheetState extends ConsumerState<_GalleryGridSheet>
         !_sharing &&
         !_zipping &&
         !_organizing;
-    final canAct =
-        _picked.isNotEmpty &&
-        !_saving &&
-        !_sharing &&
-        !_zipping &&
-        !_organizing;
+    final canAct = _selection.canAct(
+      saving: _saving,
+      sharing: _sharing,
+      zipping: _zipping,
+      organizing: _organizing,
+    );
 
     return PopScope(
       // 多选态下系统返回/侧滑先退多选,不关弹层 —— 勾了十几张再手滑退出,
