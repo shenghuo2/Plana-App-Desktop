@@ -38,6 +38,9 @@ class _BotAuthPanelState extends ConsumerState<BotAuthPanel> {
   int _secondsLeft = 0;
   int _tick = 0;
   bool _loading = false;
+  bool _polling = false;
+  int _pollFailures = 0;
+  String? _pollError;
 
   @override
   void dispose() {
@@ -68,6 +71,8 @@ class _BotAuthPanelState extends ConsumerState<BotAuthPanel> {
         _secondsLeft = r.expiresIn;
         _tick = 0;
         _loading = false;
+        _pollFailures = 0;
+        _pollError = null;
       });
       _startTimer();
     } on BackendException catch (e) {
@@ -85,7 +90,11 @@ class _BotAuthPanelState extends ConsumerState<BotAuthPanel> {
       setState(() => _secondsLeft = (_secondsLeft - 1).clamp(0, 999));
       if (_secondsLeft <= 0) {
         t.cancel();
-        setState(() => _code = null); // 过期 → 回到「获取授权码」
+        setState(() {
+          _code = null;
+          _pollError = null;
+          _pollFailures = 0;
+        }); // 过期 → 回到「获取授权码」
         return;
       }
       if (_tick % 3 == 0) await _poll(); // 每 3 秒轮询一次
@@ -94,16 +103,32 @@ class _BotAuthPanelState extends ConsumerState<BotAuthPanel> {
 
   Future<void> _poll() async {
     final code = _code;
-    if (code == null) return;
+    if (code == null || _polling) return;
+    setState(() => _polling = true);
     try {
       final r = await ref.read(backendClientProvider).authCheck(code);
       if (!mounted || _code != code) return;
+      if (_pollFailures > 0) {
+        setState(() {
+          _pollFailures = 0;
+          _pollError = null;
+        });
+      }
       if (r.verified && r.sessionId != null && r.sessionId!.isNotEmpty) {
-        _timer?.cancel();
         await _onAuthorized(r.sessionId!);
       }
-    } on BackendException catch (_) {
-      // 单次轮询失败静默,下个周期再试
+    } catch (error) {
+      if (!mounted || _code != code) return;
+      _pollFailures++;
+      if (_pollFailures >= 2) {
+        setState(() {
+          _pollError = error is BackendException
+              ? '验证暂时失败：${error.message}'
+              : '验证暂时失败，请检查网络';
+        });
+      }
+    } finally {
+      if (mounted) setState(() => _polling = false);
     }
   }
 
@@ -129,6 +154,7 @@ class _BotAuthPanelState extends ConsumerState<BotAuthPanel> {
         );
     await ref.read(authModeProvider.notifier).set(AuthMode.bot);
     if (!mounted) return;
+    _timer?.cancel();
     setState(() => _code = null);
     Haptics.medium();
     hintSnack(context, 'Bot 授权成功', icon: Icons.verified_outlined);
@@ -217,6 +243,9 @@ class _BotAuthPanelState extends ConsumerState<BotAuthPanel> {
           _CodePanel(
             code: _code!,
             secondsLeftText: _fmt(_secondsLeft),
+            pollError: _pollError,
+            polling: _polling,
+            onRetry: _poll,
             onCopy: () {
               // 复制完整指令(含 web授权 前缀),粘贴到 QQ 直接发送即可
               Clipboard.setData(ClipboardData(text: 'web授权${_code!}'));
@@ -228,7 +257,11 @@ class _BotAuthPanelState extends ConsumerState<BotAuthPanel> {
             },
             onCancel: () {
               _timer?.cancel();
-              setState(() => _code = null);
+              setState(() {
+                _code = null;
+                _pollError = null;
+                _pollFailures = 0;
+              });
             },
           ),
       ],
@@ -241,12 +274,18 @@ class _CodePanel extends StatelessWidget {
   const _CodePanel({
     required this.code,
     required this.secondsLeftText,
+    required this.pollError,
+    required this.polling,
+    required this.onRetry,
     required this.onCopy,
     required this.onCancel,
   });
 
   final String code;
   final String secondsLeftText;
+  final String? pollError;
+  final bool polling;
+  final VoidCallback onRetry;
   final VoidCallback onCopy;
   final VoidCallback onCancel;
 
@@ -313,25 +352,46 @@ class _CodePanel extends StatelessWidget {
         Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            SizedBox(
-              width: 14,
-              height: 14,
-              child: CircularProgressIndicator(
-                strokeWidth: 2,
-                color: scheme.primary,
+            if (pollError == null)
+              SizedBox(
+                width: 14,
+                height: 14,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: scheme.primary,
+                ),
+              )
+            else
+              Icon(Icons.wifi_off_outlined, size: 16, color: scheme.error),
+            const SizedBox(width: 8),
+            Flexible(
+              child: Text(
+                pollError ?? '等待 Bot 验证…',
+                style: context.texts.bodySmall!.copyWith(
+                  color: pollError == null
+                      ? scheme.onSurfaceVariant
+                      : scheme.error,
+                ),
               ),
             ),
-            const SizedBox(width: 8),
-            Text(
-              '等待 Bot 验证…',
-              style: context.texts.bodySmall!.copyWith(
-                color: scheme.onSurfaceVariant,
-              ),
-            ),
-            const SizedBox(width: 8),
-            TextButton(onPressed: onCancel, child: const Text('取消')),
+            if (pollError == null) ...[
+              const SizedBox(width: 8),
+              TextButton(onPressed: onCancel, child: const Text('取消')),
+            ],
           ],
         ),
+        if (pollError != null)
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              TextButton.icon(
+                onPressed: polling ? null : onRetry,
+                icon: const Icon(Icons.refresh, size: 16),
+                label: const Text('重试'),
+              ),
+              TextButton(onPressed: onCancel, child: const Text('取消')),
+            ],
+          ),
       ],
     );
   }
