@@ -386,12 +386,6 @@ class RentalCard extends ConsumerWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         mainAxisSize: MainAxisSize.min,
         children: [
-          // 路由没接通时,开机等于白花钱。这条摆在卡最上面、两种状态都出:
-          // 开机前拦一道(别开),开机后交代清楚(这台没在被用)。
-          if (!kRentalRoutingReady && s.authed) ...[
-            _routingWarning(context),
-            const SizedBox(height: 10),
-          ],
           switch (s) {
             // 端点全要 Bot 会话,没会话时连状态都问不到 —— 先说清为什么
             RentalState(authed: false) => const _RentalNoAuth(),
@@ -399,31 +393,6 @@ class RentalCard extends ConsumerWidget {
             RentalState(status: RentalStatus.none) => const _RentalConfig(),
             _ => const _RentalRunning(),
           },
-        ],
-      ),
-    );
-  }
-
-  Widget _routingWarning(BuildContext context) {
-    final scheme = context.scheme;
-    return Container(
-      decoration: BoxDecoration(
-        color: scheme.errorContainer.withValues(alpha: .5),
-        borderRadius: BorderRadius.circular(10),
-      ),
-      padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(Icons.warning_amber_rounded, size: 16, color: scheme.error),
-          const SizedBox(width: 7),
-          Expanded(
-            child: Text(
-              '生成路由尚未接通:出图仍走免费共享队列,'
-              '这台机器不会被使用 —— 现在开机只会白付租金。',
-              style: context.texts.labelSmall!.copyWith(color: scheme.error),
-            ),
-          ),
         ],
       ),
     );
