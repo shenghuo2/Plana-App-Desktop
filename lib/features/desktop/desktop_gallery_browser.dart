@@ -146,18 +146,14 @@ class _DesktopGalleryBrowserState extends ConsumerState<DesktopGalleryBrowser>
     final all = ref.watch(galleryProvider).results;
     final now = DateTime.now();
     final terms = searchTerms(_search.text);
-    final counts = <String?, int>{
-      null: all.length,
-      for (final album in albums.albums) album.id: 0,
-    };
+    final summaries = ref.watch(albumSummariesProvider);
     final dateHits = <String?>{};
-    for (final image in all) {
-      final matchesDate = _date.matches(image.createdAt, now);
-      if (matchesDate) dateHits.add(null);
-      for (final id in albums.ofImage(image.id)) {
-        if (!counts.containsKey(id)) continue;
-        counts[id] = counts[id]! + 1;
-        if (matchesDate) dateHits.add(id);
+    if (_date.active) {
+      for (final image in all) {
+        if (!_date.matches(image.createdAt, now)) continue;
+        dateHits
+          ..add(null)
+          ..addAll(albums.ofImage(image.id));
       }
     }
     final entries = [
@@ -169,7 +165,8 @@ class _DesktopGalleryBrowserState extends ConsumerState<DesktopGalleryBrowser>
       final timeMatch =
           _date.kind == GalleryDateKind.all ||
           dateHits.contains(entry.id) ||
-          (counts[entry.id] == 0 && _date.matches(entry.createdAt, now));
+          (summaries[entry.id]!.count == 0 &&
+              _date.matches(entry.createdAt, now));
       return timeMatch && searchMatch(normalizeSearchText(entry.name), terms);
     }).toList();
 
@@ -284,7 +281,7 @@ class _DesktopGalleryBrowserState extends ConsumerState<DesktopGalleryBrowser>
                             ),
                             albumId: entry.id,
                             title: entry.name,
-                            detail: '${counts[entry.id]} 张作品',
+                            detail: '${summaries[entry.id]!.count} 张作品',
                             onTap: () => _open(entry.id),
                             onSecondaryTapDown: (details) => _albumMenu.show(
                               context,
