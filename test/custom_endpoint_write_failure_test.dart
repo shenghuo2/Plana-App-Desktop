@@ -1,15 +1,22 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:plana_app/core/auth/secure_storage.dart';
 import 'package:plana_app/features/assistant/custom_endpoint.dart';
+import 'package:plana_app/features/assistant/agent_model.dart';
 import 'package:plana_app/features/assistant/widgets/endpoint_sheet.dart';
+import 'package:plana_app/features/assistant/widgets/model_sheet.dart';
 
 class _FlakyStorage extends FlutterSecureStorage {
   String? stored;
   bool failRead = false;
   bool failWrite = true;
+  Object? readError;
+  int reads = 0;
 
   @override
   Future<String?> read({
@@ -21,7 +28,8 @@ class _FlakyStorage extends FlutterSecureStorage {
     AppleOptions? mOptions,
     WindowsOptions? wOptions,
   }) async {
-    if (failRead) throw StateError('secure storage unavailable');
+    reads++;
+    if (failRead) throw readError ?? StateError('secure storage unavailable');
     return stored;
   }
 
@@ -39,6 +47,11 @@ class _FlakyStorage extends FlutterSecureStorage {
     if (failWrite) throw StateError('secure storage unavailable');
     stored = value;
   }
+}
+
+class _NoModelPreference extends AssistantModelPrefNotifier {
+  @override
+  Future<String> build() async => '';
 }
 
 void main() {
@@ -196,4 +209,165 @@ void main() {
       );
     },
   );
+
+  testWidgets(
+    'reload after exhausted read retries retains the form and stored endpoints',
+    (tester) async {
+      tester.view.physicalSize = const Size(1100, 800);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final storage = _FlakyStorage()
+        ..stored = '[{"id":"existing","apiKey":"old-key","model":"old"}]'
+        ..failRead = true
+        ..readError = PlatformException(code: 'storage_unavailable')
+        ..failWrite = false;
+      final container = ProviderContainer(
+        overrides: [secureStorageProvider.overrideWithValue(storage)],
+      );
+      addTearDown(container.dispose);
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp(
+            home: Scaffold(
+              body: Builder(
+                builder: (context) => TextButton(
+                  onPressed: () => showEndpointSheet(context),
+                  child: const Text('打开接口表单'),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('打开接口表单'));
+      await tester.pumpAndSettle();
+      for (var i = 0; i < 12; i++) {
+        await tester.pump(const Duration(seconds: 7));
+        await tester.pump();
+      }
+      expect(storage.reads, 11);
+      expect(container.read(customEndpointsProvider).retrying, isFalse);
+      expect(find.text('读取接口失败，请重新加载后保存'), findsOneWidget);
+      expect(
+        tester
+            .widget<FilledButton>(find.widgetWithText(FilledButton, '保存'))
+            .onPressed,
+        isNull,
+      );
+      Finder field(String label) => find.byWidgetPredicate(
+        (widget) =>
+            widget is TextField && widget.decoration?.labelText == label,
+      );
+      await tester.enterText(field('API Key'), 'new-key');
+      await tester.enterText(field('模型'), 'new-model');
+      storage.failRead = false;
+      await tester.ensureVisible(find.text('重新加载接口'));
+      await tester.tap(find.text('重新加载接口'));
+      await tester.pumpAndSettle();
+      expect(find.text('读取接口失败，请重新加载后保存'), findsNothing);
+      expect(
+        tester.widget<TextField>(field('API Key')).controller!.text,
+        'new-key',
+      );
+      expect(
+        tester.widget<TextField>(field('模型')).controller!.text,
+        'new-model',
+      );
+      await tester.ensureVisible(find.text('保存'));
+      await tester.tap(find.text('保存'));
+      await tester.pumpAndSettle();
+      final stored = jsonDecode(storage.stored!) as List;
+      expect(stored, hasLength(2));
+      expect(stored.first['id'], 'existing');
+      expect(stored.last['model'], 'new-model');
+      expect(find.text('添加接口'), findsNothing);
+    },
+  );
+
+  testWidgets('desktop model menu reloads endpoints after a read failure', (
+    tester,
+  ) async {
+    final storage = _FlakyStorage()
+      ..stored =
+          '[{"id":"existing","name":"Saved endpoint","apiKey":"key","model":"old"}]'
+      ..failRead = true;
+    final container = ProviderContainer(
+      overrides: [
+        secureStorageProvider.overrideWithValue(storage),
+        assistantModelPrefProvider.overrideWith(_NoModelPreference.new),
+        assistantBotAuthorizedProvider.overrideWithValue(false),
+        agentModelsProvider.overrideWith(
+          (ref) async => const AgentModelList(choices: []),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(
+          home: Scaffold(
+            body: SizedBox(width: 300, child: AssistantModelDropdown()),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('assistant-model-button')));
+    await tester.pumpAndSettle();
+    expect(find.text('读取接口失败，重新加载接口'), findsOneWidget);
+    storage.failRead = false;
+    await tester.tap(find.text('读取接口失败，重新加载接口'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('assistant-model-button')));
+    await tester.pumpAndSettle();
+    expect(find.text('Saved endpoint'), findsOneWidget);
+    expect(find.text('读取接口失败，重新加载接口'), findsNothing);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('mobile model picker reloads endpoints after a read failure', (
+    tester,
+  ) async {
+    final storage = _FlakyStorage()
+      ..stored =
+          '[{"id":"existing","name":"Saved endpoint","apiKey":"key","model":"old"}]'
+      ..failRead = true;
+    final container = ProviderContainer(
+      overrides: [
+        secureStorageProvider.overrideWithValue(storage),
+        assistantModelPrefProvider.overrideWith(_NoModelPreference.new),
+        assistantBotAuthorizedProvider.overrideWithValue(false),
+        agentModelsProvider.overrideWith((ref) async => const AgentModelList()),
+      ],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          home: Scaffold(
+            body: Builder(
+              builder: (context) => TextButton(
+                key: const ValueKey('open-model-picker'),
+                onPressed: () => showModelSheet(context),
+                child: const Text('选择模型'),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.byKey(const ValueKey('open-model-picker')));
+    await tester.pumpAndSettle();
+    expect(find.text('读取接口失败'), findsOneWidget);
+    storage.failRead = false;
+    await tester.tap(find.text('重新加载接口'));
+    await tester.pumpAndSettle();
+    expect(find.text('Saved endpoint'), findsOneWidget);
+    expect(find.text('读取接口失败'), findsNothing);
+    await tester.pumpWidget(const SizedBox());
+  });
 }

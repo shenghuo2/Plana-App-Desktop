@@ -151,6 +151,14 @@ class _EndpointSheetState extends ConsumerState<_EndpointSheet> {
   @override
   Widget build(BuildContext context) {
     final scheme = context.scheme;
+    final endpoints = ref.watch(customEndpointsProvider);
+    final reading = endpoints.isLoading && !endpoints.hasValue;
+    final error = endpoints.hasError ? '读取接口失败，请重新加载后保存' : _saveError;
+    final blocked =
+        _saving ||
+        endpoints.isLoading ||
+        endpoints.hasError ||
+        !endpoints.hasValue;
     return SettingSheet(
       title: widget.source == null ? '添加接口' : '编辑接口',
       children: [
@@ -218,22 +226,59 @@ class _EndpointSheetState extends ConsumerState<_EndpointSheet> {
           ),
         ),
         _field('名称', _name, hint: '不填就显示模型名'),
-        if (_saveError != null)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
+        if (reading)
+          const Padding(
+            padding: EdgeInsets.fromLTRB(20, 8, 20, 0),
             child: Row(
               children: [
-                Icon(Icons.error_outline, size: 18, color: scheme.error),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    _saveError!,
-                    style: context.texts.bodySmall?.copyWith(
-                      color: scheme.error,
-                    ),
-                  ),
+                SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2),
                 ),
+                SizedBox(width: 8),
+                Text('正在读取接口…'),
               ],
+            ),
+          )
+        else if (error != null)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
+            child: Semantics(
+              liveRegion: true,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.error_outline, size: 18, color: scheme.error),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          error,
+                          style: context.texts.bodySmall?.copyWith(
+                            color: scheme.error,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (endpoints.hasError)
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: TextButton.icon(
+                        onPressed: _saving
+                            ? null
+                            : () {
+                                setState(() => _saveError = null);
+                                ref.invalidate(customEndpointsProvider);
+                              },
+                        icon: const Icon(Icons.refresh, size: 18),
+                        label: const Text('重新加载接口'),
+                      ),
+                    ),
+                ],
+              ),
             ),
           ),
         Padding(
@@ -242,13 +287,13 @@ class _EndpointSheetState extends ConsumerState<_EndpointSheet> {
             children: [
               if (widget.source != null)
                 TextButton(
-                  onPressed: _saving ? null : _delete,
+                  onPressed: blocked ? null : _delete,
                   style: TextButton.styleFrom(foregroundColor: scheme.error),
                   child: const Text('删除'),
                 ),
               const Spacer(),
               FilledButton(
-                onPressed: _saving ? null : _save,
+                onPressed: blocked ? null : _save,
                 child: const Text('保存'),
               ),
             ],

@@ -188,6 +188,8 @@ class _AppShellState extends ConsumerState<AppShell>
         onAction: () => unawaited(_retrySave()),
       );
     });
+    // Disk errors can arrive after the UI has stopped requesting frames.
+    WidgetsBinding.instance.ensureVisualUpdate();
   }
 
   Future<void> _retrySave() async {
