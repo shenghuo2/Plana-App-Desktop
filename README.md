@@ -36,12 +36,12 @@ Plana App Desktop 将 [Plana App](https://github.com/mc5024/Plana-App) 的绘图
 
 ## 下载与安装
 
-当前公开预发布为 **1.2.1-desktop.1（构建 71）**。从 [发布页](https://github.com/shenghuo2/Plana-App-Desktop/releases/tag/v1.2.1-desktop.1) 下载，无需登录 GitHub。
+当前公开预发布为 **1.2.1-desktop.2（构建 72）**。从 [发布页](https://github.com/shenghuo2/Plana-App-Desktop/releases/tag/v1.2.1-desktop.2) 下载，无需登录 GitHub。
 
 | 平台 | 安装包 | 选择建议 |
 |---|---|---|
-| Windows x64 | [安装程序 EXE](https://github.com/shenghuo2/Plana-App-Desktop/releases/download/v1.2.1-desktop.1/Plana-App-Desktop-Windows-1.2.1-desktop.1-x64-setup.exe) · [便携 ZIP](https://github.com/shenghuo2/Plana-App-Desktop/releases/download/v1.2.1-desktop.1/Plana-App-Desktop-Windows-1.2.1-desktop.1-x64.zip) | 安装版带中文向导与开始菜单入口；ZIP 适合便携使用 |
-| macOS 14+ · Apple Silicon | [标准版 DMG](https://github.com/shenghuo2/Plana-App-Desktop/releases/download/v1.2.1-desktop.1/Plana-App-Desktop-macOS-arm64.dmg) | 日常绘图与本地作品管理 |
+| Windows x64 | [安装程序 EXE](https://github.com/shenghuo2/Plana-App-Desktop/releases/download/v1.2.1-desktop.2/Plana-App-Desktop-Windows-1.2.1-desktop.2-x64-setup.exe) · [便携 ZIP](https://github.com/shenghuo2/Plana-App-Desktop/releases/download/v1.2.1-desktop.2/Plana-App-Desktop-Windows-1.2.1-desktop.2-x64.zip) | 安装版带中文向导与开始菜单入口；ZIP 适合便携使用 |
+| macOS 14+ · Apple Silicon | [标准版 DMG](https://github.com/shenghuo2/Plana-App-Desktop/releases/download/v1.2.1-desktop.2/Plana-App-Desktop-macOS-arm64.dmg) | 日常绘图与本地作品管理 |
 
 **Windows**：运行 `-setup.exe`，按中文向导选择可写入的安装目录，可选桌面快捷方式；默认安装到当前用户目录，无需管理员权限。使用便携版时，完整解压 ZIP 后运行 `plana_app_for_windows.exe`，移动时连同 `output` 作品文件夹一起移动。两种包均附带所需运行库。
 
@@ -97,6 +97,7 @@ Plana App Desktop 将 [Plana App](https://github.com/mc5024/Plana-App) 的绘图
 
 | 版本 | 状态 | 说明 |
 |---|---|---|
+| `1.2.1-desktop.2+72` | 已公开预发布 | 后台生成选图、保存与接口失败恢复、图库性能及 macOS 生成快捷键；[更新说明](https://github.com/shenghuo2/Plana-App-Desktop/releases/tag/v1.2.1-desktop.2) |
 | `1.2.1-desktop.1+71` | 已公开预发布 | 本地诊断日志、图片资源释放与重绘滚轮缩放；[更新说明](https://github.com/shenghuo2/Plana-App-Desktop/releases/tag/v1.2.1-desktop.1) |
 | `1.2.1-desktop+70` | 已公开预发布 | [安装包、更新内容与验证记录](https://github.com/shenghuo2/Plana-App-Desktop/releases/tag/v1.2.1-desktop)；[Android 1.2.1 合并范围](docs/ANDROID-1.2.1-INTEGRATION.md) |
 
