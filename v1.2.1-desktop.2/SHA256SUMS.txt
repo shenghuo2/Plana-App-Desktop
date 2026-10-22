@@ -1,0 +1,3 @@
+8505af23659799420e1cb07bf84b4cb8d17a1829904fb8859c07ab60c4dbb6c6  comparison-review-u2-bot-auth-polling.png
+2c0697bf5402807b938d5eac8a45b6e0d518d356b05dc77a954ec52b7b0507a8  comparison-review-r1-idle-save-notification.png
+6d76d11069d783ce3dca3208e87e524fee36206321631da956c1e096310d9ca3  comparison-review-r2-endpoint-read-recovery.png

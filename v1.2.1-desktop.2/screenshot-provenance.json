@@ -1,0 +1,75 @@
+[
+  {
+    "capture_fixture": "capture_test.dart",
+    "window": [
+      1100,
+      800
+    ],
+    "font": "NotoSansCJK-Regular.ttc",
+    "source_record": "reviews/review-fixes-2026-10-21/screenshot-provenance.json",
+    "scenes": [
+      {
+        "name": "bot-auth",
+        "crop": [
+          270,
+          0,
+          830,
+          340
+        ],
+        "before_commit": "d4184ef3f86b7700ac6403300e525f8316365e1b",
+        "after_commit": "8b8dd134caba37ea4ac2e54f81fc90a2e2b3618f",
+        "before_title": "修改前 · 两次失败仍只显示等待",
+        "after_title": "修改后 · 显示连接错误与重试",
+        "state": "生产 BotAuthPanel；ABC123、两次连接失败、剩余 0:24、1100×800 窗口",
+        "raw_before_sha256": "b6603219be0bb7550f6ec601bde31e3d77458cc32999e3a4d42108b1a36a7550",
+        "raw_after_sha256": "0095d2cb865980b2900bdaedeb098753c93c311170c924d9a6e851069ff22a71",
+        "comparison_sha256": "8505af23659799420e1cb07bf84b4cb8d17a1829904fb8859c07ab60c4dbb6c6"
+      }
+    ]
+  },
+  {
+    "window": [
+      1100,
+      800
+    ],
+    "fixture": "capture_test.dart",
+    "fixture_sha256": "b60214198c774fc0be2f703d9f9b93c3b270e4a9d2b0348d6f525635bedc5690",
+    "font_sha256": "b76b0433203017ca80401b2ee0dd69350349871c4b19d504c34dbdd80541690a",
+    "before_commit": "223574fdb02104b65fcb9c1f97ff9011885b7690",
+    "after_commit": "45291b6cf2e9263887b9b8d9bf7c83347d2f8402",
+    "font": "NotoSansCJK-Regular.ttc",
+    "source_record": "reviews/skill-recheck-fixes-2026-10-22/screenshot-provenance.json",
+    "scenes": [
+      {
+        "name": "idle-save",
+        "crop": [
+          0,
+          0,
+          1100,
+          325
+        ],
+        "before_title": "修改前 · 空闲时没有显示保存错误",
+        "after_title": "修改后 · 自动刷新，显示错误和重试",
+        "state": "真实 AppShell；相同空工作区和待写草稿；目录阻断原子写入；仅推进应用主动请求的帧。",
+        "raw_before_sha256": "71e2a44d5805a646eebc14c0874076e46e665c700b88b7bdf22b7edb4790dd3e",
+        "raw_after_sha256": "c38731183012f6abce31b9bfaaccc6ac79ad5c95a7875d4552c02573366ccda4",
+        "comparison_sha256": "2c0697bf5402807b938d5eac8a45b6e0d518d356b05dc77a954ec52b7b0507a8"
+      },
+      {
+        "name": "endpoint-reload",
+        "crop": [
+          140,
+          70,
+          960,
+          800
+        ],
+        "before_title": "修改前 · 读取失败后缺少恢复入口",
+        "after_title": "修改后 · 表单保留输入，可重新加载",
+        "state": "真实 showEndpointSheet；相同示例接口、demo-key、sample-model；provider 处于读取最终失败状态。",
+        "raw_before_sha256": "5fddd0fa04035007ac23fc5d4a057f5eadbf01724924dd21b7ff8e4f37633ad9",
+        "raw_after_sha256": "1c27593d43cc4fb69ff2d466f46870809e513cfa7189f263861fbde608479de2",
+        "comparison_sha256": "6d76d11069d783ce3dca3208e87e524fee36206321631da956c1e096310d9ca3"
+      }
+    ]
+  }
+]
