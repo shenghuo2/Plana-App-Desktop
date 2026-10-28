@@ -82,12 +82,10 @@ class _AdvancedSheetState extends ConsumerState<_AdvancedSheet> {
     final scheme = context.scheme;
     final isAnima = isAnimaModel(draft.model);
     final isKrea = isKreaModel(draft.model);
-    // 官方能力表里 V5 的 noiseSchedule 是 false —— 请求发出前 noise_schedule
-    // 被硬写回 karras。这个控件在 V5 下点了完全没反应,继续摆着就是骗人,
-    // 所以按能力面藏掉。
+    // Show the effective values while retaining the user's editable High settings.
     final isV5 = isNai5Model(draft.model);
-    // Medium 档步数、采样器固定,CFG Rescale 不发,三项都不给调。
-    final isMedium = isNai5MediumModel(draft.model);
+    final isMedium = draft.isNaiMedium;
+    final noiseSchedule = isV5 ? 'karras' : draft.noiseSchedule;
     return Column(
       children: [
         Padding(
@@ -305,25 +303,26 @@ class _AdvancedSheetState extends ConsumerState<_AdvancedSheet> {
                   ),
                 ],
               ] else ...[
-                if (!isMedium) ...[
-                  ParamSlider(
+                _Locked(
+                  hint: isMedium ? 'Medium 步数固定为 ${draft.activeSteps}' : null,
+                  child: ParamSlider(
                     label: '步数 Steps',
                     snapInputToDivisions: true,
                     help: Help.steps,
-                    value: draft.steps.toDouble(),
+                    value: draft.activeSteps.toDouble(),
                     min: 1,
                     max: 50,
                     divisions: 49,
-                    valueText: '${draft.steps}',
+                    valueText: '${draft.activeSteps}',
                     trailing: AnimatedOpacity(
                       duration: Motion.fast,
-                      opacity: draft.steps <= 28 ? 1 : 0,
+                      opacity: draft.activeSteps <= 28 ? 1 : 0,
                       child: const CountBadge('≤28 免费'),
                     ),
                     onChanged: (v) => _set(draft.copyWith(steps: v.round())),
                   ),
-                  const SizedBox(height: 8),
-                ],
+                ),
+                const SizedBox(height: 8),
                 ParamSlider(
                   label: '提示词引导 CFG',
                   help: Help.cfg,
@@ -349,60 +348,75 @@ class _AdvancedSheetState extends ConsumerState<_AdvancedSheet> {
                   ),
                   onChanged: (v) => _set(draft.copyWith(cfg: v)),
                 ),
-                if (!isMedium) ...[
-                  const SizedBox(height: 12),
-                  HelpLabel(
-                    text: '采样器 Sampler',
-                    help: Help.sampler,
-                    style: context.texts.bodySmall!.copyWith(
-                      color: scheme.onSurfaceVariant,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  GridView.count(
-                    crossAxisCount: 2,
-                    mainAxisSpacing: 7,
-                    crossAxisSpacing: 7,
-                    childAspectRatio: 4.4,
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
+                const SizedBox(height: 12),
+                _Locked(
+                  hint: isMedium
+                      ? 'Medium 采样器固定为 ${draft.activeNaiSampler}'
+                      : null,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      for (final s in samplers)
-                        _SelectTile(
-                          label: s,
-                          selected: draft.sampler == s,
-                          onTap: () => _set(draft.copyWith(sampler: s)),
+                      HelpLabel(
+                        text: '采样器 Sampler',
+                        help: Help.sampler,
+                        style: context.texts.bodySmall!.copyWith(
+                          color: scheme.onSurfaceVariant,
                         ),
+                      ),
+                      const SizedBox(height: 8),
+                      GridView.count(
+                        crossAxisCount: 2,
+                        mainAxisSpacing: 7,
+                        crossAxisSpacing: 7,
+                        childAspectRatio: 4.4,
+                        shrinkWrap: true,
+                        physics: const NeverScrollableScrollPhysics(),
+                        children: [
+                          for (final s in samplers)
+                            _SelectTile(
+                              label: s,
+                              selected: draft.activeNaiSampler == s,
+                              onTap: () => _set(draft.copyWith(sampler: s)),
+                            ),
+                        ],
+                      ),
                     ],
                   ),
-                ],
-                // V5 恒 karras,不给选(见上面 isV5 的说明)
-                if (!isV5) ...[
-                  const SizedBox(height: 14),
-                  HelpLabel(
-                    text: '噪声调度 Noise Schedule',
-                    help: Help.noiseSchedule,
-                    style: context.texts.bodySmall!.copyWith(
-                      color: scheme.onSurfaceVariant,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
+                ),
+                const SizedBox(height: 14),
+                _Locked(
+                  hint: isV5 ? 'NAI 5 噪声调度固定为 karras' : null,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      for (final n in noiseSchedules) ...[
-                        Expanded(
-                          child: _SelectTile(
-                            label: n,
-                            selected: draft.noiseSchedule == n,
-                            height: 34,
-                            onTap: () => _set(draft.copyWith(noiseSchedule: n)),
-                          ),
+                      HelpLabel(
+                        text: '噪声调度 Noise Schedule',
+                        help: Help.noiseSchedule,
+                        style: context.texts.bodySmall!.copyWith(
+                          color: scheme.onSurfaceVariant,
                         ),
-                        if (n != noiseSchedules.last) const SizedBox(width: 7),
-                      ],
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          for (final n in noiseSchedules) ...[
+                            Expanded(
+                              child: _SelectTile(
+                                label: n,
+                                selected: noiseSchedule == n,
+                                height: 34,
+                                onTap: () =>
+                                    _set(draft.copyWith(noiseSchedule: n)),
+                              ),
+                            ),
+                            if (n != noiseSchedules.last)
+                              const SizedBox(width: 7),
+                          ],
+                        ],
+                      ),
                     ],
                   ),
-                ],
+                ),
               ],
               const SizedBox(height: 18),
               Divider(
@@ -478,14 +492,17 @@ class _AdvancedSheetState extends ConsumerState<_AdvancedSheet> {
                 ],
               ),
               // CFG Rescale 是 NAI 独有的;两个 Modal 渠道都没有这个参数
-              if (!isAnima && !isKrea && !isMedium) ...[
+              if (!isAnima && !isKrea) ...[
                 const SizedBox(height: 14),
-                ParamSlider(
-                  label: 'CFG Rescale',
-                  help: Help.cfgRescale,
-                  value: draft.cfgRescale,
-                  divisions: 100, // step 0.01(对齐 web)
-                  onChanged: (v) => _set(draft.copyWith(cfgRescale: v)),
+                _Locked(
+                  hint: isMedium ? 'Medium 不支持 CFG Rescale' : null,
+                  child: ParamSlider(
+                    label: 'CFG Rescale',
+                    help: Help.cfgRescale,
+                    value: draft.activeNaiCfgRescale,
+                    divisions: 100, // step 0.01(对齐 web)
+                    onChanged: (v) => _set(draft.copyWith(cfgRescale: v)),
+                  ),
                 ),
               ],
             ],
@@ -591,6 +608,28 @@ class _SectionLabel extends StatelessWidget {
         color: context.scheme.primary,
         fontWeight: FontWeight.w700,
         letterSpacing: 1.2,
+      ),
+    );
+  }
+}
+
+/// Display fixed values; pointer and keyboard editing are both disabled.
+class _Locked extends StatelessWidget {
+  const _Locked({required this.hint, required this.child});
+  final String? hint;
+  final Widget child;
+  @override
+  Widget build(BuildContext context) {
+    final h = hint;
+    if (h == null) return child;
+    return Tooltip(
+      message: h,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () => hintSnack(context, h),
+        child: ExcludeFocus(
+          child: IgnorePointer(child: Opacity(opacity: .45, child: child)),
+        ),
       ),
     );
   }

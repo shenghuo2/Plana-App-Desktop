@@ -1142,9 +1142,12 @@ class GenParams {
   };
 
   /// NAI 实际发送的步数 / 采样器(Medium 档固定,见 [isNai5MediumModel])。
+  bool get isNaiMedium => isNai5MediumModel(model);
   int get naiSteps => isNai5MediumModel(model) ? kNai5MediumSteps : steps;
   String get naiSampler =>
       isNai5MediumModel(model) ? kNai5MediumSampler : sampler;
+  String get activeNaiSampler => naiSampler;
+  double get activeNaiCfgRescale => isNai5MediumModel(model) ? 0 : cfgRescale;
 
   /// 写回当前模型那份步数(步数滑杆/输入框共用,免得每处都再判一次父类)。
   GenParams withActiveSteps(int v) => switch (providerOfModel(model)) {

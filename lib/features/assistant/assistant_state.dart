@@ -26,7 +26,11 @@ import '../../core/net/backend_config.dart';
 import '../../core/store/app_stores.dart';
 import '../generate/agent_chars.dart';
 import '../generate/canvas_state.dart';
-import '../generate/prompt_sections.dart' show composeSections;
+import '../generate/prompt_sections.dart'
+    show composeSections, joinSections, SectionImport, importPromptsInto;
+import '../inspiration/public_tags.dart' show publicTagsProvider;
+import '../editor/editor_models.dart' show outputOf;
+import '../editor/editor_state.dart' show editorSessionsProvider;
 import '../generate/char_position.dart';
 import '../gallery/gallery_state.dart' show galleryProvider;
 import '../generate/gen_modules.dart';
@@ -152,8 +156,10 @@ bool assistantSupportsModel(String displayModel) =>
 
 /// 一份提议**拿去生成**时发出的状态。纯函数,不碰任何 provider。
 ///
-/// **沿用创作页的只有参数和 Vibe。** 正向、负向、角色分区一律只认 AI 这份,
-/// 没给就是空;模型、尺寸、采样、种子照创作页现在的来。
+/// **沿用创作页的只有参数、Vibe 和主提示词分区。** 正向、负向按 [mode] 写进
+/// 主提示词(与导入同一个 [importPromptsInto],「直接生成」和「导入后再生成」
+/// 出同一张图);角色分区一律只认 AI 这份,没给就是空;模型、尺寸、采样、
+/// 种子照创作页现在的来。
 ///
 /// 四个图像模块里只留 Vibe:它管的是画风氛围,套在谁的提示词上都成立。
 /// 角色参考、图生图、重绘不留 —— 这三样是**冲着某张具体的图、某个具体的角色**
@@ -168,7 +174,8 @@ bool assistantSupportsModel(String displayModel) =>
 /// AI 没摆位时那几个默认空格就会被当成用户指定的站位发出去。
 GenerateState proposalSendState(
   GenerateState canvas,
-  DrawProposal r, {
+  DrawProposal r,
+  SectionImport mode, {
   required String Function() newId,
 }) {
   final built = buildAgentCharacters(
@@ -184,12 +191,13 @@ GenerateState proposalSendState(
     model: canvas.params.model,
     newId: newId,
   );
-  return canvas.copyWith(
-    prompt: r.positive,
-    negativePrompt: r.negative,
-    promptRaw: '',
-    negativePromptRaw: '',
-    sections: const [],
+  return importPromptsInto(
+    canvas,
+    r.positive,
+    r.negative,
+    mode,
+    newId: newId,
+  ).copyWith(
     characters: built.chars,
     charRefs: const [],
     img2img: null,
@@ -198,9 +206,43 @@ GenerateState proposalSendState(
   );
 }
 
+/// 提议里用到的库内画师串,把它们的负面补进负向(去重,同灵感页加画风)。
+///
+/// 画师串是占位符换回来的,内容逐字不动,按整串出现在正向(含角色正向)里认。
+String withArtistNegatives(DrawProposal r, Iterable<TagEntry> artists) {
+  final texts = [
+    r.positive,
+    for (final c in r.characters) c.positive,
+  ].map(outputOf).toList(growable: false);
+  bool usedIn(String artist) {
+    // Match a complete prompt span, including inside weights, not a prefix of
+    // another artist name. Disabled text does not contribute negatives.
+    final pattern = RegExp(
+      r'(^|[,，{}\[\]\n]|::)\s*' +
+          RegExp.escape(artist) +
+          r'\s*(?=$|[,，{}\[\]\n]|::)',
+    );
+    return texts.any(pattern.hasMatch);
+  }
+
+  final used = [
+    for (final e in artists)
+      if (e.negative.trim().isNotEmpty &&
+          e.positive.trim().isNotEmpty &&
+          usedIn(e.positive.trim()))
+        e,
+  ];
+  return used.isEmpty ? r.negative : appendTagNegatives(r.negative, used);
+}
+
 /// 创作页有没有可带给 AI 的东西。全空时「引用创作页」那颗按钮没意义,置灰。
 ///
 /// 角色要连正向词一起看:一个刚加出来、名字都还没填的空角色带过去等于噪音。
+String canvasPositive(GenerateState g) =>
+    joinSections(g.sections, g.prompt, positive: true);
+String canvasNegative(GenerateState g) =>
+    joinSections(g.sections, g.negativePrompt, positive: false);
+
 bool canvasHasContent(GenerateState g) {
   final composed = composeSections(g);
   return composed.prompt.trim().isNotEmpty ||
@@ -393,13 +435,14 @@ class AssistantNotifier extends Notifier<AssistantState> {
   /// 直连没有那条通路,所以在这儿照同一个形状拼一份 —— 字段名必须一致
   /// (positive / negative / characters + position),内置预设里讲的就是这几个名字。
   String _canvasBlock(GenerateState g) {
+    final pos = canvasPositive(g), neg = canvasNegative(g);
     final lines = <String>[
       '请在下面这份提示词的基础上改:没让你动的部分原样留着;characters 连 '
           'position 一起带回来,不带会把我摆好的构图打乱。除非我明说要全新主题 / '
           '重做,否则都按这份改。',
       '[当前画面提示词]',
-      'positive: ${g.prompt.trim().isEmpty ? "(空)" : g.prompt}',
-      'negative: ${g.negativePrompt.trim().isEmpty ? "(空)" : g.negativePrompt}',
+      'positive: ${pos.trim().isEmpty ? "(空)" : pos}',
+      'negative: ${neg.trim().isEmpty ? "(空)" : neg}',
     ];
     final chars = _charsForAgent(g);
     if (chars.isNotEmpty) {
@@ -580,6 +623,23 @@ class AssistantNotifier extends Notifier<AssistantState> {
               ocs: const <Map<String, dynamic>>[],
             )
           : await _webLibrary();
+      final artistEntries = scope == LibraryScope.none
+          ? const <TagEntry>[]
+          : [
+              for (final e
+                  in ref.read(tagLibraryProvider).value?.entries ??
+                      const <TagEntry>[])
+                if (e.category == TagCategory.artist) e,
+            ];
+      // Freeze the chosen library for this request. Load public negatives even
+      // on the first use; a failed/old public endpoint still permits local use.
+      if (scope == LibraryScope.all) {
+        try {
+          artistEntries.addAll(
+            await ref.read(publicTagsProvider(TagCategory.artist).future),
+          );
+        } catch (_) {}
+      }
       final tools = <ToolTrace>[];
 
       // 两条路([endpoint] 在上面取的)吐的是同一串事件、同一个 AgentResult,
@@ -746,7 +806,16 @@ class AssistantNotifier extends Notifier<AssistantState> {
               );
               _set(state.copyWith(liveTools: List.of(tools)), persist: false);
             case AgentDone(:final result):
-              _finish(result, tools, canvas, picked, noDraw, sourceCanvasId);
+              _finish(
+                result,
+                tools,
+                canvas,
+                picked,
+                noDraw,
+                sourceCanvasId,
+                scope,
+                artistEntries,
+              );
           }
         },
         onError: (Object e) {
@@ -880,6 +949,8 @@ class AssistantNotifier extends Notifier<AssistantState> {
     AssistantMode mode,
     bool noDraw,
     String sourceCanvasId,
+    LibraryScope scope,
+    List<TagEntry> artistEntries,
   ) {
     _finishTrace(null);
     // **不写创作页**。AI 的产出先当成一份「提议」挂在这条消息上,用户在结果卡上
@@ -892,7 +963,7 @@ class AssistantNotifier extends Notifier<AssistantState> {
     // 包成 `<<artist:名字:内容>>` 给 web 渲染芯片。app 不渲染芯片,不剥就把尖括号
     // 原样写进用户的提示词了。分角色那几段同理 —— 包装函数只碰全局正向,
     // 但这儿一并过一道,将来它扩到角色也不用再想起这件事。
-    final draw = r.hasDraw
+    final stripped = r.hasDraw
         ? DrawProposal(
             positive: stripArtistMarkers(r.positive),
             negative: r.negative,
@@ -907,6 +978,13 @@ class AssistantNotifier extends Notifier<AssistantState> {
             ],
           )
         : null;
+    final draw = stripped == null || scope == LibraryScope.none
+        ? stripped
+        : DrawProposal(
+            positive: stripped.positive,
+            negative: withArtistNegatives(stripped, artistEntries),
+            characters: stripped.characters,
+          );
     final text = r.replyText.trim().isNotEmpty
         ? r.replyText.trim()
         : (draw != null ? '改好了喵~' : '这轮没什么可说的喵…');
@@ -1027,7 +1105,10 @@ class AssistantNotifier extends Notifier<AssistantState> {
 
   // ---- 写回 / 撤销 ----
 
-  PromptSnapshot _snapshot() => PromptSnapshot.of(ref.read(generateProvider));
+  PromptSnapshot _snapshot() {
+    ref.read(editorSessionsProvider).flushPending();
+    return PromptSnapshot.of(ref.read(generateProvider));
+  }
 
   PromptSnapshot? _snapshotOf(String? canvasId) {
     final workspace = ref.read(canvasWorkspaceProvider);
@@ -1054,7 +1135,12 @@ class AssistantNotifier extends Notifier<AssistantState> {
     final r = msg?.draw;
     if (r == null) return null;
     var seq = 0;
-    final sent = proposalSendState(base, r, newId: () => 'preview${seq++}');
+    final sent = proposalSendState(
+      base,
+      r,
+      assistantSettingsOf(ref).importTo,
+      newId: () => 'preview${seq++}',
+    );
     final mods =
         ref.read(genModulesProvider).value ?? const GenModuleSettings();
     return stripHiddenModules(sent, mods);
@@ -1080,8 +1166,18 @@ class AssistantNotifier extends Notifier<AssistantState> {
     if (target == null) return false;
     final before = _snapshotOf(targetId)!;
     final gen = ref.read(generateProvider.notifier);
-    final base = target.prompts.applyTo(ref.read(generateProvider));
-    final proposed = proposalSendState(base, r, newId: gen.allocateItemId);
+    // Flushing the active editor may have updated the workspace draft.
+    final base = ref
+        .read(canvasWorkspaceProvider)
+        .find(targetId)!
+        .prompts
+        .applyTo(ref.read(generateProvider));
+    final proposed = proposalSendState(
+      base,
+      r,
+      assistantSettingsOf(ref).importTo,
+      newId: gen.allocateItemId,
+    );
     ref
         .read(canvasWorkspaceProvider.notifier)
         .updatePrompts(targetId, (_) => CanvasPrompts.of(proposed));
@@ -1104,7 +1200,7 @@ class AssistantNotifier extends Notifier<AssistantState> {
 
   /// 撤销一条 AI 消息的写回:把 [AssistantChange.before] 整份恢复回去。
   ///
-  /// 回滚的是**整份快照**(正负向 + 角色 + 站位开关),不是逐条 —— AI 那一轮是
+  /// 回滚的是**整份快照**(正负向 + 分区 + 角色 + 站位开关),不是逐条 —— AI 那一轮是
   /// 整体重写的,逐条回滚拼不出原状。尺寸/采样/Vibe 一概不碰:撤销只该回滚 AI
   /// 干过的事。
   ///
