@@ -164,6 +164,7 @@ class _StoragePageState extends ConsumerState<StoragePage> {
       ...await stores.workspace.liveRefs(strict: true),
       ...await stores.gallery.liveRefs(strict: true),
       ...await stores.assistant.liveRefs(strict: true),
+      ...await stores.history.liveRefs(),
     };
     await stores.blobs.gc(live, minAge: const Duration(minutes: 5));
   }
