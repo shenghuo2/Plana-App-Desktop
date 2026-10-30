@@ -23,6 +23,8 @@ import 'models.dart';
 import 'save_settings.dart';
 import 'share_pipeline.dart';
 import 'widgets/film_strip.dart';
+import 'widgets/gallery_trash_actions.dart';
+import 'widgets/gallery_trash_content.dart';
 import 'widgets/desktop_canvas_gutters.dart';
 import 'widgets/result_canvas.dart';
 
@@ -352,6 +354,13 @@ class _GalleryPageState extends ConsumerState<GalleryPage>
               canvasBar: CanvasActionBar.bottom,
             ),
           if (!widget.desktop) const GalleryContextBar(),
+          if (ref.watch(galleryProvider).trash.isNotEmpty)
+            TextButton.icon(
+              key: const ValueKey('empty-gallery-trash'),
+              onPressed: () => showGalleryTrash(context),
+              icon: const Icon(Icons.delete_outline),
+              label: const Text('回收站'),
+            ),
           if (widget.desktop) _historyHeader(0),
         ],
       );
@@ -619,8 +628,7 @@ class _GalleryPageState extends ConsumerState<GalleryPage>
                         : null,
                     onSelect: _selectHistory,
                     onShare: _shareOne,
-                    onDelete: (id) =>
-                        ref.read(galleryProvider.notifier).deleteResults([id]),
+                    onDelete: (id) => moveGalleryImagesToTrash(context, [id]),
                     jobs: pool.newestFirst,
                     selectedJobId: pool.selectedId,
                     onSelectJob: (id) {
