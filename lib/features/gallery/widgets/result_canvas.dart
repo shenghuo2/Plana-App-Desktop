@@ -830,20 +830,21 @@ class _ActionRailState extends ConsumerState<ResultActions> {
       final bytes =
           image.bytes ??
           await ref.read(appStoresProvider).gallery.readImage(image.id);
-      if (!mounted) return;
+      if (!mounted || ref.read(canvasWorkspaceProvider).activeId != canvasId) {
+        return;
+      }
       if (bytes == null) throw StateError('图片尚未就绪');
       final (width, height) = await decodeImageSize(bytes);
-      if (!mounted) return;
+      if (!mounted || ref.read(canvasWorkspaceProvider).activeId != canvasId) {
+        return;
+      }
       final resolution = img2imgResolution(width, height);
       await ref.read(genModulesProvider.future);
-      if (!mounted) return;
-      final source = ref.read(canvasWorkspaceProvider).find(canvasId);
-      if (source == null ||
-          providerOfModel(
-                source.prompts.sampling?.model ??
-                    ref.read(generateProvider).params.model,
-              ) !=
-              GenProvider.nai) {
+      if (!mounted || ref.read(canvasWorkspaceProvider).activeId != canvasId) {
+        return;
+      }
+      if (providerOfModel(ref.read(generateProvider).params.model) !=
+          GenProvider.nai) {
         return;
       }
       // Enabling the module before the image is set lets the sidebar reveal
