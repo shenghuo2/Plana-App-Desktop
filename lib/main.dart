@@ -7,6 +7,7 @@ import 'core/app_info.dart';
 import 'core/auth/auth_mode.dart';
 import 'core/auth/credential_store.dart';
 import 'core/auth/secure_storage.dart';
+import 'core/net/network_proxy.dart';
 import 'core/platform/clipboard_image.dart';
 import 'core/platform/desktop.dart';
 import 'core/store/app_stores.dart';
@@ -79,7 +80,13 @@ Future<void> _startApplication() async {
   // 凭据出口:桌面沿用平台加密存储;Android 才启用 Keystore 恢复退路。
   // 要排在 AppStores 之后,恢复判定用得上已迁出的接入方式。
   final creds = await CredentialStore.open(stores.prefs);
-  RuntimeDiagnostics.current?.event('boot-credentials-ready');
+  final networkProxy = NetworkProxyOverrides(
+    NetworkProxySettings.decode(stores.prefs.get(kNetworkProxyKey)),
+  );
+  if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
+    HttpOverrides.global = networkProxy;
+  }
+  RuntimeDiagnostics.current?.event('boot-stores-ready');
   await tagDbReady;
   final themeInit = loadThemeSettings(stores.prefs);
   final editorSessions = EditorSessions();
@@ -89,6 +96,7 @@ Future<void> _startApplication() async {
         appStoresProvider.overrideWithValue(stores),
         editorSessionsProvider.overrideWithValue(editorSessions),
         secureStorageProvider.overrideWithValue(creds),
+        networkProxyRuntimeProvider.overrideWithValue(networkProxy),
         themeInitProvider.overrideWithValue(themeInit),
         localTagDbProvider.overrideWithValue(tagDb),
       ],
