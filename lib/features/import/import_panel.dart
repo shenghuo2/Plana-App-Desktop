@@ -5,6 +5,7 @@ import '../gallery/albums/import_album_options.dart';
 import '../inpaint/inpaint_overlay.dart' show inpaintSessionProvider;
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart' show compute;
@@ -1722,6 +1723,9 @@ class _ImportImagePanelState extends ConsumerState<ImportImagePanel> {
                     index: _presetImport ? 1 : 0,
                     enabled: on,
                     optWidth: 52,
+                    textStyle: ref.watch(desktopModeProvider)
+                        ? context.texts.labelLarge
+                        : null,
                     onChanged: (i) => setState(() => _presetImport = i == 1),
                   ),
                   const SizedBox(width: 8),
@@ -2684,6 +2688,9 @@ class _ImportImagePanelState extends ConsumerState<ImportImagePanel> {
               const Text('提示词导入方式'),
               _SlideSeg(
                 enabled: enabled,
+                textStyle: ref.watch(desktopModeProvider)
+                    ? context.texts.labelLarge
+                    : null,
                 options: [
                   for (final mode in ImagePromptImportMode.values) mode.label,
                 ],
@@ -3077,6 +3084,7 @@ class _SlideSeg extends StatelessWidget {
     required this.onChanged,
     this.enabled = true,
     this.optWidth = 76,
+    this.textStyle,
   });
 
   final List<String> options;
@@ -3091,73 +3099,122 @@ class _SlideSeg extends StatelessWidget {
   /// 免得把同一行的标题挤没。
   final double optWidth;
 
+  /// 桌面按钮沿用图生图等操作按钮的文字样式。
+  final TextStyle? textStyle;
+
   static const double _height = 30;
 
   @override
   Widget build(BuildContext context) {
     final scheme = context.scheme;
+    final labelStyle =
+        textStyle ??
+        const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600);
+    final textScaler = MediaQuery.textScalerOf(context);
+    final labels = [
+      for (final option in options)
+        TextPainter(
+          text: TextSpan(text: option, style: labelStyle),
+          textDirection: Directionality.of(context),
+          textScaler: textScaler,
+        )..layout(),
+    ];
+    final preferredWidth = textStyle == null
+        ? optWidth
+        : labels.fold<double>(
+            optWidth,
+            (w, label) => math.max(w, label.width + 24),
+          );
+    for (final label in labels) {
+      label.dispose();
+    }
     return Container(
       padding: const EdgeInsets.all(2.5),
       decoration: BoxDecoration(
         color: scheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(9),
       ),
-      child: SizedBox(
-        width: optWidth * options.length,
-        height: _height,
-        child: Stack(
-          children: [
-            AnimatedPositioned(
-              duration: Motion.medium,
-              curve: Motion.emphasized,
-              left: index * optWidth,
-              top: 0,
-              bottom: 0,
-              width: optWidth,
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  color: enabled
-                      ? scheme.primary
-                      : scheme.onSurfaceVariant.withValues(alpha: .18),
-                  borderRadius: BorderRadius.circular(7),
-                ),
-              ),
-            ),
-            Row(
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final width = constraints.hasBoundedWidth
+              ? math.min(preferredWidth, constraints.maxWidth / options.length)
+              : preferredWidth;
+          var height = _height;
+          for (final option in options) {
+            final label = TextPainter(
+              text: TextSpan(text: option, style: labelStyle),
+              textDirection: Directionality.of(context),
+              textScaler: textScaler,
+            )..layout(maxWidth: math.max(1, width - 16));
+            height = math.max(height, label.height + 12);
+            label.dispose();
+          }
+          return SizedBox(
+            width: width * options.length,
+            height: height,
+            child: Stack(
               children: [
-                for (var i = 0; i < options.length; i++)
-                  GestureDetector(
-                    behavior: HitTestBehavior.opaque,
-                    onTap: () {
-                      if (!enabled || i == index) return;
-                      Haptics.selection();
-                      onChanged(i);
-                    },
-                    child: SizedBox(
-                      width: optWidth,
-                      height: _height,
-                      child: Center(
-                        child: AnimatedDefaultTextStyle(
-                          duration: Motion.medium,
-                          curve: Motion.standard,
-                          style: TextStyle(
-                            fontSize: 11.5,
-                            fontWeight: FontWeight.w600,
-                            color: !enabled
-                                ? scheme.onSurfaceVariant.withValues(alpha: .4)
-                                : i == index
-                                ? scheme.onPrimary
-                                : scheme.onSurfaceVariant,
-                          ),
-                          child: Text(options[i]),
-                        ),
-                      ),
+                AnimatedPositioned(
+                  duration: Motion.medium,
+                  curve: Motion.emphasized,
+                  left: index * width,
+                  top: 0,
+                  bottom: 0,
+                  width: width,
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: enabled
+                          ? scheme.primary
+                          : scheme.onSurfaceVariant.withValues(alpha: .18),
+                      borderRadius: BorderRadius.circular(7),
                     ),
                   ),
+                ),
+                Row(
+                  children: [
+                    for (var i = 0; i < options.length; i++)
+                      GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTap: () {
+                          if (!enabled || i == index) return;
+                          Haptics.selection();
+                          onChanged(i);
+                        },
+                        child: SizedBox(
+                          width: width,
+                          height: height,
+                          child: Center(
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                              ),
+                              child: AnimatedDefaultTextStyle(
+                                duration: Motion.medium,
+                                curve: Motion.standard,
+                                style: labelStyle.copyWith(
+                                  color: !enabled
+                                      ? scheme.onSurfaceVariant.withValues(
+                                          alpha: .4,
+                                        )
+                                      : i == index
+                                      ? scheme.onPrimary
+                                      : scheme.onSurfaceVariant,
+                                ),
+                                child: Text(
+                                  options[i],
+                                  textAlign: TextAlign.center,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
               ],
             ),
-          ],
-        ),
+          );
+        },
       ),
     );
   }

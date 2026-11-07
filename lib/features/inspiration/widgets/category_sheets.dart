@@ -143,21 +143,27 @@ class _ManagerSheet extends ConsumerWidget {
               '${lib.of(cat).length}',
               style: mono(context, size: 12, color: scheme.outline),
             ),
-          IconButton(
-            tooltip: custom ? '编辑' : '改名',
-            icon: Icon(
-              Icons.edit_outlined,
-              size: 20,
-              color: scheme.onSurfaceVariant,
+          SizedBox(
+            width: 48,
+            child: IconButton(
+              tooltip: custom ? '编辑' : '改名',
+              icon: Icon(
+                Icons.edit_outlined,
+                size: 20,
+                color: scheme.onSurfaceVariant,
+              ),
+              onPressed: edit,
             ),
-            onPressed: edit,
           ),
           // 删除钮固定在行尾;角色、画风、法典不能删,留同宽的空位让各行对齐
           if (removable)
-            IconButton(
-              tooltip: '删除',
-              icon: Icon(Icons.delete_outline, size: 20, color: scheme.error),
-              onPressed: () => _remove(context, ref, lib, def!),
+            SizedBox(
+              width: 48,
+              child: IconButton(
+                tooltip: '删除',
+                icon: Icon(Icons.delete_outline, size: 20, color: scheme.error),
+                onPressed: () => _remove(context, ref, lib, def!),
+              ),
             )
           else
             const SizedBox(width: 48),
