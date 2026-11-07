@@ -379,7 +379,7 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('生成'));
       await tester.pumpAndSettle();
-      final choice = find.byType(DropdownButton<SectionImport>);
+      final choice = find.byKey(const ValueKey('assistant-import-dropdown'));
       await tester.tap(choice);
       await tester.pumpAndSettle();
       await tester.tap(find.text(sectionImportLabel(SectionImport.newSection)));
@@ -390,10 +390,7 @@ void main() {
       );
       await tester.tap(find.widgetWithText(SettingRow, '纯文本格式'));
       await tester.pumpAndSettle();
-      expect(
-        tester.widget<DropdownButton<SectionImport>>(choice).onChanged,
-        isNull,
-      );
+      expect(tester.widget<OutlinedButton>(choice).onPressed, isNull);
       await tester.tap(find.byTooltip('关闭助手设置'));
       await tester.pumpAndSettle();
       c.invalidate(assistantSettingsProvider);

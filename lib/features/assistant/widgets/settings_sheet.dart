@@ -23,6 +23,7 @@ import '../assistant_settings.dart';
 import '../assistant_state.dart';
 import '../preset_rules.dart';
 import '../rules_page.dart';
+import 'desktop_settings_dropdown.dart';
 
 Future<void> showAssistantSettings(BuildContext context) async {
   if (ProviderScope.containerOf(
@@ -383,54 +384,34 @@ class _DesktopSettingsPanel extends ConsumerWidget {
                                               ),
                                             ),
                                             const SizedBox(height: 12),
-                                            DropdownButtonFormField<
+                                            DesktopSettingsDropdown<
                                               LibraryScope
                                             >(
-                                              key: ValueKey(
-                                                'assistant-library-${s.libraryScope}-$authorized',
+                                              id: 'assistant-library-dropdown',
+                                              label: '资料库范围',
+                                              value: effectiveLibraryScope(
+                                                s.libraryScope,
+                                                botAuthorized: authorized,
                                               ),
-                                              initialValue:
-                                                  effectiveLibraryScope(
-                                                    s.libraryScope,
+                                              options: LibraryScope.values,
+                                              labelOf: libraryScopeLabel,
+                                              optionEnabled: (scope) =>
+                                                  libraryScopeAllowed(
+                                                    scope,
                                                     botAuthorized: authorized,
                                                   ),
-                                              isExpanded: true,
-                                              style: theme.textTheme.bodyMedium!
-                                                  .copyWith(
-                                                    fontSize: 13,
-                                                    color: scheme.onSurface,
-                                                  ),
-                                              decoration: const InputDecoration(
-                                                isDense: true,
-                                                border: OutlineInputBorder(),
+                                              optionNote: (scope) =>
+                                                  libraryScopeAllowed(
+                                                    scope,
+                                                    botAuthorized: authorized,
+                                                  )
+                                                  ? null
+                                                  : '需要 Bot 授权',
+                                              onChanged: (scope) => n.patch(
+                                                (o) => o.copyWith(
+                                                  libraryScope: scope,
+                                                ),
                                               ),
-                                              items: [
-                                                for (final scope
-                                                    in LibraryScope.values)
-                                                  DropdownMenuItem(
-                                                    value: scope,
-                                                    enabled:
-                                                        libraryScopeAllowed(
-                                                          scope,
-                                                          botAuthorized:
-                                                              authorized,
-                                                        ),
-                                                    child: Text(
-                                                      '${libraryScopeLabel(scope)}${libraryScopeAllowed(scope, botAuthorized: authorized) ? '' : '（需要 Bot 授权）'}',
-                                                      overflow:
-                                                          TextOverflow.ellipsis,
-                                                    ),
-                                                  ),
-                                              ],
-                                              onChanged: (v) {
-                                                if (v != null) {
-                                                  n.patch(
-                                                    (o) => o.copyWith(
-                                                      libraryScope: v,
-                                                    ),
-                                                  );
-                                                }
-                                              },
                                             ),
                                           ],
                                         ),
@@ -490,12 +471,12 @@ class _DesktopSettingsPanel extends ConsumerWidget {
   }
 }
 
-/// 桌面端在当前行选择导入方式，沿用同一份设置和导入逻辑。
+/// Give the explanation and the full-width selection field separate space.
 class _DesktopImportChoice extends StatelessWidget {
   const _DesktopImportChoice({
     required this.value,
-    required this.enabled,
     required this.onChanged,
+    this.enabled = true,
   });
 
   final SectionImport value;
@@ -504,49 +485,45 @@ class _DesktopImportChoice extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
     return Opacity(
       opacity: enabled ? 1 : .42,
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 8, 14, 8),
-        child: Row(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Icon(Icons.splitscreen_outlined, size: 20, color: scheme.primary),
-            const SizedBox(width: 14),
-            const Expanded(
-              child: SettingRowTexts(
-                title: '导入方式',
-                desc: '提示词写入主提示词的位置；直接生成采用相同方式',
-              ),
-            ),
-            const SizedBox(width: 8),
-            DropdownButton<SectionImport>(
-              key: const ValueKey('assistant-import-dropdown'),
-              value: value,
-              isDense: true,
-              menuMaxHeight: 300,
-              borderRadius: BorderRadius.circular(12),
-              underline: const SizedBox.shrink(),
-              icon: Icon(Icons.expand_more, size: 18, color: scheme.outline),
-              style: theme.textTheme.labelLarge!.copyWith(
-                color: scheme.primary,
-                fontWeight: FontWeight.w700,
-              ),
-              items: [
-                for (final mode in SectionImport.values)
-                  DropdownMenuItem(
-                    value: mode,
-                    child: Text(sectionImportLabel(mode)),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.only(top: 2),
+                  child: Icon(
+                    Icons.splitscreen_outlined,
+                    size: 20,
+                    color: Theme.of(context).colorScheme.primary,
                   ),
+                ),
+                const SizedBox(width: 14),
+                const Expanded(
+                  child: SettingRowTexts(
+                    title: '导入方式',
+                    desc: '提示词写入主提示词的位置',
+                  ),
+                ),
               ],
-              onChanged: enabled
-                  ? (next) {
-                      if (next == null || next == value) return;
-                      Haptics.selection();
-                      onChanged(next);
-                    }
-                  : null,
+            ),
+            const SizedBox(height: 12),
+            DesktopSettingsDropdown<SectionImport>(
+              id: 'assistant-import-dropdown',
+              label: '导入方式',
+              value: value,
+              enabled: enabled,
+              options: SectionImport.values,
+              labelOf: sectionImportLabel,
+              onChanged: (mode) {
+                Haptics.selection();
+                onChanged(mode);
+              },
             ),
           ],
         ),
