@@ -2,6 +2,7 @@ import 'dart:io';
 import '../../core/ui/fade_in_once.dart';
 import 'dart:async';
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -88,6 +89,8 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
   late final _pubScroll = MemoScrollController.keyed(
     () => _scrollKey(_cat, true),
   );
+  final _embeddedCategoryScroll = ScrollController();
+  final _embeddedCategoryKeys = <TagCategory, GlobalKey>{};
 
   /// 每分类已选 id(我的/公共库两 scope 共用一套,对齐 web selectionMap)。
   final Map<TagCategory, Set<String>> _selected = {};
@@ -146,6 +149,7 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
     _tab.dispose();
     _mineScroll.dispose();
     _pubScroll.dispose();
+    _embeddedCategoryScroll.dispose();
     super.dispose();
   }
 
@@ -192,6 +196,24 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
     });
     // 换完 _cat 再换:上限跟着新分类的卡片形状走
     jumpGridColumns(_savedCols(c));
+    _revealEmbeddedCategory(c);
+  }
+
+  void _revealEmbeddedCategory(TagCategory category) {
+    if (!widget.embedded) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_embeddedCategoryScroll.hasClients) return;
+      final target = _embeddedCategoryKeys[category]?.currentContext
+          ?.findRenderObject();
+      if (target == null) return;
+      _embeddedCategoryScroll.position.ensureVisible(
+        target,
+        alignment: 0.5,
+        duration: Motion.fast,
+        curve: Curves.easeOut,
+      );
+    });
+    WidgetsBinding.instance.ensureVisualUpdate();
   }
 
   // ---- 双指捏合改列数(见 PinchColumnsMixin) ----
@@ -448,6 +470,7 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
       _selected.clear();
       _searchController.clear();
       _search = '';
+      _revealEmbeddedCategory(_cat);
     }
     final def = _def;
     _authorNames = ref.watch(tagAuthorNamesProvider).value ?? const {};
@@ -823,8 +846,22 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
   Widget _categoryManager() => IconButton(
     tooltip: '管理类别',
     icon: const Icon(Icons.dashboard_customize_outlined, size: 20),
-    onPressed: () => showCategoryManagerSheet(context),
+    onPressed: _manageCategories,
   );
+
+  Future<void> _manageCategories() async {
+    final before = _categories(
+      ref.read(tagLibraryProvider).value ?? const TagLibraryState(),
+    ).toSet();
+    await showCategoryManagerSheet(context);
+    if (!mounted || !widget.embedded) return;
+    final categories = _categories(
+      ref.read(tagLibraryProvider).value ?? const TagLibraryState(),
+    );
+    final added = categories.where((c) => !before.contains(c));
+    // 新类别在横栏末尾,关闭管理器后露出来,不打断原分类的浏览。
+    _revealEmbeddedCategory(added.isEmpty ? _cat : added.last);
+  }
 
   Widget _desktopCategories(ColorScheme scheme) {
     final lib = ref.watch(tagLibraryProvider).value ?? const TagLibraryState();
@@ -909,42 +946,69 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
 
   Widget _topBar(ColorScheme scheme, TagLibraryState lib) {
     if (widget.embedded) {
+      final categories = _categories(lib);
+      _embeddedCategoryKeys.removeWhere((c, _) => !categories.contains(c));
       return Padding(
         padding: const EdgeInsets.fromLTRB(12, 10, 8, 0),
         child: Column(
           children: [
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                children: [
-                  for (final category in _categories(lib))
-                    SizedBox(
-                      width: 90,
-                      child: Padding(
-                        padding: const EdgeInsets.only(right: 5),
-                        child: TextButton(
-                          key: ValueKey('desktop-inspiration-${category.name}'),
-                          onPressed: () => _switchCategory(category),
-                          style: TextButton.styleFrom(
-                            padding: EdgeInsets.zero,
-                            backgroundColor: _cat == category
-                                ? scheme.primary
-                                : scheme.surfaceContainer,
-                            foregroundColor: _cat == category
-                                ? scheme.onPrimary
-                                : scheme.onSurface,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(9),
+            ScrollConfiguration(
+              behavior: ScrollConfiguration.of(context).copyWith(
+                dragDevices: {
+                  ...ScrollConfiguration.of(context).dragDevices,
+                  PointerDeviceKind.mouse,
+                },
+                scrollbars: false,
+              ),
+              child: Scrollbar(
+                controller: _embeddedCategoryScroll,
+                thumbVisibility: true,
+                interactive: true,
+                thickness: 4,
+                scrollbarOrientation: ScrollbarOrientation.bottom,
+                child: SingleChildScrollView(
+                  controller: _embeddedCategoryScroll,
+                  primary: false,
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Row(
+                    children: [
+                      for (final category in categories)
+                        SizedBox(
+                          key: _embeddedCategoryKeys.putIfAbsent(
+                            category,
+                            () => GlobalKey(),
+                          ),
+                          width: 90,
+                          child: Padding(
+                            padding: const EdgeInsets.only(right: 5),
+                            child: TextButton(
+                              key: ValueKey(
+                                'desktop-inspiration-${category.name}',
+                              ),
+                              onPressed: () => _switchCategory(category),
+                              style: TextButton.styleFrom(
+                                padding: EdgeInsets.zero,
+                                backgroundColor: _cat == category
+                                    ? scheme.primary
+                                    : scheme.surfaceContainer,
+                                foregroundColor: _cat == category
+                                    ? scheme.onPrimary
+                                    : scheme.onSurface,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(9),
+                                ),
+                              ),
+                              child: Text(
+                                _categoryLabel(category),
+                                style: const TextStyle(fontSize: 12),
+                              ),
                             ),
                           ),
-                          child: Text(
-                            _categoryLabel(category),
-                            style: const TextStyle(fontSize: 12),
-                          ),
                         ),
-                      ),
-                    ),
-                ],
+                    ],
+                  ),
+                ),
               ),
             ),
             Row(
