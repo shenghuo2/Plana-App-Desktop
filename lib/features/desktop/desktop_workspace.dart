@@ -54,6 +54,11 @@ class _DesktopWorkspaceState extends ConsumerState<DesktopWorkspace>
   final shortcutFocus = FocusNode(debugLabel: 'Desktop workspace');
   static const _leftWidthKey = 'desktop_left_pane_width';
   static const _rightWidthKey = 'desktop_right_pane_width';
+  static const _leftCollapsedKey = 'desktop_left_pane_collapsed';
+  static const _rightCollapsedKey = 'desktop_right_pane_collapsed';
+  static const _collapsedWidth = 36.0;
+  bool _leftCollapsed = false;
+  bool _rightCollapsed = false;
   static const _minLeft = 300.0;
   static const _minRight = 330.0;
   static const _minCanvas = 360.0;
@@ -72,6 +77,9 @@ class _DesktopWorkspaceState extends ConsumerState<DesktopWorkspace>
 
     _leftWidth = load(_leftWidthKey, _minLeft);
     _rightWidth = load(_rightWidthKey, _minRight);
+    final prefs = ref.read(prefsStoreProvider);
+    _leftCollapsed = prefs.get(_leftCollapsedKey) == 'true';
+    _rightCollapsed = prefs.get(_rightCollapsedKey) == 'true';
   }
 
   void _saveWidth({required bool left}) {
@@ -89,15 +97,22 @@ class _DesktopWorkspaceState extends ConsumerState<DesktopWorkspace>
     // A manual adjustment starts from the fitted, visible sizes. Otherwise an
     // older, larger preference makes the opposite pane jump during the drag.
     setState(() {
-      _leftWidth = left;
-      if (wide) _rightWidth = right;
+      if (!_leftCollapsed) _leftWidth = left;
+      if (wide && !_rightCollapsed) _rightWidth = right;
     });
   }
 
   void _endPaneResize(bool wide) {
-    _saveWidth(left: true);
-    if (wide) _saveWidth(left: false);
+    if (!_leftCollapsed) _saveWidth(left: true);
+    if (wide && !_rightCollapsed) _saveWidth(left: false);
   }
+
+  double _paneBudget(double width, bool wide) =>
+      width -
+      _minCanvas -
+      DesktopPaneDivider.extent *
+          ((!_leftCollapsed ? 1 : 0) + (wide && !_rightCollapsed ? 1 : 0)) -
+      _collapsedWidth * ((_leftCollapsed ? 1 : 0) + (_rightCollapsed ? 1 : 0));
 
   // Window resizing may temporarily reduce both panes. Keep the user's saved
   // widths so returning to a larger window restores the chosen proportions.
@@ -106,19 +121,16 @@ class _DesktopWorkspaceState extends ConsumerState<DesktopWorkspace>
     var right = wide
         ? _rightWidth ?? (width * .25).clamp(_minRight, 400.0)
         : 0.0;
-    final room =
-        width - _minCanvas - DesktopPaneDivider.extent * (wide ? 2 : 1);
-    if (left + right > room) {
-      if (wide) {
-        final extra = left - _minLeft + right - _minRight;
-        final scale = extra > 0
-            ? math.max(0.0, room - _minLeft - _minRight) / extra
-            : 0.0;
-        left = _minLeft + (left - _minLeft) * scale;
-        right = _minRight + (right - _minRight) * scale;
-      } else {
-        left = room.clamp(_minLeft, double.infinity);
-      }
+    final room = _paneBudget(width, wide);
+    final leftOpen = !_leftCollapsed;
+    final rightOpen = wide && !_rightCollapsed;
+    final cost = (leftOpen ? left : 0) + (rightOpen ? right : 0);
+    if (cost > room) {
+      final minimum = (leftOpen ? _minLeft : 0) + (rightOpen ? _minRight : 0);
+      final extra = cost - minimum;
+      final scale = extra > 0 ? math.max(0.0, room - minimum) / extra : 0.0;
+      if (leftOpen) left = _minLeft + (left - _minLeft) * scale;
+      if (rightOpen) right = _minRight + (right - _minRight) * scale;
     }
     return (left: left, right: right);
   }
@@ -137,7 +149,13 @@ class _DesktopWorkspaceState extends ConsumerState<DesktopWorkspace>
       tool = value;
       compactTool = true;
       if (value == 2) _codexBuilt = true;
+      _rightCollapsed = false;
     });
+    unawaited(
+      ref
+          .read(prefsStoreProvider)
+          .write(key: _rightCollapsedKey, value: 'false'),
+    );
     if (value == 0 && ref.read(shellIndexProvider) == kTabCreate) {
       unawaited(showAssistantIntro(context));
     }
@@ -151,6 +169,7 @@ class _DesktopWorkspaceState extends ConsumerState<DesktopWorkspace>
 
   Widget _tabs({bool compact = false}) => SizedBox(
     height: 46,
+    width: double.infinity,
     child: Padding(
       padding: const EdgeInsets.symmetric(horizontal: 10),
       child: ScrollConfiguration(
@@ -235,18 +254,10 @@ class _DesktopWorkspaceState extends ConsumerState<DesktopWorkspace>
           AssistantPage(embedded: true, imageDropKey: assistantDropKey),
           const InspirationPage(embedded: true),
           if (_codexBuilt)
-            const Column(
+            const CodexView(
               key: ValueKey('desktop-codex-pane'),
-              children: [
-                Padding(
-                  padding: EdgeInsets.all(12),
-                  child: Align(
-                    alignment: Alignment.centerLeft,
-                    child: CodexPickerButton(),
-                  ),
-                ),
-                Expanded(child: CodexView(desktop: true)),
-              ],
+              desktop: true,
+              embedded: true,
             )
           else
             const SizedBox.shrink(),
@@ -254,6 +265,88 @@ class _DesktopWorkspaceState extends ConsumerState<DesktopWorkspace>
       ),
     ),
   );
+
+  void _togglePane({required bool left}) {
+    shortcutFocus.requestFocus();
+    setState(() {
+      if (left) {
+        _leftCollapsed = !_leftCollapsed;
+      } else {
+        _rightCollapsed = !_rightCollapsed;
+      }
+    });
+    unawaited(
+      ref
+          .read(prefsStoreProvider)
+          .write(
+            key: left ? _leftCollapsedKey : _rightCollapsedKey,
+            value: (left ? _leftCollapsed : _rightCollapsed).toString(),
+          ),
+    );
+  }
+
+  Widget _collapseButton({required bool left}) {
+    final collapsed = left ? _leftCollapsed : _rightCollapsed;
+    return SizedBox(
+      width: _collapsedWidth,
+      height: 44,
+      child: IconButton(
+        key: ValueKey(
+          'desktop-${left ? 'left' : 'right'}-${collapsed ? 'expand' : 'collapse'}',
+        ),
+        tooltip: '${collapsed ? '展开' : '收起'}${left ? '左' : '右'}侧栏',
+        padding: EdgeInsets.zero,
+        icon: Icon(
+          left == collapsed ? Icons.chevron_right : Icons.chevron_left,
+          size: 22,
+        ),
+        onPressed: () => _togglePane(left: left),
+      ),
+    );
+  }
+
+  Widget _pane({
+    required bool left,
+    required double width,
+    required Widget child,
+  }) {
+    final collapsed = left ? _leftCollapsed : _rightCollapsed;
+    return SizedBox(
+      key: ValueKey(left ? 'desktop-controls' : 'desktop-right-pane'),
+      width: collapsed ? _collapsedWidth : width,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          Offstage(
+            offstage: collapsed,
+            child: OverflowBox(
+              alignment: left ? Alignment.centerLeft : Alignment.centerRight,
+              minWidth: width,
+              maxWidth: width,
+              child: child,
+            ),
+          ),
+          if (collapsed)
+            Material(
+              color: context.scheme.surfaceContainerLow,
+              child: Column(
+                children: [
+                  _collapseButton(left: left),
+                  const SizedBox(height: 12),
+                  RotatedBox(
+                    quarterTurns: 1,
+                    child: Text(
+                      left ? '创作参数' : '助手 · 灵感 · 法典',
+                      style: context.texts.labelMedium,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -276,48 +369,59 @@ class _DesktopWorkspaceState extends ConsumerState<DesktopWorkspace>
           builder: (_, box) {
             final wide = box.maxWidth >= 1100;
             final (:left, :right) = _paneWidths(box.maxWidth, wide);
-            final paneBudget =
-                box.maxWidth -
-                _minCanvas -
-                DesktopPaneDivider.extent * (wide ? 2 : 1);
+            final paneBudget = _paneBudget(box.maxWidth, wide);
+            final rightOpen = wide && !_rightCollapsed;
             return Row(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                SizedBox(
-                  key: const ValueKey('desktop-controls'),
+                _pane(
+                  left: true,
                   width: left,
-                  child: const DesktopImportRegion(child: _DesktopControls()),
+                  child: DesktopImportRegion(
+                    child: _DesktopControls(
+                      collapseButton: _collapseButton(left: true),
+                    ),
+                  ),
                 ),
-                DesktopPaneDivider(
-                  key: const ValueKey('desktop-left-divider'),
-                  label: '左侧栏',
-                  paneWidth: left,
-                  onResizeStart: () => _beginPaneResize(left, right, wide),
-                  onResize: (value) => setState(() {
-                    _leftWidth = value.clamp(
-                      _minLeft,
-                      math.max(_minLeft, paneBudget - (wide ? _minRight : 0)),
-                    );
-                    if (wide) {
-                      _rightWidth = math.min(right, paneBudget - _leftWidth!);
-                    }
-                  }),
-                  onResizeEnd: () => _endPaneResize(wide),
-                  onReset: () {
-                    setState(() => _leftWidth = null);
-                    _saveWidth(left: true);
-                  },
-                ),
+                if (!_leftCollapsed)
+                  DesktopPaneDivider(
+                    key: const ValueKey('desktop-left-divider'),
+                    label: '左侧栏',
+                    paneWidth: left,
+                    onResizeStart: () => _beginPaneResize(left, right, wide),
+                    onResize: (value) => setState(() {
+                      _leftWidth = value.clamp(
+                        _minLeft,
+                        math.max(
+                          _minLeft,
+                          paneBudget - (rightOpen ? _minRight : 0),
+                        ),
+                      );
+                      if (rightOpen) {
+                        _rightWidth = math.min(right, paneBudget - _leftWidth!);
+                      }
+                    }),
+                    onResizeEnd: () => _endPaneResize(wide),
+                    onReset: () {
+                      setState(() => _leftWidth = null);
+                      _saveWidth(left: true);
+                    },
+                  ),
                 Expanded(
                   child: Column(
                     children: [
                       // 窄窗口时工具区挤在画布上方,这一行标签栏也归助手管:
                       // 光标停在上面按 ⌘V 该贴进助手,而不是掉到助手页外面去。
-                      if (!wide)
+                      if (!wide && !_rightCollapsed)
                         ImagePasteProxy(
                           target: assistantDropKey,
                           enabled: compactTool && tool == 0,
-                          child: _tabs(compact: true),
+                          child: Row(
+                            children: [
+                              _collapseButton(left: false),
+                              Expanded(child: _tabs(compact: true)),
+                            ],
+                          ),
                         ),
                       Expanded(
                         child: Row(
@@ -325,7 +429,9 @@ class _DesktopWorkspaceState extends ConsumerState<DesktopWorkspace>
                           children: [
                             Expanded(
                               child: IndexedStack(
-                                index: !wide && compactTool ? 1 : 0,
+                                index: !wide && compactTool && !_rightCollapsed
+                                    ? 1
+                                    : 0,
                                 children: [
                                   Column(
                                     key: const ValueKey('desktop-canvas'),
@@ -344,30 +450,38 @@ class _DesktopWorkspaceState extends ConsumerState<DesktopWorkspace>
                               ),
                             ),
                             if (wide) ...[
-                              DesktopPaneDivider(
-                                key: const ValueKey('desktop-right-divider'),
-                                label: '右侧栏',
-                                paneWidth: right,
-                                trailingPane: true,
-                                onResizeStart: () =>
-                                    _beginPaneResize(left, right, wide),
-                                onResize: (value) => setState(() {
-                                  _rightWidth = value.clamp(
-                                    _minRight,
-                                    math.max(_minRight, paneBudget - _minLeft),
-                                  );
-                                  _leftWidth = math.min(
-                                    left,
-                                    paneBudget - _rightWidth!,
-                                  );
-                                }),
-                                onResizeEnd: () => _endPaneResize(wide),
-                                onReset: () {
-                                  setState(() => _rightWidth = null);
-                                  _saveWidth(left: false);
-                                },
-                              ),
-                              SizedBox(
+                              if (!_rightCollapsed)
+                                DesktopPaneDivider(
+                                  key: const ValueKey('desktop-right-divider'),
+                                  label: '右侧栏',
+                                  paneWidth: right,
+                                  trailingPane: true,
+                                  onResizeStart: () =>
+                                      _beginPaneResize(left, right, wide),
+                                  onResize: (value) => setState(() {
+                                    _rightWidth = value.clamp(
+                                      _minRight,
+                                      math.max(
+                                        _minRight,
+                                        paneBudget -
+                                            (_leftCollapsed ? 0 : _minLeft),
+                                      ),
+                                    );
+                                    if (!_leftCollapsed) {
+                                      _leftWidth = math.min(
+                                        left,
+                                        paneBudget - _rightWidth!,
+                                      );
+                                    }
+                                  }),
+                                  onResizeEnd: () => _endPaneResize(wide),
+                                  onReset: () {
+                                    setState(() => _rightWidth = null);
+                                    _saveWidth(left: false);
+                                  },
+                                ),
+                              _pane(
+                                left: false,
                                 width: right,
                                 child: Material(
                                   key: const ValueKey('desktop-dock'),
@@ -377,7 +491,12 @@ class _DesktopWorkspaceState extends ConsumerState<DesktopWorkspace>
                                       ImagePasteProxy(
                                         target: assistantDropKey,
                                         enabled: tool == 0,
-                                        child: _tabs(),
+                                        child: Row(
+                                          children: [
+                                            _collapseButton(left: false),
+                                            Expanded(child: _tabs()),
+                                          ],
+                                        ),
                                       ),
                                       const Divider(height: 1),
                                       Expanded(child: _tools()),
@@ -386,6 +505,17 @@ class _DesktopWorkspaceState extends ConsumerState<DesktopWorkspace>
                                 ),
                               ),
                             ],
+                            if (!wide && _rightCollapsed)
+                              SizedBox(
+                                width: _collapsedWidth,
+                                child: Material(
+                                  color: context.scheme.surfaceContainerLow,
+                                  child: Align(
+                                    alignment: Alignment.topCenter,
+                                    child: _collapseButton(left: false),
+                                  ),
+                                ),
+                              ),
                           ],
                         ),
                       ),

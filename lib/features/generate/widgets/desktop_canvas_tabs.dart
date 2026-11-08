@@ -10,7 +10,8 @@ import 'common.dart';
 
 /// A compact canvas switcher above the desktop prompt controls.
 class DesktopCanvasTabs extends ConsumerStatefulWidget {
-  const DesktopCanvasTabs({super.key});
+  const DesktopCanvasTabs({super.key, this.trailing});
+  final Widget? trailing;
 
   @override
   ConsumerState<DesktopCanvasTabs> createState() => _DesktopCanvasTabsState();
@@ -279,7 +280,6 @@ class _DesktopCanvasTabsState extends ConsumerState<DesktopCanvasTabs> {
                     ),
                   ),
                 ),
-              ),
             ),
           ),
           if (workspace.canvases.length > 1)
@@ -318,6 +318,7 @@ class _DesktopCanvasTabsState extends ConsumerState<DesktopCanvasTabs> {
               itemBuilder: (_) => _menuItems(workspace, workspace.active),
             ),
           ),
+          if (widget.trailing != null) widget.trailing!,
         ],
       ),
     );

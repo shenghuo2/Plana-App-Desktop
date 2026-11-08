@@ -488,7 +488,9 @@ void main() {
       await tester.tap(key('desktop-codex-favorites'));
       await tester.pumpAndSettle();
       expect(find.text(entries.first.title), findsWidgets);
-      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      expect(find.byType(Dialog), findsNothing);
+      expect(key('desktop-codex-card-style1'), findsNothing);
+      await tester.tap(key('desktop-codex-favorites'));
       await tester.pumpAndSettle();
       await tester.tap(key('desktop-codex-card-style0'));
       await tester.pumpAndSettle();
@@ -542,4 +544,90 @@ void main() {
       await tester.pumpWidget(const SizedBox());
     },
   );
+
+  for (final embedded in [false, true]) {
+    testWidgets(
+      'anchored categories and in-place favorites: embedded=$embedded',
+      (tester) async {
+        await mount(
+          tester,
+          size: Size(embedded ? 470 : 1500, 900),
+          home: embedded
+              ? const Scaffold(body: CodexView(desktop: true, embedded: true))
+              : null,
+        );
+        await tester.runAsync(() async {
+          final favorites = container.read(codexFavoritesProvider.notifier);
+          await favorites.toggle(meta.id, entries[0], now: 1);
+          await favorites.toggle(meta.id, entries[6], now: 2);
+        });
+        await tester.pumpAndSettle();
+        await tester.tap(key('desktop-codex-favorites'));
+        await tester.pumpAndSettle();
+        expect(find.byType(Dialog), findsNothing);
+        expect(find.byType(BottomSheet), findsNothing);
+        expect(key('desktop-codex-card-style0'), findsOneWidget);
+        expect(key('desktop-codex-card-style6'), findsOneWidget);
+        expect(key('desktop-codex-card-style1'), findsNothing);
+        expect(find.text('收藏 · 2'), findsNothing);
+        final button = tester.getRect(key('codex-category-picker'));
+        await tester.tap(key('codex-category-picker'));
+        await tester.pumpAndSettle();
+        final panel = key('codex-category-panel');
+        final bounds = tester.getRect(key('desktop-popover'));
+        expect(bounds.top, greaterThanOrEqualTo(button.bottom));
+        expect(bounds.width, lessThanOrEqualTo(400));
+        expect(find.byType(BottomSheet), findsNothing);
+        Finder item(String text) =>
+            find.descendant(of: panel, matching: find.text(text));
+        await tester.tap(item('自然'));
+        await tester.pumpAndSettle();
+        expect(tester.getRect(key('desktop-popover')), bounds);
+        expect(item('森林'), findsOneWidget);
+        expect(item('全部「自然」'), findsOneWidget);
+        await tester.tap(item('分类'));
+        await tester.pumpAndSettle();
+        expect(item('光影'), findsOneWidget);
+        await tester.tap(item('自然'));
+        await tester.pumpAndSettle();
+        await captureDesktop(
+          tester,
+          capture,
+          'codex-drilldown-${embedded ? 'sidebar' : 'full'}',
+        );
+        await tester.tap(item('森林'));
+        await tester.pumpAndSettle();
+        expect(panel, findsNothing);
+        expect(key('desktop-codex-card-style0'), findsOneWidget);
+        expect(key('desktop-codex-card-style6'), findsNothing);
+        await tester.enterText(key('desktop-codex-search'), 'nonexistent');
+        await tester.pumpAndSettle(const Duration(milliseconds: 300));
+        expect(find.text('没有匹配的收藏词条'), findsOneWidget);
+        await tester.enterText(key('desktop-codex-search'), 'watercolor');
+        await tester.pumpAndSettle(const Duration(milliseconds: 300));
+        expect(key('desktop-codex-card-style0'), findsOneWidget);
+        await tester.runAsync(
+          () => container
+              .read(codexFavoritesProvider.notifier)
+              .toggle(meta.id, entries[0], now: 3),
+        );
+        await tester.pumpAndSettle();
+        expect(key('desktop-codex-card-style0'), findsNothing);
+        expect(find.text('没有匹配的收藏词条'), findsOneWidget);
+        await tester.tap(key('desktop-codex-favorites'));
+        await tester.pumpAndSettle();
+        expect(key('desktop-codex-card-style0'), findsOneWidget);
+        await tester.tap(key('codex-category-picker'));
+        await tester.pumpAndSettle();
+        expect(item('全部「自然」'), findsOneWidget);
+        await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+        await tester.pumpAndSettle();
+        expect(panel, findsNothing);
+        expect(key('desktop-codex-card-style6'), findsNothing);
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox());
+        await tester.pumpAndSettle();
+      },
+    );
+  }
 }

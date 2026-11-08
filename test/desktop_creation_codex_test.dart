@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -191,10 +192,114 @@ void main() {
       expect(key('desktop-codex-pane'), findsOneWidget);
       expect(key('codex-picker-button').hitTestable(), findsOneWidget);
       expect(key('codex-category-picker').hitTestable(), findsOneWidget);
+      final pickerRect = tester.getRect(key('codex-picker-button'));
+      final searchRect = tester.getRect(key('desktop-codex-search'));
+      expect(pickerRect.center.dy, closeTo(searchRect.center.dy, 1));
+      expect(pickerRect.right, lessThan(searchRect.left));
+      expect(
+        tester.getRect(key('codex-category-picker')).top,
+        greaterThan(searchRect.bottom),
+      );
+      if (size.width >= 1100) {
+        expect(
+          tester.getRect(key('desktop-ai-tab')).left,
+          closeTo(tester.getRect(key('desktop-right-pane')).left + 46, 1),
+        );
+      }
+      expect(
+        tester.getRect(key('desktop-canvas-new')).right,
+        lessThanOrEqualTo(tester.getRect(key('desktop-left-collapse')).left),
+      );
       await tester.enterText(key('desktop-codex-search'), 'sea');
       await tester.pumpAndSettle(const Duration(milliseconds: 300));
       expect(key('desktop-codex-card-sea'), findsOneWidget);
       expect(key('desktop-codex-card-forest'), findsNothing);
+      final searchController = tester
+          .widget<TextField>(key('desktop-codex-search'))
+          .controller;
+      final leftWidth = tester.getSize(key('desktop-controls')).width;
+      final rightWidth = size.width >= 1100
+          ? tester.getSize(key('desktop-right-pane')).width
+          : null;
+      await tester.tap(key('desktop-left-collapse'));
+      await tester.pumpAndSettle();
+      expect(key('desktop-left-divider'), findsNothing);
+      expect(tester.getSize(key('desktop-controls')).width, 36);
+      await tester.tap(key('desktop-right-collapse'));
+      await tester.pumpAndSettle();
+      expect(key('desktop-right-divider'), findsNothing);
+      expect(key('desktop-codex-pane'), findsNothing);
+      expect(key('desktop-canvas'), findsOneWidget);
+      expect(key('desktop-left-expand').hitTestable(), findsOneWidget);
+      expect(key('desktop-right-expand').hitTestable(), findsOneWidget);
+      await captureDesktop(tester, capture, 'sidebars-collapsed-$name');
+      tester.view.physicalSize = const Size(780, 800);
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      tester.view.physicalSize = size;
+      await tester.pumpAndSettle();
+      await tester.tap(key('desktop-right-expand'));
+      await tester.pumpAndSettle();
+      await tester.tap(key('desktop-left-expand'));
+      await tester.pumpAndSettle();
+      expect(
+        tester.getSize(key('desktop-controls')).width,
+        closeTo(leftWidth, .01),
+      );
+      if (rightWidth != null) {
+        expect(
+          tester.getSize(key('desktop-right-pane')).width,
+          closeTo(rightWidth, .01),
+        );
+      }
+      expect(
+        tester.widget<TextField>(key('desktop-codex-search')).controller,
+        same(searchController),
+      );
+      expect(searchController!.text, 'sea');
+      expect(c.read(generateProvider).prompt, 'original prompt');
+      if (size.width > 1100) {
+        Future<void> resize(String id, double delta) async {
+          final start = tester.getCenter(key(id));
+          final mouse = await tester.createGesture(
+            kind: PointerDeviceKind.mouse,
+          );
+          await mouse.down(start);
+          await mouse.moveTo(start + Offset(delta / 2, 0));
+          await tester.pump();
+          await mouse.moveTo(start + Offset(delta, 0));
+          await mouse.up();
+          await mouse.removePointer();
+          await tester.pumpAndSettle();
+        }
+
+        final leftButton = tester.getRect(key('desktop-left-collapse'));
+        await resize('desktop-left-divider', 80);
+        expect(
+          tester.getRect(key('desktop-left-collapse')).left,
+          closeTo(leftButton.left + 80, 1),
+        );
+        final rightButton = tester.getRect(key('desktop-right-collapse'));
+        await resize('desktop-right-divider', -100);
+        expect(
+          tester.getRect(key('desktop-right-collapse')).left,
+          closeTo(rightButton.left - 100, 1),
+        );
+        expect(
+          tester.getRect(key('desktop-canvas-new')).right,
+          lessThanOrEqualTo(tester.getRect(key('desktop-left-collapse')).left),
+        );
+        await tester.tap(key('desktop-left-collapse'));
+        await tester.pumpAndSettle();
+        await resize('desktop-right-divider', -100);
+        expect(
+          tester.getRect(key('desktop-right-collapse')).left,
+          closeTo(rightButton.left - 200, 1),
+        );
+        await tester.tap(key('desktop-left-expand'));
+        await tester.pumpAndSettle();
+        await captureDesktop(tester, capture, 'sidebars-resized');
+      }
       await tester.tap(key('desktop-inspiration-tab'));
       await tester.pumpAndSettle();
       await tester.tap(key('desktop-inspiration-scene'));

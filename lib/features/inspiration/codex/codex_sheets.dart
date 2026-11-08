@@ -2341,15 +2341,26 @@ Future<List<String>?> showCodexCategorySheet(
   List<CodexNode> tree,
   List<String> current,
   List<CodexEntry> entries,
-) => _sheet<List<String>>(
-  context,
-  _CategorySheet(
+) {
+  final panel = _CategorySheet(
     codexId: codexId,
     tree: tree,
     current: current,
     entries: entries,
-  ),
-);
+  );
+  if (ProviderScope.containerOf(
+    context,
+    listen: false,
+  ).read(desktopModeProvider)) {
+    return showDesktopPopover<List<String>>(
+      context,
+      width: 400,
+      maxHeight: 480,
+      builder: (_) => panel,
+    );
+  }
+  return _sheet<List<String>>(context, panel);
+}
 
 class _CategorySheet extends ConsumerStatefulWidget {
   const _CategorySheet({
@@ -2442,6 +2453,7 @@ class _CategorySheetState extends ConsumerState<_CategorySheet> {
     // 定高后切分支只在内部滚动,弹层本身不再跳,层级切换用滑动+淡入表现进/退。
     final h = MediaQuery.sizeOf(context).height * 0.6;
     return SizedBox(
+      key: const ValueKey('codex-category-panel'),
       height: h,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,

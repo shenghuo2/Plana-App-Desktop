@@ -1,7 +1,8 @@
 part of 'desktop_workspace.dart';
 
 class _DesktopControls extends ConsumerStatefulWidget {
-  const _DesktopControls();
+  const _DesktopControls({required this.collapseButton});
+  final Widget collapseButton;
 
   @override
   ConsumerState<_DesktopControls> createState() => _DesktopControlsState();
@@ -59,7 +60,7 @@ class _DesktopControlsState extends ConsumerState<_DesktopControls> {
       color: context.scheme.surfaceContainerLow,
       child: Column(
         children: [
-          const DesktopCanvasTabs(),
+          DesktopCanvasTabs(trailing: widget.collapseButton),
           const GenerateTopBar(),
           Expanded(
             child: Scrollbar(
