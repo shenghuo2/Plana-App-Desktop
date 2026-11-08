@@ -6,6 +6,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/theme/theme_settings.dart';
 import '../../../core/platform/desktop.dart';
 import 'desktop_prompt_card.dart';
+import 'collapsed_prompt_preview.dart';
 import 'prompt_token_counts.dart';
 import '../../../core/util/nai_tokenizer.dart';
 import '../../editor/editor_models.dart'
@@ -275,19 +276,28 @@ class _PromptCardState extends ConsumerState<PromptCard> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.stretch,
                               children: [
-                                Text(
-                                  state.prompt.isEmpty
-                                      ? '点击展开编辑提示词…'
-                                      : state.prompt,
+                                CollapsedPromptPreview(
+                                  key: const ValueKey(
+                                    'collapsed-main-positive',
+                                  ),
+                                  draft: pickEditorText(
+                                    state.promptRaw,
+                                    state.prompt,
+                                  ),
+                                  emptyText: '点击展开编辑提示词…',
                                   maxLines: 2,
-                                  overflow: TextOverflow.ellipsis,
                                   style: context.texts.bodyMedium,
                                 ),
                                 if (state.negativePrompt.isNotEmpty)
-                                  Text(
-                                    state.negativePrompt,
+                                  CollapsedPromptPreview(
+                                    key: const ValueKey(
+                                      'collapsed-main-negative',
+                                    ),
+                                    draft: pickEditorText(
+                                      state.negativePromptRaw,
+                                      state.negativePrompt,
+                                    ),
                                     maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
                                     style: context.texts.bodySmall!.copyWith(
                                       color: scheme.error,
                                     ),
@@ -986,7 +996,14 @@ class _SectionRowState extends ConsumerState<_SectionRow> {
                           const SizedBox(width: 8),
                         ],
                         Expanded(
-                          child: _Preview(draft: draft, enabled: s.enabled),
+                          child: CollapsedPromptPreview(
+                            key: ValueKey('collapsed-section-${s.id}'),
+                            draft: draft,
+                            enabled: s.enabled,
+                            style: context.texts.bodyMedium!.copyWith(
+                              color: scheme.onSurfaceVariant,
+                            ),
+                          ),
                         ),
                         const SizedBox(width: 8),
                         PromptTokenCounts(

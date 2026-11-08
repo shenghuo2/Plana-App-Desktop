@@ -7,8 +7,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:plana_app/core/platform/desktop.dart';
 import 'package:plana_app/core/store/app_stores.dart';
 import 'package:plana_app/core/theme/app_theme.dart';
+import 'package:plana_app/core/theme/editor_theme.dart';
 import 'package:plana_app/core/theme/theme_settings.dart';
 import 'package:plana_app/features/editor/editor_settings.dart';
+import 'package:plana_app/features/editor/editor_models.dart';
 import 'package:plana_app/features/editor/editor_page.dart';
 import 'package:plana_app/features/editor/widgets/chip_flow_view.dart';
 import 'package:plana_app/features/editor/widgets/annotated_field.dart';
@@ -20,11 +22,16 @@ import 'package:plana_app/features/generate/generate_state.dart';
 import 'package:plana_app/features/generate/canvas_state.dart';
 import 'package:plana_app/features/generate/widgets/character_card.dart';
 import 'package:plana_app/features/generate/widgets/prompt_card.dart';
+import 'package:plana_app/features/generate/widgets/collapsed_prompt_preview.dart';
 import 'package:plana_app/features/inspiration/widgets/tag_card.dart';
+
+import 'support/desktop_capture.dart';
 
 void main() {
   late AppStores stores;
   late ProviderContainer container;
+  final capture = GlobalKey();
+  setUpAll(loadDesktopCaptureFonts);
   setUp(() async {
     stores = AppStores.ephemeral();
     await stores.prefs.write(
@@ -56,21 +63,41 @@ void main() {
   Finder key(String id) => find.byKey(ValueKey(id));
   Finder input(String id) =>
       find.descendant(of: key('$id-text'), matching: find.byType(TextField));
-  Future<void> mount(WidgetTester tester, Widget child) async {
+  Future<void> mount(
+    WidgetTester tester,
+    Widget child, {
+    bool dark = false,
+    double width = 500,
+    double scale = 1,
+  }) async {
+    final theme = dark ? AppTheme.dark() : AppTheme.light();
     await tester.pumpWidget(
       UncontrolledProviderScope(
         container: container,
         child: MaterialApp(
-          theme: AppTheme.light().copyWith(
+          theme: theme.copyWith(
+            textTheme: theme.textTheme.apply(fontFamily: 'Microsoft YaHei'),
             visualDensity: VisualDensity.compact,
             materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
             dialogTheme: const DialogThemeData(
               constraints: BoxConstraints(maxWidth: 760),
             ),
           ),
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(
+              context,
+            ).copyWith(textScaler: TextScaler.linear(scale)),
+            child: child!,
+          ),
           home: Scaffold(
-            body: SingleChildScrollView(
-              child: SizedBox(width: 500, child: child),
+            body: RepaintBoundary(
+              key: capture,
+              child: ColoredBox(
+                color: theme.scaffoldBackgroundColor,
+                child: SingleChildScrollView(
+                  child: SizedBox(width: width, child: child),
+                ),
+              ),
             ),
           ),
         ),
@@ -89,6 +116,266 @@ void main() {
     await tester.pumpWidget(const SizedBox());
     await tester.pump(const Duration(seconds: 5));
   }
+
+  List<TextSpan> previewSpans(WidgetTester tester, Finder preview) =>
+      (tester
+                  .widget<Text>(
+                    find
+                        .descendant(
+                          of: preview,
+                          matching: find.byWidgetPredicate(
+                            (w) => w is Text && w.textSpan != null,
+                          ),
+                        )
+                        .first,
+                  )
+                  .textSpan!
+              as TextSpan)
+          .children!
+          .whereType<TextSpan>()
+          .toList();
+
+  for (final target in ['main', 'section', 'main-with-sections', 'character']) {
+    testWidgets('collapsed summary keeps folds, weights and draft: $target', (
+      tester,
+    ) async {
+      const raw =
+          '<#凉: 1girl, solo, 1.2::blue eyes::#>, 1.7::light::, 0.5::shade::, ~hat~';
+      const negRaw = '<#负面: lowres, bad hands#>, 0.6::extra fingers::';
+      final gen = container.read(generateProvider.notifier);
+      gen.setPrompts(
+        positive: outputOf(raw),
+        positiveRaw: raw,
+        negative: outputOf(negRaw),
+        negativeRaw: negRaw,
+      );
+      String? id;
+      if (target == 'character') {
+        gen.addCharacter();
+        id = container.read(generateProvider).characters.single.id;
+        gen.updateCharacter(
+          id,
+          positive: outputOf(raw),
+          positiveRaw: raw,
+          negative: outputOf(negRaw),
+          negativeRaw: negRaw,
+        );
+      } else if (target == 'section' || target == 'main-with-sections') {
+        gen.addSection();
+        id = target == 'section'
+            ? container.read(generateProvider).sections.last.id
+            : 'main';
+        gen.applyCanvas(
+          CanvasPrompts.of(
+            container
+                .read(generateProvider)
+                .copyWith(
+                  sections: [
+                    for (final s in container.read(generateProvider).sections)
+                      s.id == id
+                          ? s.copyWith(
+                              positive: outputOf(raw),
+                              positiveRaw: raw,
+                            )
+                          : s,
+                  ],
+                ),
+          ),
+          force: true,
+        );
+      }
+      await mount(
+        tester,
+        target == 'character' ? const CharacterCard() : const PromptCard(),
+      );
+      final header = target == 'character'
+          ? 'character-header-$id'
+          : 'prompt-section-header-${id ?? 'main'}';
+      final previewKey = target == 'character'
+          ? 'collapsed-character-$id-positive'
+          : id == null
+          ? 'collapsed-main-positive'
+          : 'collapsed-section-$id';
+      final editorId = target == 'character'
+          ? 'desktop-character-$id'
+          : target == 'section'
+          ? 'desktop-section-$id'
+          : 'desktop-prompt';
+      final controller = tester.widget<TextField>(input(editorId)).controller;
+      final before = container.read(generateProvider);
+      await tap(tester, header);
+      final preview = key(previewKey);
+      expect(
+        find.descendant(of: preview, matching: find.text('#凉')),
+        findsOneWidget,
+      );
+      final spans = previewSpans(tester, preview);
+      final palette = tester.element(preview).editor;
+      expect(
+        spans
+            .firstWhere((s) => s.text!.contains('light'))
+            .style!
+            .backgroundColor,
+        palette.weightWash(1.7),
+      );
+      expect(
+        spans
+            .firstWhere((s) => s.text!.contains('shade'))
+            .style!
+            .backgroundColor,
+        palette.weightWash(.5),
+      );
+      expect(
+        spans.firstWhere((s) => s.text!.contains('hat')).style!.decoration,
+        TextDecoration.lineThrough,
+      );
+      expect(
+        spans.any(
+          (s) => s.text!.contains('1girl') || s.text!.contains('blue eyes'),
+        ),
+        isFalse,
+      );
+      if (target == 'main' || target == 'character') {
+        expect(find.text('#负面'), findsOneWidget);
+      }
+      if (target == 'character') {
+        await captureDesktop(
+          tester,
+          capture,
+          'collapsed-character-fold-weights',
+        );
+      }
+      await tap(tester, header);
+      expect(
+        tester.widget<TextField>(input(editorId)).controller,
+        same(controller),
+      );
+      expect(controller!.text, contains('#凉'));
+      expect(controller.text, isNot(contains('1girl')));
+      await tap(tester, header);
+      expect(
+        find.descendant(of: key(previewKey), matching: find.text('#凉')),
+        findsOneWidget,
+      );
+      final after = container.read(generateProvider);
+      expect(after.prompt, before.prompt);
+      expect(after.promptRaw, before.promptRaw);
+      expect(after.negativePromptRaw, before.negativePromptRaw);
+      expect(
+        after.characters.map((c) => (c.positive, c.positiveRaw, c.negativeRaw)),
+        before.characters.map(
+          (c) => (c.positive, c.positiveRaw, c.negativeRaw),
+        ),
+      );
+      expect(
+        after.sections.map((s) => (s.positive, s.positiveRaw)),
+        before.sections.map((s) => (s.positive, s.positiveRaw)),
+      );
+      await finish(tester);
+    });
+  }
+
+  testWidgets(
+    'collapsed summary follows weight visibility and disabled state',
+    (tester) async {
+      await container.read(editorSettingsProvider.future);
+      await mount(
+        tester,
+        const CollapsedPromptPreview(draft: '2::bright::, <#块: a, b#>'),
+      );
+      final preview = find.byType(CollapsedPromptPreview);
+      expect(
+        previewSpans(tester, preview).first.style!.backgroundColor,
+        isNotNull,
+      );
+      unawaited(
+        container
+            .read(editorSettingsProvider.notifier)
+            .patch((s) => s.copyWith(showWeightWash: false)),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        previewSpans(
+          tester,
+          preview,
+        ).every((s) => s.style?.backgroundColor == null),
+        isTrue,
+      );
+      expect(find.text('#块'), findsOneWidget);
+      await mount(
+        tester,
+        const CollapsedPromptPreview(
+          draft: '2::bright::, <#块: a, b#>',
+          enabled: false,
+        ),
+      );
+      expect(
+        previewSpans(tester, preview).first.style!.decoration,
+        TextDecoration.lineThrough,
+      );
+      expect(
+        tester.widget<Text>(find.text('#块')).style!.decoration,
+        TextDecoration.lineThrough,
+      );
+      await finish(tester);
+    },
+  );
+
+  testWidgets(
+    'collapsed summary uses dark weight colors and fits long fold titles',
+    (tester) async {
+      await mount(
+        tester,
+        const CollapsedPromptPreview(
+          draft:
+              '1.8::light::, 0.4::shade::, <#很长的角色块名称很长的角色块名称: solo, blue eyes#>',
+          maxLines: 2,
+        ),
+        dark: true,
+        width: 310,
+        scale: 1.4,
+      );
+      final preview = find.byType(CollapsedPromptPreview);
+      final spans = previewSpans(tester, preview);
+      expect(
+        spans
+            .firstWhere((s) => s.text!.contains('light'))
+            .style!
+            .backgroundColor,
+        EditorPalette.dark.weightWash(1.8),
+      );
+      expect(
+        spans
+            .firstWhere((s) => s.text!.contains('shade'))
+            .style!
+            .backgroundColor,
+        EditorPalette.dark.weightWash(.4),
+      );
+      expect(tester.takeException(), isNull);
+      expect(
+        tester.getSize(find.text('#很长的角色块名称很长的角色块名称')).width,
+        lessThanOrEqualTo(310),
+      );
+      await captureDesktop(tester, capture, 'collapsed-preview-narrow-dark');
+      await finish(tester);
+    },
+  );
+
+  testWidgets('collapsed summary ignores an outdated fold draft', (
+    tester,
+  ) async {
+    container
+        .read(generateProvider.notifier)
+        .setPrompts(
+          positive: 'current prompt',
+          positiveRaw: '<#旧块: old prompt#>',
+        );
+    await mount(tester, const PromptCard());
+    await tap(tester, 'prompt-section-header-main');
+    expect(find.text('current prompt'), findsOneWidget);
+    expect(find.text('#旧块'), findsNothing);
+    await finish(tester);
+  });
 
   testWidgets(
     'character folding starts enabled and preserves the complete editor session',

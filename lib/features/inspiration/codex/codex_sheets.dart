@@ -992,6 +992,8 @@ class _DetailSheetState extends ConsumerState<_DetailSheet>
   Widget _addButton(CodexEntry e) => FilledButton.icon(
     onPressed: () {
       final r = codexAddToPrompt(ref, e);
+      // The toast outlives this detail sheet; capture navigation before popping.
+      final shell = ref.read(shellIndexProvider.notifier);
       Navigator.pop(context);
       hintSnack(
         context,
@@ -1002,8 +1004,7 @@ class _DetailSheetState extends ConsumerState<_DetailSheet>
             : (r.added > 0 ? '已加入提示词 · ${r.added} 个角色' : '已加入提示词'),
         icon: Icons.check_circle_outline,
         actionLabel: '去创作',
-        onAction: () =>
-            ref.read(shellIndexProvider.notifier).select(kTabCreate),
+        onAction: () => shell.select(kTabCreate),
       );
     },
     style: _labeledStyle,

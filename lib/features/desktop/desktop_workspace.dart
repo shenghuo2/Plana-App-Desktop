@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -23,6 +24,7 @@ import '../generate/widgets/top_bar.dart';
 import '../generate/widgets/desktop_canvas_tabs.dart';
 import '../generate/widgets/prompt_card.dart';
 import '../inspiration/inspiration_page.dart';
+import '../inspiration/codex/codex_view.dart';
 import '../import/desktop_image_drop.dart';
 import '../shell/shell_state.dart';
 import 'desktop_gallery_page.dart';
@@ -43,6 +45,7 @@ class _DesktopWorkspaceState extends ConsumerState<DesktopWorkspace>
     with AutomaticKeepAliveClientMixin {
   int tool = 0;
   bool compactTool = false;
+  bool _codexBuilt = false;
   final toolKey = GlobalKey();
 
   /// 助手页那块粘贴接收区。右栏的标签栏在助手页外面,靠它把那一行的粘贴
@@ -133,6 +136,7 @@ class _DesktopWorkspaceState extends ConsumerState<DesktopWorkspace>
     setState(() {
       tool = value;
       compactTool = true;
+      if (value == 2) _codexBuilt = true;
     });
     if (value == 0 && ref.read(shellIndexProvider) == kTabCreate) {
       unawaited(showAssistantIntro(context));
@@ -149,31 +153,51 @@ class _DesktopWorkspaceState extends ConsumerState<DesktopWorkspace>
     height: 46,
     child: Padding(
       padding: const EdgeInsets.symmetric(horizontal: 10),
-      child: Row(
-        children: [
-          if (compact) ...[
-            _tab('图片与历史', Icons.image_outlined, !compactTool, () {
-              shortcutFocus.requestFocus();
-              setState(() => compactTool = false);
-            }, 'desktop-canvas-tab'),
-            const SizedBox(width: 5),
-          ],
-          _tab(
-            'AI 助手',
-            Icons.auto_awesome_outlined,
-            (!compact || compactTool) && tool == 0,
-            () => _tool(0),
-            'desktop-ai-tab',
+      child: ScrollConfiguration(
+        behavior: ScrollConfiguration.of(context).copyWith(
+          dragDevices: {
+            ...ScrollConfiguration.of(context).dragDevices,
+            PointerDeviceKind.mouse,
+          },
+          scrollbars: false,
+        ),
+        child: SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            children: [
+              if (compact) ...[
+                _tab('图片与历史', Icons.image_outlined, !compactTool, () {
+                  shortcutFocus.requestFocus();
+                  setState(() => compactTool = false);
+                }, 'desktop-canvas-tab'),
+                const SizedBox(width: 5),
+              ],
+              _tab(
+                'AI 助手',
+                Icons.auto_awesome_outlined,
+                (!compact || compactTool) && tool == 0,
+                () => _tool(0),
+                'desktop-ai-tab',
+              ),
+              const SizedBox(width: 5),
+              _tab(
+                '灵感',
+                Icons.lightbulb_outline,
+                (!compact || compactTool) && tool == 1,
+                () => _tool(1),
+                'desktop-inspiration-tab',
+              ),
+              const SizedBox(width: 5),
+              _tab(
+                '法典',
+                Icons.menu_book_outlined,
+                (!compact || compactTool) && tool == 2,
+                () => _tool(2),
+                'desktop-codex-tab',
+              ),
+            ],
           ),
-          const SizedBox(width: 5),
-          _tab(
-            '灵感',
-            Icons.lightbulb_outline,
-            (!compact || compactTool) && tool == 1,
-            () => _tool(1),
-            'desktop-inspiration-tab',
-          ),
-        ],
+        ),
       ),
     ),
   );
@@ -210,6 +234,22 @@ class _DesktopWorkspaceState extends ConsumerState<DesktopWorkspace>
         children: [
           AssistantPage(embedded: true, imageDropKey: assistantDropKey),
           const InspirationPage(embedded: true),
+          if (_codexBuilt)
+            const Column(
+              key: ValueKey('desktop-codex-pane'),
+              children: [
+                Padding(
+                  padding: EdgeInsets.all(12),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: CodexPickerButton(),
+                  ),
+                ),
+                Expanded(child: CodexView(desktop: true)),
+              ],
+            )
+          else
+            const SizedBox.shrink(),
         ],
       ),
     ),
