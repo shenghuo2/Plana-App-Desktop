@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/scheduler.dart';
@@ -131,6 +133,10 @@ class ConversationNavigationController extends ChangeNotifier {
     activeId = id;
     notifyListeners();
     try {
+      // Scrubbing can replace several destinations in one frame. Let pending
+      // jumps lay out before trusting a mounted row from the previous viewport.
+      SchedulerBinding.instance.scheduleFrame();
+      await SchedulerBinding.instance.endOfFrame;
       double? lower, upper;
       for (var attempt = 0; attempt < 80; attempt++) {
         if (_disposed || request != _request || !_ready) return false;
@@ -242,10 +248,8 @@ class _ConversationNavigationState extends State<ConversationNavigation> {
       builder: (context, box) {
         final nav = widget.controller;
         final scheme = context.scheme;
-        final width = widget.embedded
-            ? math.min(260.0, box.maxWidth - 36)
-            : (box.maxWidth * .22).clamp(128.0, 224.0);
-        final reserved = widget.embedded ? 24.0 : width + 24;
+        final width = math.min(260.0, box.maxWidth - 36);
+        final reserved = widget.embedded ? 24.0 : 0.0;
         final panel = ConstrainedBox(
           constraints: BoxConstraints(
             maxHeight: math.max(120, box.maxHeight - 40),
@@ -362,19 +366,34 @@ class _ConversationNavigationState extends State<ConversationNavigation> {
                       onPointerSignal: (_) => nav.cancel(),
                       child: ClipRect(
                         key: nav.viewportKey,
-                        child: widget.child,
+                        child: widget.embedded
+                            ? widget.child
+                            : Align(
+                                alignment: Alignment.topCenter,
+                                child: ConstrainedBox(
+                                  constraints: const BoxConstraints(
+                                    maxWidth: 960,
+                                  ),
+                                  child: widget.child,
+                                ),
+                              ),
                       ),
                     ),
                   ),
                 ),
               ),
-              if (!widget.embedded)
+              if (!widget.embedded && nav.entries.isNotEmpty)
                 Positioned.fill(
                   left: null,
-                  right: 12,
+                  right: 0,
                   child: Align(
                     alignment: Alignment.centerRight,
-                    child: SizedBox(width: width, child: panel),
+                    child: _FisheyeOutline(
+                      controller: nav,
+                      maxHeight: math.max(40, box.maxHeight - 32),
+                      maxWidth: math.min(320, box.maxWidth - 32),
+                      onSelect: _reveal,
+                    ),
                   ),
                 ),
               if (widget.embedded && !_open)
@@ -411,19 +430,25 @@ class _ConversationNavigationState extends State<ConversationNavigation> {
                 ),
               if (nav.awayFromBottom)
                 Positioned(
-                  right: reserved + 12,
+                  left: 0,
+                  right: 0,
                   bottom: 12,
-                  child: Material(
-                    elevation: 3,
-                    color: scheme.primaryContainer,
-                    shape: const CircleBorder(),
-                    child: IconButton(
-                      key: const ValueKey('assistant-to-bottom'),
-                      tooltip: '回到底部',
-                      onPressed: nav.toBottom,
-                      icon: Icon(
-                        Icons.vertical_align_bottom,
-                        color: scheme.onPrimaryContainer,
+                  child: Center(
+                    child: Material(
+                      elevation: 1,
+                      color: scheme.surfaceContainerLow,
+                      shape: CircleBorder(
+                        side: BorderSide(color: scheme.outlineVariant),
+                      ),
+                      child: IconButton(
+                        key: const ValueKey('assistant-to-bottom'),
+                        tooltip: '回到底部',
+                        onPressed: nav.toBottom,
+                        icon: Icon(
+                          Icons.arrow_downward,
+                          color: scheme.onSurface,
+                          size: 20,
+                        ),
                       ),
                     ),
                   ),
@@ -465,4 +490,365 @@ class _ConversationNavigationState extends State<ConversationNavigation> {
       },
     ),
   );
+}
+
+/// A quiet edge index. A sliding window keeps individual ticks usable even in
+/// very long chats; the wheel, keyboard and dragging past either edge reveal
+/// the remaining turns without mounting all of their message widgets.
+class _FisheyeOutline extends StatefulWidget {
+  const _FisheyeOutline({
+    required this.controller,
+    required this.maxHeight,
+    required this.maxWidth,
+    required this.onSelect,
+  });
+  final ConversationNavigationController controller;
+  final double maxHeight, maxWidth;
+  final ValueChanged<String> onSelect;
+
+  @override
+  State<_FisheyeOutline> createState() => _FisheyeOutlineState();
+}
+
+class _FisheyeOutlineState extends State<_FisheyeOutline> {
+  final _focus = FocusNode(debugLabel: 'Conversation tick navigation');
+  double? _pointerY;
+  bool _keyboard = false;
+  bool _dragging = false;
+  bool _inside = false;
+  int _first = 0, _count = 1, _cursor = 0;
+  double _pitch = 12, _height = 80, _margin = 32;
+  String? _conversation, _lastSelected;
+  Timer? _edgeScroll;
+
+  List<ConversationEntry> get _entries => widget.controller.entries;
+  bool get _expanded => _pointerY != null || _keyboard || _dragging;
+  int get _active => math.max(
+    0,
+    _entries.indexWhere((e) => e.id == widget.controller.activeId),
+  );
+  int _indexAt(double y) => (_first + ((y - _margin) / _pitch).round()).clamp(
+    _first,
+    math.min(_entries.length - 1, _first + _count - 1),
+  );
+
+  void _select(int index) {
+    if (_entries.isEmpty) return;
+    final target = index.clamp(0, _entries.length - 1);
+    _cursor = target;
+    final id = _entries[target].id;
+    if (_lastSelected == id && widget.controller.activeId == id) return;
+    _lastSelected = id;
+    widget.onSelect(id);
+  }
+
+  void _step(int index) {
+    if (_entries.isEmpty) return;
+    setState(() {
+      _cursor = index.clamp(0, _entries.length - 1);
+      _first = (_cursor - _count ~/ 2).clamp(
+        0,
+        math.max(0, _entries.length - _count),
+      );
+      _pointerY = null;
+      _keyboard = true;
+    });
+    _select(_cursor);
+  }
+
+  void _point(double y, {bool select = false}) {
+    if (_entries.isEmpty) return;
+    setState(() {
+      _pointerY = y.clamp(0, _height);
+      _keyboard = false;
+      _cursor = _indexAt(_pointerY!);
+    });
+    if (select) _select(_cursor);
+  }
+
+  void _stopDrag() {
+    _edgeScroll?.cancel();
+    _edgeScroll = null;
+    if (mounted) {
+      setState(() {
+        _dragging = false;
+        if (!_inside) _pointerY = null;
+      });
+    }
+  }
+
+  void _startDrag(PointerDownEvent event) {
+    if (event.buttons != kPrimaryButton) return;
+    _focus.requestFocus();
+    _dragging = true;
+    _point(event.localPosition.dy, select: true);
+    _edgeScroll?.cancel();
+    _edgeScroll = Timer.periodic(const Duration(milliseconds: 100), (_) {
+      final y = _pointerY;
+      if (!mounted || !_dragging || y == null || _entries.isEmpty) return;
+      final delta = y < _margin / 2
+          ? -1
+          : y > _height - _margin / 2
+          ? 1
+          : 0;
+      final next = (_first + delta).clamp(
+        0,
+        math.max(0, _entries.length - _count),
+      );
+      if (delta == 0 || next == _first) return;
+      setState(() => _first = next.toInt());
+      _point(y, select: true);
+    });
+  }
+
+  @override
+  void dispose() {
+    _edgeScroll?.cancel();
+    _focus.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final entries = _entries;
+    if (entries.isEmpty) return const SizedBox.shrink();
+    if (_conversation != entries.first.id) {
+      _conversation = entries.first.id;
+      _pointerY = null;
+      _keyboard = _dragging = false;
+      _edgeScroll?.cancel();
+      _lastSelected = null;
+    }
+    final scheme = context.scheme;
+    final scale = MediaQuery.textScalerOf(context).scale(13) / 13;
+    final lensScale = math.max(1.0, scale);
+    _pitch = 12 * lensScale;
+    _margin = math.min(44 * lensScale, widget.maxHeight / 4);
+    _count = math.min(
+      entries.length,
+      math.max(
+        1,
+        ((math.min(420, widget.maxHeight) - _margin * 2) / _pitch).floor() + 1,
+      ),
+    );
+    _height = (_count - 1) * _pitch + _margin * 2;
+    if (!_expanded) {
+      _cursor = _active;
+      _first = (_cursor - _count ~/ 2).clamp(
+        0,
+        math.max(0, entries.length - _count),
+      );
+    }
+    _first = _first.clamp(0, math.max(0, entries.length - _count));
+    _cursor = _cursor.clamp(0, entries.length - 1);
+    final focusY = _pointerY ?? _margin + (_cursor - _first) * _pitch;
+    final expanded = _expanded;
+    return Focus(
+      focusNode: _focus,
+      onFocusChange: (focused) {
+        if (!mounted) return;
+        setState(() => _keyboard = focused && _pointerY == null);
+      },
+      onKeyEvent: (_, event) {
+        if (event is! KeyDownEvent && event is! KeyRepeatEvent) {
+          return KeyEventResult.ignored;
+        }
+        switch (event.logicalKey) {
+          case LogicalKeyboardKey.arrowUp:
+            _step(_cursor - 1);
+          case LogicalKeyboardKey.arrowDown:
+            _step(_cursor + 1);
+          case LogicalKeyboardKey.home:
+            _step(0);
+          case LogicalKeyboardKey.end:
+            _step(entries.length - 1);
+          case LogicalKeyboardKey.escape:
+            _focus.unfocus();
+            setState(() {
+              _pointerY = null;
+              _keyboard = false;
+            });
+          default:
+            return KeyEventResult.ignored;
+        }
+        return KeyEventResult.handled;
+      },
+      child: Semantics(
+        label: '对话导航',
+        value: '第 ${_active + 1} 轮，共 ${entries.length} 轮',
+        increasedValue:
+            '第 ${math.min(entries.length, _active + 2)} 轮，共 ${entries.length} 轮',
+        decreasedValue: '第 ${math.max(1, _active)} 轮，共 ${entries.length} 轮',
+        hint: '点击或按住滑动定位；滚轮和上下键逐轮切换，Home 和 End 跳到首尾',
+        onIncrease: () => _step(_active + 1),
+        onDecrease: () => _step(_active - 1),
+        child: MouseRegion(
+          key: const ValueKey('assistant-tick-navigation'),
+          cursor: _dragging
+              ? SystemMouseCursors.grabbing
+              : SystemMouseCursors.click,
+          onEnter: (e) {
+            _inside = true;
+            _point(e.localPosition.dy);
+          },
+          onHover: (e) => _point(e.localPosition.dy),
+          onExit: (_) {
+            _inside = false;
+            if (!_dragging) {
+              setState(() {
+                _pointerY = null;
+                _keyboard = false;
+              });
+            }
+          },
+          child: Listener(
+            behavior: HitTestBehavior.opaque,
+            onPointerDown: _startDrag,
+            onPointerMove: (e) {
+              if (_dragging) _point(e.localPosition.dy, select: true);
+            },
+            onPointerUp: (e) {
+              if (_dragging) {
+                _point(e.localPosition.dy, select: true);
+                _stopDrag();
+              }
+            },
+            onPointerCancel: (_) {
+              _stopDrag();
+              setState(() => _pointerY = null);
+            },
+            onPointerSignal: (e) {
+              if (e is PointerScrollEvent && e.scrollDelta.dy != 0) {
+                GestureBinding.instance.pointerSignalResolver.register(
+                  e,
+                  (_) => _step(_cursor + (e.scrollDelta.dy > 0 ? 1 : -1)),
+                );
+              }
+            },
+            child: TweenAnimationBuilder<double>(
+              tween: Tween(end: expanded ? 1 : 0),
+              duration: MediaQuery.disableAnimationsOf(context)
+                  ? Duration.zero
+                  : Motion.fast,
+              curve: Motion.standard,
+              builder: (context, open, _) => SizedBox(
+                width: open > 0 ? widget.maxWidth : 44,
+                height: _height,
+                child: Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    for (var i = 0; i < _count; i++) ...[
+                      Builder(
+                        builder: (context) {
+                          final index = _first + i;
+                          final entry = entries[index];
+                          final baseY = _margin + i * _pitch;
+                          final distance = baseY - focusY;
+                          final influence = math.exp(
+                            -math.pow(distance / (_pitch * 2.2), 2) / 2,
+                          );
+                          // Stretch the nearest tick spacing smoothly, keeping both
+                          // ends in the margin so the lens never clips the window.
+                          final bend =
+                              (2 /
+                                      (1 +
+                                          math.exp(
+                                            -distance / (12 * lensScale),
+                                          )) -
+                                  1) *
+                              math.min(36 * lensScale, _margin - 4) *
+                              open;
+                          final y = baseY + bend;
+                          final active = widget.controller.activeId == entry.id;
+                          final length =
+                              (active ? 20.0 : 12.0) + 24 * influence * open;
+                          final showLabel =
+                              (_cursor - index).abs() <= 2 && open > 0;
+                          return Stack(
+                            clipBehavior: Clip.none,
+                            children: [
+                              Positioned(
+                                key: ValueKey('assistant-tick-${entry.id}'),
+                                right: 12,
+                                top: y - 1.5,
+                                width: length,
+                                height: 3,
+                                child: DecoratedBox(
+                                  decoration: BoxDecoration(
+                                    borderRadius: BorderRadius.circular(3),
+                                    color: active
+                                        ? scheme.onSurface
+                                        : Color.lerp(
+                                            scheme.outlineVariant,
+                                            scheme.onSurface,
+                                            influence * open * .75,
+                                          ),
+                                  ),
+                                ),
+                              ),
+                              if (showLabel)
+                                Positioned(
+                                  right: 64,
+                                  left: 0,
+                                  top: y - 12 * scale,
+                                  child: IgnorePointer(
+                                    child: Opacity(
+                                      opacity: open * (.25 + .75 * influence),
+                                      child: Transform.scale(
+                                        scale: .9 + .1 * influence,
+                                        alignment: Alignment.centerRight,
+                                        child: Align(
+                                          alignment: Alignment.centerRight,
+                                          child: Container(
+                                            key: ValueKey(
+                                              'assistant-tick-label-${entry.id}',
+                                            ),
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 10,
+                                              vertical: 3,
+                                            ),
+                                            decoration: BoxDecoration(
+                                              color: scheme.surfaceContainerLow,
+                                              borderRadius:
+                                                  BorderRadius.circular(9),
+                                              boxShadow: [
+                                                BoxShadow(
+                                                  color: scheme.shadow
+                                                      .withValues(alpha: .08),
+                                                  blurRadius: 8,
+                                                  offset: const Offset(0, 2),
+                                                ),
+                                              ],
+                                            ),
+                                            child: Text(
+                                              '${index + 1} · ${entry.queued ? '待发送 · ' : ''}${entry.label}',
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: context.texts.bodySmall
+                                                  ?.copyWith(
+                                                    fontSize: 13,
+                                                    height: 1.35,
+                                                    color: scheme.onSurface,
+                                                  ),
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          );
+                        },
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
