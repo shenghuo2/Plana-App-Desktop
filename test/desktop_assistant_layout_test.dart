@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:ui' as ui;
 
@@ -16,16 +17,42 @@ import 'package:plana_app/features/assistant/agent_model.dart';
 import 'package:plana_app/features/assistant/assistant_models.dart';
 import 'package:plana_app/features/assistant/assistant_page.dart';
 import 'package:plana_app/features/assistant/assistant_state.dart';
+import 'package:plana_app/features/assistant/assistant_settings.dart';
 import 'package:plana_app/features/assistant/preset_rules.dart';
 import 'package:plana_app/features/assistant/widgets/proposal_actions.dart';
 import 'package:plana_app/features/assistant/widgets/proposal_sheet.dart';
 import 'package:plana_app/features/assistant/widgets/result_strip.dart';
+import 'package:plana_app/features/assistant/widgets/conversation_navigation.dart';
 import 'package:plana_app/features/editor/data/suggestions.dart';
 import 'package:plana_app/features/editor/data/tag_translation_service.dart';
 import 'package:plana_app/features/generate/widgets/anlas_panel.dart';
 
 class _FixtureAssistant extends AssistantNotifier {
   void seed(AssistantState initial) => state = initial;
+  Completer<void>? delayedSubmit;
+  int delayedCalls = 0;
+
+  @override
+  Future<void> submit(
+    String text, {
+    Uint8List? image,
+    List<Uint8List> images = const [],
+    bool withCanvas = false,
+    void Function()? onAccepted,
+  }) {
+    if (delayedSubmit == null) {
+      return super.submit(
+        text,
+        image: image,
+        images: images,
+        withCanvas: withCanvas,
+        onAccepted: onAccepted,
+      );
+    }
+    delayedCalls++;
+    onAccepted?.call();
+    return delayedSubmit!.future;
+  }
 }
 
 class _FixedAnlas extends AnlasNotifier {
@@ -176,6 +203,9 @@ void main() {
     WidgetTester tester, {
     Size size = const Size(1200, 800),
     bool embedded = false,
+    double embeddedWidth = 400,
+    double scale = 1,
+    bool dark = false,
     Widget? body,
   }) async {
     tester.view.physicalSize = size;
@@ -189,12 +219,19 @@ void main() {
           key: capture,
           child: MaterialApp(
             debugShowCheckedModeBanner: false,
-            theme: AppTheme.light().copyWith(
+            theme: (dark ? AppTheme.dark() : AppTheme.light()).copyWith(
               platform: TargetPlatform.windows,
-              textTheme: AppTheme.light().textTheme.apply(
-                fontFamily: 'Microsoft YaHei',
-                fontFamilyFallback: const ['Segoe UI'],
-              ),
+              textTheme: (dark ? AppTheme.dark() : AppTheme.light()).textTheme
+                  .apply(
+                    fontFamily: 'Microsoft YaHei',
+                    fontFamilyFallback: const ['Segoe UI'],
+                  ),
+            ),
+            builder: (context, child) => MediaQuery(
+              data: MediaQuery.of(
+                context,
+              ).copyWith(textScaler: TextScaler.linear(scale)),
+              child: child!,
             ),
             home: Scaffold(
               body:
@@ -203,10 +240,11 @@ void main() {
                       ? Align(
                           alignment: Alignment.topRight,
                           child: SizedBox(
-                            width: 400,
+                            width: embeddedWidth,
                             child: MediaQuery(
                               data: MediaQueryData(
-                                size: Size(400, size.height),
+                                size: Size(embeddedWidth, size.height),
+                                textScaler: TextScaler.linear(scale),
                               ),
                               child: const AssistantPage(embedded: true),
                             ),
@@ -256,6 +294,16 @@ void main() {
     'main assistant keeps history at left and model inside the composer',
     (tester) async {
       await mount(tester);
+      expect(find.text('AI 助手'), findsNothing);
+      expect(
+        tester.widget<Text>(key('assistant-conversation-title')).data,
+        _current.first.text,
+      );
+      expect(
+        tester.getRect(key('assistant-main-settings')).right,
+        greaterThan(1180),
+      );
+      expect(key('assistant-outline'), findsOneWidget);
       final sidebar = key('assistant-history-sidebar');
       expect(sidebar, findsOneWidget);
       expect(tester.getRect(sidebar).left, 0);
@@ -281,6 +329,10 @@ void main() {
       await tester.pumpAndSettle();
       expect(c.read(assistantProvider).msgs.first.text, '森林中的小屋');
       expect(
+        tester.widget<Text>(key('assistant-conversation-title')).data,
+        '森林中的小屋',
+      );
+      expect(
         c.read(assistantProvider).sessions.any((s) => s.msgs.first.id == 'ask'),
         isTrue,
       );
@@ -303,12 +355,171 @@ void main() {
       await tester.pumpAndSettle();
       expect(c.read(assistantProvider).msgs, isEmpty);
       expect(
+        tester.widget<Text>(key('assistant-conversation-title')).data,
+        '新对话',
+      );
+      expect(
         c.read(assistantProvider).sessions.any((s) => s.title == '森林中的小屋'),
         isTrue,
       );
       await finish(tester);
     },
   );
+
+  for (final (embedded, dark) in [
+    (false, false),
+    (true, false),
+    (false, true),
+    (true, true),
+  ]) {
+    testWidgets(
+      'conversation outline seeks lazy messages and returns to bottom: embedded=$embedded dark=$dark',
+      (tester) async {
+        final notifier =
+            c.read(assistantProvider.notifier) as _FixtureAssistant;
+        final msgs = <AssistantMsg>[
+          for (var i = 0; i < 70; i++) ...[
+            AssistantMsg(
+              id: 'question-$i',
+              role: MsgRole.user,
+              text: '第 ${i + 1} 轮：请描绘森林中的小屋与星空 $i',
+              at: i * 2 + 1,
+            ),
+            AssistantMsg(
+              id: 'answer-$i',
+              role: MsgRole.ai,
+              text: List.filled(
+                1 + (i % 7) * 4,
+                '月光下的小屋，周围是茂密的森林。',
+              ).join('\n\n'),
+              at: i * 2 + 2,
+            ),
+          ],
+        ];
+        notifier.seed(AssistantState(msgs: msgs));
+        await mount(
+          tester,
+          embedded: embedded,
+          dark: dark,
+          scale: dark ? 1.4 : 1,
+          embeddedWidth: dark ? 330 : 400,
+          size: dark ? const Size(820, 700) : const Size(1200, 800),
+        );
+        final frame = tester.widget<ConversationNavigation>(
+          find.byType(ConversationNavigation),
+        );
+        final nav = frame.controller;
+        expect(nav.scroll.offset, 0);
+        expect(nav.entries.length, 70);
+        expect(nav.keyFor('question-0').currentContext, isNull);
+        if (embedded) {
+          expect(key('assistant-conversation-title'), findsNothing);
+          await tester.tap(key('assistant-outline-toggle'));
+          await tester.pumpAndSettle();
+          expect(
+            tester.getRect(key('assistant-outline-drawer')).right,
+            closeTo(
+              tester.getRect(find.byType(ConversationNavigation)).right,
+              1,
+            ),
+          );
+        } else {
+          final outline = tester.getRect(key('assistant-outline'));
+          final body = tester.getRect(find.byType(ConversationNavigation));
+          expect(outline.center.dy, closeTo(body.center.dy, 1));
+        }
+        await screenshot(
+          tester,
+          'assistant-outline-${embedded ? 'drawer' : 'main'}${dark ? '-dark' : ''}-20261110',
+        );
+        await tester.tap(key('assistant-outline-question-0'));
+        await tester.pumpAndSettle();
+        expect(nav.keyFor('question-0').currentContext, isNotNull);
+        final oldest = tester.getRect(find.byKey(nav.keyFor('question-0')));
+        final viewport = tester.getRect(find.byKey(nav.viewportKey));
+        expect(oldest.overlaps(viewport), isTrue);
+        expect(nav.activeId, 'question-0');
+        expect(key('assistant-to-bottom'), findsOneWidget);
+        if (embedded) expect(key('assistant-outline-toggle'), findsOneWidget);
+
+        // Streaming and queued turns must not pull a reader away from old messages.
+        final before = nav.scroll.offset;
+        notifier.seed(
+          AssistantState(msgs: msgs, running: true, liveText: '正在续写新回复'),
+        );
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 500));
+        expect(nav.scroll.offset, closeTo(before, 1));
+        notifier.seed(AssistantState(msgs: msgs));
+        await tester.pumpAndSettle();
+        await tester.tap(key('assistant-to-bottom'));
+        await tester.pumpAndSettle();
+        expect(nav.scroll.offset, closeTo(0, .1));
+        expect(key('assistant-to-bottom'), findsNothing);
+
+        if (embedded) {
+          await tester.tap(key('assistant-outline-toggle'));
+          await tester.pumpAndSettle();
+        }
+        await tester.scrollUntilVisible(
+          key('assistant-outline-question-35'),
+          250,
+          scrollable: find.descendant(
+            of: key('assistant-outline-list'),
+            matching: find.byType(Scrollable),
+          ),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(key('assistant-outline-question-35'));
+        await tester.pumpAndSettle();
+        expect(nav.keyFor('question-35').currentContext, isNotNull);
+        expect(
+          tester
+              .getRect(find.byKey(nav.keyFor('question-35')))
+              .overlaps(viewport),
+          isTrue,
+        );
+        expect(nav.activeId, 'question-35');
+
+        await tester.runAsync(
+          () => c
+              .read(assistantSettingsProvider.notifier)
+              .patch((s) => s.copyWith(introVersion: kAssistantIntroVersion)),
+        );
+        notifier.delayedSubmit = Completer<void>();
+        await tester.enterText(
+          find.widgetWithText(TextField, '想画什么、想改哪里…'),
+          '继续画',
+        );
+        await tester.pump();
+        await tester.tap(find.byTooltip('发送 (Enter) · Shift + Enter 换行'));
+        await tester.pumpAndSettle();
+        expect(notifier.delayedCalls, 1);
+        final reading = nav.reveal('question-35');
+        await tester.pumpAndSettle();
+        expect(await reading, isTrue);
+        final readingOffset = nav.scroll.offset;
+        notifier.delayedSubmit!.complete();
+        await tester.pumpAndSettle();
+        expect(
+          nav.scroll.offset,
+          closeTo(readingOffset, 1),
+          reason:
+              'Completing a delayed send must preserve the reader’s older turn.',
+        );
+
+        // Changing sessions cancels stale navigation and returns to the new chat.
+        final inFlight = nav.reveal('question-0');
+        notifier.seed(const AssistantState(msgs: _current));
+        await tester.pumpAndSettle();
+        expect(await inFlight, isFalse);
+        expect(nav.entries.single.id, 'ask');
+        expect(nav.scroll.offset, closeTo(0, .1));
+        expect(tester.takeException(), isNull);
+        await finish(tester);
+      },
+    );
+  }
 
   testWidgets('main proposal expands inside its message and survives resize', (
     tester,

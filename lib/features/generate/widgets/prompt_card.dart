@@ -123,11 +123,13 @@ class _PromptCardState extends ConsumerState<PromptCard> {
     final actionSize = MediaQuery.sizeOf(context).width < 350 ? 32.0 : 36.0;
     final headerActions = <Widget>[
       if (desktop && sections.isNotEmpty)
-        TextButton.icon(
+        RoundIconBtn(
+          Icons.checklist,
           key: const ValueKey('prompt-section-select'),
-          onPressed: () => _enterSelect(sections.first.id),
-          icon: const Icon(Icons.checklist, size: 18),
-          label: const Text('多选'),
+          size: actionSize,
+          tooltip: '多选',
+          color: scheme.onSurfaceVariant,
+          onTap: () => _enterSelect(sections.first.id),
         ),
       if (desktop && sections.isEmpty) ...[
         const PromptFullscreenButton(key: ValueKey('prompt-fullscreen-main')),

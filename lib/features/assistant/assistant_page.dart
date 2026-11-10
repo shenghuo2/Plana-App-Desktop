@@ -42,6 +42,7 @@ import 'assistant_settings.dart';
 import 'assistant_state.dart';
 import 'preset_rules.dart' show RulesFamily, rulesFamilyOf;
 import 'widgets/history_sheet.dart';
+import 'widgets/conversation_navigation.dart';
 import 'widgets/inline_images.dart';
 import 'widgets/intro_dialog.dart';
 import 'widgets/message_image.dart';
@@ -82,6 +83,7 @@ class _AssistantPageState extends ConsumerState<AssistantPage> {
   final _input = TextEditingController();
   final _inputFocus = FocusNode();
   final _scroll = ScrollController();
+  late final _navigation = ConversationNavigationController(_scroll);
   final _pending = <PickedImage>[];
   bool _sending = false;
   bool _choosingFiles = false;
@@ -133,6 +135,7 @@ class _AssistantPageState extends ConsumerState<AssistantPage> {
   void dispose() {
     _input.dispose();
     _inputFocus.dispose();
+    _navigation.dispose();
     _scroll.dispose();
     super.dispose();
   }
@@ -140,8 +143,7 @@ class _AssistantPageState extends ConsumerState<AssistantPage> {
   /// 回到底部。列表是**倒着**的(见 [_list]),所以底 = offset 0,一个常数 ——
   /// 不必去问 `maxScrollExtent`(懒加载列表那个值是估的,本来就够不着真底)。
   void _toBottom() {
-    if (!_scroll.hasClients) return;
-    _scroll.animateTo(0, duration: Motion.fast, curve: Motion.standard);
+    unawaited(_navigation.toBottom());
   }
 
   /// [canvas] 给开场白用:那几句自带「要不要引用创作页」的答案,不必先让用户
@@ -185,7 +187,9 @@ class _AssistantPageState extends ConsumerState<AssistantPage> {
               }
             },
           );
-      if (mounted) _toBottom();
+      // The reversed desktop list already follows new content at offset zero.
+      // A reader may have opened an older turn while waiting for this reply.
+      if (mounted && !ref.read(desktopModeProvider)) _toBottom();
     } catch (_) {
       if (mounted) hintSnack(context, '未能加入发送队列，输入和图片已保留，请重试');
     } finally {
@@ -334,33 +338,46 @@ class _AssistantPageState extends ConsumerState<AssistantPage> {
     );
     _maybeShowIntro();
 
-    final desktopMain = ref.watch(desktopModeProvider) && !widget.embedded;
+    final desktop = ref.watch(desktopModeProvider);
+    final desktopMain = desktop && !widget.embedded;
+    if (desktop) _navigation.update(st, _kLiveKey);
+    final body = AnimatedSwitcher(
+      duration: Motion.medium,
+      child: !supported
+          ? const _ModelGate(key: ValueKey('model-gate'))
+          : !usable
+          ? const _Gate(key: ValueKey('gate'))
+          : st.isEmpty && !st.running && st.queue.isEmpty
+          ? KeyedSubtree(key: const ValueKey('empty'), child: _empty(scheme))
+          : KeyedSubtree(key: const ValueKey('list'), child: _list(st)),
+    );
     Widget chat({bool sidebar = false}) => Column(
       children: [
         desktopMain
             ? _desktopTopBar(scheme, st, sidebar: sidebar)
             : _topBar(scheme, st),
         Expanded(
-          child: AnimatedSwitcher(
-            duration: Motion.medium,
-            child: !supported
-                ? const _ModelGate(key: ValueKey('model-gate'))
-                : !usable
-                ? const _Gate(key: ValueKey('gate'))
-                : st.isEmpty && !st.running && st.queue.isEmpty
-                ? KeyedSubtree(
-                    key: const ValueKey('empty'),
-                    child: _empty(scheme),
-                  )
-                : KeyedSubtree(key: const ValueKey('list'), child: _list(st)),
-          ),
+          child: desktop
+              ? ConversationNavigation(
+                  controller: _navigation,
+                  embedded: widget.embedded,
+                  child: body,
+                )
+              : body,
         ),
         if (desktopMain || (supported && usable))
-          _inputBar(
-            scheme,
-            st,
-            desktopMain: desktopMain,
-            enabled: supported && usable,
+          Center(
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxWidth: desktopMain ? 960 : double.infinity,
+              ),
+              child: _inputBar(
+                scheme,
+                st,
+                desktopMain: desktopMain,
+                enabled: supported && usable,
+              ),
+            ),
           ),
       ],
     );
@@ -406,14 +423,7 @@ class _AssistantPageState extends ConsumerState<AssistantPage> {
                           color: scheme.outlineVariant,
                         ),
                       ],
-                      Expanded(
-                        child: Center(
-                          child: ConstrainedBox(
-                            constraints: const BoxConstraints(maxWidth: 960),
-                            child: chat(sidebar: sidebar),
-                          ),
-                        ),
-                      ),
+                      Expanded(child: chat(sidebar: sidebar)),
                     ],
                   );
                 },
@@ -445,20 +455,23 @@ class _AssistantPageState extends ConsumerState<AssistantPage> {
     padding: const EdgeInsets.fromLTRB(18, 8, 10, 8),
     child: Row(
       children: [
-        Icon(Icons.auto_awesome, size: 20, color: scheme.primary),
-        const SizedBox(width: 10),
         Expanded(
-          child: Text(
-            'AI 助手',
-            style: context.texts.titleMedium!.copyWith(
-              fontWeight: FontWeight.w600,
+          child: Tooltip(
+            message: st.isEmpty
+                ? '新对话'
+                : ArchivedSession(id: 0, msgs: st.msgs, at: 0).title,
+            child: Text(
+              st.isEmpty
+                  ? '新对话'
+                  : ArchivedSession(id: 0, msgs: st.msgs, at: 0).title,
+              key: const ValueKey('assistant-conversation-title'),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: context.texts.titleMedium!.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ),
-        ),
-        IconButton(
-          tooltip: '助手设置',
-          onPressed: () => showAssistantSettings(context),
-          icon: const Icon(Icons.tune, size: 20),
         ),
         if (!sidebar) ...[
           _historyButton(),
@@ -468,6 +481,12 @@ class _AssistantPageState extends ConsumerState<AssistantPage> {
             icon: const Icon(Icons.edit_square, size: 20),
           ),
         ],
+        IconButton(
+          key: const ValueKey('assistant-main-settings'),
+          tooltip: '助手设置',
+          onPressed: () => showAssistantSettings(context),
+          icon: const Icon(Icons.tune, size: 20),
+        ),
       ],
     ),
   );
@@ -650,7 +669,11 @@ class _AssistantPageState extends ConsumerState<AssistantPage> {
     final fontSize =
         ref.watch(assistantSettingsProvider.select((s) => s.value?.fontSize)) ??
         AssistantSettings.fontSizeDefault;
+    Widget anchor(String id, Widget child) => ref.watch(desktopModeProvider)
+        ? KeyedSubtree(key: _navigation.keyFor(id), child: child)
+        : child;
     return ListView.builder(
+      key: const ValueKey('assistant-message-list'),
       controller: _scroll,
       reverse: true,
       padding: const EdgeInsets.fromLTRB(14, 4, 14, 8),
@@ -674,21 +697,24 @@ class _AssistantPageState extends ConsumerState<AssistantPage> {
             key: ValueKey(q.id),
             animate: now - q.at < 1500,
             grow: true,
-            child: _MsgTile(
-              msg: AssistantMsg(
-                id: q.id,
-                role: MsgRole.user,
-                text: q.text.trim(),
-                at: q.at,
-                withCanvas: q.withCanvas,
+            child: anchor(
+              q.id,
+              _MsgTile(
+                msg: AssistantMsg(
+                  id: q.id,
+                  role: MsgRole.user,
+                  text: q.text.trim(),
+                  at: q.at,
+                  withCanvas: q.withCanvas,
+                ),
+                queued: true,
+                queuedImages: q.images,
+                fontSize: fontSize,
+                onLongPress: () => _queuedMenu(q),
+                onMenu: ref.watch(desktopModeProvider)
+                    ? (position) => _queuedMenu(q, position: position)
+                    : null,
               ),
-              queued: true,
-              queuedImages: q.images,
-              fontSize: fontSize,
-              onLongPress: () => _queuedMenu(q),
-              onMenu: ref.watch(desktopModeProvider)
-                  ? (position) => _queuedMenu(q, position: position)
-                  : null,
             ),
           );
         }
@@ -697,7 +723,7 @@ class _AssistantPageState extends ConsumerState<AssistantPage> {
             key: const ValueKey(_kLiveKey),
             animate: true,
             grow: true,
-            child: _LiveTurn(state: st, fontSize: fontSize),
+            child: anchor(_kLiveKey, _LiveTurn(state: st, fontSize: fontSize)),
           );
         }
         final at = st.msgs.length - 1 - (i - nq - live);
@@ -727,18 +753,21 @@ class _AssistantPageState extends ConsumerState<AssistantPage> {
           animate: now - m.at < 1500 && handoff == null,
           // AI 回复和报错是顶替「正在跑」那条出现的,再从 0 长高一遍会先塌后涨
           grow: m.role == MsgRole.user,
-          child: _MsgTile(
-            msg: m,
-            prev: m.draw == null ? null : prevProposal(st.msgs, m.id),
-            live: m.id == liveId,
-            inlineDetails: ref.watch(desktopModeProvider) && !widget.embedded,
-            fontSize: fontSize,
-            onLongPress: () => _menu(m),
-            onMenu: ref.watch(desktopModeProvider)
-                ? (position) => _menu(m, position: position)
-                : null,
-            onRetry: retryable ? () => _retryFrom(ask!.id) : null,
-            handoffSecs: handoff,
+          child: anchor(
+            m.id,
+            _MsgTile(
+              msg: m,
+              prev: m.draw == null ? null : prevProposal(st.msgs, m.id),
+              live: m.id == liveId,
+              inlineDetails: ref.watch(desktopModeProvider) && !widget.embedded,
+              fontSize: fontSize,
+              onLongPress: () => _menu(m),
+              onMenu: ref.watch(desktopModeProvider)
+                  ? (position) => _menu(m, position: position)
+                  : null,
+              onRetry: retryable ? () => _retryFrom(ask!.id) : null,
+              handoffSecs: handoff,
+            ),
           ),
         );
       },
@@ -932,7 +961,7 @@ class _AssistantPageState extends ConsumerState<AssistantPage> {
     }
     _toBottom();
     await ref.read(assistantProvider.notifier).retryFrom(askId, text: text);
-    if (mounted) _toBottom();
+    if (mounted && !ref.read(desktopModeProvider)) _toBottom();
   }
 
   /// 从 [ask] 这一句重来之前:后面还有别的轮就先问一句,那几轮会一起丢掉。

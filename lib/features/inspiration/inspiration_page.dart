@@ -951,6 +951,7 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
       return Padding(
         padding: const EdgeInsets.fromLTRB(12, 10, 8, 0),
         child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             ScrollConfiguration(
               behavior: ScrollConfiguration.of(context).copyWith(
