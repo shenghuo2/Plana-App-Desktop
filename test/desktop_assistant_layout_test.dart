@@ -415,37 +415,27 @@ void main() {
         expect(nav.keyFor('question-0').currentContext, isNull);
         if (embedded) {
           expect(key('assistant-conversation-title'), findsNothing);
-          await tester.tap(key('assistant-outline-toggle'));
-          await tester.pumpAndSettle();
-          expect(
-            tester.getRect(key('assistant-outline-drawer')).right,
-            closeTo(
-              tester.getRect(find.byType(ConversationNavigation)).right,
-              1,
-            ),
-          );
         } else {
-          final outline = tester.getRect(key('assistant-tick-navigation'));
-          final body = tester.getRect(find.byType(ConversationNavigation));
-          expect(outline.center.dy, closeTo(body.center.dy, 1));
-          expect(find.text('对话目录'), findsNothing);
           expect(
             tester.getRect(key('assistant-message-list')).center.dx,
             closeTo(tester.getRect(key('assistant-composer')).center.dx, 1),
           );
         }
+        final outline = tester.getRect(key('assistant-tick-navigation'));
+        final body = tester.getRect(find.byType(ConversationNavigation));
+        expect(outline.center.dy, closeTo(body.center.dy, 1));
+        expect(outline.right, closeTo(body.right, 1));
+        expect(find.text('对话目录'), findsNothing);
+        expect(key('assistant-outline-drawer'), findsNothing);
+        expect(key('assistant-outline-toggle'), findsNothing);
         await screenshot(
           tester,
-          'assistant-outline-${embedded ? 'drawer' : 'main'}${dark ? '-dark' : ''}-20261110',
+          'assistant-taper-long-${embedded ? 'sidebar' : 'main'}${dark ? '-dark' : ''}-20261110',
         );
-        if (embedded) {
-          await tester.tap(key('assistant-outline-question-0'));
-        } else {
-          final rail = tester.getRect(key('assistant-tick-navigation'));
-          await tester.tapAt(Offset(rail.right - 18, rail.center.dy));
-          await tester.pump();
-          await tester.sendKeyEvent(LogicalKeyboardKey.home);
-        }
+        final rail = tester.getRect(key('assistant-tick-navigation'));
+        await tester.tapAt(Offset(rail.right - 18, rail.center.dy));
+        await tester.pump();
+        await tester.sendKeyEvent(LogicalKeyboardKey.home);
         await tester.pumpAndSettle();
         expect(nav.keyFor('question-0').currentContext, isNotNull);
         final oldest = tester.getRect(find.byKey(nav.keyFor('question-0')));
@@ -464,7 +454,6 @@ void main() {
           tester,
           'assistant-bottom-${embedded ? 'embedded' : 'main'}${dark ? '-dark' : ''}-20261110',
         );
-        if (embedded) expect(key('assistant-outline-toggle'), findsOneWidget);
 
         // Streaming and queued turns must not pull a reader away from old messages.
         final before = nav.scroll.offset;
@@ -481,7 +470,7 @@ void main() {
         expect(nav.scroll.offset, closeTo(0, .1));
         expect(key('assistant-to-bottom'), findsNothing);
 
-        if (!embedded) {
+        {
           // A held pointer at the rail edge scrolls the tick window; releasing
           // outside must stop that timer and leave the selected turn alone.
           await tester.sendKeyEvent(LogicalKeyboardKey.escape);
@@ -514,22 +503,7 @@ void main() {
           await mouse.removePointer();
         }
 
-        if (embedded) {
-          await tester.tap(key('assistant-outline-toggle'));
-          await tester.pumpAndSettle();
-        }
-        if (embedded) {
-          await tester.scrollUntilVisible(
-            key('assistant-outline-question-35'),
-            250,
-            scrollable: find.descendant(
-              of: key('assistant-outline-list'),
-              matching: find.byType(Scrollable),
-            ),
-          );
-          await tester.pumpAndSettle();
-          await tester.tap(key('assistant-outline-question-35'));
-        } else {
+        {
           final rail = tester.getRect(key('assistant-tick-navigation'));
           await tester.tapAt(Offset(rail.right - 18, rail.center.dy));
           await tester.pump();
@@ -589,136 +563,167 @@ void main() {
     );
   }
 
-  for (final dark in [false, true]) {
-    testWidgets('main fisheye hovers, scrubs, steps and folds: dark=$dark', (
-      tester,
-    ) async {
-      final notifier = c.read(assistantProvider.notifier) as _FixtureAssistant;
-      notifier.seed(
-        AssistantState(
-          msgs: [
-            for (var i = 0; i < 12; i++) ...[
-              AssistantMsg(
-                id: 'tick-$i',
-                role: MsgRole.user,
-                text: '第 ${i + 1} 轮：森林小屋与星空，保留温暖的灯光',
-                at: i * 2 + 1,
-              ),
-              AssistantMsg(
-                id: 'text-$i',
-                role: MsgRole.ai,
-                text: List.filled(
-                  12 + i % 3,
-                  '窗边洒满月光，院子里有一只正在打盹的小猫。',
-                ).join('\n\n'),
-                at: i * 2 + 2,
-              ),
+  for (final (embedded, dark) in [
+    (false, false),
+    (false, true),
+    (true, false),
+    (true, true),
+  ]) {
+    testWidgets(
+      'fisheye hovers, scrubs, steps and folds: embedded=$embedded dark=$dark',
+      (tester) async {
+        final notifier =
+            c.read(assistantProvider.notifier) as _FixtureAssistant;
+        notifier.seed(
+          AssistantState(
+            msgs: [
+              for (var i = 0; i < 12; i++) ...[
+                AssistantMsg(
+                  id: 'tick-$i',
+                  role: MsgRole.user,
+                  text: '第 ${i + 1} 轮：森林小屋与星空，保留温暖的灯光',
+                  at: i * 2 + 1,
+                ),
+                AssistantMsg(
+                  id: 'text-$i',
+                  role: MsgRole.ai,
+                  text: List.filled(
+                    12 + i % 3,
+                    '窗边洒满月光，院子里有一只正在打盹的小猫。',
+                  ).join('\n\n'),
+                  at: i * 2 + 2,
+                ),
+              ],
             ],
-          ],
-        ),
-      );
-      await mount(
-        tester,
-        dark: dark,
-        scale: dark ? 1.4 : 1,
-        size: dark ? const Size(1000, 820) : const Size(1600, 900),
-      );
-      final nav = tester
-          .widget<ConversationNavigation>(find.byType(ConversationNavigation))
-          .controller;
-      final body = tester.getRect(find.byType(ConversationNavigation));
-      final list = tester.getRect(key('assistant-message-list'));
-      final input = tester.getRect(key('assistant-composer'));
-      expect(list.center.dx, closeTo(body.center.dx, 1));
-      expect(input.center.dx, closeTo(body.center.dx, 1));
-      expect(list.width, lessThanOrEqualTo(960));
-      expect(find.text('对话目录'), findsNothing);
-      expect(key('assistant-outline'), findsNothing);
-      expect(tester.getSize(key('assistant-tick-navigation')).width, 44);
-      final resting = <int, Offset>{
-        for (var i = 0; i < 12; i++)
-          i: tester.getCenter(key('assistant-tick-tick-$i')),
-      };
-      final idleWidth = tester.getSize(key('assistant-tick-tick-5')).width;
-      await screenshot(
-        tester,
-        'assistant-fisheye-idle${dark ? '-dark' : ''}-20261110',
-      );
-      final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
-      await mouse.addPointer(location: const Offset(10, 10));
-      await mouse.moveTo(resting[5]!);
-      await tester.pumpAndSettle();
-      expect(
-        tester.getSize(key('assistant-tick-tick-5')).width,
-        greaterThan(idleWidth + 15),
-      );
-      expect(key('assistant-tick-label-tick-5'), findsOneWidget);
-      expect(key('assistant-tick-label-tick-0'), findsNothing);
-      final labels = [
-        for (var i = 3; i <= 7; i++)
-          tester.getRect(key('assistant-tick-label-tick-$i')),
-      ];
-      for (var i = 1; i < labels.length; i++) {
-        expect(
-          labels[i - 1].bottom,
-          lessThanOrEqualTo(labels[i].top + 2),
-          reason: 'Hover labels must remain legible at large text sizes.',
+          ),
         );
-      }
-      await screenshot(
-        tester,
-        'assistant-fisheye-hover${dark ? '-dark' : ''}-20261110',
-      );
-      await mouse.down(resting[5]!);
-      await tester.pump(const Duration(milliseconds: 20));
-      await mouse.moveTo(resting[8]!);
-      await tester.pump(const Duration(milliseconds: 20));
-      await mouse.up();
-      await tester.pumpAndSettle();
-      expect(nav.activeId, 'tick-8');
-      expect(nav.keyFor('tick-8').currentContext, isNotNull);
-      expect(
-        tester.getRect(find.byKey(nav.keyFor('tick-8'))).overlaps(list),
-        isTrue,
-      );
-      expect(
-        tester.getCenter(key('assistant-to-bottom')).dx,
-        closeTo(input.center.dx, 1),
-      );
-      await tester.sendEventToBinding(
-        PointerScrollEvent(
-          position: resting[8]!,
-          kind: PointerDeviceKind.mouse,
-          scrollDelta: const Offset(0, -120),
-        ),
-      );
-      await tester.pumpAndSettle();
-      expect(nav.activeId, 'tick-7');
-      await tester.sendKeyEvent(LogicalKeyboardKey.home);
-      await tester.pumpAndSettle();
-      expect(nav.activeId, 'tick-0');
-      await tester.sendKeyEvent(LogicalKeyboardKey.end);
-      await tester.pumpAndSettle();
-      expect(nav.activeId, 'tick-11');
-      await mouse.moveTo(const Offset(10, 10));
-      await tester.pumpAndSettle();
-      expect(tester.getSize(key('assistant-tick-navigation')).width, 44);
-      expect(key('assistant-tick-label-tick-11'), findsNothing);
-      await tester.tap(key('assistant-to-bottom'));
-      await tester.pumpAndSettle();
-      expect(nav.scroll.offset, 0);
-      expect(key('assistant-to-bottom'), findsNothing);
-      // Releasing outside the rail must also stop scrubbing and hide the lens.
-      await mouse.moveTo(resting[5]!);
-      await tester.pumpAndSettle();
-      await mouse.down(resting[5]!);
-      await mouse.moveTo(const Offset(10, 10));
-      await mouse.up();
-      await tester.pumpAndSettle();
-      expect(tester.getSize(key('assistant-tick-navigation')).width, 44);
-      await mouse.removePointer();
-      await finish(tester);
-    });
+        await mount(
+          tester,
+          dark: dark,
+          embedded: embedded,
+          embeddedWidth: dark ? 330 : 400,
+          scale: dark ? 1.4 : 1,
+          size: dark ? const Size(1000, 820) : const Size(1600, 900),
+        );
+        final nav = tester
+            .widget<ConversationNavigation>(find.byType(ConversationNavigation))
+            .controller;
+        final body = tester.getRect(find.byType(ConversationNavigation));
+        final list = tester.getRect(key('assistant-message-list'));
+        final input = embedded
+            ? body
+            : tester.getRect(key('assistant-composer'));
+        expect(list.center.dx, closeTo(body.center.dx, 1));
+        expect(input.center.dx, closeTo(body.center.dx, 1));
+        expect(list.width, lessThanOrEqualTo(960));
+        expect(find.text('对话目录'), findsNothing);
+        expect(key('assistant-outline'), findsNothing);
+        expect(tester.getSize(key('assistant-tick-navigation')).width, 44);
+        final resting = <int, Offset>{
+          for (var i = 0; i < 12; i++)
+            i: tester.getCenter(key('assistant-tick-tick-$i')),
+        };
+        final idleWidth = tester.getSize(key('assistant-tick-tick-5')).width;
+        await screenshot(
+          tester,
+          'assistant-taper-idle-${embedded ? 'sidebar' : 'main'}${dark ? '-dark' : ''}-20261110',
+        );
+        final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+        await mouse.addPointer(location: const Offset(10, 10));
+        await mouse.moveTo(resting[5]!);
+        await tester.pumpAndSettle();
+        expect(
+          tester.getSize(key('assistant-tick-tick-5')).width,
+          greaterThan(idleWidth + 15),
+        );
+        final lengths = [
+          for (var i = 0; i <= 5; i++)
+            tester.getSize(key('assistant-tick-tick-${5 - i}')).width,
+        ];
+        expect(
+          lengths[0] - lengths[1],
+          greaterThan(8),
+          reason: 'The focus tick must stand out from its neighbors.',
+        );
+        for (var i = 1; i < lengths.length; i++) {
+          expect(lengths[i], lessThan(lengths[i - 1]));
+          expect(
+            tester.getSize(key('assistant-tick-tick-${5 + i}')).width,
+            closeTo(lengths[i], .1),
+          );
+        }
+        expect(key('assistant-tick-label-tick-5'), findsOneWidget);
+        expect(key('assistant-tick-label-tick-0'), findsNothing);
+        final labels = [
+          for (var i = 3; i <= 7; i++)
+            tester.getRect(key('assistant-tick-label-tick-$i')),
+        ];
+        for (final label in labels) {
+          expect(label.left, greaterThanOrEqualTo(body.left));
+          expect(label.right, lessThan(body.right));
+        }
+        for (var i = 1; i < labels.length; i++) {
+          expect(
+            labels[i - 1].bottom,
+            lessThanOrEqualTo(labels[i].top + 2),
+            reason: 'Hover labels must remain legible at large text sizes.',
+          );
+        }
+        await screenshot(
+          tester,
+          'assistant-taper-hover-${embedded ? 'sidebar' : 'main'}${dark ? '-dark' : ''}-20261110',
+        );
+        await mouse.down(resting[5]!);
+        await tester.pump(const Duration(milliseconds: 20));
+        await mouse.moveTo(resting[8]!);
+        await tester.pump(const Duration(milliseconds: 20));
+        await mouse.up();
+        await tester.pumpAndSettle();
+        expect(nav.activeId, 'tick-8');
+        expect(nav.keyFor('tick-8').currentContext, isNotNull);
+        expect(
+          tester.getRect(find.byKey(nav.keyFor('tick-8'))).overlaps(list),
+          isTrue,
+        );
+        expect(
+          tester.getCenter(key('assistant-to-bottom')).dx,
+          closeTo(input.center.dx, 1),
+        );
+        await tester.sendEventToBinding(
+          PointerScrollEvent(
+            position: resting[8]!,
+            kind: PointerDeviceKind.mouse,
+            scrollDelta: const Offset(0, -120),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(nav.activeId, 'tick-7');
+        await tester.sendKeyEvent(LogicalKeyboardKey.home);
+        await tester.pumpAndSettle();
+        expect(nav.activeId, 'tick-0');
+        await tester.sendKeyEvent(LogicalKeyboardKey.end);
+        await tester.pumpAndSettle();
+        expect(nav.activeId, 'tick-11');
+        await mouse.moveTo(const Offset(10, 10));
+        await tester.pumpAndSettle();
+        expect(tester.getSize(key('assistant-tick-navigation')).width, 44);
+        expect(key('assistant-tick-label-tick-11'), findsNothing);
+        await tester.tap(key('assistant-to-bottom'));
+        await tester.pumpAndSettle();
+        expect(nav.scroll.offset, 0);
+        expect(key('assistant-to-bottom'), findsNothing);
+        // Releasing outside the rail must also stop scrubbing and hide the lens.
+        await mouse.moveTo(resting[5]!);
+        await tester.pumpAndSettle();
+        await mouse.down(resting[5]!);
+        await mouse.moveTo(const Offset(10, 10));
+        await mouse.up();
+        await tester.pumpAndSettle();
+        expect(tester.getSize(key('assistant-tick-navigation')).width, 44);
+        await mouse.removePointer();
+        await finish(tester);
+      },
+    );
   }
 
   testWidgets('main proposal expands inside its message and survives resize', (

@@ -230,10 +230,7 @@ class ConversationNavigation extends StatefulWidget {
 }
 
 class _ConversationNavigationState extends State<ConversationNavigation> {
-  bool _open = false;
-
   Future<void> _reveal(String id) async {
-    if (widget.embedded) setState(() => _open = false);
     final found = await widget.controller.reveal(id);
     if (!found && mounted && widget.controller.activeId == id) {
       // No dialog is needed when a conversation changed or the user cancelled.
@@ -248,101 +245,9 @@ class _ConversationNavigationState extends State<ConversationNavigation> {
       builder: (context, box) {
         final nav = widget.controller;
         final scheme = context.scheme;
-        final width = math.min(260.0, box.maxWidth - 36);
-        final reserved = widget.embedded ? 24.0 : 0.0;
-        final panel = ConstrainedBox(
-          constraints: BoxConstraints(
-            maxHeight: math.max(120, box.maxHeight - 40),
-          ),
-          child: Material(
-            key: ValueKey(
-              widget.embedded
-                  ? 'assistant-outline-drawer'
-                  : 'assistant-outline',
-            ),
-            elevation: widget.embedded ? 6 : 2,
-            color: scheme.surfaceContainerLow,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(14),
-              side: BorderSide(color: scheme.outlineVariant),
-            ),
-            clipBehavior: Clip.antiAlias,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(12, 10, 4, 6),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Text('对话目录', style: context.texts.titleSmall),
-                      ),
-                      if (widget.embedded)
-                        IconButton(
-                          tooltip: '收起目录',
-                          onPressed: () => setState(() => _open = false),
-                          icon: const Icon(Icons.chevron_right, size: 20),
-                          visualDensity: VisualDensity.compact,
-                        ),
-                    ],
-                  ),
-                ),
-                if (nav.entries.isEmpty)
-                  Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: Text('开始对话后显示提问', style: context.texts.bodySmall),
-                  ),
-                if (nav.entries.isNotEmpty)
-                  Flexible(
-                    child: ListView.builder(
-                      key: const ValueKey('assistant-outline-list'),
-                      primary: false,
-                      shrinkWrap: true,
-                      padding: const EdgeInsets.fromLTRB(6, 0, 6, 8),
-                      itemCount: nav.entries.length,
-                      itemBuilder: (context, i) {
-                        final entry = nav.entries[i];
-                        final selected = nav.activeId == entry.id;
-                        return Tooltip(
-                          message: entry.label,
-                          child: Material(
-                            color: selected
-                                ? scheme.primaryContainer
-                                : Colors.transparent,
-                            borderRadius: BorderRadius.circular(8),
-                            child: InkWell(
-                              key: ValueKey('assistant-outline-${entry.id}'),
-                              onTap: () => _reveal(entry.id),
-                              child: Padding(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 9,
-                                  vertical: 10,
-                                ),
-                                child: Text(
-                                  '${i + 1}. ${entry.queued ? '待发送 · ' : ''}${entry.label}',
-                                  maxLines: 2,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: context.texts.bodySmall?.copyWith(
-                                    color: selected
-                                        ? scheme.onPrimaryContainer
-                                        : scheme.onSurfaceVariant,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-                  ),
-              ],
-            ),
-          ),
-        );
         return CallbackShortcuts(
           bindings: {
             const SingleActivator(LogicalKeyboardKey.escape): () {
-              if (_open) setState(() => _open = false);
               nav.cancel();
             },
           },
@@ -350,7 +255,6 @@ class _ConversationNavigationState extends State<ConversationNavigation> {
             clipBehavior: Clip.hardEdge,
             children: [
               Positioned.fill(
-                right: reserved,
                 child: NotificationListener<ScrollMetricsNotification>(
                   onNotification: (_) {
                     nav.refresh();
@@ -382,7 +286,7 @@ class _ConversationNavigationState extends State<ConversationNavigation> {
                   ),
                 ),
               ),
-              if (!widget.embedded && nav.entries.isNotEmpty)
+              if (nav.entries.isNotEmpty)
                 Positioned.fill(
                   left: null,
                   right: 0,
@@ -393,38 +297,6 @@ class _ConversationNavigationState extends State<ConversationNavigation> {
                       maxHeight: math.max(40, box.maxHeight - 32),
                       maxWidth: math.min(320, box.maxWidth - 32),
                       onSelect: _reveal,
-                    ),
-                  ),
-                ),
-              if (widget.embedded && !_open)
-                Positioned.fill(
-                  left: null,
-                  right: 0,
-                  child: Align(
-                    alignment: Alignment.centerRight,
-                    child: Material(
-                      color: scheme.surfaceContainerHigh,
-                      borderRadius: const BorderRadius.horizontal(
-                        left: Radius.circular(10),
-                      ),
-                      child: InkWell(
-                        key: const ValueKey('assistant-outline-toggle'),
-                        onTap: () => setState(() => _open = true),
-                        child: const Padding(
-                          padding: EdgeInsets.symmetric(
-                            horizontal: 4,
-                            vertical: 12,
-                          ),
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(Icons.chevron_left, size: 18),
-                              SizedBox(height: 6),
-                              RotatedBox(quarterTurns: 1, child: Text('目录')),
-                            ],
-                          ),
-                        ),
-                      ),
                     ),
                   ),
                 ),
@@ -448,37 +320,6 @@ class _ConversationNavigationState extends State<ConversationNavigation> {
                           Icons.arrow_downward,
                           color: scheme.onSurface,
                           size: 20,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              if (widget.embedded && _open)
-                Positioned.fill(
-                  child: GestureDetector(
-                    key: const ValueKey('assistant-outline-dismiss'),
-                    behavior: HitTestBehavior.opaque,
-                    onTap: () => setState(() => _open = false),
-                  ),
-                ),
-              if (widget.embedded)
-                Positioned.fill(
-                  left: null,
-                  right: 0,
-                  child: IgnorePointer(
-                    ignoring: !_open,
-                    child: Align(
-                      alignment: Alignment.centerRight,
-                      child: AnimatedSlide(
-                        offset: _open ? Offset.zero : const Offset(1.1, 0),
-                        duration: Motion.fast,
-                        curve: Motion.standard,
-                        child: ExcludeFocus(
-                          excluding: !_open,
-                          child: ExcludeSemantics(
-                            excluding: !_open,
-                            child: SizedBox(width: width, child: panel),
-                          ),
                         ),
                       ),
                     ),
@@ -760,8 +601,13 @@ class _FisheyeOutlineState extends State<_FisheyeOutline> {
                               open;
                           final y = baseY + bend;
                           final active = widget.controller.activeId == entry.id;
+                          // A narrow peak with a visible taper: approximately
+                          // 40, 28, 20, 16, 13 px, then the quiet 8 px baseline.
+                          // Selection changes color, not the hover length curve.
+                          final taper = math.pow(.62, distance.abs() / _pitch);
+                          final restLength = active ? 20.0 : 8.0;
                           final length =
-                              (active ? 20.0 : 12.0) + 24 * influence * open;
+                              restLength + (8 + 32 * taper - restLength) * open;
                           final showLabel =
                               (_cursor - index).abs() <= 2 && open > 0;
                           return Stack(
@@ -793,7 +639,9 @@ class _FisheyeOutlineState extends State<_FisheyeOutline> {
                                   top: y - 12 * scale,
                                   child: IgnorePointer(
                                     child: Opacity(
-                                      opacity: open * (.25 + .75 * influence),
+                                      // Keep the bubble opaque over chat text;
+                                      // only the label fades with distance.
+                                      opacity: open,
                                       child: Transform.scale(
                                         scale: .9 + .1 * influence,
                                         alignment: Alignment.centerRight,
@@ -828,7 +676,12 @@ class _FisheyeOutlineState extends State<_FisheyeOutline> {
                                                   ?.copyWith(
                                                     fontSize: 13,
                                                     height: 1.35,
-                                                    color: scheme.onSurface,
+                                                    color: scheme.onSurface
+                                                        .withValues(
+                                                          alpha:
+                                                              .45 +
+                                                              .55 * influence,
+                                                        ),
                                                   ),
                                             ),
                                           ),
