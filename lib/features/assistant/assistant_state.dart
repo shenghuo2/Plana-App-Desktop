@@ -85,6 +85,8 @@ class AssistantState {
   const AssistantState({
     this.msgs = const [],
     this.sessions = const [],
+    this.currentMeta,
+    this.temporary = false,
     this.running = false,
     this.queue = const [],
     this.liveTools = const [],
@@ -108,6 +110,28 @@ class AssistantState {
 
   /// 已归档的历史(新的在前)。
   final List<ArchivedSession> sessions;
+  final ConversationMeta? currentMeta;
+  final bool temporary;
+
+  bool get canChooseTemporary => isEmpty && !running && queue.isEmpty;
+  String get conversationTitle =>
+      temporary ? '临时聊天' : currentSession?.title ?? '新对话';
+
+  ArchivedSession? get currentSession {
+    if (temporary || !msgs.any((m) => m.role == MsgRole.user)) return null;
+    var meta = currentMeta;
+    if (meta == null) {
+      var id = msgs.first.at;
+      while (sessions.any((s) => s.id == id)) {
+        id++;
+      }
+      meta = ConversationMeta(id: id, at: msgs.last.at);
+    }
+    return meta.withMessages(msgs);
+  }
+
+  List<ArchivedSession> get history =>
+      sortedConversations([...sessions, ?currentSession]);
 
   final bool running;
 
@@ -143,6 +167,9 @@ class AssistantState {
   AssistantState copyWith({
     List<AssistantMsg>? msgs,
     List<ArchivedSession>? sessions,
+    ConversationMeta? currentMeta,
+    bool clearCurrentMeta = false,
+    bool? temporary,
     bool? running,
     List<QueuedAsk>? queue,
     List<ToolTrace>? liveTools,
@@ -155,6 +182,8 @@ class AssistantState {
   }) => AssistantState(
     msgs: msgs ?? this.msgs,
     sessions: sessions ?? this.sessions,
+    currentMeta: clearCurrentMeta ? null : currentMeta ?? this.currentMeta,
+    temporary: temporary ?? this.temporary,
     running: running ?? this.running,
     queue: queue ?? this.queue,
     liveTools: liveTools ?? this.liveTools,
@@ -326,6 +355,7 @@ class AssistantNotifier extends Notifier<AssistantState> {
     return AssistantState(
       msgs: s.initialCurrent,
       sessions: s.initialSessions,
+      currentMeta: s.initialCurrentMeta,
       mode: conversationMode(s.initialCurrent),
     );
   }
@@ -346,8 +376,17 @@ class AssistantNotifier extends Notifier<AssistantState> {
   /// 先改状态(立即生效),再尽力落盘。[persist] = false 用于纯运行态
   /// (工具轨迹、阶段文案)的改动,不值得为它写盘。
   void _set(AssistantState next, {bool persist = true}) {
+    if (!next.temporary && next.currentMeta == null) {
+      next = next.copyWith(currentMeta: next.currentSession?.meta);
+    }
     state = next;
-    if (persist) _store.schedule(next.msgs, next.sessions);
+    if (persist) {
+      _store.schedule(
+        next.temporary ? const [] : next.msgs,
+        next.sessions,
+        currentMeta: next.temporary ? null : next.currentMeta,
+      );
+    }
   }
 
   // ---- 排队 ----
@@ -617,6 +656,7 @@ class AssistantNotifier extends Notifier<AssistantState> {
     final trimmed = text.trim();
     if (trimmed.isEmpty && images.isEmpty) return;
     final original = state.msgs;
+    final temporary = state.temporary;
     final replaceAt = replacing == null
         ? original.length
         : original.indexOf(replacing);
@@ -694,7 +734,10 @@ class AssistantNotifier extends Notifier<AssistantState> {
         if (endpoint == null) {
           b64 = base64Encode(await prepareAssistantReferenceSheet(images));
         }
-        hashes = replacing?.imageHashes ?? await _store.putImages(images);
+        if (!valid()) return;
+        hashes =
+            replacing?.imageHashes ??
+            await _store.putImages(images, temporary: temporary);
       }
       if (!valid()) {
         return;
@@ -702,6 +745,7 @@ class AssistantNotifier extends Notifier<AssistantState> {
 
       _set(
         state.copyWith(
+          currentMeta: _acceptedTurnMeta(),
           msgs: [
             ...preceding,
             AssistantMsg(
@@ -1026,7 +1070,7 @@ class AssistantNotifier extends Notifier<AssistantState> {
     _traces = all.length > AssistantStore.maxTraces
         ? all.sublist(all.length - AssistantStore.maxTraces)
         : all;
-    unawaited(_store.saveTraces(_traces));
+    if (!state.temporary) unawaited(_store.saveTraces(_traces));
   }
 
   void _clearTraces() {
@@ -1453,72 +1497,145 @@ class AssistantNotifier extends Notifier<AssistantState> {
 
   // ---- 会话 ----
 
+  int _eventAt() {
+    var at = _now;
+    for (final session in state.history) {
+      if (session.meta.orderAt >= at) at = session.meta.orderAt + 1;
+    }
+    return at;
+  }
+
+  ConversationMeta? _acceptedTurnMeta() {
+    if (state.temporary) return null;
+    final existing = state.currentSession?.meta ?? state.currentMeta;
+    if (existing != null) return existing.copyWith(at: _eventAt());
+    var id = DateTime.now().microsecondsSinceEpoch;
+    while (state.sessions.any((s) => s.id == id)) {
+      id++;
+    }
+    return ConversationMeta(id: id, at: _eventAt());
+  }
+
+  /// Only a blank conversation can opt in; a temporary conversation never turns
+  /// into a saved one after the user has started talking.
+  void setTemporary(bool value) {
+    if (_busy || !state.canChooseTemporary || state.temporary == value) return;
+    _clearTraces();
+    _store.clearTemporaryImages();
+    _set(state.copyWith(temporary: value, clearCurrentMeta: true));
+  }
+
+  List<ArchivedSession> _limitedHistory(Iterable<ArchivedSession> sessions) {
+    final sorted = sortedConversations(sessions);
+    // Keep pinned conversations even when the ordinary history limit is reached.
+    return [
+      for (var i = 0; i < sorted.length; i++)
+        if (i < AssistantStore.maxSessions || sorted[i].meta.pinned) sorted[i],
+    ];
+  }
+
   /// 「新对话」:当前这段存进历史,清空。返回是否真的归档了(空对话不入库)。
   /// 模式回到「无」 —— 模式跟着对话走,新对话从「无」开始。
   bool archiveCurrent() {
     stop();
     _clearTraces();
-    final cur = state.msgs;
-    if (!cur.any((m) => m.role == MsgRole.user)) {
-      if (cur.isNotEmpty ||
-          state.queue.isNotEmpty ||
-          state.mode != AssistantMode.normal) {
-        _set(
-          state.copyWith(
-            msgs: const [],
-            mode: AssistantMode.normal,
-            queue: const [],
-          ),
-        );
-      }
-      return false;
-    }
-    final s = ArchivedSession(id: _now, msgs: cur, at: cur.last.at);
+    final current = state.currentSession;
+    _store.clearTemporaryImages();
     _set(
       state.copyWith(
         msgs: const [],
+        clearCurrentMeta: true,
+        temporary: false,
         mode: AssistantMode.normal,
         queue: const [],
-        sessions: [
-          s,
-          ...state.sessions,
-        ].take(AssistantStore.maxSessions).toList(),
+        sessions: _limitedHistory([?current, ...state.sessions]),
       ),
     );
-    return true;
+    return current != null;
   }
 
   /// 打开一段历史:它变成当前对话;当前那段(非空)顺手归档,不丢。
   /// 模式回到那段对话最后用的那个。
   void openSession(int id) {
+    if (state.currentSession?.id == id) return;
     final i = state.sessions.indexWhere((s) => s.id == id);
     if (i < 0) return;
     final target = state.sessions[i];
     stop();
     _clearTraces();
     final rest = [...state.sessions]..removeAt(i);
-    final cur = state.msgs;
-    if (cur.any((m) => m.role == MsgRole.user)) {
-      rest.insert(0, ArchivedSession(id: _now, msgs: cur, at: cur.last.at));
-    }
+    final current = state.currentSession;
+    if (current != null) rest.add(current);
+    _store.clearTemporaryImages();
     _set(
       state.copyWith(
         msgs: target.msgs,
-        sessions: rest,
+        currentMeta: target.meta,
+        temporary: false,
+        sessions: sortedConversations(rest),
         mode: conversationMode(target.msgs),
         queue: const [],
       ),
     );
   }
 
-  void deleteSession(int id) => _set(
-    state.copyWith(
-      sessions: [
-        for (final s in state.sessions)
-          if (s.id != id) s,
-      ],
-    ),
+  void _changeSession(
+    int id,
+    ConversationMeta Function(ConversationMeta) edit,
+  ) {
+    final current = state.currentSession;
+    if (current?.id == id) {
+      _set(state.copyWith(currentMeta: edit(current!.meta)));
+    } else {
+      _set(
+        state.copyWith(
+          sessions: sortedConversations([
+            for (final session in state.sessions)
+              if (session.id == id)
+                edit(session.meta).withMessages(session.msgs)
+              else
+                session,
+          ]),
+        ),
+      );
+    }
+  }
+
+  void renameSession(int id, String title) {
+    final cleaned = title.trim().replaceAll(RegExp(r'\s+'), ' ');
+    if (cleaned.isEmpty) return;
+    _changeSession(id, (meta) => meta.copyWith(customTitle: cleaned));
+  }
+
+  void toggleSessionPin(int id) => _changeSession(
+    id,
+    (meta) => meta.copyWith(pinnedAt: meta.pinned ? 0 : _eventAt()),
   );
+
+  void deleteSession(int id) {
+    if (state.currentSession?.id == id) {
+      stop();
+      _clearTraces();
+      _set(
+        state.copyWith(
+          msgs: const [],
+          clearCurrentMeta: true,
+          temporary: false,
+          mode: AssistantMode.normal,
+          queue: const [],
+        ),
+      );
+    } else {
+      _set(
+        state.copyWith(
+          sessions: [
+            for (final s in state.sessions)
+              if (s.id != id) s,
+          ],
+        ),
+      );
+    }
+  }
 
   void clearSessions() => _set(state.copyWith(sessions: const []));
 }

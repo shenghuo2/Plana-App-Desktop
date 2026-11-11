@@ -70,24 +70,12 @@ class _AssistantHistoryPanelState extends ConsumerState<AssistantHistoryPanel> {
     bool matches(ArchivedSession s) =>
         query.isEmpty ||
         '${s.title}\n${s.preview}'.toLowerCase().contains(query);
-    final sessions = state.sessions.where(matches).toList();
-    final current = ArchivedSession(
-      id: 0,
-      msgs: state.msgs,
-      at: state.msgs.isEmpty ? 0 : state.msgs.last.at,
-    );
+    final sessions = state.history.where(matches).toList();
+    final currentId = state.currentSession?.id;
     final list = ListView(
       shrinkWrap: !widget.sidebar,
       padding: const EdgeInsets.fromLTRB(10, 0, 10, 12),
       children: [
-        if (widget.sidebar && (state.isEmpty || matches(current))) ...[
-          _DesktopSessionRow(
-            session: current,
-            current: true,
-            empty: state.isEmpty,
-          ),
-          const SizedBox(height: 12),
-        ],
         if (widget.sidebar && sessions.isNotEmpty)
           Padding(
             padding: const EdgeInsets.fromLTRB(10, 6, 10, 8),
@@ -100,6 +88,7 @@ class _AssistantHistoryPanelState extends ConsumerState<AssistantHistoryPanel> {
           _DesktopSessionRow(
             key: ValueKey('assistant-session-${session.id}'),
             session: session,
+            current: currentId == session.id,
             onOpen: state.running
                 ? null
                 : () {
@@ -107,12 +96,14 @@ class _AssistantHistoryPanelState extends ConsumerState<AssistantHistoryPanel> {
                     if (!widget.sidebar) Navigator.pop(context);
                   },
             onDelete: () => notifier.deleteSession(session.id),
+            onPin: () => notifier.toggleSessionPin(session.id),
+            onRename: (title) => notifier.renameSession(session.id, title),
           ),
         if (sessions.isEmpty)
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 24),
             child: Text(
-              query.isNotEmpty ? '没有匹配的会话' : '还没有历史会话\n新建对话后,这段聊天会保存在这里。',
+              query.isNotEmpty ? '没有匹配的会话' : '还没有历史会话\n普通聊天开始后会显示在这里。',
               style: context.texts.bodySmall!.copyWith(
                 color: scheme.onSurfaceVariant,
                 height: 1.7,
@@ -177,7 +168,7 @@ class _AssistantHistoryPanelState extends ConsumerState<AssistantHistoryPanel> {
                 ],
               ),
             ),
-          if (widget.sidebar || state.sessions.length >= 6 || _query.isNotEmpty)
+          if (widget.sidebar || state.history.length >= 6 || _query.isNotEmpty)
             Padding(
               padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
               child: TextField(
@@ -213,15 +204,59 @@ class _DesktopSessionRow extends StatelessWidget {
     super.key,
     required this.session,
     this.current = false,
-    this.empty = false,
     this.onOpen,
-    this.onDelete,
+    required this.onDelete,
+    required this.onPin,
+    required this.onRename,
   });
   final ArchivedSession session;
   final bool current;
-  final bool empty;
   final VoidCallback? onOpen;
-  final VoidCallback? onDelete;
+  final VoidCallback onDelete;
+  final VoidCallback onPin;
+  final ValueChanged<String> onRename;
+
+  Future<void> _menu(BuildContext anchor) async {
+    final action = await showDesktopPopover<String>(
+      anchor,
+      width: 200,
+      maxHeight: 160,
+      builder: (context) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              key: const ValueKey('assistant-session-rename'),
+              leading: const Icon(Icons.drive_file_rename_outline, size: 20),
+              title: const Text('重命名'),
+              onTap: () => Navigator.pop(context, 'rename'),
+            ),
+            ListTile(
+              key: const ValueKey('assistant-session-delete'),
+              leading: Icon(
+                Icons.delete_outline,
+                size: 20,
+                color: context.scheme.error,
+              ),
+              title: Text('删除', style: TextStyle(color: context.scheme.error)),
+              onTap: () => Navigator.pop(context, 'delete'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (!anchor.mounted) return;
+    if (action == 'delete') {
+      onDelete();
+    } else if (action == 'rename') {
+      final name = await showDialog<String>(
+        context: anchor,
+        builder: (_) => _RenameConversation(title: session.title),
+      );
+      if (name != null && anchor.mounted) onRename(name);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -245,7 +280,7 @@ class _DesktopSessionRow extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          empty ? '新对话' : session.title,
+                          session.title,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: context.texts.bodySmall!.copyWith(
@@ -254,14 +289,12 @@ class _DesktopSessionRow extends StatelessWidget {
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          current
-                              ? '当前对话'
-                              : '${_when(session.at)} · ${session.turns} 轮',
+                          '${_when(session.at)} · ${session.turns} 轮',
                           style: context.texts.labelSmall!.copyWith(
                             color: scheme.onSurfaceVariant,
                           ),
                         ),
-                        if (!current && session.preview.isNotEmpty) ...[
+                        if (session.preview.isNotEmpty) ...[
                           const SizedBox(height: 3),
                           Text(
                             session.preview,
@@ -275,19 +308,40 @@ class _DesktopSessionRow extends StatelessWidget {
                       ],
                     ),
                   ),
-                  if (onDelete != null)
-                    IconButton(
-                      tooltip: '删除会话',
+                  IconButton(
+                    key: ValueKey('assistant-session-pin-${session.id}'),
+                    tooltip: session.meta.pinned ? '取消置顶' : '置顶',
+                    visualDensity: VisualDensity.compact,
+                    constraints: const BoxConstraints.tightFor(
+                      width: 32,
+                      height: 36,
+                    ),
+                    padding: EdgeInsets.zero,
+                    onPressed: onPin,
+                    icon: Icon(
+                      session.meta.pinned
+                          ? Icons.push_pin
+                          : Icons.push_pin_outlined,
+                      size: 17,
+                      color: session.meta.pinned
+                          ? scheme.primary
+                          : scheme.outline,
+                    ),
+                  ),
+                  Builder(
+                    builder: (anchor) => IconButton(
+                      key: ValueKey('assistant-session-menu-${session.id}'),
+                      tooltip: '会话操作',
                       visualDensity: VisualDensity.compact,
-                      onPressed: onDelete,
-                      icon: Icon(
-                        Icons.delete_outline,
-                        size: 16,
-                        color: scheme.outline,
+                      constraints: const BoxConstraints.tightFor(
+                        width: 32,
+                        height: 36,
                       ),
-                    )
-                  else
-                    const SizedBox(width: 8),
+                      padding: EdgeInsets.zero,
+                      onPressed: () => _menu(anchor),
+                      icon: const Icon(Icons.more_horiz, size: 19),
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -296,6 +350,57 @@ class _DesktopSessionRow extends StatelessWidget {
       ),
     );
   }
+}
+
+class _RenameConversation extends StatefulWidget {
+  const _RenameConversation({required this.title});
+  final String title;
+  @override
+  State<_RenameConversation> createState() => _RenameConversationState();
+}
+
+class _RenameConversationState extends State<_RenameConversation> {
+  late final _name = TextEditingController(text: widget.title)
+    ..selection = TextSelection(
+      baseOffset: 0,
+      extentOffset: widget.title.length,
+    );
+  @override
+  void dispose() {
+    _name.dispose();
+    super.dispose();
+  }
+
+  void _save() {
+    if (_name.text.trim().isNotEmpty) Navigator.pop(context, _name.text.trim());
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: const Text('重命名会话'),
+    content: SizedBox(
+      width: 360,
+      child: TextField(
+        key: const ValueKey('assistant-session-name'),
+        controller: _name,
+        autofocus: true,
+        maxLength: 100,
+        decoration: const InputDecoration(labelText: '会话名称'),
+        onChanged: (_) => setState(() {}),
+        onSubmitted: (_) => _save(),
+      ),
+    ),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.pop(context),
+        child: const Text('取消'),
+      ),
+      FilledButton(
+        onPressed: _name.text.trim().isEmpty ? null : _save,
+        child: const Text('保存'),
+      ),
+    ],
+  );
 }
 
 class _HistorySheet extends ConsumerWidget {

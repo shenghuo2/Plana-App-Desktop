@@ -367,6 +367,137 @@ void main() {
     },
   );
 
+  for (final embedded in [false, true]) {
+    testWidgets(
+      'history has stable rows, external pins and anchored actions: embedded=$embedded',
+      (tester) async {
+        await mount(tester, embedded: embedded);
+        Future<void> showHistory() async {
+          if (embedded) {
+            await tester.tap(find.byTooltip('历史会话'));
+            await tester.pumpAndSettle();
+          }
+        }
+
+        await showHistory();
+        expect(
+          key('assistant-session-1'),
+          findsOneWidget,
+        ); // Current is in the same list.
+        expect(find.byTooltip('删除会话'), findsNothing);
+        final beforeY = tester.getTopLeft(key('assistant-session-200')).dy;
+        await tester.tap(key('assistant-session-200'));
+        await tester.pumpAndSettle();
+        await showHistory();
+        expect(tester.getTopLeft(key('assistant-session-200')).dy, beforeY);
+        await tester.tap(key('assistant-session-pin-100'));
+        await tester.pumpAndSettle();
+        expect(
+          tester.getTopLeft(key('assistant-session-100')).dy,
+          lessThan(tester.getTopLeft(key('assistant-session-300')).dy),
+        );
+        final anchor = tester.getRect(key('assistant-session-menu-100'));
+        await tester.tap(key('assistant-session-menu-100'));
+        await tester.pumpAndSettle();
+        final popovers = key('desktop-popover');
+        final panel = tester.getRect(popovers.last);
+        expect(panel.top, closeTo(anchor.bottom + 8, 1));
+        expect(panel.width, 200);
+        expect(key('assistant-session-rename'), findsOneWidget);
+        expect(key('assistant-session-delete'), findsOneWidget);
+        await screenshot(
+          tester,
+          'assistant-history-actions-${embedded ? 'sidebar' : 'main'}-20261110',
+        );
+        await tester.tap(key('assistant-session-rename'));
+        await tester.pumpAndSettle();
+        await tester.enterText(key('assistant-session-name'), '重命名的猫猫会话');
+        await tester.tap(find.widgetWithText(FilledButton, '保存'));
+        await tester.pumpAndSettle();
+        await tester.tap(key('assistant-session-100'));
+        await tester.pumpAndSettle();
+        expect(c.read(assistantProvider).conversationTitle, '重命名的猫猫会话');
+        if (!embedded) {
+          expect(
+            tester.widget<Text>(key('assistant-conversation-title')).data,
+            '重命名的猫猫会话',
+          );
+        }
+        await showHistory();
+        await tester.tap(key('assistant-session-menu-100'));
+        await tester.pumpAndSettle();
+        await tester.tap(key('assistant-session-delete'));
+        await tester.pumpAndSettle();
+        expect(key('assistant-session-100'), findsNothing);
+        expect(c.read(assistantProvider).msgs, isEmpty);
+        await finish(tester);
+      },
+    );
+
+    testWidgets(
+      'temporary controls exist only in blank chat and leave no history: embedded=$embedded',
+      (tester) async {
+        final notifier =
+            c.read(assistantProvider.notifier) as _FixtureAssistant;
+        await mount(tester, embedded: embedded);
+        final button = key(
+          embedded
+              ? 'assistant-embedded-temporary'
+              : 'assistant-main-temporary',
+        );
+        expect(button, findsNothing);
+        notifier.archiveCurrent();
+        await tester.pumpAndSettle();
+        expect(button, findsOneWidget);
+        final neighbor = embedded
+            ? find.widgetWithText(FilterChip, '模式')
+            : key('assistant-main-settings');
+        expect(
+          tester.getRect(button).left,
+          greaterThanOrEqualTo(tester.getRect(neighbor).right),
+        );
+        await tester.tap(button);
+        await tester.pumpAndSettle();
+        expect(c.read(assistantProvider).temporary, isTrue);
+        expect(find.textContaining('离开后聊天消失'), findsOneWidget);
+        await screenshot(
+          tester,
+          'assistant-temporary-${embedded ? 'sidebar' : 'main'}-20261110',
+        );
+        notifier.seed(
+          c
+              .read(assistantProvider)
+              .copyWith(
+                msgs: const [
+                  AssistantMsg(
+                    id: 'temporary-user',
+                    role: MsgRole.user,
+                    text: '临时问候',
+                    at: 900,
+                  ),
+                ],
+              ),
+        );
+        await tester.pumpAndSettle();
+        expect(button, findsNothing);
+        final input = find.widgetWithText(TextField, '想画什么、想改哪里…');
+        await tester.enterText(input, '临时未发草稿');
+        if (embedded) {
+          await tester.tap(find.byTooltip('历史会话'));
+          await tester.pumpAndSettle();
+        }
+        expect(key('assistant-session-900'), findsNothing);
+        await tester.tap(key('assistant-session-100'));
+        await tester.pumpAndSettle();
+        expect(c.read(assistantProvider).temporary, isFalse);
+        expect(c.read(assistantProvider).msgs.first.text, '森林中的小屋');
+        expect(tester.widget<TextField>(input).controller!.text, isEmpty);
+        expect(button, findsNothing);
+        await finish(tester);
+      },
+    );
+  }
+
   for (final (embedded, dark) in [
     (false, false),
     (true, false),

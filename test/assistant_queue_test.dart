@@ -161,6 +161,128 @@ void main() {
     await until(() => turns.length == 1);
   }
 
+  List<int> order() =>
+      c.read(assistantProvider).history.map((s) => s.id).toList();
+  Future<void> completeLast() async {
+    await turns.last.finish();
+    await until(() => !c.read(assistantProvider).running);
+  }
+
+  test(
+    'opening and renaming preserve order; pin and accepted turns order each group',
+    () async {
+      await start();
+      await completeLast();
+      final first = c.read(assistantProvider).currentSession!.id;
+      n.archiveCurrent();
+      await n.send('second session');
+      await until(() => turns.length == 2);
+      await completeLast();
+      final second = c.read(assistantProvider).currentSession!.id;
+      n.archiveCurrent();
+      await n.send('third session');
+      await until(() => turns.length == 3);
+      await completeLast();
+      final third = c.read(assistantProvider).currentSession!.id;
+      expect(order(), [third, second, first]);
+      for (final id in [first, second, third, first]) {
+        n.openSession(id);
+        expect(order(), [third, second, first]);
+      }
+      n.renameSession(first, '  custom title  ');
+      expect(c.read(assistantProvider).conversationTitle, 'custom title');
+      expect(order(), [third, second, first]);
+      n.toggleSessionPin(first);
+      n.toggleSessionPin(second);
+      expect(order(), [second, first, third]);
+      n.openSession(third);
+      await n.send('ordinary latest');
+      await until(() => turns.length == 4);
+      expect(order(), [second, first, third]);
+      await completeLast();
+      n.openSession(first);
+      await n.send('pinned latest');
+      await until(() => turns.length == 5);
+      expect(order(), [first, second, third]);
+      await completeLast();
+      expect(c.read(assistantProvider).conversationTitle, 'custom title');
+      n.toggleSessionPin(first);
+      expect(order(), [second, first, third]);
+      n.openSession(second);
+      expect(order(), [second, first, third]);
+      n.deleteSession(second);
+      expect(order(), [first, third]);
+      expect(c.read(assistantProvider).msgs, isEmpty);
+    },
+  );
+
+  test(
+    'temporary text, traces and attachments stay in memory and vanish on leaving',
+    () async {
+      await start();
+      await completeLast();
+      final saved = c.read(assistantProvider).currentSession!.id;
+      n.archiveCurrent();
+      n.setTemporary(true);
+      final image = Uint8List.fromList(
+        img.encodePng(img.Image(width: 8, height: 8)),
+      );
+      await n.send('temporary private turn', images: [image]);
+      await until(() => turns.length == 2);
+      final hash = c.read(assistantProvider).msgs.first.imageHashes.single;
+      expect(await stores.assistant.image(hash), image);
+      await completeLast();
+      expect(n.traceCount, 1);
+      n.setTemporary(
+        false,
+      ); // Cannot save a conversation that started temporary.
+      expect(c.read(assistantProvider).temporary, isTrue);
+      expect(order(), [saved]);
+      await stores.flushForExit();
+      final dir = Directory(
+        '${stores.desktopOutput.root.parent.path}/assistant',
+      );
+      final disk = await File('${dir.path}/sessions.json').readAsString();
+      expect(disk, isNot(contains('temporary private turn')));
+      expect(disk, isNot(contains(hash)));
+      expect((jsonDecode(disk) as Map)['current'], isEmpty);
+      expect(
+        await File('${dir.path}/traces.json').readAsString(),
+        isNot(contains('temporary private turn')),
+      );
+      expect(await stores.assistant.liveRefs(), isNot(contains(hash)));
+      n.openSession(saved);
+      expect(c.read(assistantProvider).temporary, isFalse);
+      expect(c.read(assistantProvider).msgs.first.text, 'first');
+      expect(order(), [saved]);
+      expect(await stores.assistant.image(hash), isNull);
+      n.archiveCurrent();
+      expect(c.read(assistantProvider).temporary, isFalse);
+    },
+  );
+
+  test(
+    'leaving a running temporary turn discards late replies and queued chat',
+    () async {
+      await start();
+      await completeLast();
+      final saved = c.read(assistantProvider).currentSession!.id;
+      n.archiveCurrent();
+      n.setTemporary(true);
+      await n.send('temporary running');
+      await until(() => turns.length == 2);
+      await n.submit('temporary queue');
+      n.openSession(saved);
+      await turns.last.finish(positive: 'discarded');
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      expect(order(), [saved]);
+      expect(c.read(assistantProvider).msgs, hasLength(2));
+      expect(c.read(assistantProvider).queue, isEmpty);
+      expect(c.read(assistantProvider).temporary, isFalse);
+      expect(n.traceCount, 0);
+    },
+  );
+
   test(
     'FIFO accepts once; queued ID becomes user ID; no second request until done',
     () async {

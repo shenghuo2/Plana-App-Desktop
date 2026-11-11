@@ -328,6 +328,17 @@ class _AssistantPageState extends ConsumerState<AssistantPage> {
   @override
   Widget build(BuildContext context) {
     final scheme = context.scheme;
+    ref.listen(assistantProvider, (previous, next) {
+      if (previous?.temporary == true &&
+          !next.temporary &&
+          (previous!.msgs.isNotEmpty || next.currentSession != null)) {
+        _input.clear();
+        setState(() {
+          _pending.clear();
+          _withCanvas = false;
+        });
+      }
+    });
     final st = ref.watch(assistantProvider);
     // 没有 Bot 授权也能用,但只能走免费模型或自定义接口:两样都没有就先挡住
     final usable =
@@ -457,13 +468,9 @@ class _AssistantPageState extends ConsumerState<AssistantPage> {
       children: [
         Expanded(
           child: Tooltip(
-            message: st.isEmpty
-                ? '新对话'
-                : ArchivedSession(id: 0, msgs: st.msgs, at: 0).title,
+            message: st.conversationTitle,
             child: Text(
-              st.isEmpty
-                  ? '新对话'
-                  : ArchivedSession(id: 0, msgs: st.msgs, at: 0).title,
+              st.conversationTitle,
               key: const ValueKey('assistant-conversation-title'),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
@@ -487,6 +494,7 @@ class _AssistantPageState extends ConsumerState<AssistantPage> {
           onPressed: () => showAssistantSettings(context),
           icon: const Icon(Icons.tune, size: 20),
         ),
+        if (st.canChooseTemporary) _temporaryButton(st, compact: true),
       ],
     ),
   );
@@ -603,12 +611,22 @@ class _AssistantPageState extends ConsumerState<AssistantPage> {
           Padding(
             padding: const EdgeInsets.fromLTRB(4, 0, 4, 10),
             child: Text(
-              '想画什么,直接说',
+              ref.watch(assistantProvider).temporary ? '临时聊天' : '想画什么,直接说',
               style: context.texts.titleSmall!.copyWith(
                 color: scheme.onSurfaceVariant,
               ),
             ),
           ),
+          if (ref.watch(assistantProvider).temporary)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(4, 0, 4, 14),
+              child: Text(
+                '不保存在历史会话中。离开后聊天消失，已开始的出图会继续完成并保存到图库。',
+                style: context.texts.bodySmall!.copyWith(
+                  color: scheme.onSurfaceVariant,
+                ),
+              ),
+            ),
           for (final s in _suggests)
             if (!s.canvas || canvasHasContent(ref.watch(generateProvider)))
               Padding(
@@ -1047,6 +1065,17 @@ class _AssistantPageState extends ConsumerState<AssistantPage> {
             ),
             const SizedBox(width: 8),
             _modeChip(family, shown: shown, usable: usable),
+            if (widget.embedded &&
+                ref.watch(assistantProvider).canChooseTemporary) ...[
+              const SizedBox(width: 8),
+              _temporaryButton(ref.watch(assistantProvider)),
+            ],
+            if (widget.embedded &&
+                ref.watch(assistantProvider).temporary &&
+                !ref.watch(assistantProvider).canChooseTemporary) ...[
+              const SizedBox(width: 8),
+              const Tooltip(message: '此聊天不保存在历史会话中', child: Text('临时聊天')),
+            ],
             // 思考等级只对自定义接口有意义:后端渠道的推理档位由服务端按渠道
             // 定死,app 没有可下发的字段。摆一颗按了不生效的芯片比不摆更糟。
             if (ref.watch(assistantEndpointProvider) != null) ...[
@@ -1056,6 +1085,39 @@ class _AssistantPageState extends ConsumerState<AssistantPage> {
           ],
         ),
       ),
+    );
+  }
+
+  Widget _temporaryButton(AssistantState st, {bool compact = false}) {
+    void toggle() =>
+        ref.read(assistantProvider.notifier).setTemporary(!st.temporary);
+    final key = ValueKey(
+      compact ? 'assistant-main-temporary' : 'assistant-embedded-temporary',
+    );
+    if (compact) {
+      return IconButton(
+        key: key,
+        tooltip: st.temporary ? '关闭临时聊天' : '临时聊天',
+        isSelected: st.temporary,
+        onPressed: _sending ? null : toggle,
+        icon: const Icon(Icons.chat_bubble_outline, size: 20),
+        selectedIcon: const Icon(Icons.chat_bubble, size: 20),
+        style: IconButton.styleFrom(
+          backgroundColor: st.temporary
+              ? context.scheme.secondaryContainer
+              : null,
+        ),
+      );
+    }
+    return FilterChip(
+      key: key,
+      label: const Text('临时聊天'),
+      avatar: const Icon(Icons.chat_bubble_outline, size: 16),
+      selected: st.temporary,
+      showCheckmark: false,
+      visualDensity: VisualDensity.compact,
+      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      onSelected: _sending ? null : (_) => toggle(),
     );
   }
 
@@ -1644,18 +1706,27 @@ class _MsgTile extends ConsumerWidget {
             },
           ),
           if (onMenu != null && msg.role != MsgRole.error)
-            Builder(
-              builder: (buttonContext) => IconButton(
-                key: ValueKey('assistant-message-menu-${msg.id}'),
-                tooltip: '消息操作',
-                visualDensity: VisualDensity.compact,
-                constraints: const BoxConstraints(minWidth: 32, minHeight: 28),
-                padding: const EdgeInsets.symmetric(horizontal: 6),
-                icon: const Icon(Icons.more_horiz, size: 18),
-                onPressed: () {
-                  final box = buttonContext.findRenderObject()! as RenderBox;
-                  onMenu!(box.localToGlobal(Offset(0, box.size.height)));
-                },
+            Padding(
+              // Keep the user-message action clear of the 44 px edge index.
+              padding: EdgeInsets.only(
+                right: msg.role == MsgRole.user ? 32 : 0,
+              ),
+              child: Builder(
+                builder: (buttonContext) => IconButton(
+                  key: ValueKey('assistant-message-menu-${msg.id}'),
+                  tooltip: '消息操作',
+                  visualDensity: VisualDensity.compact,
+                  constraints: const BoxConstraints(
+                    minWidth: 32,
+                    minHeight: 28,
+                  ),
+                  padding: const EdgeInsets.symmetric(horizontal: 6),
+                  icon: const Icon(Icons.more_horiz, size: 18),
+                  onPressed: () {
+                    final box = buttonContext.findRenderObject()! as RenderBox;
+                    onMenu!(box.localToGlobal(Offset(0, box.size.height)));
+                  },
+                ),
               ),
             ),
         ],
