@@ -39,7 +39,9 @@ void main() {
     ('NAI 5.0 Full', 'nai-diffusion-5-full'),
     ('NAI 5.0 Full Medium', 'nai-diffusion-5-full-medium'),
   ]) {
-    test('$model: main Generate sends each selected strength to Bot', () async {
+    test(
+      '$model: main and saved-image generation send effective Bot inpaint strength',
+      () async {
         final stores = AppStores.ephemeral();
         final requests = <http.Request>[];
         final transport = MockClient((request) async {
@@ -115,10 +117,55 @@ void main() {
               expect(params['inpaint']['maskBase64'], base64Encode(mask));
             }
             expect(sent.map((p) => p['inpaint']['strength']), [.5, .75]);
+            // The Bot adapter reads this field for NAI's effective infill
+            // strength; checking only the legacy `strength` missed this bug.
+            expect(sent.map((p) => p['inpaint']['img2imgStrength']), [.5, .75]);
             final job = container.read(generateProvider).inpaint!;
             expect(job.strength, .75);
             expect(job.image, image);
             expect(job.mask, mask);
+
+            // Re-generating a saved image uses its snapshot, even when the
+            // current editor has another strength. Include 1 to catch stale
+            // sub-unit values leaking from the preceding job.
+            final snapshot = container.read(generateProvider);
+            editor.updateInpaintStrength(.25);
+            for (final strength in [.5, .75, 1.0]) {
+              expect(
+                await generation.generate(
+                  using: snapshot.copyWith(
+                    inpaint: InpaintJob(
+                      image: image,
+                      mask: mask,
+                      strength: strength,
+                    ),
+                  ),
+                ),
+                GenOutcome.notCharged,
+              );
+            }
+            expect(requests, hasLength(5));
+            final regenerated = requests
+                .skip(2)
+                .map((r) => (jsonDecode(r.body) as Map)['params'] as Map)
+                .toList();
+            expect(regenerated.map((p) => p['seed']), [123456, 123456, 123456]);
+            expect(regenerated.map((p) => p['inpaint']['strength']), [
+              .5,
+              .75,
+              1.0,
+            ]);
+            expect(regenerated.map((p) => p['inpaint']['img2imgStrength']), [
+              .5,
+              .75,
+              1.0,
+            ]);
+            for (final p in regenerated) {
+              expect(p['inpaint']['imageBase64'], base64Encode(image));
+              expect(p['inpaint']['maskBase64'], base64Encode(mask));
+              expect(p.containsKey('img2img'), isFalse);
+            }
+            expect(container.read(generateProvider).inpaint!.strength, .25);
           } finally {
             container.dispose();
             stores.flushNow();

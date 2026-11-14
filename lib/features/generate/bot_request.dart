@@ -139,6 +139,9 @@ Map<String, dynamic> buildBotParams(
       'imageBase64': base64Encode(inpaint.image),
       'maskBase64': base64Encode(inpaint.mask),
       'strength': inpaint.strength,
+      // Bot 的 NAI 重绘转换使用此字段设置有效强度；仅发 strength 会退回默认值。
+      // 与当前手机端协议一致，保留桌面各档位的实际输入，包括 Medium。
+      'img2imgStrength': inpaint.strength,
       'noise': 0,
     };
   } else if (img2img != null) {

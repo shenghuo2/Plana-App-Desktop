@@ -108,6 +108,8 @@ void main() {
           // Bot uses its own contract and must also preserve the selected value.
           final bot = buildBotParams(state, seed: 123, presetId: 'none');
           expect(bot['inpaint']['strength'], strength);
+          expect(bot['inpaint']['img2imgStrength'], strength);
+          expect(bot.containsKey('img2img'), isFalse);
           expect(identical(state.inpaint, job), isTrue);
           expect(state.inpaint!.grid, [5, 6]);
           expect(state.inpaint!.sourceId, 'saved-original');

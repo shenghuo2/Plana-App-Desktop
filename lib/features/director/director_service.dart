@@ -33,7 +33,7 @@ class DirectorAccess {
 
 DirectorAccess directorAccessFor(AuthMode? mode, NaiKey? key, bool proxy) {
   if (mode == AuthMode.bot) {
-    return const DirectorAccess(reason: '当前 Bot 服务未提供导演接口；可使用本机像素对齐');
+    return const DirectorAccess(reason: 'Bot 授权账户不支持导演工具接口；可使用本机像素对齐');
   }
   if (mode != AuthMode.token || key == null || key.token.trim().isEmpty) {
     return const DirectorAccess(reason: '请先在账户设置中配置 NovelAI 接口');
