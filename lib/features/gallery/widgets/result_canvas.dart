@@ -73,6 +73,12 @@ class GalleryImageLayer extends StatelessWidget {
             bytes!,
             fit: BoxFit.contain,
             gaplessPlayback: true,
+            errorBuilder: (_, _, _) => const Center(
+              child: Tooltip(
+                message: '无法读取图片',
+                child: Icon(Icons.broken_image_outlined),
+              ),
+            ),
           ),
         ),
       );

@@ -78,7 +78,7 @@ class _Anlas extends AnlasNotifier {
     usage: null,
   );
   @override
-  Future<void> refresh() async {}
+  Future<void> refresh() => ref.read(walletSummaryProvider.notifier).refresh();
 }
 
 class _Backend extends BackendClient {
@@ -500,6 +500,70 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('28'), findsOneWidget);
       expect(tester.takeException(), isNull);
+      await finish(tester);
+    },
+  );
+
+  testWidgets(
+    'Bot points show tenths and refresh with the wallet independently of Anlas',
+    (tester) async {
+      backend.quota = const NaiQuota(sharedPool: false, relayEnabled: true);
+      backend.summary = (id) async =>
+          WalletSummary(userId: id, balanceFen: -44, pointsTenths: 265);
+      await mount(
+        tester,
+        Scaffold(
+          body: Center(
+            child: Builder(
+              builder: (context) => ElevatedButton(
+                onPressed: () => showAnlasSheet(context),
+                child: const Text('打开余额'),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('打开余额'));
+      await tester.pumpAndSettle();
+      expect(find.text('点数余额'), findsOneWidget);
+      expect(find.text('26.5'), findsOneWidget);
+      expect(find.text('-¥0.44'), findsOneWidget);
+      expect(find.text('Anlas 点数'), findsNothing);
+      expect(find.text('9,800'), findsNothing);
+      await screenshot(tester, 'bot-points');
+
+      backend.summary = (id) async =>
+          WalletSummary(userId: id, balanceFen: -44, pointsTenths: 0);
+      await tester.tap(find.byTooltip('刷新'));
+      await tester.pumpAndSettle();
+      expect(find.text('26.5'), findsNothing);
+      expect(find.text('0'), findsOneWidget);
+
+      backend.summary = (id) async =>
+          WalletSummary(userId: id, balanceFen: -44);
+      await tester.tap(find.byTooltip('刷新'));
+      await tester.pumpAndSettle();
+      expect(find.text('—'), findsOneWidget);
+      expect(find.text('0'), findsNothing);
+
+      backend.summary = (id) async =>
+          WalletSummary(userId: id, balanceFen: 12, pointsTenths: 120);
+      await tester.tap(find.byTooltip('刷新'));
+      await tester.pumpAndSettle();
+      expect(find.text('12'), findsOneWidget);
+      backend.summary = (_) async => throw BackendException('offline');
+      await tester.tap(find.byTooltip('刷新'));
+      await tester.pumpAndSettle();
+      expect(
+        find.text('12'),
+        findsOneWidget,
+        reason: 'failed refresh preserves the last personal balance',
+      );
+      await container.read(authModeProvider.notifier).set(AuthMode.token);
+      await tester.pumpAndSettle();
+      expect(find.text('点数余额'), findsNothing);
+      expect(find.text('Anlas 点数'), findsOneWidget);
+      expect(find.text('9,800'), findsOneWidget);
       await finish(tester);
     },
   );

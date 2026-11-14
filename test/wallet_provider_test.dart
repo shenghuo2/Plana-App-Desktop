@@ -6,6 +6,7 @@ import 'package:plana_app/core/auth/auth_mode.dart';
 import 'package:plana_app/core/auth/bot_session_store.dart';
 import 'package:plana_app/core/net/anlas_provider.dart';
 import 'package:plana_app/core/net/backend_client.dart';
+import 'package:plana_app/core/net/backend_config.dart';
 import 'package:plana_app/core/auth/nai_keys.dart';
 import 'package:plana_app/core/auth/token_store.dart';
 import 'package:plana_app/core/net/nai_client.dart';
@@ -34,10 +35,19 @@ class _Backend extends BackendClient {
   final walletCalls = <String>[];
   final quotaCalls = <String>[];
   final relayCalls = <(String, bool)>[];
+  int anlasCalls = 0;
+  bool failAnlas = false;
   Future<WalletSummary> Function(String)? walletResponse;
   Future<NaiQuota> Function(String)? quotaResponse;
   Future<({bool enabled, bool available})> Function(String, bool)?
   relayResponse;
+
+  @override
+  Future<({int anlas, NaiUsage? usage})> getAnlas() async {
+    anlasCalls++;
+    if (failAnlas) throw BackendException('shared Anlas unavailable');
+    return (anlas: 9999, usage: null);
+  }
 
   @override
   Future<WalletSummary> wallet(String sessionId, {int limit = 10}) async {
@@ -107,6 +117,11 @@ final _server = NotifierProvider<_Server, BackendClient>(
   () => throw UnimplementedError(),
 );
 
+class _Base extends BackendBaseNotifier {
+  @override
+  Future<String> build() async => 'http://test.invalid';
+}
+
 ProviderContainer harness(
   BackendClient backend, {
   AuthMode mode = AuthMode.bot,
@@ -114,6 +129,7 @@ ProviderContainer harness(
   final c = ProviderContainer(
     overrides: [
       authModeProvider.overrideWith(() => _Mode(mode)),
+      backendBaseProvider.overrideWith(_Base.new),
       botSessionProvider.overrideWith(_Session.new),
       _server.overrideWith(() => _Server(backend)),
       backendClientProvider.overrideWith((ref) => ref.watch(_server)),
@@ -132,6 +148,39 @@ Future<void> until(bool Function() condition) async {
 }
 
 void main() {
+  for (final failShared in [false, true]) {
+    test(
+      'balance refresh awaits personal points once, shared Anlas failure=$failShared',
+      () async {
+        final backend = _Backend();
+        final c = harness(backend);
+        await c.read(walletSummaryProvider.future);
+        await c.read(anlasProvider.future);
+        backend.failAnlas = failShared;
+        final response = Completer<WalletSummary>();
+        backend.walletResponse = (_) => response.future;
+        var finished = false;
+        final refresh = c
+            .read(anlasProvider.notifier)
+            .refresh()
+            .then((_) => finished = true);
+        await until(
+          () => backend.walletCalls.length == 2 && backend.anlasCalls == 2,
+        );
+        await Future<void>.delayed(Duration.zero);
+        expect(finished, isFalse);
+        response.complete(
+          const WalletSummary(userId: 'A', balanceFen: -44, pointsTenths: 265),
+        );
+        await refresh;
+        expect(c.read(walletSummaryProvider).requireValue!.pointsTenths, 265);
+        expect(c.read(walletSummaryProvider).requireValue!.balanceFen, -44);
+        expect(backend.walletCalls, ['A', 'A']);
+        expect(c.read(anlasProvider).requireValue!.anlas, 9999);
+      },
+    );
+  }
+
   test(
     'late direct Anlas refresh cannot overwrite a different primary key',
     () async {

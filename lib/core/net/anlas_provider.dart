@@ -80,10 +80,13 @@ class AnlasNotifier extends AsyncNotifier<NaiSubscription?> {
         request == _request &&
         ref.read(authModeProvider).asData?.value == mode &&
         ownerValid();
+    // 两个接口独立请求；等待自己的钱包／点数更新，刷新按钮才结束。
+    final walletRefresh = mode == AuthMode.bot
+        ? ref.read(walletSummaryProvider.notifier).refresh()
+        : Future<void>.value();
     try {
       final NaiSubscription? next;
       if (mode == AuthMode.bot) {
-        unawaited(ref.read(walletSummaryProvider.notifier).refresh());
         final base = await ref.read(backendBaseProvider.future);
         if (!current() || base.isEmpty) return;
         final client = ref.read(backendClientProvider);
@@ -111,6 +114,8 @@ class AnlasNotifier extends AsyncNotifier<NaiSubscription?> {
       if (current()) state = AsyncData(next);
     } catch (_) {
       if (current() && blank) state = const AsyncData(null);
+    } finally {
+      await walletRefresh;
     }
   }
 }

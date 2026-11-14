@@ -72,9 +72,16 @@ class _GalleryPageState extends ConsumerState<GalleryPage>
   final _historyFocus = FocusNode(debugLabel: 'Canvas and history');
   bool _importingHistory = false;
 
-  /// 最近一次成功显示的原图字节。切到尚未读盘的老图时先继续画它,
-  /// 避免空窗期露占位;新图解码完由 gaplessPlayback 无缝换掉。
-  Uint8List? _lastShown;
+  /// 读到 PNG 字节不代表已能显示。跨越邻页预取范围时，持有上一张已解码
+  /// 画面直到新页首帧就绪，不能让新建的空 Image 遮住它。
+  ImageInfo? _shownFrame;
+  Uint8List? _decodedBytes;
+  Uint8List? _requestedBytes;
+  String? _requestedImageId;
+  ImageStream? _selectedStream;
+  ImageStreamListener? _selectedListener;
+  int _decodeRequest = 0;
+  bool _decodeFailed = false;
   String? _viewKey;
   String? _viewSelectedId;
 
@@ -118,9 +125,68 @@ class _GalleryPageState extends ConsumerState<GalleryPage>
 
   @override
   void dispose() {
+    _clearSelectedFrame();
     _pv.dispose();
     _historyFocus.dispose();
     super.dispose();
+  }
+
+  void _stopSelectedDecode() {
+    _decodeRequest++;
+    final listener = _selectedListener;
+    if (listener != null) _selectedStream?.removeListener(listener);
+    _selectedStream = null;
+    _selectedListener = null;
+  }
+
+  void _clearSelectedFrame() {
+    _stopSelectedDecode();
+    _shownFrame?.dispose();
+    _shownFrame = null;
+    _decodedBytes = null;
+    _requestedBytes = null;
+    _requestedImageId = null;
+    _decodeFailed = false;
+  }
+
+  void _prepareSelectedFrame(String? id, Uint8List? bytes) {
+    if (_requestedImageId == id && identical(_requestedBytes, bytes)) return;
+    _stopSelectedDecode();
+    _requestedImageId = id;
+    _requestedBytes = bytes;
+    _decodedBytes = null;
+    _decodeFailed = false;
+    if (bytes == null) return;
+    final request = _decodeRequest;
+    var resolving = true;
+    final stream = MemoryImage(
+      bytes,
+    ).resolve(createLocalImageConfiguration(context));
+    _selectedStream = stream;
+    _selectedListener = ImageStreamListener(
+      (frame, synchronous) {
+        if (!mounted || request != _decodeRequest) {
+          frame.dispose();
+          return;
+        }
+        final previous = _shownFrame;
+        _shownFrame = frame;
+        _decodedBytes = bytes;
+        // 本帧 RawImage 仍可能持有旧句柄，帧结束后再释放。
+        WidgetsBinding.instance.addPostFrameCallback(
+          (_) => previous?.dispose(),
+        );
+        if (!resolving) setState(() {});
+      },
+      onError: (Object error, StackTrace? stack) {
+        if (!mounted || request != _decodeRequest) return;
+        _decodeFailed = true;
+        if (!resolving) setState(() {});
+      },
+    );
+    // 保持监听直到改选，让跳页后的 Image 命中同一份已解码帧，即使缓存正回收。
+    stream.addListener(_selectedListener!);
+    resolving = false;
   }
 
   @override
@@ -337,7 +403,7 @@ class _GalleryPageState extends ConsumerState<GalleryPage>
     final changedScope = _viewKey != viewKey;
     if (changedScope) {
       _viewKey = viewKey;
-      _lastShown = null;
+      _clearSelectedFrame();
     }
     final pool = ref.watch(generationProvider);
     final gen = ref.watch(genStatusProvider);
@@ -390,14 +456,15 @@ class _GalleryPageState extends ConsumerState<GalleryPage>
 
     // 选中图字节不在内存(重启水合/RAM 减负)时按需从盘读。
     var selBytes = selected?.bytes;
+    var readFailed = false;
     if (selBytes == null && selected != null) {
-      selBytes = ref.watch(galleryImageProvider(selected.id)).value;
+      final image = ref.watch(galleryImageProvider(selected.id));
+      selBytes = image.value;
+      readFailed = image.hasError || (image.hasValue && selBytes == null);
     }
-    // 老图重启后 bytes 不在内存,要异步读原图;这段空窗以前掉回斜纹网格,
-    // 就是「老图切换闪一下」的来源。**不能垫缩略图** —— 缩略图是 cover 方形
-    // 裁切(256²),拉到全画布会变形又变回去,比斜纹更晃眼(实测反馈)。
-    // 改为留住上一张已显示的原图,直到新图解码完成,视觉上完全无缝。
-    if (selBytes != null) _lastShown = selBytes;
+    _prepareSelectedFrame(selected?.id, selBytes);
+    final decoded = selBytes != null && identical(selBytes, _decodedBytes);
+    final unavailable = readFailed || _decodeFailed;
     final showChrome = !showGen && selected != null;
 
     final results = state.results;
@@ -424,14 +491,14 @@ class _GalleryPageState extends ConsumerState<GalleryPage>
       _requestPage(selIdx < 0 ? 0 : selIdx);
     }
 
-    // 顶图层:页码还没跟上的那一两帧、或老图字节还没读上来时,拿一张盖在
-    // 分页画布上顶住 —— 优先当前选中的真身,退而求其次是上一张已显示的。
+    // 只拿已经解码的帧桥接分页，不用刚读到、还不能显示的 PNG 字节。
     //
     // **手拖期间一律不盖**:拖到过半就发 onPageChanged,此刻若入场页的字节碰巧
     // 还在读盘,盖上去的是上一张,等于把跟手的半页画面糊死,比露一格空画框糟得多。
     // 拖动时露空画框也几乎见不着 —— 邻页在上面预取过了。
-    final bridge = !showGen && !_userDrag && (desynced || selBytes == null)
-        ? (selBytes ?? _lastShown)
+    final bridge =
+        !showGen && !_userDrag && !unavailable && (desynced || !decoded)
+        ? _shownFrame
         : null;
 
     // 缩放态把翻页物理整个撤掉,横向拖动让回 InteractiveViewer 做平移。
@@ -485,10 +552,14 @@ class _GalleryPageState extends ConsumerState<GalleryPage>
                         // 顶图层:跳页空窗 / 老图还没读上来时顶住,不露空画框
                         if (bridge != null)
                           IgnorePointer(
-                            child: GalleryImageLayer(
-                              bytes: bridge,
-                              width: selected?.width ?? 0,
-                              height: selected?.height ?? 0,
+                            child: ColoredBox(
+                              color: context.scheme.surfaceContainerHigh,
+                              child: Center(
+                                child: RawImage(
+                                  image: bridge.image,
+                                  fit: BoxFit.contain,
+                                ),
+                              ),
                             ),
                           ),
                         // 生成视角:预览层盖住分页画布。预览没有邻居语义,不参与翻页;

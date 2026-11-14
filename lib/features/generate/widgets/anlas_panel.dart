@@ -327,7 +327,7 @@ class _AnlasSheetState extends ConsumerState<_AnlasSheet> {
       _busy = true;
       _turns += 1;
     });
-    // 两条各拉各的:配额端点要会话、点数端点不要,一条挂了不该拖累另一条
+    // anlasProvider 同时刷新个人钱包／点数；它与额度独立请求。
     await Future.wait([
       ref.read(anlasProvider.notifier).refresh(),
       ref.read(naiQuotaProvider.notifier).refresh(),
@@ -345,7 +345,7 @@ class _AnlasSheetState extends ConsumerState<_AnlasSheet> {
     final walletAsync = bot ? ref.watch(walletSummaryProvider) : null;
     final wallet = walletAsync?.asData?.value;
     final legacy = bot && walletAsync?.asData != null && wallet == null;
-    // 共享号停用:额度卡换成中转开关,点数和额度那几行都不摆
+    // 共享号停用:额度卡换成中转开关，点数显示自己的钱包点数。
     final relay = quota != null && quota.relayOnly;
 
     return SafeArea(
@@ -434,10 +434,17 @@ class _AnlasSheetState extends ConsumerState<_AnlasSheet> {
               '订阅档位',
               bot ? 'Bot 授权' : (sub == null ? '—' : naiTierName(sub.tier)),
             ),
-            if (!relay) ...[
-              _divider(context),
+            _divider(context),
+            if (relay)
+              _row(
+                context,
+                '点数余额',
+                wallet?.pointsTenths == null
+                    ? '—'
+                    : _fmtPct(wallet!.pointsTenths! / 10),
+              )
+            else
               _row(context, 'Anlas 点数', sub == null ? '—' : fmtAnlas(sub)),
-            ],
             if (relay)
               ...const <Widget>[]
             else if (bot) ...[

@@ -582,6 +582,7 @@ class WalletSummary {
     this.pendingRentalCount = 0,
     this.startFrom = '',
     this.isAdmin = false,
+    this.pointsTenths,
   });
 
   final String userId;
@@ -616,6 +617,9 @@ class WalletSummary {
   /// **调用方**是不是管理员。
   final bool isAdmin;
 
+  /// 当前 Bot 账户的点数余额，单位为十分之一点；未启用或未下发时为 null。
+  final int? pointsTenths;
+
   bool get owing => balanceFen < 0;
 
   factory WalletSummary.fromJson(Map<String, dynamic> j) {
@@ -641,6 +645,7 @@ class WalletSummary {
       pendingRentalCount: (p['rental_count'] as num?)?.toInt() ?? 0,
       startFrom: j['start_from']?.toString() ?? '',
       isAdmin: j['is_admin'] == true,
+      pointsTenths: ((j['points'] as Map?)?['balance_tenths'] as num?)?.toInt(),
     );
   }
 }

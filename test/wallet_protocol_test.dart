@@ -43,7 +43,12 @@ void main() {
         switch (req.uri.path) {
           case '/api/wallet':
             expect(req.uri.queryParameters, {'limit': '0'});
-            json(req, {'balance': -0.29, 'balance_fen': -29, 'charged': .29});
+            json(req, {
+              'balance': -0.29,
+              'balance_fen': -29,
+              'charged': .29,
+              'points': {'balance_tenths': 265},
+            });
           case '/api/wallet/ledger':
             expect(req.uri.queryParameters, {
               'limit': '17',
@@ -68,7 +73,9 @@ void main() {
             fail('Unexpected request: ${req.uri}');
         }
       };
-      expect((await client.wallet('bot-fixture', limit: 0)).balanceFen, -29);
+      final wallet = await client.wallet('bot-fixture', limit: 0);
+      expect(wallet.balanceFen, -29);
+      expect(wallet.pointsTenths, 265);
       final page = await client.walletLedger(
         'bot-fixture',
         limit: 17,
@@ -92,6 +99,34 @@ void main() {
         '/api/wallet/ledger',
         '/api/user/quota/relay',
       ]);
+    },
+  );
+
+  test(
+    'personal points distinguish zero from unavailable on older servers',
+    () {
+      for (final json in <Map<String, dynamic>>[
+        {},
+        {'points': null},
+        {'points': <String, dynamic>{}},
+        {
+          'points': {'balance_tenths': null},
+        },
+      ]) {
+        expect(WalletSummary.fromJson(json).pointsTenths, isNull);
+      }
+      expect(
+        WalletSummary.fromJson({
+          'points': {'balance_tenths': 0},
+        }).pointsTenths,
+        0,
+      );
+      expect(
+        WalletSummary.fromJson({
+          'points': {'balance_tenths': -15},
+        }).pointsTenths,
+        -15,
+      );
     },
   );
 
