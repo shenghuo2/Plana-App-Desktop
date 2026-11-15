@@ -34,7 +34,7 @@ class EditorSessions {
 
 /// 光标驱动定稿:字符串就是真相,正/负各一条(含原样权重语法)。
 /// 折叠体不在正文里(正文只有 `<#名字>` 占位符),存 [foldBodies];
-/// 只增不删且跨会话留存于撤销档(解散/删除只动正文,表项留着给撤销兜底),
+/// 每次改动创建新表，撤销档连同正文保存对应版本；解散／删除不破坏旧快照。
 /// 定稿与草稿都经 [expandFolds] 拼回完整语法后再算。
 /// 撤销栈按编辑目标跨会话长效(见 [_UndoArchive]),退出编辑器不重置。
 class EditorState {
@@ -83,12 +83,12 @@ typedef _Snap = (
   String neg,
   List<PromptFoldLink> links,
   PromptSection? extracted,
+  Map<String, String> bodies,
 );
 
 /// 单个编辑目标(主提示词/某角色)的撤销档。**进程级长效**:退出编辑器
-/// 不清空,重进接着撤,只在进程结束或角色被删时消亡。折叠表一并留存且
-/// 只增不删 —— 历史快照里的占位符要靠它才解析得回(会话内「表只增不删」
-/// 原则的跨会话延伸;表悬空会让占位符漏成 `#名字` 字面量进提示词)。
+/// 不清空,重进接着撤,只在进程结束或角色被删时消亡。每份历史快照保存
+/// 自己的折叠表，确保块内改字、解散和删除都可以还原。
 class _UndoArchive {
   final List<_Snap> snaps = [];
   Map<String, String> folds = const {};
@@ -182,16 +182,19 @@ class EditorNotifier extends Notifier<EditorState> {
     );
     final posNames = <String, String>{}, negNames = <String, String>{};
     // 草稿(完整折叠语法)→ 正文占位符 + 折叠表。负面侧避开正面已占的
-    // 名字,两侧共同避开撤销档已占的名字(同名同体复用,不同体加序号 ——
-    // 免得本次载入的折叠顶掉历史快照还指望着的同名旧折叠体)。
+    // 名字。同名的在用块各自分配名字，避免在检视器编辑一块时影响另一块；
+    // 历史表中的同名同体仍可复用，保证重进会话时名字稳定。
     final (posText, posBodies) = collapseFolds(
       positive,
       seed: arc.folds,
+      independent: true,
       onCollapsed: (fold, name) => posNames[fold.name] = name,
     );
     final (negText, negBodies) = collapseFolds(
       negative,
       seed: {...arc.folds, ...posBodies},
+      independent: true,
+      reservedNames: posBodies.keys.toSet(),
       onCollapsed: (fold, name) => negNames[fold.name] = name,
     );
     arc.folds = {...arc.folds, ...posBodies, ...negBodies};
@@ -215,23 +218,83 @@ class EditorNotifier extends Notifier<EditorState> {
   /// (重名且内容不同时自动加序号)。表只增不删——撤销回带占位符的旧文本时
   /// 仍能解析。
   String registerFold(String name, String body) {
-    final linkedNames = {
+    final referencedNames = {
+      for (final text in [state.positiveText, state.negativeText])
+        for (final fold in parseFoldRefs(text, state.foldBodies)) fold.name,
       for (final link in state.foldLinks) ...[
         link.positiveName,
         link.negativeName,
       ],
     };
-    // A newly registered manual fold must not reuse the anchor of an imported
-    // pair, even if its display name and body happen to be identical.
+    // Every live reference needs its own editable body, even for identical
+    // names/content. Reusing archived, currently absent bodies remains safe.
     final lookup = {
       ...state.foldBodies,
-      for (final name in linkedNames) name: '${state.foldBodies[name]}\u0000',
+      for (final name in referencedNames)
+        name: '${state.foldBodies[name]}\u0000',
     };
     final n = uniqueFoldName(name, body, lookup);
     final next = {...state.foldBodies, n: body};
     _arc.folds = next; // 撤销档同步留存:快照回带占位符时仍解析得回
     state = state.copyWith(foldBodies: next);
     return n;
+  }
+
+  /// Edit a block in place. Its placeholder and the opposite prompt remain
+  /// intact; body maps are immutable snapshots so undo restores their content.
+  void editFoldBody(String name, String body, {bool structural = false}) {
+    if (!state.foldBodies.containsKey(name) || state.foldBodies[name] == body) {
+      return;
+    }
+    if (![state.positiveText, state.negativeText].any(
+      (text) =>
+          parseFoldRefs(text, state.foldBodies).any((r) => r.name == name),
+    )) {
+      return; // A dismissed/deleted block must not be revived by a late edit.
+    }
+    final now = DateTime.now().millisecondsSinceEpoch;
+    if (structural || now - _lastPushMs > 700) {
+      _remember();
+      _lastPushMs = now;
+    }
+    final links = validPromptFoldLinks(
+      expandFolds(state.positiveText, state.foldBodies),
+      expandFolds(state.negativeText, state.foldBodies),
+      state.foldLinks,
+    );
+    final bodies = {...state.foldBodies, name: body};
+    _arc.folds = bodies;
+    state = state.copyWith(
+      foldBodies: bodies,
+      foldLinks: [
+        for (final link in links)
+          PromptFoldLink(
+            id: link.id,
+            positiveName: link.positiveName,
+            negativeName: link.negativeName,
+            positiveBody: link.positiveName == name
+                ? body.trim()
+                : link.positiveBody,
+            negativeBody: link.negativeName == name
+                ? body.trim()
+                : link.negativeBody,
+          ),
+      ],
+      canUndo: true,
+    );
+    _scheduleWriteBack();
+  }
+
+  void _remember([PromptSection? extracted]) {
+    final snaps = _arc.snaps;
+    snaps.add((
+      state.positiveText,
+      state.negativeText,
+      state.foldLinks,
+      extracted,
+      state.foldBodies,
+    ));
+    if (snaps.length > _maxHistory) snaps.removeAt(0);
   }
 
   void _scheduleWriteBack() {
@@ -414,14 +477,7 @@ class EditorNotifier extends Notifier<EditorState> {
         extracted != null ||
         removedLinkedFold ||
         now - _lastPushMs > 700) {
-      final snaps = _arc.snaps;
-      snaps.add((
-        state.positiveText,
-        state.negativeText,
-        state.foldLinks,
-        extracted,
-      ));
-      if (snaps.length > _maxHistory) snaps.removeAt(0);
+      _remember(extracted);
       _lastPushMs = now;
     }
     state = state.copyWith(
@@ -447,8 +503,10 @@ class EditorNotifier extends Notifier<EditorState> {
       positiveText: s.$1,
       negativeText: s.$2,
       foldLinks: s.$3,
+      foldBodies: s.$5,
       canUndo: snaps.isNotEmpty,
     );
+    _arc.folds = state.foldBodies;
     if (s.$4 case final extracted?) _dropExtracted(extracted);
     _scheduleWriteBack();
   }

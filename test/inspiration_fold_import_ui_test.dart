@@ -256,6 +256,8 @@ void main() {
     await tester.tapAt(
       tester.state<ChipFlowViewState>(finder).chipAnchor(index)!.center,
     );
+    // The single-click inspector waits for the double-click gesture window.
+    await tester.pump(const Duration(milliseconds: 350));
     await tester.pumpAndSettle();
     await tap(
       tester,

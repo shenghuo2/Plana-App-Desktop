@@ -98,8 +98,7 @@ double _transRowHeight(double fontSize) =>
 ///     重选;选空或选到没落点时由外层自动退回选择阶段。
 ///
 /// 折叠 chip 和散标签一视同仁,选中即整块移动(moveUnits 保证记号跟随不卷入)。
-/// 选中后的操作(权重/禁用/删除/解散)全在底部面板上 —— 这里没有光标,正文里
-/// 那套「点标题解散」在本视图不存在。
+/// 单选折叠块打开检视器，连续双击才解散；多选及拖动仍把块作为整体。
 ///
 /// 末尾跟一个输入框:芯片模式下这是唯一的打字入口,补全照常吸在键盘上。
 /// 没选中时点空白 = 聚焦它(直接接着打字,不用瞄准那个小框)。
@@ -123,6 +122,7 @@ class ChipFlowView extends StatefulWidget {
     this.primaryFontScale = 1,
     this.scrollable = true,
     this.onChipTap,
+    this.onFoldDoubleTap,
     this.desktopDrag = false,
     this.onDragChanged,
     this.padding = const EdgeInsets.fromLTRB(16, 6, 16, 24),
@@ -132,6 +132,7 @@ class ChipFlowView extends StatefulWidget {
   final bool scrollable;
   final EdgeInsets padding;
   final ValueChanged<int>? onChipTap;
+  final ValueChanged<int>? onFoldDoubleTap;
   final bool desktopDrag;
   final ValueChanged<bool>? onDragChanged;
 
@@ -905,6 +906,9 @@ class ChipFlowViewState extends State<ChipFlowView>
         key: chipKey,
         name: u.fold!.name,
         count: _memberCount(u.fold!),
+        onDoubleTap: widget.onFoldDoubleTap == null
+            ? null
+            : () => widget.onFoldDoubleTap!(i),
         fontSize: widget.fontSize,
         primaryFontSize: _primaryFontSize,
         selected: sel.contains(i),
@@ -1221,7 +1225,7 @@ class _GroupBand extends StatelessWidget {
 }
 
 /// 折叠 chip:和普通标签同款外观(单行,主色系),前缀 `#` 折叠符号 + 成员数。
-/// 点它选中/移动,和散标签一视同仁;解散在正文点标题做。
+/// 单击检视、连续双击解散；仍支持作为整体拖动与多选。
 class _FoldChip extends StatelessWidget {
   const _FoldChip({
     super.key,
@@ -1232,6 +1236,7 @@ class _FoldChip extends StatelessWidget {
     required this.selected,
     required this.onTap,
     required this.onLongPress,
+    this.onDoubleTap,
   });
 
   final String name;
@@ -1241,6 +1246,7 @@ class _FoldChip extends StatelessWidget {
   final bool selected;
   final VoidCallback onTap;
   final VoidCallback? onLongPress;
+  final VoidCallback? onDoubleTap;
 
   @override
   Widget build(BuildContext context) {
@@ -1261,6 +1267,7 @@ class _FoldChip extends StatelessWidget {
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: onTap,
+        onDoubleTap: onDoubleTap,
         onLongPress: onLongPress,
         child: Padding(
           padding: EdgeInsets.symmetric(

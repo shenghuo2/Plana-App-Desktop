@@ -35,9 +35,18 @@ class TagPanel extends StatefulWidget {
     this.onRename,
     this.favorited = false,
     this.onToggleFavorite,
+    this.content,
+    this.copyText,
+    this.showWiki = true,
+    this.mixedWeight = false,
   });
 
   final Tok tok;
+
+  /// A block inspector uses the same actions around editable body text.
+  final Widget? content;
+  final String? copyText;
+  final bool showWiki, mixedWeight;
   final int? count;
   final List<String> related;
 
@@ -47,7 +56,7 @@ class TagPanel extends StatefulWidget {
   /// 收 / 取消收藏;null = 不给星标。
   final VoidCallback? onToggleFavorite;
 
-  /// 行内改名(芯片模式专有:那边没有光标,改字只能从这里进)。
+  /// 行内改名入口，供标签视图和块内词条操作使用。
   /// null = 文本模式,点标题不进编辑态——直接点正文里那个词就行。
   final void Function(String name)? onRename;
 
@@ -215,7 +224,10 @@ class _TagPanelState extends State<TagPanel> {
               onStartRename: widget.onRename == null ? null : _startRename,
               onCommitRename: _commitRename,
               onCancelRename: _cancelRename,
+              copyText: widget.copyText,
+              showWiki: widget.showWiki,
             ),
+            if (widget.content != null) widget.content!,
             // 跨词条权重组信息:自身读数之外单独陈述组权重与合计,
             // 「选中整组」一键进批量面板调组权重。
             if (tok.inGroup)
@@ -356,16 +368,18 @@ class _TagPanelState extends State<TagPanel> {
                     SizedBox(
                       width: 60,
                       child: Text(
-                        '×${fmtMult(tok.tagMult)}',
+                        widget.mixedWeight ? '混合' : '×${fmtMult(tok.tagMult)}',
                         textAlign: TextAlign.center,
                         // 读数只报数,不跟着权重变红蓝 —— 高低看名字色与正文色带
-                        style: mono(
-                          context,
-                          size: 16,
-                          color: tok.disabled
-                              ? scheme.onSurfaceVariant
-                              : scheme.onSurface,
-                        ),
+                        style: widget.mixedWeight
+                            ? context.texts.bodyMedium
+                            : mono(
+                                context,
+                                size: 16,
+                                color: tok.disabled
+                                    ? scheme.onSurfaceVariant
+                                    : scheme.onSurface,
+                              ),
                       ),
                     ),
                     RepeatBtn(
@@ -389,7 +403,8 @@ class _TagPanelState extends State<TagPanel> {
                     '清除权重',
                     enabled:
                         on &&
-                        (tok.braceLevel != 0 ||
+                        (widget.mixedWeight ||
+                            tok.braceLevel != 0 ||
                             (tok.numWeight - 1.0).abs() >= 0.005),
                     onTap: widget.onClear,
                   ),
@@ -767,9 +782,13 @@ class _Header extends StatelessWidget {
     required this.onStartRename,
     required this.onCommitRename,
     required this.onCancelRename,
+    this.copyText,
+    this.showWiki = true,
   });
 
   final Tok tok;
+  final String? copyText;
+  final bool showWiki;
   final int? count;
   final Color wc;
   final bool favorited;
@@ -848,7 +867,7 @@ class _Header extends StatelessWidget {
             ),
           ),
         ),
-        if (tok.name.isNotEmpty) ...[
+        if (showWiki && tok.name.isNotEmpty) ...[
           _circleIcon(
             context,
             icon: Icons.travel_explore,
@@ -860,8 +879,12 @@ class _Header extends StatelessWidget {
           context,
           icon: Icons.content_copy,
           onTap: () {
-            Clipboard.setData(ClipboardData(text: tok.name));
-            hintSnack(context, '已复制标签', icon: Icons.check);
+            Clipboard.setData(ClipboardData(text: copyText ?? tok.name));
+            hintSnack(
+              context,
+              copyText == null ? '已复制标签' : '已复制提示词',
+              icon: Icons.check,
+            );
           },
         ),
         if (onToggleFavorite != null && tok.name.isNotEmpty) ...[

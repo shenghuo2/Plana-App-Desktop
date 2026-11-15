@@ -40,6 +40,7 @@ class AnnotatedField extends StatefulWidget {
     this.onCursorDrag,
     this.scrollController,
     this.onFoldTap,
+    this.onFoldDoubleTap,
     this.scrollable = true,
     this.minLines,
     this.padding = const EdgeInsets.fromLTRB(16, 2, 16, 24),
@@ -67,8 +68,9 @@ class AnnotatedField extends StatefulWidget {
 
   final ScrollController? scrollController;
 
-  /// 单击折叠标题 `#名字`:一次性解散(记号删掉、内容平铺)。
-  final void Function(String name)? onFoldTap;
+  /// Single click inspects the block at its screen bounds; only a double click unfolds.
+  final void Function(String name, Rect anchor)? onFoldTap;
+  final ValueChanged<String>? onFoldDoubleTap;
 
   @override
   State<AnnotatedField> createState() => AnnotatedFieldState();
@@ -353,7 +355,7 @@ class AnnotatedFieldState extends State<AnnotatedField> {
                     ),
                   ),
                 ),
-                // 折叠标题点击层(最上):**只**覆盖 `#名字` 矩形,单击 = 一次性解散。
+                // The title hit area keeps inspection separate from caret movement.
                 // 独立热区而不是靠光标落点驱动 —— 光标移动/方向键/选择经过折叠时
                 // 不再误触发;矩形之外没有 widget,点击照常穿透给 TextField 定位
                 // 光标。同一 controller 布局,矩形与绘制层严格对齐。
@@ -377,9 +379,25 @@ class AnnotatedFieldState extends State<AnnotatedField> {
                               top: r.top,
                               width: r.width,
                               height: r.height,
-                              child: GestureDetector(
-                                behavior: HitTestBehavior.opaque,
-                                onTap: () => widget.onFoldTap?.call(name),
+                              child: Builder(
+                                builder: (hitContext) => GestureDetector(
+                                  key: ValueKey(
+                                    'fold-hit-$name-${r.top}-${r.left}',
+                                  ),
+                                  behavior: HitTestBehavior.opaque,
+                                  onTap: () {
+                                    final box =
+                                        hitContext.findRenderObject()
+                                            as RenderBox;
+                                    widget.onFoldTap?.call(
+                                      name,
+                                      box.localToGlobal(Offset.zero) & box.size,
+                                    );
+                                  },
+                                  onDoubleTap: widget.onFoldDoubleTap == null
+                                      ? null
+                                      : () => widget.onFoldDoubleTap!(name),
+                                ),
                               ),
                             ),
                         ],

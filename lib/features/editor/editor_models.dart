@@ -1786,9 +1786,13 @@ List<FoldRef> parseFoldRefs(String text, Map<String, String> bodies) => [
 /// 草稿(完整语法)→ (正文, 折叠表)。完整折叠 `<#名字: 内容#>` 收成占位符,
 /// 内容进表;重名且内容不同 → 追加「 2」「 3」去重(名字是表键,必须唯一)。
 /// [seed] 是已占用的名字表(正/负两侧共用一张表时,后收的一侧要避开先收的)。
+/// 编辑会话使用 [independent] 和 [reservedNames]，让同名同体的在用块
+/// 也有独立编辑目标；仅渲染预览时仍可复用相同内容。
 (String, Map<String, String>) collapseFolds(
   String draft, {
   Map<String, String> seed = const {},
+  bool independent = false,
+  Set<String> reservedNames = const {},
   void Function(FoldSpan fold, String name)? onCollapsed,
 }) {
   final folds = parseFolds(draft);
@@ -1800,6 +1804,8 @@ List<FoldRef> parseFoldRefs(String text, Map<String, String> bodies) => [
     var name = f.name;
     var n = 2;
     bool taken(String s) =>
+        reservedNames.contains(s) ||
+        (independent && bodies.containsKey(s)) ||
         (bodies.containsKey(s) && bodies[s] != body) ||
         (seed.containsKey(s) && seed[s] != body);
     while (taken(name)) {
