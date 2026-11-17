@@ -837,6 +837,7 @@ class _SectionRow extends ConsumerStatefulWidget {
 }
 
 class _SectionRowState extends ConsumerState<_SectionRow> {
+  final _editorHeaderKey = GlobalKey();
   bool _collapsed = false;
   int get index => widget.index;
   PromptSection get section => widget.section;
@@ -877,6 +878,7 @@ class _SectionRowState extends ConsumerState<_SectionRow> {
             child: Column(
               children: [
                 Padding(
+                  key: _editorHeaderKey,
                   padding: const EdgeInsets.symmetric(
                     horizontal: 8,
                     vertical: 4,
@@ -976,6 +978,7 @@ class _SectionRowState extends ConsumerState<_SectionRow> {
                         ),
                         DesktopPromptCard(
                           key: ValueKey('desktop-section-editor-${s.id}'),
+                          scrollAnchor: _editorHeaderKey,
                           sectionId: s.isMain ? null : s.id,
                           framed: false,
                         ),

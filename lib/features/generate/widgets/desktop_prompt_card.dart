@@ -13,10 +13,12 @@ class DesktopPromptCard extends StatefulWidget {
     this.charId,
     this.sectionId,
     this.framed = true,
+    this.scrollAnchor,
   });
   final bool framed;
   final String? charId;
   final String? sectionId;
+  final GlobalKey? scrollAnchor;
 
   @override
   State<DesktopPromptCard> createState() => _DesktopPromptCardState();
@@ -42,6 +44,7 @@ class _DesktopPromptCardState extends State<DesktopPromptCard>
           charId: widget.charId,
           sectionId: widget.sectionId,
           embedded: true,
+          scrollAnchor: widget.scrollAnchor,
         ),
       ),
     );

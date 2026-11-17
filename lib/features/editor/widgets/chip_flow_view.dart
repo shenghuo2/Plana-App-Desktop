@@ -13,6 +13,7 @@ import '../editor_models.dart';
 import '../chrome_scroll.dart';
 import 'rich_tag_controller.dart';
 import 'editor_body.dart';
+import 'immediate_fold_tap.dart';
 import '../../../core/util/haptics.dart';
 
 /// 尾部输入框的定宽(有词条时)。约五个汉字宽,够看清正在打的词,
@@ -1226,7 +1227,7 @@ class _GroupBand extends StatelessWidget {
 
 /// 折叠 chip:和普通标签同款外观(单行,主色系),前缀 `#` 折叠符号 + 成员数。
 /// 单击检视、连续双击解散；仍支持作为整体拖动与多选。
-class _FoldChip extends StatelessWidget {
+class _FoldChip extends StatefulWidget {
   const _FoldChip({
     super.key,
     required this.name,
@@ -1249,8 +1250,26 @@ class _FoldChip extends StatelessWidget {
   final VoidCallback? onDoubleTap;
 
   @override
+  State<_FoldChip> createState() => _FoldChipState();
+}
+
+class _FoldChipState extends State<_FoldChip> {
+  final _tap = ImmediateFoldTap();
+
+  @override
+  void dispose() {
+    _tap.reset();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final scheme = context.scheme;
+    final name = widget.name;
+    final count = widget.count;
+    final fontSize = widget.fontSize;
+    final primaryFontSize = widget.primaryFontSize;
+    final selected = widget.selected;
     return Material(
       color: selected
           ? scheme.primaryContainer
@@ -1266,9 +1285,15 @@ class _FoldChip extends StatelessWidget {
       ),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
-        onTap: onTap,
-        onDoubleTap: onDoubleTap,
-        onLongPress: onLongPress,
+        onTap: () => _tap.activate(widget.onTap),
+        onTapUp: (details) => _tap(
+          target: name,
+          details: details,
+          inspect: widget.onTap,
+          unfold: widget.onDoubleTap,
+        ),
+        onTapCancel: _tap.reset,
+        onLongPress: widget.onLongPress,
         child: Padding(
           padding: EdgeInsets.symmetric(
             horizontal: fontSize * 0.7,

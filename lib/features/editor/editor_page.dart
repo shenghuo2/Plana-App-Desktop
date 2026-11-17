@@ -53,6 +53,7 @@ class EditorPage extends ConsumerStatefulWidget {
     this.embedded = false,
     this.floatingPanels = false,
     this.sectionId,
+    this.scrollAnchor,
   });
 
   final bool positive;
@@ -66,6 +67,7 @@ class EditorPage extends ConsumerStatefulWidget {
 
   /// 编辑目标是主提示词的某个分区(见 PromptSection);与 [charId] 互斥。
   final String? sectionId;
+  final GlobalKey? scrollAnchor;
 
   @override
   ConsumerState<EditorPage> createState() => _EditorPageState();
@@ -559,6 +561,7 @@ class _EditorPageState extends ConsumerState<EditorPage>
   /// (含权重语法,即 [segStart, segEnd))。已有选区上继续拖手柄
   /// (prev 已展开)不干预,用户仍可自由精调。
   bool _captureTagSelection(TextSelection prev) {
+    if (_cursorDragging) return false;
     final sel = _controller.selection;
     if (!sel.isValid || sel.isCollapsed) return false;
     if (prev.isValid && !prev.isCollapsed) return false;
@@ -1044,6 +1047,17 @@ class _EditorPageState extends ConsumerState<EditorPage>
     ref
         .read(editorSettingsProvider.notifier)
         .patch((s) => s.copyWith(chipMode: to));
+    if (widget.embedded) {
+      // Other editors change height too. Resolve the initiating card's heading
+      // after layout instead of retaining a pixel offset in the whole sidebar.
+      _inlineFocus.requestFocus();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        final anchor = widget.scrollAnchor?.currentContext ?? context;
+        Scrollable.ensureVisible(anchor, alignment: 0);
+      });
+      return;
+    }
     // 切到文本形态时把键盘唤回来:那边光标就是入口,不给焦点等于点进来发现
     // 什么也打不了。切到芯片形态则**不**抢焦点,和进页面时同一套克制。
     //
@@ -1807,6 +1821,7 @@ class _EditorPageState extends ConsumerState<EditorPage>
               tapGroupId: _popoverTapGroup,
               panelWidth: _inspectedFold == null ? 360 : 460,
               maxPanelHeight: _inspectedFold == null ? 420 : 620,
+              avoidAnchor: _inspectedFold != null,
               visible:
                   _inlineHasFocus &&
                   !_cursorDragging &&
@@ -1920,6 +1935,7 @@ class _EditorPageState extends ConsumerState<EditorPage>
             tapGroupId: _popoverTapGroup,
             panelWidth: _inspectedFold == null ? 360 : 460,
             maxPanelHeight: _inspectedFold == null ? 420 : 620,
+            avoidAnchor: _inspectedFold != null,
             visible:
                 (widget.floatingPanels || _inspectedFold != null) &&
                 !_cursorDragging &&

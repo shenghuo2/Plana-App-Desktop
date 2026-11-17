@@ -203,6 +203,7 @@ class _CharacterTileState extends ConsumerState<_CharacterTile> {
   CharacterPrompt get char => widget.char;
   int get index => widget.index;
   bool _collapsed = false;
+  final _editorHeaderKey = GlobalKey();
 
   /// 点名字改名。留空 = 回到默认的「角色 N」,N 按当前行序算,与新增时同一口径
   /// (名字本就不是稳定句柄,认人靠 id)。
@@ -346,14 +347,17 @@ class _CharacterTileState extends ConsumerState<_CharacterTile> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                _header(
-                  context,
-                  ref,
-                  notifier,
-                  autoPos: autoPos,
-                  isV5: isV5,
-                  compact: compact,
-                  collapsible: collapsible,
+                KeyedSubtree(
+                  key: _editorHeaderKey,
+                  child: _header(
+                    context,
+                    ref,
+                    notifier,
+                    autoPos: autoPos,
+                    isV5: isV5,
+                    compact: compact,
+                    collapsible: collapsible,
+                  ),
                 ),
                 if (compact)
                   Padding(
@@ -436,6 +440,7 @@ class _CharacterTileState extends ConsumerState<_CharacterTile> {
                       ),
                       DesktopPromptCard(
                         key: ValueKey(char.id),
+                        scrollAnchor: _editorHeaderKey,
                         charId: char.id,
                       ),
                     ],

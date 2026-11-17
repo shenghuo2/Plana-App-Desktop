@@ -105,7 +105,12 @@ void main() {
   );
   Future<void> inspect(WidgetTester tester) async {
     await tester.tap(foldHit().first);
-    await tester.pump(const Duration(milliseconds: 350));
+    await tester.pump();
+    expect(
+      find.byType(FoldInspector),
+      findsOneWidget,
+      reason: 'Inspection must not wait for the double-click timeout',
+    );
     await tester.pumpAndSettle();
     expect(find.byType(FoldInspector), findsOneWidget);
   }
@@ -192,6 +197,16 @@ void main() {
                   .center
             : tester.getCenter(foldHit().first);
         await tester.tapAt(point);
+        await tester.pump();
+        expect(find.byType(FoldInspector), findsOneWidget);
+        expect(
+          tester
+              .getRect(find.byKey(const ValueKey('desktop-tag-popover')))
+              .contains(point),
+          isFalse,
+          reason:
+              'Immediate inspection must leave the title reachable for a second click',
+        );
         await tester.pump(const Duration(milliseconds: 60));
         await tester.tapAt(point);
         await tester.pumpAndSettle();

@@ -36,10 +36,12 @@ class FoldInspector extends ConsumerStatefulWidget {
 class _FoldInspectorState extends ConsumerState<FoldInspector> {
   final _controller = RichTagController();
   final _focus = FocusNode();
+  final _scroll = ScrollController(keepScrollOffset: false);
   final _fieldKey = GlobalKey<AnnotatedFieldState>();
   late String _name;
   String _previous = '';
   bool _muting = false;
+  bool _cursorDragging = false;
   Tok? _selected;
   int _anchorRevision = 0;
   List<String> _related = const [];
@@ -81,6 +83,7 @@ class _FoldInspectorState extends ConsumerState<FoldInspector> {
   void dispose() {
     _controller.dispose();
     _focus.dispose();
+    _scroll.dispose();
     super.dispose();
   }
 
@@ -251,7 +254,7 @@ class _FoldInspectorState extends ConsumerState<FoldInspector> {
           const SizedBox(height: 8),
           DesktopTagPopover(
             tapGroupId: widget.tapGroupId,
-            visible: _selected != null,
+            visible: _selected != null && !_cursorDragging,
             anchor: () => _fieldKey.currentState?.selectionAnchor(),
             anchorRevision: _anchorRevision,
             onDismiss: () => setState(() => _selected = null),
@@ -269,11 +272,14 @@ class _FoldInspectorState extends ConsumerState<FoldInspector> {
                 key: _fieldKey,
                 controller: _controller,
                 focusNode: _focus,
+                onCursorDrag: (dragging) =>
+                    setState(() => _cursorDragging = dragging),
                 hint: '输入块内提示词…',
                 showTrans: settings.showTranslation,
                 showWeightWash: settings.showWeightWash,
                 fontSize: settings.fontSize,
                 scrollable: true,
+                scrollController: _scroll,
                 minLines: 3,
                 padding: const EdgeInsets.symmetric(vertical: 4),
               ),

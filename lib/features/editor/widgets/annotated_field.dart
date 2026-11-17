@@ -1,10 +1,13 @@
+import 'dart:async';
 import 'dart:math' as math;
-import 'dart:ui' show BoxHeightStyle;
+import 'dart:ui' show BoxHeightStyle, PointerDeviceKind;
 
 import 'package:flutter/foundation.dart' show mapEquals;
-import 'package:flutter/gestures.dart' show computePanSlop;
+import 'package:flutter/gestures.dart' show computePanSlop, kPrimaryButton;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show RenderEditable, RenderProxyBox;
+import 'package:flutter/scheduler.dart' show Ticker;
+import 'package:flutter/services.dart' show HardwareKeyboard;
 
 import '../../../core/theme/app_theme.dart';
 import '../../../core/theme/editor_theme.dart';
@@ -13,6 +16,7 @@ import '../editor_models.dart';
 import '../chrome_scroll.dart';
 import 'rich_tag_controller.dart';
 import 'editor_body.dart';
+import 'immediate_fold_tap.dart';
 
 /// 行距分配策略:注音行高(2.0)默认按**比例**分配行距,会把绝大部分行距塞到
 /// 基线**上方**(升部权重远大于降部),基线下方几乎不留白——结果正文连同权重
@@ -76,14 +80,15 @@ class AnnotatedField extends StatefulWidget {
   State<AnnotatedField> createState() => AnnotatedFieldState();
 }
 
-class AnnotatedFieldState extends State<AnnotatedField> {
+class AnnotatedFieldState extends State<AnnotatedField>
+    with SingleTickerProviderStateMixin {
   /// 底色层 / 注音层是按设置条件挂进 Stack 的,开关一动 TextField 的兄弟下标
   /// 就变了 —— 没有这把全局 key,框架会按位置改嫁,把输入框连同焦点和选区
   /// 一起重建。
   final _fieldKey = GlobalKey();
+  final _foldTap = ImmediateFoldTap();
 
-  /// Current caret/selection end in global coordinates, after text layout.
-  Rect? selectionAnchor() {
+  RenderEditable? _editable() {
     RenderEditable? render;
     void visit(RenderObject child) {
       if (child is RenderEditable) {
@@ -95,7 +100,12 @@ class AnnotatedFieldState extends State<AnnotatedField> {
 
     final field = _fieldKey.currentContext?.findRenderObject();
     if (field != null) visit(field);
-    final editable = render;
+    return render;
+  }
+
+  /// Current caret/selection end in global coordinates, after text layout.
+  Rect? selectionAnchor() {
+    final editable = _editable();
     final selection = widget.controller.selection;
     if (editable == null || !editable.hasSize || !selection.isValid) {
       return null;
@@ -113,6 +123,211 @@ class AnnotatedFieldState extends State<AnnotatedField> {
   }
 
   late final _handles = _WatchedHandles(this);
+
+  // Flutter compensates a text drag using only the nearest Scrollable. In the
+  // sidebar that is often a stationary, shrink-wrapped reorder list, while the
+  // outer sidebar actually moves. Keep the text origin instead of a screen
+  // origin so a long selection can extend across any number of viewports.
+  int? _mousePointer, _mouseBase;
+  Offset? _mouseDown, _mousePoint;
+  String? _mouseText;
+  TextRange? _mouseWordRange;
+  bool _mouseShift = false;
+  bool _mouseSelecting = false, _correctingMouse = false;
+  bool _mouseRevealHold = false, _mouseSyncQueued = false;
+  Duration? _mouseLastTick;
+  late final Ticker _mouseTicker;
+
+  void _mousePress(PointerDownEvent event) {
+    if (event.kind != PointerDeviceKind.mouse ||
+        event.buttons != kPrimaryButton) {
+      return;
+    }
+    final render = _editable();
+    if (render == null) return;
+    _mousePointer = event.pointer;
+    _mouseDown = _mousePoint = event.position;
+    final selection = widget.controller.selection;
+    _mouseShift = HardwareKeyboard.instance.isShiftPressed;
+    _mouseWordRange = null;
+    _mouseBase = _mouseShift && selection.isValid
+        ? selection.baseOffset
+        : render.getPositionForPoint(event.position).offset;
+    _mouseText = widget.controller.text;
+  }
+
+  void _mouseMove(PointerMoveEvent event) {
+    if (event.pointer != _mousePointer) return;
+    _mousePoint = event.position;
+    if (!_mouseSelecting) {
+      final slop = computePanSlop(
+        event.kind,
+        MediaQuery.gestureSettingsOf(context),
+      );
+      if ((event.position - _mouseDown!).distance <= slop) return;
+      // A double-click has already selected a word on pointer down. Preserve
+      // that granularity while extending it, rather than cutting through it.
+      final selection = widget.controller.selection;
+      if (!_mouseShift &&
+          selection.isValid &&
+          !selection.isCollapsed &&
+          selection.start <= _mouseBase! &&
+          selection.end >= _mouseBase!) {
+        _mouseWordRange = _editable()?.getWordBoundary(
+          TextPosition(offset: _mouseBase!),
+        );
+        _mouseBase = _mouseWordRange?.start ?? _mouseBase;
+      }
+      _mouseSelecting = true;
+      _setDragging(true);
+      _mouseLastTick = null;
+      _mouseTicker.start();
+    }
+    // Run after TextField's gesture recognizer has processed this same event.
+    scheduleMicrotask(() {
+      if (mounted && _mouseSelecting) _syncMouseSelection();
+    });
+  }
+
+  void _mouseRelease(PointerEvent event) {
+    if (event.pointer != _mousePointer) return;
+    if (_mouseSelecting && event is PointerUpEvent) _syncMouseSelection();
+    _endMouseSelection();
+  }
+
+  void _endMouseSelection() {
+    final wasSelecting = _mouseSelecting;
+    _mousePointer = _mouseBase = null;
+    _mouseDown = _mousePoint = null;
+    _mouseText = null;
+    _mouseWordRange = null;
+    _mouseSelecting = false;
+    _mouseTicker.stop();
+    _mouseLastTick = null;
+    if (!wasSelecting) return;
+    // Ignore the native caret reveal queued for this last drag frame, too.
+    _mouseRevealHold = true;
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => _mouseRevealHold = false,
+    );
+    _setDragging(false);
+  }
+
+  Rect? _globalRect(BuildContext context) {
+    final box = context.findRenderObject();
+    return box is RenderBox && box.attached && box.hasSize
+        ? box.localToGlobal(Offset.zero) & box.size
+        : null;
+  }
+
+  void _tickMouseSelection(Duration elapsed) {
+    final previous = _mouseLastTick;
+    _mouseLastTick = elapsed;
+    if (!_mouseSelecting || previous == null) return;
+    if (_mouseText != widget.controller.text) {
+      _endMouseSelection();
+      return;
+    }
+    final seconds = ((elapsed - previous).inMicroseconds / 1000000).clamp(
+      0.0,
+      .05,
+    );
+    final ancestors = <ScrollableState>[];
+    var current = _fieldKey.currentContext;
+    while (current != null) {
+      final scrollable = Scrollable.maybeOf(current, axis: Axis.vertical);
+      if (scrollable == null) break;
+      ancestors.add(scrollable);
+      current = scrollable.context;
+    }
+    final view = View.of(context);
+    final window = Offset.zero & (view.physicalSize / view.devicePixelRatio);
+    var viewport = window;
+    for (final ancestor in ancestors) {
+      final rect = _globalRect(ancestor.context);
+      if (rect != null) viewport = viewport.intersect(rect);
+    }
+    final point = _mousePoint!;
+    final render = _editable();
+    if (!viewport.isEmpty &&
+        render != null &&
+        window.contains(point) &&
+        point.dx >= viewport.left &&
+        point.dx <= viewport.right) {
+      final band = math.min(48.0, viewport.height / 2);
+      final proximity = point.dy < viewport.top + band
+          ? -(viewport.top + band - point.dy) / band
+          : point.dy > viewport.bottom - band
+          ? (point.dy - viewport.bottom + band) / band
+          : 0.0;
+      final delta = proximity.clamp(-1.0, 1.0) * 800 * seconds;
+      final textBounds = render.localToGlobal(Offset.zero) & render.size;
+      for (final ancestor in ancestors) {
+        final position = ancestor.position;
+        if (!position.physics.allowUserScrolling ||
+            !position.hasContentDimensions) {
+          continue;
+        }
+        final pixels = position.pixels;
+        final lower = math.max(
+          position.minScrollExtent,
+          pixels + textBounds.top - viewport.top - 20,
+        );
+        final upper = math.min(
+          position.maxScrollExtent,
+          pixels + textBounds.bottom - viewport.bottom + 20,
+        );
+        final next = delta < 0 && pixels > lower
+            ? math.max(lower, pixels + delta)
+            : delta > 0 && pixels < upper
+            ? math.min(upper, pixels + delta)
+            : pixels;
+        if (next != pixels) {
+          position.jumpTo(next);
+          break;
+        }
+      }
+    }
+    // Also refresh when the user wheels with the button held or keeps the
+    // pointer still at an edge. Geometry is read after the scroll layout.
+    if (_mouseSyncQueued) return;
+    _mouseSyncQueued = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _mouseSyncQueued = false;
+      if (mounted && _mouseSelecting) _syncMouseSelection();
+    });
+  }
+
+  void _syncMouseSelection() {
+    final render = _editable();
+    if (render == null ||
+        _mouseBase == null ||
+        _mousePoint == null ||
+        _mouseText != widget.controller.text) {
+      return;
+    }
+    final extent = render.getPositionForPoint(_mousePoint!);
+    final bounds = render.localToGlobal(Offset.zero) & render.size;
+    var offset = _mousePoint!.dy < bounds.top
+        ? 0
+        : _mousePoint!.dy > bounds.bottom
+        ? widget.controller.text.length
+        : extent.offset;
+    if (_mouseWordRange case final word?) {
+      final forward = offset >= word.start;
+      final to = render.getWordBoundary(extent);
+      _mouseBase = forward ? word.start : word.end;
+      if (offset > 0 && offset < widget.controller.text.length) {
+        offset = forward ? to.end : to.start;
+      }
+    }
+    final next = TextSelection(
+      baseOffset: _mouseBase!,
+      extentOffset: offset,
+      affinity: extent.affinity,
+    );
+    if (next != widget.controller.selection) widget.controller.selection = next;
+  }
 
   /// 手柄上按住的那根指头起点,以及是否已经越过 slop 判成「在拖」。
   Offset? _fingerDown;
@@ -167,12 +382,23 @@ class AnnotatedFieldState extends State<AnnotatedField> {
 
   void _onController() {
     final selection = widget.controller.selection;
+    if (_mouseSelecting &&
+        !_correctingMouse &&
+        selection.isValid &&
+        _mouseText == widget.controller.text &&
+        selection.baseOffset != _mouseBase) {
+      _correctingMouse = true;
+      widget.controller.selection = selection.copyWith(baseOffset: _mouseBase);
+      _correctingMouse = false;
+      return;
+    }
     if (selection == _lastSel) return;
     _lastSel = selection;
     _keep.arm();
   }
 
   void _revealCaret() {
+    if (_mouseSelecting || _mouseRevealHold) return;
     final point = selectionAnchor();
     final box = _fieldKey.currentContext?.findRenderObject();
     if (point == null || box is! RenderBox || !box.attached) return;
@@ -189,12 +415,16 @@ class AnnotatedFieldState extends State<AnnotatedField> {
   /// 兜底:手柄只在有焦点时挂着,焦点一丢它连同上面那层 [Listener] 一起拆掉,
   /// 松手事件就没人收了 —— 不在这里补一刀,拖动态会卡住,词条栏再也不出来。
   void _onFocusChanged() {
-    if (!widget.focusNode.hasFocus) _pointerUp();
+    if (!widget.focusNode.hasFocus) {
+      _endMouseSelection();
+      _pointerUp();
+    }
   }
 
   @override
   void initState() {
     super.initState();
+    _mouseTicker = createTicker(_tickMouseSelection);
     widget.focusNode.addListener(_onFocusChanged);
     _lastSel = widget.controller.selection;
     widget.controller.addListener(_onController);
@@ -216,6 +446,8 @@ class AnnotatedFieldState extends State<AnnotatedField> {
 
   @override
   void dispose() {
+    _foldTap.reset();
+    _mouseTicker.dispose();
     widget.focusNode.removeListener(_onFocusChanged);
     widget.controller.removeListener(_onController);
     super.dispose();
@@ -256,7 +488,7 @@ class AnnotatedFieldState extends State<AnnotatedField> {
             final width = constraints.maxWidth;
             return Stack(
               children: [
-                // 折叠底纹层(最底):标题 `#名字` 一颗药丸,点它即解散。
+                // 折叠底纹层(最底):单击检视标题，连续双击才解散。
                 // 不受权重高亮开关影响:折叠是结构,不是权重。
                 Positioned.fill(
                   child: IgnorePointer(
@@ -323,34 +555,41 @@ class AnnotatedFieldState extends State<AnnotatedField> {
                   ),
                 // EditableText 无 textHeightBehavior 直参,靠 DefaultTextHeightBehavior
                 // 下发 even——与上面两个绘制层同款行距,底色/注音才与字严格对齐。
-                _HandleDragReveal(
-                  active: () => _dragging || _revealHold,
-                  padding: _revealPadding,
-                  child: DefaultTextHeightBehavior(
-                    textHeightBehavior: _kEvenLeading,
-                    child: TextField(
-                      key: _fieldKey,
-                      controller: widget.controller,
-                      focusNode: widget.focusNode,
-                      style: base.copyWith(color: scheme.onSurface),
-                      maxLines: null,
-                      minLines: widget.minLines,
-                      scrollPhysics: widget.scrollable
-                          ? null
-                          : const NeverScrollableScrollPhysics(),
-                      cursorColor: pal.cursor,
-                      cursorWidth: _kCursorWidth,
-                      selectionControls: _handles,
-                      keyboardType: TextInputType.multiline,
-                      textInputAction: TextInputAction.newline,
-                      decoration: InputDecoration(
-                        isDense: true,
-                        filled: widget.scrollable ? null : false,
-                        isCollapsed: true,
-                        contentPadding: EdgeInsets.zero,
-                        border: InputBorder.none,
-                        hintText: widget.hint,
-                        hintStyle: base.copyWith(color: scheme.outline),
+                Listener(
+                  onPointerDown: _mousePress,
+                  onPointerMove: _mouseMove,
+                  onPointerUp: _mouseRelease,
+                  onPointerCancel: _mouseRelease,
+                  child: _HandleDragReveal(
+                    active: () => _dragging || _revealHold,
+                    mouseActive: () => _mouseSelecting || _mouseRevealHold,
+                    padding: _revealPadding,
+                    child: DefaultTextHeightBehavior(
+                      textHeightBehavior: _kEvenLeading,
+                      child: TextField(
+                        key: _fieldKey,
+                        controller: widget.controller,
+                        focusNode: widget.focusNode,
+                        style: base.copyWith(color: scheme.onSurface),
+                        maxLines: null,
+                        minLines: widget.minLines,
+                        scrollPhysics: widget.scrollable
+                            ? null
+                            : const NeverScrollableScrollPhysics(),
+                        cursorColor: pal.cursor,
+                        cursorWidth: _kCursorWidth,
+                        selectionControls: _handles,
+                        keyboardType: TextInputType.multiline,
+                        textInputAction: TextInputAction.newline,
+                        decoration: InputDecoration(
+                          isDense: true,
+                          filled: widget.scrollable ? null : false,
+                          isCollapsed: true,
+                          contentPadding: EdgeInsets.zero,
+                          border: InputBorder.none,
+                          hintText: widget.hint,
+                          hintStyle: base.copyWith(color: scheme.outline),
+                        ),
                       ),
                     ),
                   ),
@@ -380,12 +619,8 @@ class AnnotatedFieldState extends State<AnnotatedField> {
                               width: r.width,
                               height: r.height,
                               child: Builder(
-                                builder: (hitContext) => GestureDetector(
-                                  key: ValueKey(
-                                    'fold-hit-$name-${r.top}-${r.left}',
-                                  ),
-                                  behavior: HitTestBehavior.opaque,
-                                  onTap: () {
+                                builder: (hitContext) {
+                                  void inspect() {
                                     final box =
                                         hitContext.findRenderObject()
                                             as RenderBox;
@@ -393,11 +628,25 @@ class AnnotatedFieldState extends State<AnnotatedField> {
                                       name,
                                       box.localToGlobal(Offset.zero) & box.size,
                                     );
-                                  },
-                                  onDoubleTap: widget.onFoldDoubleTap == null
-                                      ? null
-                                      : () => widget.onFoldDoubleTap!(name),
-                                ),
+                                  }
+
+                                  return GestureDetector(
+                                    key: ValueKey(
+                                      'fold-hit-$name-${r.top}-${r.left}',
+                                    ),
+                                    behavior: HitTestBehavior.opaque,
+                                    onTap: () => _foldTap.activate(inspect),
+                                    onTapUp: (details) => _foldTap(
+                                      target: name,
+                                      details: details,
+                                      inspect: inspect,
+                                      unfold: widget.onFoldDoubleTap == null
+                                          ? null
+                                          : () => widget.onFoldDoubleTap!(name),
+                                    ),
+                                    onTapCancel: _foldTap.reset,
+                                  );
+                                },
                               ),
                             ),
                         ],
@@ -427,17 +676,19 @@ class AnnotatedFieldState extends State<AnnotatedField> {
 class _HandleDragReveal extends SingleChildRenderObjectWidget {
   const _HandleDragReveal({
     required this.active,
+    required this.mouseActive,
     required this.padding,
     super.child,
   });
 
   /// 现读,不等重建:拖动状态由手柄上的 [Listener] 同步改,框架的滚动请求紧跟着就到。
   final bool Function() active;
+  final bool Function() mouseActive;
   final EdgeInsets padding;
 
   @override
   RenderObject createRenderObject(BuildContext context) =>
-      _RenderHandleDragReveal(active, padding);
+      _RenderHandleDragReveal(active, mouseActive, padding);
 
   @override
   void updateRenderObject(
@@ -446,14 +697,16 @@ class _HandleDragReveal extends SingleChildRenderObjectWidget {
   ) {
     renderObject
       ..active = active
+      ..mouseActive = mouseActive
       ..padding = padding;
   }
 }
 
 class _RenderHandleDragReveal extends RenderProxyBox {
-  _RenderHandleDragReveal(this.active, this.padding);
+  _RenderHandleDragReveal(this.active, this.mouseActive, this.padding);
 
   bool Function() active;
+  bool Function() mouseActive;
   EdgeInsets padding;
 
   @override
@@ -463,6 +716,7 @@ class _RenderHandleDragReveal extends RenderProxyBox {
     Duration duration = Duration.zero,
     Curve curve = Curves.ease,
   }) {
+    if (mouseActive()) return;
     if (active()) {
       if (duration > Duration.zero) return;
       if (rect != null) rect = padding.inflateRect(rect);

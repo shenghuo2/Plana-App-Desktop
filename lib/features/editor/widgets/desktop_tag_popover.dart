@@ -15,6 +15,7 @@ class DesktopTagPopover extends StatefulWidget {
     this.tapGroupId,
     this.panelWidth = 360,
     this.maxPanelHeight = 420,
+    this.avoidAnchor = false,
   });
 
   final bool visible;
@@ -25,6 +26,7 @@ class DesktopTagPopover extends StatefulWidget {
   final Widget child;
   final Object? tapGroupId;
   final double panelWidth, maxPanelHeight;
+  final bool avoidAnchor;
 
   @override
   State<DesktopTagPopover> createState() => _DesktopTagPopoverState();
@@ -35,9 +37,17 @@ class _DesktopTagPopoverState extends State<DesktopTagPopover> {
   // mutating an OverlayPortalController during an editor/provider rebuild.
   final _portal = OverlayPortalController()..show();
   final _tapGroup = Object();
+  final _storage = PageStorageBucket();
+  final _scroll = ScrollController(keepScrollOffset: false);
   Rect? _openedAnchor;
   Size? _anchorChildSize;
   Size? _anchorOverlaySize;
+
+  @override
+  void dispose() {
+    _scroll.dispose();
+    super.dispose();
+  }
 
   @override
   void didUpdateWidget(DesktopTagPopover oldWidget) {
@@ -82,6 +92,7 @@ class _DesktopTagPopoverState extends State<DesktopTagPopover> {
             viewport,
             widget.panelWidth,
             widget.maxPanelHeight,
+            widget.avoidAnchor,
           ),
           child: TapRegion(
             groupId: widget.tapGroupId ?? _tapGroup,
@@ -95,9 +106,15 @@ class _DesktopTagPopoverState extends State<DesktopTagPopover> {
                   side: BorderSide(color: scheme.outlineVariant),
                 ),
                 clipBehavior: Clip.antiAlias,
-                child: SingleChildScrollView(
-                  primary: false,
-                  child: widget.panel,
+                child: PageStorage(
+                  bucket: _storage,
+                  child: PrimaryScrollController.none(
+                    child: SingleChildScrollView(
+                      controller: _scroll,
+                      primary: false,
+                      child: widget.panel,
+                    ),
+                  ),
                 ),
               ),
             ),
@@ -110,10 +127,17 @@ class _DesktopTagPopoverState extends State<DesktopTagPopover> {
 }
 
 class _TagPopoverLayout extends SingleChildLayoutDelegate {
-  _TagPopoverLayout(this.anchor, this.viewport, this.width, this.maxHeight);
+  _TagPopoverLayout(
+    this.anchor,
+    this.viewport,
+    this.width,
+    this.maxHeight,
+    this.avoidAnchor,
+  );
   final Rect anchor;
   final Rect viewport;
   final double width, maxHeight;
+  final bool avoidAnchor;
   static const margin = 8.0;
 
   @override
@@ -122,13 +146,18 @@ class _TagPopoverLayout extends SingleChildLayoutDelegate {
       width,
       math.max(0.0, constraints.maxWidth - margin * 2),
     );
+    // An immediate inspector must leave the clicked title reachable for the
+    // second click, including when the title is halfway down a narrow window.
+    final availableHeight = avoidAnchor
+        ? math.max(
+            anchor.top - viewport.top - margin * 2,
+            viewport.bottom - anchor.bottom - margin * 2,
+          )
+        : viewport.height - margin * 2;
     return BoxConstraints(
       minWidth: availableWidth,
       maxWidth: availableWidth,
-      maxHeight: math.min(
-        maxHeight,
-        math.max(0.0, viewport.height - margin * 2),
-      ),
+      maxHeight: math.min(maxHeight, math.max(0.0, availableHeight)),
     );
   }
 
@@ -159,5 +188,6 @@ class _TagPopoverLayout extends SingleChildLayoutDelegate {
       oldDelegate.anchor != anchor ||
       oldDelegate.viewport != viewport ||
       oldDelegate.width != width ||
-      oldDelegate.maxHeight != maxHeight;
+      oldDelegate.maxHeight != maxHeight ||
+      oldDelegate.avoidAnchor != avoidAnchor;
 }
