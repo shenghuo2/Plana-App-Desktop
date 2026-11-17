@@ -479,8 +479,7 @@ class _EditorPageState extends ConsumerState<EditorPage>
     });
   }
 
-  void _deleteInspectedFold() {
-    final name = _inspectedFold;
+  void _deleteInspectedFold(String name) {
     final fold = parseFoldRefs(
       _controller.text,
       _foldBodies,
@@ -1822,6 +1821,7 @@ class _EditorPageState extends ConsumerState<EditorPage>
               panelWidth: _inspectedFold == null ? 360 : 460,
               maxPanelHeight: _inspectedFold == null ? 420 : 620,
               avoidAnchor: _inspectedFold != null,
+              scrollPanel: _inspectedFold == null,
               visible:
                   _inlineHasFocus &&
                   !_cursorDragging &&
@@ -1936,6 +1936,7 @@ class _EditorPageState extends ConsumerState<EditorPage>
             panelWidth: _inspectedFold == null ? 360 : 460,
             maxPanelHeight: _inspectedFold == null ? 420 : 620,
             avoidAnchor: _inspectedFold != null,
+            scrollPanel: _inspectedFold == null,
             visible:
                 (widget.floatingPanels || _inspectedFold != null) &&
                 !_cursorDragging &&
@@ -2177,7 +2178,7 @@ class _EditorPageState extends ConsumerState<EditorPage>
         name: name,
         tapGroupId: _popoverTapGroup,
         onClose: _dismissDesktopPanel,
-        onDelete: _deleteInspectedFold,
+        onDelete: () => _deleteInspectedFold(name),
       );
     }
     // key 稳定=同一形态内更新不重播入场动画(如长按连续调权重);切形态才动画

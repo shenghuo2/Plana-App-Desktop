@@ -36,6 +36,11 @@ class TagPanel extends StatefulWidget {
     this.favorited = false,
     this.onToggleFavorite,
     this.content,
+    this.contentHeader,
+    this.contentFooter,
+    this.constrainContent = false,
+    this.expandContent = false,
+    this.onFullscreen,
     this.copyText,
     this.showWiki = true,
     this.mixedWeight = false,
@@ -45,6 +50,9 @@ class TagPanel extends StatefulWidget {
 
   /// A block inspector uses the same actions around editable body text.
   final Widget? content;
+  final Widget? contentHeader, contentFooter;
+  final bool constrainContent, expandContent;
+  final VoidCallback? onFullscreen;
   final String? copyText;
   final bool showWiki, mixedWeight;
   final int? count;
@@ -226,8 +234,18 @@ class _TagPanelState extends State<TagPanel> {
               onCancelRename: _cancelRename,
               copyText: widget.copyText,
               showWiki: widget.showWiki,
+              onFullscreen: widget.onFullscreen,
             ),
-            if (widget.content != null) widget.content!,
+            if (widget.contentHeader != null) widget.contentHeader!,
+            if (widget.content != null)
+              if (widget.constrainContent)
+                Flexible(
+                  fit: widget.expandContent ? FlexFit.tight : FlexFit.loose,
+                  child: widget.content!,
+                )
+              else
+                widget.content!,
+            if (widget.contentFooter != null) widget.contentFooter!,
             // 跨词条权重组信息:自身读数之外单独陈述组权重与合计,
             // 「选中整组」一键进批量面板调组权重。
             if (tok.inGroup)
@@ -784,11 +802,13 @@ class _Header extends StatelessWidget {
     required this.onCancelRename,
     this.copyText,
     this.showWiki = true,
+    this.onFullscreen,
   });
 
   final Tok tok;
   final String? copyText;
   final bool showWiki;
+  final VoidCallback? onFullscreen;
   final int? count;
   final Color wc;
   final bool favorited;
@@ -872,6 +892,17 @@ class _Header extends StatelessWidget {
             context,
             icon: Icons.travel_explore,
             onTap: () => _openWiki(context, tok.name),
+          ),
+          const SizedBox(width: 4),
+        ],
+        if (onFullscreen != null) ...[
+          Tooltip(
+            message: '大屏编辑提示词',
+            child: _circleIcon(
+              context,
+              icon: Icons.open_in_full,
+              onTap: onFullscreen!,
+            ),
           ),
           const SizedBox(width: 4),
         ],

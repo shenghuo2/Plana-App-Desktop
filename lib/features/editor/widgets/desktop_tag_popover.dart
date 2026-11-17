@@ -16,6 +16,7 @@ class DesktopTagPopover extends StatefulWidget {
     this.panelWidth = 360,
     this.maxPanelHeight = 420,
     this.avoidAnchor = false,
+    this.scrollPanel = true,
   });
 
   final bool visible;
@@ -27,6 +28,9 @@ class DesktopTagPopover extends StatefulWidget {
   final Object? tapGroupId;
   final double panelWidth, maxPanelHeight;
   final bool avoidAnchor;
+
+  /// Panels with a fixed header/footer manage scrolling inside their body.
+  final bool scrollPanel;
 
   @override
   State<DesktopTagPopover> createState() => _DesktopTagPopoverState();
@@ -109,11 +113,13 @@ class _DesktopTagPopoverState extends State<DesktopTagPopover> {
                 child: PageStorage(
                   bucket: _storage,
                   child: PrimaryScrollController.none(
-                    child: SingleChildScrollView(
-                      controller: _scroll,
-                      primary: false,
-                      child: widget.panel,
-                    ),
+                    child: widget.scrollPanel
+                        ? SingleChildScrollView(
+                            controller: _scroll,
+                            primary: false,
+                            child: widget.panel,
+                          )
+                        : widget.panel,
                   ),
                 ),
               ),

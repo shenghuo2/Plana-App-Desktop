@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:plana_app/core/theme/app_theme.dart';
 import 'package:plana_app/features/editor/widgets/annotated_field.dart';
 import 'package:plana_app/features/editor/widgets/fold_inspector.dart';
+import 'package:plana_app/features/editor/editor_settings.dart';
 import 'package:plana_app/features/generate/canvas_state.dart';
 import 'package:plana_app/features/generate/generate_state.dart';
 import 'package:plana_app/features/generate/models.dart';
@@ -107,13 +108,28 @@ void main() {
       )
       .renderEditable;
 
-  for (final role in [false, true]) {
-    final prefix = role ? 'desktop-character-c3' : 'desktop-section-s1';
-    final heading = role ? 'character-header-c3' : 'prompt-section-header-s1';
+  for (final target in ['main', 'section', 'character']) {
+    final prefix = switch (target) {
+      'main' => 'desktop-prompt',
+      'section' => 'desktop-section-s1',
+      _ => 'desktop-character-c3',
+    };
+    final heading = switch (target) {
+      'main' => 'prompt-section-header-main',
+      'section' => 'prompt-section-header-s1',
+      _ => 'character-header-c3',
+    };
     testWidgets(
-      '${role ? 'character' : 'section'} mode switch reveals its own heading',
+      '$target mode switch reveals its own heading without text animation',
       (tester) async {
         await mount(tester);
+        await pumpUntilComplete(
+          tester,
+          fixture.container
+              .read(editorSettingsProvider.notifier)
+              .patch((s) => s.copyWith(showTranslation: true)),
+        );
+        await tester.pumpAndSettle();
         // A previous caret near the end must not pull the newly mounted text
         // field away from the requested heading when switching back.
         tester.widget<AnnotatedField>(field(prefix)).controller.selection =
@@ -124,7 +140,42 @@ void main() {
         );
         await tester.pumpAndSettle();
         for (var i = 0; i < 2; i++) {
+          if (i == 1) {
+            // Simulate an existing sidebar position restored by PageStorage.
+            // Newly mounted inner text viewports must not read that entry.
+            final ctx = tester.element(key('$prefix-mode'));
+            PageStorage.of(ctx).writeState(ctx, 200.0);
+          }
           await tester.tap(key('$prefix-mode'));
+          await tester.pump();
+          if (i == 1) {
+            final initial = editable(
+              tester,
+              prefix,
+            ).getLocalRectForCaret(TextPosition(offset: longText.length ~/ 2));
+            // Inspect the first rendered frames, not just the settled view:
+            // text and its annotation paint layers must never slide apart.
+            for (var frame = 0; frame < 20; frame++) {
+              final render = editable(tester, prefix);
+              expect(
+                render.offset.pixels,
+                0,
+                reason: 'Fresh text must not inherit the sidebar scroll offset',
+              );
+              expect(
+                render.getLocalRectForCaret(const TextPosition(offset: 0)).top,
+                inInclusiveRange(0, 30),
+              );
+              expect(
+                render.getLocalRectForCaret(
+                  TextPosition(offset: longText.length ~/ 2),
+                ),
+                initial,
+                reason: 'Text layout must be final from its first frame',
+              );
+              await tester.pump(const Duration(milliseconds: 16));
+            }
+          }
           await tester.pumpAndSettle();
           expect(
             tester.getTopLeft(key(heading)).dy,

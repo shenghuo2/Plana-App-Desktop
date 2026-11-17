@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -54,6 +55,7 @@ void main() {
     bool dark = false,
     double scale = 1,
     double width = 380,
+    double topPadding = 0,
   }) async {
     final theme = dark ? AppTheme.dark() : AppTheme.light();
     await tester.pumpWidget(
@@ -77,9 +79,12 @@ void main() {
                 child: SizedBox(
                   width: width,
                   child: SingleChildScrollView(
-                    child: DesktopPromptCard(
-                      charId: charId,
-                      sectionId: sectionId,
+                    child: Padding(
+                      padding: EdgeInsets.only(top: topPadding),
+                      child: DesktopPromptCard(
+                        charId: charId,
+                        sectionId: sectionId,
+                      ),
                     ),
                   ),
                 ),
@@ -313,6 +318,8 @@ void main() {
       await inspect(tester);
       await tester.tap(find.byKey(const ValueKey('fold-inspector-负面')));
       await tester.pumpAndSettle();
+      await tester.tap(find.byIcon(Icons.open_in_full));
+      await tester.pumpAndSettle();
       await tester.enterText(
         find.descendant(of: bodyField(), matching: find.byType(TextField)),
         '0.6::bad anatomy::',
@@ -351,8 +358,157 @@ void main() {
       expect(bounds.right, lessThanOrEqualTo(352));
       expect(bounds.top, greaterThanOrEqualTo(8));
       expect(bounds.bottom, lessThanOrEqualTo(752));
+      final title = tester.getRect(find.text('#画风'));
+      final footer = tester.getRect(find.text('删除'));
+      expect(footer.bottom, lessThanOrEqualTo(bounds.bottom));
+      final input = tester.widget<AnnotatedField>(bodyField());
+      expect(
+        input.scrollController!.position.maxScrollExtent,
+        greaterThan(100),
+      );
+      await tester.sendEventToBinding(
+        PointerScrollEvent(
+          position: tester.getCenter(bodyField()),
+          scrollDelta: const Offset(0, 300),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(input.scrollController!.offset, greaterThan(100));
+      expect(tester.getRect(find.text('#画风')), title);
+      expect(tester.getRect(find.text('删除')), footer);
       expect(tester.takeException(), isNull);
       await captureDesktop(tester, capture, 'fold-inspector-dark-narrow');
+      await finish(tester);
+    },
+  );
+
+  for (final character in [false, true]) {
+    testWidgets(
+      'fullscreen edits ${character ? 'character' : 'main'} block in the same undo session',
+      (tester) async {
+        String? id;
+        if (character) {
+          gen.addCharacter();
+          id = gen.state.characters.single.id;
+          gen.updateCharacter(id, positive: outputOf(raw), positiveRaw: raw);
+        }
+        await mount(tester, charId: id);
+        final parent = tester
+            .widget<AnnotatedField>(find.byType(AnnotatedField))
+            .controller;
+        final parentText = parent.text;
+        await inspect(tester);
+        final scoped = ProviderScope.containerOf(
+          tester.element(find.byType(FoldInspector)),
+        );
+        expect(
+          tester.getCenter(find.byIcon(Icons.open_in_full)).dx,
+          lessThan(tester.getCenter(find.byIcon(Icons.content_copy)).dx),
+        );
+        await tester.tap(find.byIcon(Icons.open_in_full));
+        await tester.pumpAndSettle();
+        expect(find.byType(Dialog), findsOneWidget);
+        expect(find.byType(FoldInspector), findsOneWidget);
+        expect(
+          tester.widget<FoldInspector>(find.byType(FoldInspector)).fullscreen,
+          isTrue,
+        );
+        expect(tester.getSize(bodyField()).height, greaterThan(300));
+        expect(
+          ProviderScope.containerOf(tester.element(find.byType(FoldInspector))),
+          same(scoped),
+        );
+        await tester.enterText(
+          find.descendant(of: bodyField(), matching: find.byType(TextField)),
+          '1.3::moonlight::, blue eyes',
+        );
+        await tester.pumpAndSettle();
+        expect(parent.text, parentText);
+        expect(
+          character
+              ? gen.state.characters.single.positiveRaw
+              : gen.state.promptRaw,
+          '<#画风: 1.3::moonlight::, blue eyes#>, sunrise',
+        );
+        await captureDesktop(
+          tester,
+          capture,
+          'fold-fullscreen-${character ? 'character' : 'main'}',
+        );
+        await tester.tap(find.byIcon(Icons.close));
+        await tester.pumpAndSettle();
+        expect(find.byType(Dialog), findsNothing);
+        expect(parent.text, parentText);
+        scoped.read(editorProvider.notifier).undo();
+        await tester.pumpAndSettle();
+        expect(
+          character
+              ? gen.state.characters.single.positiveRaw
+              : gen.state.promptRaw,
+          raw,
+        );
+        await finish(tester);
+      },
+    );
+  }
+
+  testWidgets(
+    'long block near the middle of a short window keeps both action bars accessible',
+    (tester) async {
+      tester.view.physicalSize = const Size(880, 640);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final long =
+          '<#画风: ${List.generate(60, (i) => 'sample tag $i').join(', ')}#>';
+      gen.setPrompts(positive: outputOf(long), positiveRaw: long);
+      await mount(tester, scale: 1.5, topPadding: 150);
+      await inspect(tester);
+      final panel = tester.getRect(
+        find.byKey(const ValueKey('fold-inspector')),
+      );
+      expect(tester.getSize(bodyField()).height, greaterThan(24));
+      expect(tester.getRect(find.text('删除')).bottom, lessThan(panel.bottom));
+      expect(panel.contains(tester.getCenter(foldHit().first)), isFalse);
+      await tester.tap(find.byIcon(Icons.open_in_full));
+      await tester.pumpAndSettle();
+      final title = tester.getRect(find.text('#画风'));
+      final footer = tester.getRect(find.text('删除'));
+      final scroll = tester
+          .widget<AnnotatedField>(bodyField())
+          .scrollController!;
+      await tester.sendEventToBinding(
+        PointerScrollEvent(
+          position: tester.getCenter(bodyField()),
+          scrollDelta: const Offset(0, 350),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(scroll.offset, greaterThan(100));
+      expect(tester.getRect(find.text('#画风')), title);
+      expect(tester.getRect(find.text('删除')), footer);
+      expect(tester.takeException(), isNull);
+      await finish(tester);
+    },
+  );
+
+  testWidgets(
+    'fullscreen deletion still targets the block after its popover closes',
+    (tester) async {
+      await mount(tester);
+      await inspect(tester);
+      final scoped = ProviderScope.containerOf(
+        tester.element(find.byType(FoldInspector)),
+      );
+      await tester.tap(find.byIcon(Icons.open_in_full));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('删除'));
+      await tester.pumpAndSettle();
+      expect(find.byType(Dialog), findsNothing);
+      expect(gen.state.prompt, 'sunrise');
+      expect(gen.state.promptRaw, isEmpty);
+      scoped.read(editorProvider.notifier).undo();
+      await tester.pumpAndSettle();
+      expect(gen.state.promptRaw, raw);
       await finish(tester);
     },
   );

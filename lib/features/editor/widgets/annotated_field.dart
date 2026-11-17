@@ -87,6 +87,10 @@ class AnnotatedFieldState extends State<AnnotatedField>
   /// 一起重建。
   final _fieldKey = GlobalKey();
   final _foldTap = ImmediateFoldTap();
+  // The editor's outer viewport owns scrolling. A freshly mounted TextField
+  // must not restore the sidebar's PageStorage offset, then animate back to
+  // zero while the separately painted weights/translations stay in place.
+  final _textScroll = ScrollController(keepScrollOffset: false);
 
   RenderEditable? _editable() {
     RenderEditable? render;
@@ -448,6 +452,7 @@ class AnnotatedFieldState extends State<AnnotatedField>
   void dispose() {
     _foldTap.reset();
     _mouseTicker.dispose();
+    _textScroll.dispose();
     widget.focusNode.removeListener(_onFocusChanged);
     widget.controller.removeListener(_onController);
     super.dispose();
@@ -569,6 +574,7 @@ class AnnotatedFieldState extends State<AnnotatedField>
                       child: TextField(
                         key: _fieldKey,
                         controller: widget.controller,
+                        scrollController: _textScroll,
                         focusNode: widget.focusNode,
                         style: base.copyWith(color: scheme.onSurface),
                         maxLines: null,

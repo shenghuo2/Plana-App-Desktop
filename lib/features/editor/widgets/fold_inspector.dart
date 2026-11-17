@@ -11,6 +11,7 @@ import '../editor_settings.dart';
 import '../editor_state.dart';
 import 'annotated_field.dart';
 import 'desktop_tag_popover.dart';
+import 'prompt_fullscreen_dialog.dart';
 import 'rich_tag_controller.dart';
 import 'tag_panel.dart';
 
@@ -24,10 +25,12 @@ class FoldInspector extends ConsumerStatefulWidget {
     required this.tapGroupId,
     required this.onClose,
     required this.onDelete,
+    this.fullscreen = false,
   });
   final String name;
   final Object tapGroupId;
   final VoidCallback onClose, onDelete;
+  final bool fullscreen;
 
   @override
   ConsumerState<FoldInspector> createState() => _FoldInspectorState();
@@ -46,6 +49,7 @@ class _FoldInspectorState extends ConsumerState<FoldInspector> {
   int _anchorRevision = 0;
   List<String> _related = const [];
   String? _relatedName;
+  bool _openingFullscreen = false;
 
   EditorNotifier get _editor => ref.read(editorProvider.notifier);
 
@@ -136,6 +140,30 @@ class _FoldInspectorState extends ConsumerState<FoldInspector> {
     }
   }
 
+  void _openFullscreen() {
+    if (_openingFullscreen) return;
+    _openingFullscreen = true;
+    final name = _name;
+    final delete = widget.onDelete;
+    final group = Object();
+    // The modal keeps this editor session, but replaces the small popover.
+    // Capture actions before dismissing: the parent no longer has a selection.
+    widget.onClose();
+    showPromptFullscreenDialog(
+      context,
+      builder: (context) => FoldInspector(
+        name: name,
+        fullscreen: true,
+        tapGroupId: group,
+        onClose: () => Navigator.of(context).pop(),
+        onDelete: () {
+          delete();
+          Navigator.of(context).pop();
+        },
+      ),
+    );
+  }
+
   Widget _memberPanel(Tok tok, EditorSettings settings) => TagPanel(
     key: const ValueKey('fold-member-actions'),
     tok: tok,
@@ -180,6 +208,7 @@ class _FoldInspectorState extends ConsumerState<FoldInspector> {
     final state = ref.watch(editorProvider);
     final settings =
         ref.watch(editorSettingsProvider).value ?? const EditorSettings();
+    _controller.showTrans = settings.showTranslation;
     final link = state.foldLinks
         .where(
           (l) => l.positiveName == widget.name || l.negativeName == widget.name,
@@ -214,87 +243,77 @@ class _FoldInspectorState extends ConsumerState<FoldInspector> {
       );
     }
 
-    final content = Padding(
+    final header = Padding(
       padding: const EdgeInsets.symmetric(vertical: 12),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+      child: Wrap(
+        alignment: WrapAlignment.spaceBetween,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        spacing: 12,
         children: [
-          Wrap(
-            alignment: WrapAlignment.spaceBetween,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            spacing: 12,
-            children: [
-              Text('内容 ${tokens.length} 项', style: context.texts.labelMedium),
-              if (link != null)
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    for (final (name, label) in [
-                      (link.positiveName, '正面'),
-                      (link.negativeName, '负面'),
-                    ])
-                      TextButton(
-                        key: ValueKey('fold-inspector-$label'),
-                        style: TextButton.styleFrom(
-                          backgroundColor: _name == name
-                              ? context.scheme.primaryContainer
-                              : null,
-                        ),
-                        onPressed: () => setState(() {
-                          _name = name;
-                          _loadBody();
-                        }),
-                        child: Text(label),
-                      ),
-                  ],
-                ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          DesktopTagPopover(
-            tapGroupId: widget.tapGroupId,
-            visible: _selected != null && !_cursorDragging,
-            anchor: () => _fieldKey.currentState?.selectionAnchor(),
-            anchorRevision: _anchorRevision,
-            onDismiss: () => setState(() => _selected = null),
-            panel: _selected == null
-                ? const SizedBox.shrink()
-                : _memberPanel(_selected!, settings),
-            child: ConstrainedBox(
-              constraints: BoxConstraints(
-                maxHeight: (MediaQuery.sizeOf(context).height * .4).clamp(
-                  120,
-                  320,
-                ),
-              ),
-              child: AnnotatedField(
-                key: _fieldKey,
-                controller: _controller,
-                focusNode: _focus,
-                onCursorDrag: (dragging) =>
-                    setState(() => _cursorDragging = dragging),
-                hint: '输入块内提示词…',
-                showTrans: settings.showTranslation,
-                showWeightWash: settings.showWeightWash,
-                fontSize: settings.fontSize,
-                scrollable: true,
-                scrollController: _scroll,
-                minLines: 3,
-                padding: const EdgeInsets.symmetric(vertical: 4),
-              ),
+          Text('内容 ${tokens.length} 项', style: context.texts.labelMedium),
+          if (link != null)
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                for (final (name, label) in [
+                  (link.positiveName, '正面'),
+                  (link.negativeName, '负面'),
+                ])
+                  TextButton(
+                    key: ValueKey('fold-inspector-$label'),
+                    style: TextButton.styleFrom(
+                      backgroundColor: _name == name
+                          ? context.scheme.primaryContainer
+                          : null,
+                    ),
+                    onPressed: () => setState(() {
+                      _name = name;
+                      _loadBody();
+                    }),
+                    child: Text(label),
+                  ),
+              ],
             ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            '点击文字即可编辑；下方操作作用于整块。',
-            style: context.texts.labelSmall!.copyWith(
-              color: context.scheme.outline,
-            ),
-          ),
-          const Divider(),
         ],
       ),
+    );
+    final content = DesktopTagPopover(
+      tapGroupId: widget.tapGroupId,
+      visible: _selected != null && !_cursorDragging,
+      anchor: () => _fieldKey.currentState?.selectionAnchor(),
+      anchorRevision: _anchorRevision,
+      onDismiss: () => setState(() => _selected = null),
+      panel: _selected == null
+          ? const SizedBox.shrink()
+          : _memberPanel(_selected!, settings),
+      child: AnnotatedField(
+        key: _fieldKey,
+        controller: _controller,
+        focusNode: _focus,
+        onCursorDrag: (dragging) => setState(() => _cursorDragging = dragging),
+        hint: '输入块内提示词…',
+        showTrans: settings.showTranslation,
+        showWeightWash: settings.showWeightWash,
+        fontSize: settings.fontSize,
+        scrollable: true,
+        scrollController: _scroll,
+        minLines: 3,
+        padding: const EdgeInsets.symmetric(vertical: 4),
+      ),
+    );
+    final footer = Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const SizedBox(height: 8),
+        Text(
+          '点击文字即可编辑；下方操作作用于整块。',
+          style: context.texts.labelSmall!.copyWith(
+            color: context.scheme.outline,
+          ),
+        ),
+        const Divider(),
+      ],
     );
     return Focus(
       onKeyEvent: (_, event) {
@@ -317,6 +336,11 @@ class _FoldInspectorState extends ConsumerState<FoldInspector> {
         showWiki: false,
         copyText: _controller.text,
         content: content,
+        contentHeader: header,
+        contentFooter: footer,
+        constrainContent: true,
+        expandContent: widget.fullscreen,
+        onFullscreen: widget.fullscreen ? null : _openFullscreen,
         mixedWeight: mixed,
         weightStep: settings.weightStep,
         onWrap: (up) =>
