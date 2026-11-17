@@ -212,6 +212,24 @@ class AppearancePage extends ConsumerWidget {
               ),
             ],
           ),
+          if (desktop) ...[
+            const SizedBox(height: 16),
+            const SettingsLabel('灵感'),
+            SettingsCard(
+              children: [
+                _SwitchRow(
+                  key: const ValueKey('appearance-codex-hover-preview'),
+                  icon: Icons.preview_outlined,
+                  title: '法典悬停信息卡片',
+                  subtitle: '停留约 1.5 秒预览提示词；关闭后仍可使用悬停操作按钮',
+                  value: ts.codexHoverPreview,
+                  onChanged: (value) => notifier.patch(
+                    (settings) => settings.copyWith(codexHoverPreview: value),
+                  ),
+                ),
+              ],
+            ),
+          ],
           if (!desktop) ...[
             const SizedBox(height: 16),
             const SettingsLabel('触感'),

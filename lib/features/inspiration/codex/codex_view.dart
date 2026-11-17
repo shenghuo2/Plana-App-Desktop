@@ -19,6 +19,7 @@ import 'codex_masonry.dart';
 import 'codex_models.dart';
 import 'codex_providers.dart';
 import 'codex_sheets.dart';
+import 'codex_random_workspace.dart';
 
 /// 法典浏览器:灵感页选中「法典」分类时的正文。
 /// 顶部选法典 + 来源;下面搜索 + 顶级分类筛选 + 瀑布流(双指捏合换列数)。
@@ -43,6 +44,7 @@ class _CodexViewState extends ConsumerState<CodexView>
     with SingleTickerProviderStateMixin, PinchColumnsMixin {
   String _search = '';
   bool _favoritesOnly = false;
+  bool _randomWorkspace = false;
   List<String> _catPath = const []; // 分类树选中路径(空=全部;前缀匹配词条 path)
   Timer? _debounce;
   bool _introScheduled = false; // 首次说明弹窗本会话是否已排期(防重复弹)
@@ -58,7 +60,8 @@ class _CodexViewState extends ConsumerState<CodexView>
       <String, ({String search, List<String> cat, bool favoritesOnly})>{};
 
   late final _scroll = MemoScrollController.keyed(
-    () => 'inspiration.codex.${_viewId ?? ''}',
+    () =>
+        'inspiration.codex.${_viewId ?? ''}.${_randomWorkspace ? 'random' : 'browse'}',
     onAttach: _imageLoading.attach,
     onDetach: _imageLoading.detach,
   );
@@ -320,9 +323,10 @@ class _CodexViewState extends ConsumerState<CodexView>
           _favButton(),
           FilledButton.tonalIcon(
             key: const ValueKey('desktop-codex-random'),
-            onPressed: entries.isEmpty
-                ? null
-                : () => showCodexRandomSheet(context, meta, media, entries),
+            onPressed: () {
+              if (_scroll.hasClients) _scroll.jumpTo(0);
+              setState(() => _randomWorkspace = !_randomWorkspace);
+            },
             icon: const Icon(Icons.casino_outlined, size: 19),
             label: const Text('随机灵感'),
           ),
@@ -433,84 +437,29 @@ class _CodexViewState extends ConsumerState<CodexView>
                       ),
                     ),
                   Expanded(
-                    child: entries.isEmpty
-                        ? _msg(_favoritesOnly ? '没有匹配的收藏词条' : '没有匹配的词条')
-                        : LayoutBuilder(
-                            builder: (context, gridBox) {
-                              final columns =
-                                  ((gridBox.maxWidth - edge * 2 + 16) / 230)
-                                      .floor()
-                                      .clamp(1, 10);
-                              final cardWidth =
-                                  (gridBox.maxWidth -
-                                      edge * 2 -
-                                      (columns - 1) * 16) /
-                                  columns;
-                              return Scrollbar(
-                                controller: _scroll,
-                                thumbVisibility: true,
-                                child: GridView.builder(
-                                  key: const ValueKey('desktop-codex-grid'),
-                                  controller: _scroll,
-                                  // Prepare two nearby rows without keeping the
-                                  // entire remote collection alive.
-                                  scrollCacheExtent:
-                                      const ScrollCacheExtent.pixels(692),
-                                  padding: EdgeInsets.fromLTRB(
-                                    edge,
-                                    0,
-                                    edge,
-                                    24,
-                                  ),
-                                  gridDelegate:
-                                      SliverGridDelegateWithFixedCrossAxisCount(
-                                        crossAxisCount: columns,
-                                        crossAxisSpacing: 16,
-                                        mainAxisSpacing: 16,
-                                        mainAxisExtent: 330,
-                                      ),
-                                  itemCount: entries.length,
-                                  itemBuilder: (_, i) => CodexCard(
-                                    key: ValueKey(
-                                      'desktop-codex-card-${entries[i].id}',
-                                    ),
-                                    codex: meta,
-                                    entry: entries[i],
-                                    media: media,
-                                    desktop: true,
-                                    imageLoading: _imageLoading,
-                                    decodeWidth: cardWidth,
-                                    favorite: favorites.contains(
-                                      codexFavKey(meta.id, entries[i].id),
-                                    ),
-                                    onFavorite: () async {
-                                      final notifier = ref.read(
-                                        codexFavoritesProvider.notifier,
-                                      );
-                                      final selected = await notifier.toggle(
-                                        meta.id,
-                                        entries[i],
-                                        now: DateTime.now()
-                                            .millisecondsSinceEpoch,
-                                      );
-                                      if (mounted &&
-                                          !selected &&
-                                          notifier.isFull) {
-                                        hintSnack(this.context, '收藏夹已满');
-                                      }
-                                    },
-                                    onTap: () => showCodexDetailSheet(
-                                      this.context,
-                                      meta,
-                                      media,
-                                      entries: entries,
-                                      index: i,
-                                    ),
-                                  ),
-                                ),
-                              );
-                            },
-                          ),
+                    child: _randomWorkspace
+                        ? CodexRandomWorkspace(
+                            scope: [
+                              meta.displayTitle,
+                              _catPath.isEmpty ? '全部分类' : _catPath.join(' / '),
+                              _favoritesOnly ? '仅收藏' : '全部内容',
+                              if (_search.trim().isNotEmpty)
+                                '搜索：${_search.trim()}',
+                            ].join(' · '),
+                            count: entries.length,
+                            media: media,
+                            embedded: widget.embedded,
+                            onClose: () =>
+                                setState(() => _randomWorkspace = false),
+                            candidates: _desktopGrid(
+                              meta,
+                              media,
+                              entries,
+                              favorites,
+                              edge,
+                            ),
+                          )
+                        : _desktopGrid(meta, media, entries, favorites, edge),
                   ),
                 ],
               ),
@@ -520,6 +469,73 @@ class _CodexViewState extends ConsumerState<CodexView>
       },
     );
   }
+
+  Widget _desktopGrid(
+    CodexMeta meta,
+    CodexMedia media,
+    List<CodexEntry> entries,
+    Set<String> favorites,
+    double edge,
+  ) => entries.isEmpty
+      ? _msg(_favoritesOnly ? '没有匹配的收藏词条' : '没有匹配的词条')
+      : LayoutBuilder(
+          builder: (context, gridBox) {
+            final columns = ((gridBox.maxWidth - edge * 2 + 16) / 230)
+                .floor()
+                .clamp(1, 10);
+            final cardWidth =
+                (gridBox.maxWidth - edge * 2 - (columns - 1) * 16) / columns;
+            return Scrollbar(
+              controller: _scroll,
+              thumbVisibility: true,
+              child: GridView.builder(
+                key: const ValueKey('desktop-codex-grid'),
+                controller: _scroll,
+                // Prepare two nearby rows without keeping the
+                // entire remote collection alive.
+                scrollCacheExtent: const ScrollCacheExtent.pixels(692),
+                padding: EdgeInsets.fromLTRB(edge, 0, edge, 24),
+                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: columns,
+                  crossAxisSpacing: 16,
+                  mainAxisSpacing: 16,
+                  mainAxisExtent: 330,
+                ),
+                itemCount: entries.length,
+                itemBuilder: (_, i) => CodexCard(
+                  key: ValueKey('desktop-codex-card-${entries[i].id}'),
+                  codex: meta,
+                  entry: entries[i],
+                  media: media,
+                  desktop: true,
+                  imageLoading: _imageLoading,
+                  decodeWidth: cardWidth,
+                  favorite: favorites.contains(
+                    codexFavKey(meta.id, entries[i].id),
+                  ),
+                  onFavorite: () async {
+                    final notifier = ref.read(codexFavoritesProvider.notifier);
+                    final selected = await notifier.toggle(
+                      meta.id,
+                      entries[i],
+                      now: DateTime.now().millisecondsSinceEpoch,
+                    );
+                    if (mounted && !selected && notifier.isFull) {
+                      hintSnack(this.context, '收藏夹已满');
+                    }
+                  },
+                  onTap: () => showCodexDetailSheet(
+                    this.context,
+                    meta,
+                    media,
+                    entries: entries,
+                    index: i,
+                  ),
+                ),
+              ),
+            );
+          },
+        );
 
   List<Widget> _desktopCategoryNodes(
     CodexNode node,

@@ -80,6 +80,7 @@ class ThemeSettings {
     this.textScale = 1.0,
     this.compactCharCards = false,
     this.collapsiblePromptCards = true,
+    this.codexHoverPreview = true,
     this.language = 'zh',
   });
 
@@ -115,6 +116,7 @@ class ThemeSettings {
 
   /// 桌面主体、分区和角色提示词卡允许手动折叠，默认开启。
   final bool collapsiblePromptCards;
+  final bool codexHoverPreview;
 
   ThemeSeed get seed => themeSeeds.firstWhere(
     (s) => s.key == seedKey,
@@ -131,6 +133,7 @@ class ThemeSettings {
     double? textScale,
     bool? compactCharCards,
     bool? collapsiblePromptCards,
+    bool? codexHoverPreview,
     String? language,
   }) => ThemeSettings(
     mode: mode ?? this.mode,
@@ -144,6 +147,7 @@ class ThemeSettings {
     compactCharCards: compactCharCards ?? this.compactCharCards,
     collapsiblePromptCards:
         collapsiblePromptCards ?? this.collapsiblePromptCards,
+    codexHoverPreview: codexHoverPreview ?? this.codexHoverPreview,
   );
 
   /// 脏数据(旧版本/已下架的档位,如早先那档深蓝)回退默认。
@@ -160,6 +164,7 @@ class ThemeSettings {
     textScale: _textScale(j['textScale']),
     compactCharCards: j['compactCharCards'] == true,
     collapsiblePromptCards: j['collapsiblePromptCards'] != false,
+    codexHoverPreview: j['codexHoverPreview'] != false,
   );
 
   Map<String, dynamic> toJson() => {
@@ -173,6 +178,7 @@ class ThemeSettings {
     'textScale': textScale,
     'compactCharCards': compactCharCards,
     'collapsiblePromptCards': collapsiblePromptCards,
+    'codexHoverPreview': codexHoverPreview,
   };
 
   @override
@@ -187,7 +193,8 @@ class ThemeSettings {
       other.pageAlignment == pageAlignment &&
       other.textScale == textScale &&
       other.compactCharCards == compactCharCards &&
-      other.collapsiblePromptCards == collapsiblePromptCards;
+      other.collapsiblePromptCards == collapsiblePromptCards &&
+      other.codexHoverPreview == codexHoverPreview;
 
   @override
   int get hashCode => Object.hash(
@@ -201,6 +208,7 @@ class ThemeSettings {
     textScale,
     compactCharCards,
     collapsiblePromptCards,
+    codexHoverPreview,
   );
 }
 

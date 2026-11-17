@@ -1,5 +1,7 @@
 import 'dart:io';
 
+import 'package:flutter/gestures.dart';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -8,6 +10,13 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:plana_app/core/platform/desktop.dart';
 import 'package:plana_app/core/store/app_stores.dart';
 import 'package:plana_app/core/theme/app_theme.dart';
+import 'package:plana_app/core/theme/theme_settings.dart';
+import 'package:plana_app/features/inspiration/codex/codex_history.dart';
+import 'package:plana_app/features/inspiration/codex/codex_card.dart';
+import 'package:plana_app/features/inspiration/codex/codex_sheets.dart';
+import 'package:plana_app/features/generate/generate_state.dart';
+import 'package:plana_app/features/editor/editor_models.dart';
+import 'package:plana_app/features/inspiration/tag_models.dart';
 import 'package:plana_app/features/editor/data/tag_translation_service.dart';
 import 'package:plana_app/features/inspiration/codex/codex_favorites.dart';
 import 'package:plana_app/features/inspiration/codex/codex_block.dart';
@@ -16,6 +25,7 @@ import 'package:plana_app/features/inspiration/codex/codex_providers.dart';
 import 'package:plana_app/features/inspiration/codex/codex_view.dart';
 
 import 'support/desktop_capture.dart';
+import 'support/pump_until.dart';
 
 class _Acknowledged extends CodexIntro {
   @override
@@ -132,6 +142,7 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
     await tester.runAsync(() async {
       await container.read(codexFavoritesProvider.future);
+      await container.read(codexHistoryProvider.future);
     });
     await tester.pumpWidget(
       UncontrolledProviderScope(
@@ -288,7 +299,7 @@ void main() {
       for (final entry in entries.take(6)) {
         expect(
           find.descendant(
-            of: key('desktop-codex-detail'),
+            of: key('desktop-codex-grid'),
             matching: find.text(entry.title),
           ),
           findsNothing,
@@ -437,6 +448,188 @@ void main() {
     },
   );
 
+  testWidgets('hover preview delay, crossing, dismissal and preference', (
+    tester,
+  ) async {
+    await mount(tester);
+    final card = key('desktop-codex-card-style0');
+    final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    await mouse.addPointer(location: const Offset(5, 5));
+    await mouse.moveTo(tester.getCenter(card));
+    await tester.pump(const Duration(milliseconds: 1400));
+    expect(key('codex-hover-preview'), findsNothing);
+    for (final label in ['导入图片', '复制提示词', '创建分区并导入', '导入主提示词']) {
+      expect(
+        find
+            .descendant(of: card, matching: key('codex-hover-$label'))
+            .hitTestable(),
+        findsOneWidget,
+      );
+    }
+    expect(find.text('查看提示词'), findsNothing);
+    await tester.pump(const Duration(milliseconds: 110));
+    expect(key('codex-hover-preview'), findsOneWidget);
+    await captureDesktop(tester, capture, 'codex-hover-preview');
+    await mouse.moveTo(tester.getCenter(key('codex-hover-preview')));
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(key('codex-hover-preview'), findsOneWidget);
+    await mouse.down(tester.getCenter(key('codex-hover-preview')));
+    await mouse.up();
+    await tester.pump(const Duration(seconds: 2));
+    expect(key('codex-hover-preview'), findsNothing);
+    await mouse.moveTo(const Offset(5, 5));
+    await tester.pump(const Duration(milliseconds: 200));
+    await mouse.moveTo(tester.getCenter(card));
+    await tester.pump(const Duration(milliseconds: 1510));
+    expect(key('codex-hover-preview'), findsOneWidget);
+    container
+        .read(themeSettingsProvider.notifier)
+        .patch((s) => s.copyWith(codexHoverPreview: false));
+    await tester.pump();
+    expect(key('codex-hover-preview'), findsNothing);
+    expect(
+      find
+          .descendant(of: card, matching: key('codex-hover-复制提示词'))
+          .hitTestable(),
+      findsOneWidget,
+    );
+    await mouse.moveTo(const Offset(5, 5));
+    await tester.pump(const Duration(milliseconds: 200));
+    await mouse.moveTo(tester.getCenter(card));
+    await tester.pump(const Duration(seconds: 2));
+    expect(key('codex-hover-preview'), findsNothing);
+    await tester.tap(card);
+    await tester.pumpAndSettle();
+    expect(key('desktop-codex-detail'), findsOneWidget);
+    expect(find.text('导入主提示词').hitTestable(), findsOneWidget);
+    expect(find.text('创建分区并导入').hitTestable(), findsOneWidget);
+    await mouse.removePointer();
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets(
+    'hover main import appends weighted tags despite existing sections',
+    (tester) async {
+      final gen = container.read(generateProvider.notifier);
+      gen.setModel('NAI 4.5 Full');
+      gen.setPrompts(positive: 'existing words', negative: 'keep negative');
+      gen.addEntrySections([
+        const TagEntry(
+          id: 'old',
+          category: TagCategory.other,
+          name: '已有分区',
+          positive: 'keep section',
+        ),
+      ]);
+      final original = gen.state;
+      const entry = CodexEntry(
+        id: 'weighted',
+        title: '加权词条',
+        tags: '1.4::forest::, light',
+        characters: [CodexCharacter('char1', 'blue eyes')],
+      );
+      await mount(
+        tester,
+        home: Scaffold(
+          body: Center(
+            child: SizedBox(
+              width: 300,
+              height: 330,
+              child: CodexCard(
+                codex: meta,
+                entry: entry,
+                media: CodexMedia.fallback,
+                desktop: true,
+                onTap: () {},
+              ),
+            ),
+          ),
+        ),
+      );
+      final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+      await mouse.addPointer(location: const Offset(5, 5));
+      await mouse.moveTo(tester.getCenter(find.byType(CodexCard)));
+      await tester.pump(const Duration(milliseconds: 110));
+      await tester.tap(key('codex-hover-导入主提示词'));
+      await tester.pumpAndSettle();
+      expect(gen.state.prompt, startsWith('existing words'));
+      expect(gen.state.prompt, contains('1.4::forest::'));
+      expect(gen.state.prompt, contains('blue eyes'));
+      expect(parseFolds(gen.state.promptRaw).single.name, '加权词条');
+      expect(gen.state.sections, original.sections);
+      expect(gen.state.characters, original.characters);
+      expect(gen.state.negativePrompt, 'keep negative');
+      await mouse.removePointer();
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
+  testWidgets('long hover text stays bounded and scrolling dismisses it', (
+    tester,
+  ) async {
+    final long = CodexEntry(
+      id: 'long',
+      title: '较长的加权提示词',
+      tags: List.filled(500, '1.4::forest::, sunlight').join(', '),
+    );
+    await mount(
+      tester,
+      size: const Size(420, 760),
+      textScale: 1.4,
+      home: Theme(
+        data: AppTheme.dark().copyWith(
+          textTheme: AppTheme.dark().textTheme.apply(
+            fontFamily: 'Microsoft YaHei',
+          ),
+        ),
+        child: Scaffold(
+          body: ListView(
+            children: [
+              SizedBox(
+                height: 330,
+                child: CodexCard(
+                  codex: meta,
+                  entry: long,
+                  media: CodexMedia.fallback,
+                  desktop: true,
+                  onTap: () {},
+                ),
+              ),
+              const SizedBox(height: 1600),
+            ],
+          ),
+        ),
+      ),
+    );
+    final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    await mouse.addPointer(location: const Offset(410, 750));
+    await mouse.moveTo(tester.getCenter(find.byType(CodexCard)));
+    await tester.pump(const Duration(milliseconds: 1510));
+    final rect = tester.getRect(key('codex-hover-preview'));
+    expect(rect.width, lessThanOrEqualTo(396));
+    expect(rect.height, lessThanOrEqualTo(480));
+    final body = tester.widget<Text>(
+      find.descendant(
+        of: key('codex-hover-preview'),
+        matching: find.byWidgetPredicate(
+          (w) => w is Text && (w.data?.startsWith('1.4::') ?? false),
+        ),
+      ),
+    );
+    expect(body.data!.length, lessThanOrEqualTo(2401));
+    expect(body.data, endsWith('…'));
+    expect(body.overflow, TextOverflow.ellipsis);
+    await captureDesktop(tester, capture, 'codex-hover-long-dark');
+    // Drag the uncovered gutter, not the preview that intentionally consumes input.
+    await tester.dragFrom(const Offset(410, 700), const Offset(0, -180));
+    await tester.pumpAndSettle();
+    expect(key('codex-hover-preview'), findsNothing);
+    expect(tester.takeException(), isNull);
+    await mouse.removePointer();
+    await tester.pumpWidget(const SizedBox());
+  });
+
   testWidgets('mobile picker retains the bottom sheet and book selection', (
     tester,
   ) async {
@@ -521,8 +714,25 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(key('desktop-codex-random'));
       await tester.pumpAndSettle();
-      expect(key('desktop-codex-detail'), findsOneWidget);
-      expect(find.text('换一个'), findsOneWidget);
+      expect(key('desktop-codex-random-workspace'), findsOneWidget);
+      expect(key('desktop-codex-detail'), findsNothing);
+      expect(find.text('候选内容 12'), findsOneWidget);
+      // Keep the existing draw engine covered while the new draw interaction
+      // awaits UI review. Only actually viewed draws belong in saved history.
+      final ctx = tester.element(key('desktop-codex-browser'));
+      final closed = showCodexRandomSheet(
+        ctx,
+        meta,
+        CodexMedia.fallback,
+        entries,
+      );
+      await tester.pumpAndSettle();
+      await pumpUntilComplete(
+        tester,
+        container.read(codexHistoryProvider.notifier).flush(),
+      );
+      final before = container.read(codexHistoryProvider).value!.length;
+      expect(before, 1); // No prefetched draw.
       final randomTitle = find.descendant(
         of: key('desktop-codex-detail'),
         matching: find.byWidgetPredicate(
@@ -536,16 +746,98 @@ void main() {
       await tester.sendKeyEvent(LogicalKeyboardKey.arrowLeft);
       await tester.pumpAndSettle();
       expect(tester.widget<Text>(randomTitle).data, firstDraw);
-      await tester.tap(find.text('换一个'));
-      await tester.pumpAndSettle();
-      expect(tester.takeException(), isNull);
+      await pumpUntilComplete(
+        tester,
+        container.read(codexHistoryProvider.notifier).flush(),
+      );
+      // One forward draw, no new record for navigating back.
+      expect(container.read(codexHistoryProvider).value, hasLength(before + 1));
       await tester.sendKeyEvent(LogicalKeyboardKey.escape);
       await tester.pumpAndSettle();
+      await closed;
+      await tester.tap(key('codex-random-history'));
+      await tester.pumpAndSettle();
+      expect(key('codex-random-history-grid'), findsOneWidget);
       await tester.pumpWidget(const SizedBox());
     },
   );
 
   for (final embedded in [false, true]) {
+    testWidgets('random scope and newest-first history: embedded=$embedded', (
+      tester,
+    ) async {
+      await mount(
+        tester,
+        size: Size(embedded ? 390 : 1500, 900),
+        textScale: 1.4,
+        home: embedded
+            ? const Scaffold(body: CodexView(desktop: true, embedded: true))
+            : null,
+      );
+      await tester.runAsync(() async {
+        await container
+            .read(codexFavoritesProvider.notifier)
+            .toggle(meta.id, entries[0], now: 1);
+        final history = container.read(codexHistoryProvider.notifier);
+        for (var i = 0; i < 3; i++) {
+          await history.record(meta, entries[i], now: i);
+        }
+      });
+      await tester.tap(key('desktop-codex-random'));
+      await tester.pumpAndSettle();
+      expect(key('desktop-codex-random-workspace'), findsOneWidget);
+      expect(find.byType(Dialog), findsNothing);
+      await tester.tap(key('desktop-codex-favorites'));
+      await tester.pumpAndSettle();
+      expect(find.text('候选内容 1'), findsOneWidget);
+      expect(
+        tester.widget<Text>(key('codex-random-scope')).data,
+        contains('仅收藏'),
+      );
+      expect(key('desktop-codex-card-style1'), findsNothing);
+      await captureDesktop(
+        tester,
+        capture,
+        'codex-random-scope-${embedded ? 'sidebar' : 'full'}',
+      );
+      await tester.tap(key('codex-random-history'));
+      await tester.pumpAndSettle();
+      expect(find.text('抽取历史 3'), findsOneWidget);
+      expect(
+        tester.widget<CodexCard>(key('codex-history-0')).entry.id,
+        'style2',
+      );
+      expect(
+        tester.widget<CodexCard>(key('codex-history-1')).entry.id,
+        'style1',
+      );
+      final first = tester.getRect(key('codex-history-0'));
+      final second = tester.getRect(key('codex-history-1'));
+      if (embedded) {
+        expect(first.top, lessThan(second.top));
+        expect(first.left, second.left);
+      } else {
+        expect(first.top, second.top);
+        expect(first.left, lessThan(second.left));
+      }
+      await captureDesktop(
+        tester,
+        capture,
+        'codex-random-history-${embedded ? 'sidebar' : 'full'}',
+      );
+      await tester.tap(key('codex-history-0'));
+      await tester.pumpAndSettle();
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+      expect(container.read(codexHistoryProvider).value, hasLength(3));
+      await tester.tap(key('codex-random-candidates'));
+      await tester.pumpAndSettle();
+      expect(key('desktop-codex-card-style0'), findsOneWidget);
+      expect(key('desktop-codex-card-style1'), findsNothing);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox());
+    });
+
     testWidgets(
       'anchored categories and in-place favorites: embedded=$embedded',
       (tester) async {

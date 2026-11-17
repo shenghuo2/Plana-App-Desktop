@@ -326,7 +326,7 @@ void main() {
       await captureDesktop(tester, capture, 'creation-codex-$name');
       await tester.tap(key('desktop-codex-card-sky'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('加入提示词'));
+      await tester.tap(find.text('创建分区并导入'));
       await tester.pumpAndSettle();
       final generated = c.read(generateProvider);
       expect(generated.prompt, 'original prompt');

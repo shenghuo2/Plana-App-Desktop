@@ -12,21 +12,18 @@ import '../../../core/net/remote_image.dart';
 import '../../../core/platform/desktop.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/ui/desktop_popover.dart';
-import '../../editor/editor_models.dart' show draftOf, outputOf, pickEditorText;
-import '../../generate/generate_state.dart';
-import '../../generate/models.dart'
-    show GenProvider, GenerateState, providerOfModel;
 import '../../generate/widgets/common.dart'
     show RoundIconBtn, confirmDialog, hintSnack, sharedAxisRoute;
 import '../../import/import_panel.dart' show ImportImagePanel;
 import '../../shell/shell_state.dart';
-import '../tag_models.dart'
-    show TagCategory, TagEntry, appendTagPositivesFolded;
 import '../widgets/prompt_chips.dart';
 import 'codex_block.dart';
 import 'codex_card.dart';
+import 'codex_actions.dart';
+export 'codex_actions.dart' show codexAddToPrompt;
 import 'codex_char_split.dart';
 import 'codex_favorites.dart';
+import 'codex_history.dart';
 import 'codex_models.dart';
 import 'codex_providers.dart';
 import '../../../core/util/haptics.dart';
@@ -75,112 +72,6 @@ Future<T?> _sheet<T>(BuildContext context, Widget child) {
     useSafeArea: true,
     builder: (_) => child,
   );
-}
-
-/// 把一条法典词条追加进创作页,返回角色卡的落地情况(供调用方措辞)。
-///
-/// 公共部分照旧作为一个**命名折叠组**进主提示词(复用灵感页同一条链路:草稿带回
-/// 既有禁用/折叠,定稿由 outputOf 导出,两者同写)。
-///
-/// 角色段有**两种**来源,都要认:
-///  ① 数据源的 `characterPrompts` 字段([CodexEntry.characters])—— 这是主流,
-///     全站 8091 条,`tags` 里一个字都不带,早先只读 tags 等于把主体丢了;
-///  ② 极少数把 `charN：` / `[charN±]` 直接写在 tags 里(全站 6 条),
-///     由 [splitCodexCharacters] 拆(见那个模块)。
-///
-/// 拆角色卡**只对 NAI 做**:Anima / Krea 没有角色分离这回事,给它们拆出来的卡
-/// 会被模块剥离层当场收走,白忙一场还让人以为丢了东西 —— 那两家一律整段
-/// (含各角色段)折叠进主提示词。
-///
-/// 默认把公共部分完整放进以词条名称命名的新分区。
-({int added, int dropped}) codexAddToPrompt(
-  WidgetRef ref,
-  CodexEntry e, {
-  bool asSection = true,
-}) {
-  final gen = ref.read(generateProvider);
-  final isNai = providerOfModel(gen.params.model) == GenProvider.nai;
-  final section = asSection || gen.sections.isNotEmpty;
-  void put(String content) => section
-      ? _codexSectionInto(ref, e, content)
-      : _codexFoldInto(ref, e, content, gen);
-
-  // 非 NAI:整条(公共 + 角色段)一起进主提示词,一个字不丢
-  if (!isNai) {
-    put(e.fullText);
-    return (added: 0, dropped: 0);
-  }
-
-  // 字段里带角色段 → 直接用;否则退回内联写法的拆分
-  final fromField = [
-    for (final c in e.characters)
-      for (final slot in c.slots.isEmpty ? const [0] : c.slots)
-        (index: slot, positive: c.prompt.trim(), negative: ''),
-  ];
-  final split = fromField.isEmpty ? splitCodexCharacters(e.tags) : null;
-  final chars = fromField.isNotEmpty
-      ? fromField
-      : [
-          for (final c in split!.characters)
-            (index: c.index, positive: c.positive, negative: c.negative),
-        ];
-  final hasChars = chars.isNotEmpty;
-  final base = fromField.isNotEmpty
-      ? e.tags
-      : (hasChars ? split!.base : e.tags);
-
-  // 公共部分为空(全站 401 条 tags 就是空的)时不折叠 —— 否则插进去一个空组。
-  put(base);
-
-  if (!hasChars) return (added: 0, dropped: 0);
-  final added = ref.read(generateProvider.notifier).addCharactersFilled([
-    for (final c in chars)
-      (
-        name: c.index > 0 ? '角色 ${c.index}' : '角色',
-        positive: c.positive,
-        negative: c.negative,
-      ),
-  ]);
-  return (added: added, dropped: chars.length - added);
-}
-
-/// 一段内容自成一格(不折叠),使用词条名称。空段跳过。
-void _codexSectionInto(WidgetRef ref, CodexEntry e, String content) {
-  if (content.trim().isEmpty) return;
-  ref.read(generateProvider.notifier).addEntrySections([
-    TagEntry(
-      id: 'codex_${e.id}',
-      category: TagCategory.other,
-      name: e.title,
-      positive: content,
-    ),
-  ]);
-}
-
-/// 把一段内容作为**命名折叠组**追加进主提示词(复用灵感页同一条链路:草稿带回
-/// 既有禁用/折叠,定稿由 outputOf 导出,两者同写)。空段直接跳过。
-({int added, int dropped}) _codexFoldInto(
-  WidgetRef ref,
-  CodexEntry e,
-  String content,
-  GenerateState gen,
-) {
-  if (content.trim().isEmpty) return (added: 0, dropped: 0);
-  final entry = TagEntry(
-    id: 'codex_${e.id}',
-    category: TagCategory.other,
-    name: e.title,
-    positive: content,
-  );
-  final draft = appendTagPositivesFolded(
-    pickEditorText(gen.promptRaw, gen.prompt),
-    [entry],
-  );
-  final positive = outputOf(draft);
-  ref
-      .read(generateProvider.notifier)
-      .setPrompts(positive: positive, positiveRaw: draftOf(draft, positive));
-  return (added: 0, dropped: 0);
 }
 
 // ---- 词条详情 ----
@@ -283,6 +174,15 @@ class _DetailSheetState extends ConsumerState<_DetailSheet>
   late final List<CodexEntry> _drawn = widget.pool == null
       ? <CodexEntry>[]
       : [widget.entry];
+  int _recordedIndex = -1;
+
+  void _recordDraw() {
+    if (widget.pool == null || _index <= _recordedIndex) return;
+    _recordedIndex = _index;
+    unawaited(
+      ref.read(codexHistoryProvider.notifier).record(widget.codex, _entry),
+    );
+  }
 
   /// 当前这副牌。两种模式唯一的差别就在这:一个是定好的批次,一个是边抽边长。
   List<CodexEntry> get _list => widget.pool == null ? widget.entries : _drawn;
@@ -295,6 +195,9 @@ class _DetailSheetState extends ConsumerState<_DetailSheet>
     _drag = AnimationController.unbounded(vsync: this);
     _pageDrag = AnimationController.unbounded(vsync: this);
     _ensureAhead();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _recordDraw();
+    });
   }
 
   /// 随机模式保证后面永远有一张已经抽好的:底下露的那条边必须是**真的**
@@ -365,6 +268,7 @@ class _DetailSheetState extends ConsumerState<_DetailSheet>
       _pageDrag.value = 0;
       _ensureAhead(); // 随机模式:再往后备一张
     });
+    _recordDraw();
   }
 
   void _onDragUpdate(DragUpdateDetails d) {
@@ -809,11 +713,15 @@ class _DetailSheetState extends ConsumerState<_DetailSheet>
                   alignment: WrapAlignment.end,
                   spacing: 8,
                   runSpacing: 8,
-                  children: [_copyButton(e, showLabel: true), _addButton(e)],
+                  children: [
+                    _copyButton(e, showLabel: true),
+                    _mainButton(e),
+                    _addButton(e),
+                  ],
                 );
                 final textScale =
                     MediaQuery.textScalerOf(context).scale(14) / 14;
-                if (constraints.maxWidth < 500 * textScale) {
+                if (constraints.maxWidth < 800 * textScale) {
                   return Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
@@ -1011,7 +919,25 @@ class _DetailSheetState extends ConsumerState<_DetailSheet>
     icon: const Icon(Icons.add, size: 18),
     // 兜底:系统字号调得很大时宁可省略号,也不能换行 —— 这条操作栏是钉在
     // 底部的,它一变高就把上面的内容挤走
-    label: const Text('加入提示词', maxLines: 1, overflow: TextOverflow.ellipsis),
+    label: const Text('创建分区并导入', maxLines: 1, overflow: TextOverflow.ellipsis),
+  );
+
+  Widget _mainButton(CodexEntry e) => OutlinedButton.icon(
+    onPressed: () {
+      codexAddToPrompt(ref, e, asSection: false);
+      final shell = ref.read(shellIndexProvider.notifier);
+      Navigator.pop(context);
+      hintSnack(
+        context,
+        '已追加到主提示词',
+        icon: Icons.check_circle_outline,
+        actionLabel: '去创作',
+        onAction: () => shell.select(kTabCreate),
+      );
+    },
+    style: _labeledStyle,
+    icon: const Icon(Icons.notes_rounded, size: 18),
+    label: const Text('导入主提示词'),
   );
 
   /// 收藏开关。**图标自己就是反馈**,不弹 snack —— 翻词条时会连点很多下,
