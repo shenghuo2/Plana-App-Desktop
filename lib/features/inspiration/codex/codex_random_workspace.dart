@@ -1,8 +1,10 @@
+import 'dart:math';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/theme/app_theme.dart';
-import '../../generate/widgets/common.dart' show hintSnack;
+import '../../generate/widgets/common.dart' show confirmDialog, hintSnack;
 import 'codex_card.dart';
 import 'codex_favorites.dart';
 import 'codex_history.dart';
@@ -12,20 +14,23 @@ import 'codex_block.dart';
 import 'codex_providers.dart';
 import 'codex_sheets.dart';
 
-/// The range/candidate/history workspace. Drawing controls will be decided
-/// separately after the user reviews this view.
+/// Draw from the visible candidate pool and browse previously drawn entries.
 class CodexRandomWorkspace extends ConsumerStatefulWidget {
   const CodexRandomWorkspace({
     super.key,
     required this.scope,
-    required this.count,
+    required this.codex,
+    required this.candidateCount,
+    required this.candidatesForDraw,
     required this.candidates,
     required this.media,
     required this.embedded,
     required this.onClose,
   });
   final String scope;
-  final int count;
+  final CodexMeta codex;
+  final int candidateCount;
+  final List<CodexEntry> Function() candidatesForDraw;
   final Widget candidates;
   final CodexMedia media;
   final bool embedded;
@@ -38,8 +43,10 @@ class CodexRandomWorkspace extends ConsumerStatefulWidget {
 
 class _CodexRandomWorkspaceState extends ConsumerState<CodexRandomWorkspace> {
   bool _history = false;
+  final _random = Random();
   final _images = CodexImageLoadController();
   late final _scroll = ScrollController(
+    keepScrollOffset: false,
     onAttach: _images.attach,
     onDetach: _images.detach,
   );
@@ -50,9 +57,34 @@ class _CodexRandomWorkspaceState extends ConsumerState<CodexRandomWorkspace> {
     super.dispose();
   }
 
+  Future<void> _draw() async {
+    final pool = widget.candidatesForDraw();
+    if (pool.isEmpty) return;
+    final result = pool[_random.nextInt(pool.length)];
+    if (!_history) setState(() => _history = true);
+    if (_scroll.hasClients) _scroll.jumpTo(0);
+    final saved = await ref
+        .read(codexHistoryProvider.notifier)
+        .record(widget.codex, result);
+    if (!saved && mounted) hintSnack(context, '抽取结果保存失败，请重试');
+  }
+
+  Future<void> _clearHistory(int count) async {
+    final confirmed = await confirmDialog(
+      context,
+      title: '删除抽取历史？',
+      message: '将清空所有法典的 $count 条抽取记录。',
+      confirmLabel: '删除历史',
+    );
+    if (!confirmed || !mounted) return;
+    final cleared = await ref.read(codexHistoryProvider.notifier).clearAll();
+    if (!cleared && mounted) hintSnack(context, '历史删除失败，请重试');
+  }
+
   @override
   Widget build(BuildContext context) {
     final history = ref.watch(codexHistoryProvider);
+    final total = history.value?.length ?? 0;
     // Keep historical entries within available books and unblocked categories.
     final books = ref.watch(codexIndexProvider).value ?? const <CodexMeta>[];
     final allowed = {for (final book in books) book.id};
@@ -86,10 +118,16 @@ class _CodexRandomWorkspaceState extends ConsumerState<CodexRandomWorkspace> {
             children: [
               Row(
                 children: [
-                  const Icon(Icons.casino_outlined, size: 20),
-                  const SizedBox(width: 8),
                   Expanded(
-                    child: Text('随机灵感', style: context.texts.titleSmall),
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: ChoiceChip(
+                        key: const ValueKey('codex-random-candidates'),
+                        label: Text('候选内容 ${widget.candidateCount}'),
+                        selected: !_history,
+                        onSelected: (_) => setState(() => _history = false),
+                      ),
+                    ),
                   ),
                   IconButton(
                     tooltip: '返回法典浏览',
@@ -109,18 +147,35 @@ class _CodexRandomWorkspaceState extends ConsumerState<CodexRandomWorkspace> {
               Wrap(
                 spacing: 8,
                 runSpacing: 8,
+                crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
-                  ChoiceChip(
-                    key: const ValueKey('codex-random-candidates'),
-                    label: Text('候选内容 ${widget.count}'),
-                    selected: !_history,
-                    onSelected: (_) => setState(() => _history = false),
+                  FilledButton.icon(
+                    key: const ValueKey('codex-random-draw'),
+                    icon: const Icon(Icons.casino_outlined, size: 18),
+                    label: const Text('随机抽取'),
+                    onPressed: widget.candidateCount == 0 ? null : _draw,
                   ),
-                  ChoiceChip(
-                    key: const ValueKey('codex-random-history'),
-                    label: Text('抽取历史 ${records.length}'),
-                    selected: _history,
-                    onSelected: (_) => setState(() => _history = true),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Flexible(
+                        child: ChoiceChip(
+                          key: const ValueKey('codex-random-history'),
+                          label: Text('抽取历史 ${records.length}'),
+                          selected: _history,
+                          onSelected: (_) => setState(() => _history = true),
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      IconButton(
+                        key: const ValueKey('codex-random-clear'),
+                        tooltip: '删除历史',
+                        icon: const Icon(Icons.delete_outline, size: 20),
+                        onPressed: total == 0
+                            ? null
+                            : () => _clearHistory(total),
+                      ),
+                    ],
                   ),
                 ],
               ),

@@ -116,9 +116,13 @@ class _CodexViewState extends ConsumerState<CodexView>
   String _resolveSelectedId(List<CodexMeta> index) =>
       resolveSelectedCodex(index, ref.watch(selectedCodexProvider)).id;
 
-  List<CodexEntry> _filtered(CodexData d, CodexBlock block) {
-    final q = _search.trim().toLowerCase();
-    final favorites = ref.watch(codexFavKeysProvider);
+  List<CodexEntry> _filtered(
+    CodexData d,
+    CodexBlock block,
+    Set<String> favorites,
+    String search,
+  ) {
+    final q = search.trim().toLowerCase();
     return [
       for (final e in d.entries)
         if (_underCat(e) &&
@@ -258,8 +262,11 @@ class _CodexViewState extends ConsumerState<CodexView>
         });
         final block = ref.watch(codexBlockProvider(meta.id));
         if (block.hides(_catPath)) _catPath = const [];
-        final entries = _filtered(d, block);
-        if (widget.desktop) return _desktopBody(d, meta, media, entries);
+        final favorites = ref.watch(codexFavKeysProvider);
+        final entries = _filtered(d, block, favorites, _search);
+        if (widget.desktop) {
+          return _desktopBody(d, meta, media, entries, favorites, block);
+        }
         return Column(
           children: [
             _searchRow(),
@@ -285,10 +292,10 @@ class _CodexViewState extends ConsumerState<CodexView>
     CodexMeta meta,
     CodexMedia media,
     List<CodexEntry> entries,
+    Set<String> favorites,
+    CodexBlock block,
   ) {
     final scheme = context.scheme;
-    final favorites = ref.watch(codexFavKeysProvider);
-    final block = ref.watch(codexBlockProvider(meta.id));
     return LayoutBuilder(
       builder: (context, box) {
         final sidebar =
@@ -321,14 +328,12 @@ class _CodexViewState extends ConsumerState<CodexView>
         final filters = <Widget>[
           _catButton(data, meta, block),
           _favButton(),
-          FilledButton.tonalIcon(
+          _desktopFilterButton(
             key: const ValueKey('desktop-codex-random'),
-            onPressed: () {
-              if (_scroll.hasClients) _scroll.jumpTo(0);
-              setState(() => _randomWorkspace = !_randomWorkspace);
-            },
-            icon: const Icon(Icons.casino_outlined, size: 19),
-            label: const Text('随机灵感'),
+            selected: _randomWorkspace,
+            onPressed: _toggleRandomWorkspace,
+            icon: _randomWorkspace ? Icons.casino : Icons.casino_outlined,
+            label: '随机灵感',
           ),
         ];
         final actions = Wrap(
@@ -446,11 +451,20 @@ class _CodexViewState extends ConsumerState<CodexView>
                               if (_search.trim().isNotEmpty)
                                 '搜索：${_search.trim()}',
                             ].join(' · '),
-                            count: entries.length,
+                            codex: meta,
+                            candidateCount: entries.length,
+                            // A draw can happen before the search debounce fires.
+                            candidatesForDraw: () => _searchCtrl.text == _search
+                                ? entries
+                                : _filtered(
+                                    data,
+                                    block,
+                                    favorites,
+                                    _searchCtrl.text,
+                                  ),
                             media: media,
                             embedded: widget.embedded,
-                            onClose: () =>
-                                setState(() => _randomWorkspace = false),
+                            onClose: _toggleRandomWorkspace,
                             candidates: _desktopGrid(
                               meta,
                               media,
@@ -664,24 +678,40 @@ class _CodexViewState extends ConsumerState<CodexView>
     setState(() => _favoritesOnly = !_favoritesOnly);
   }
 
+  void _toggleRandomWorkspace() {
+    if (_scroll.hasClients) _scroll.jumpTo(0);
+    setState(() => _randomWorkspace = !_randomWorkspace);
+  }
+
+  Widget _desktopFilterButton({
+    required Key key,
+    required bool selected,
+    required VoidCallback onPressed,
+    required IconData icon,
+    required String label,
+  }) => Semantics(
+    selected: selected,
+    child: OutlinedButton.icon(
+      key: key,
+      onPressed: onPressed,
+      style: OutlinedButton.styleFrom(
+        backgroundColor: selected ? context.scheme.primaryContainer : null,
+      ),
+      icon: Icon(icon, size: 19),
+      label: Text(label),
+    ),
+  );
+
   /// Filter this book in place, together with the active search and category.
   Widget _favButton() {
     final scheme = context.scheme;
     if (widget.desktop) {
-      return Semantics(
+      return _desktopFilterButton(
+        key: const ValueKey('desktop-codex-favorites'),
         selected: _favoritesOnly,
-        child: OutlinedButton.icon(
-          key: const ValueKey('desktop-codex-favorites'),
-          onPressed: _toggleFavorites,
-          style: OutlinedButton.styleFrom(
-            backgroundColor: _favoritesOnly ? scheme.primaryContainer : null,
-          ),
-          icon: Icon(
-            _favoritesOnly ? Icons.star_rounded : Icons.star_outline,
-            size: 19,
-          ),
-          label: const Text('收藏'),
-        ),
+        onPressed: _toggleFavorites,
+        icon: _favoritesOnly ? Icons.star_rounded : Icons.star_outline,
+        label: '收藏',
       );
     }
     return Material(

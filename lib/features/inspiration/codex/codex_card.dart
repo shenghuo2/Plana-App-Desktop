@@ -78,7 +78,7 @@ class CodexCard extends StatelessWidget {
       entry: entry,
       media: media,
       onOpen: onTap,
-      builder: (context, actions, open) => Material(
+      builder: (context, actions, preview, open) => Material(
         color: scheme.surfaceContainerLowest,
         clipBehavior: Clip.antiAlias,
         shape: RoundedRectangleBorder(
@@ -143,7 +143,24 @@ class CodexCard extends StatelessWidget {
                         ),
                       ),
                     ),
-                    Positioned(left: 8, right: 8, bottom: 8, child: actions),
+                    Positioned.fill(
+                      left: 8,
+                      right: 8,
+                      top: 8,
+                      bottom: 8,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Expanded(
+                            child: Padding(
+                              padding: const EdgeInsets.fromLTRB(4, 48, 4, 4),
+                              child: Center(child: preview),
+                            ),
+                          ),
+                          actions,
+                        ],
+                      ),
+                    ),
                   ],
                 ),
               ),

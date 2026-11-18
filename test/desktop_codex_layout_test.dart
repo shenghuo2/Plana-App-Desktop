@@ -469,6 +469,12 @@ void main() {
     expect(find.text('查看提示词'), findsNothing);
     await tester.pump(const Duration(milliseconds: 110));
     expect(key('codex-hover-preview'), findsOneWidget);
+    final preview = tester.getRect(key('codex-hover-preview'));
+    final cardBounds = tester.getRect(card);
+    expect(preview.intersect(cardBounds), preview);
+    expect(preview.center.dx, closeTo(cardBounds.center.dx, 1));
+    final copy = find.descendant(of: card, matching: key('codex-hover-复制提示词'));
+    expect(preview.overlaps(tester.getRect(copy)), isFalse);
     await captureDesktop(tester, capture, 'codex-hover-preview');
     await mouse.moveTo(tester.getCenter(key('codex-hover-preview')));
     await tester.pump(const Duration(milliseconds: 400));
@@ -477,6 +483,7 @@ void main() {
     await mouse.up();
     await tester.pump(const Duration(seconds: 2));
     expect(key('codex-hover-preview'), findsNothing);
+    expect(key('desktop-codex-detail'), findsNothing);
     await mouse.moveTo(const Offset(5, 5));
     await tester.pump(const Duration(milliseconds: 200));
     await mouse.moveTo(tester.getCenter(card));
@@ -717,8 +724,7 @@ void main() {
       expect(key('desktop-codex-random-workspace'), findsOneWidget);
       expect(key('desktop-codex-detail'), findsNothing);
       expect(find.text('候选内容 12'), findsOneWidget);
-      // Keep the existing draw engine covered while the new draw interaction
-      // awaits UI review. Only actually viewed draws belong in saved history.
+      // The original random detail sheet also records only newly viewed draws.
       final ctx = tester.element(key('desktop-codex-browser'));
       final closed = showCodexRandomSheet(
         ctx,
@@ -790,6 +796,29 @@ void main() {
       await tester.tap(key('desktop-codex-favorites'));
       await tester.pumpAndSettle();
       expect(find.text('候选内容 1'), findsOneWidget);
+      expect(find.text('随机灵感'), findsOneWidget);
+      final selectedColor = tester
+          .widget<OutlinedButton>(key('desktop-codex-favorites'))
+          .style!
+          .backgroundColor!
+          .resolve({});
+      expect(selectedColor, isNotNull);
+      expect(
+        tester
+            .widget<OutlinedButton>(key('desktop-codex-random'))
+            .style!
+            .backgroundColor!
+            .resolve({}),
+        selectedColor,
+      );
+      expect(
+        tester.getCenter(key('codex-random-candidates')).dy,
+        lessThan(tester.getCenter(key('codex-random-draw')).dy),
+      );
+      expect(
+        tester.getCenter(key('codex-random-clear')).dx,
+        greaterThan(tester.getCenter(key('codex-random-history')).dx),
+      );
       expect(
         tester.widget<Text>(key('codex-random-scope')).data,
         contains('仅收藏'),
@@ -834,6 +863,74 @@ void main() {
       await tester.pumpAndSettle();
       expect(key('desktop-codex-card-style0'), findsOneWidget);
       expect(key('desktop-codex-card-style1'), findsNothing);
+      final history = container.read(codexHistoryProvider.notifier);
+      Future<void> draw() async {
+        await tester.tap(key('codex-random-draw'));
+        await pumpUntilComplete(tester, history.flush());
+        await tester.pumpAndSettle();
+      }
+
+      await draw();
+      expect(find.byType(Dialog), findsNothing);
+      expect(find.text('抽取历史 4'), findsOneWidget);
+      expect(
+        tester.widget<CodexCard>(key('codex-history-0')).entry.id,
+        'style0',
+      );
+      if (embedded) {
+        await tester.drag(
+          key('codex-random-history-grid'),
+          const Offset(0, -560),
+        );
+        await tester.pumpAndSettle();
+      }
+      await draw();
+      expect(find.text('抽取历史 5'), findsOneWidget);
+      expect(key('codex-history-0').hitTestable(), findsOneWidget);
+      await tester.tap(key('codex-random-history'));
+      await tester.pumpAndSettle();
+      expect(container.read(codexHistoryProvider).value, hasLength(5));
+      await tester.tap(key('codex-random-clear'));
+      await tester.pumpAndSettle();
+      expect(find.text('将清空所有法典的 5 条抽取记录。'), findsOneWidget);
+      await tester.tap(find.text('取消'));
+      await tester.pumpAndSettle();
+      expect(container.read(codexHistoryProvider).value, hasLength(5));
+      await tester.tap(key('codex-random-clear'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, '删除历史'));
+      await tester.pumpAndSettle();
+      await pumpUntilComplete(tester, history.flush());
+      await tester.pumpAndSettle();
+      expect(find.text('抽取历史 0'), findsOneWidget);
+      expect(
+        tester.widget<IconButton>(key('codex-random-clear')).onPressed,
+        isNull,
+      );
+      await tester.tap(key('codex-random-candidates'));
+      await tester.pumpAndSettle();
+      expect(key('desktop-codex-card-style0'), findsOneWidget);
+      await tester.enterText(key('desktop-codex-search'), 'no matching entry');
+      await tester.tap(key('codex-random-draw'));
+      await pumpUntilComplete(tester, history.flush());
+      await tester.pumpAndSettle(const Duration(milliseconds: 300));
+      expect(container.read(codexHistoryProvider).value, isEmpty);
+      expect(key('codex-random-history-grid'), findsNothing);
+      expect(
+        tester.widget<FilledButton>(key('codex-random-draw')).onPressed,
+        isNull,
+      );
+      await tester.tap(find.byTooltip('返回法典浏览'));
+      await tester.pumpAndSettle();
+      expect(key('desktop-codex-random-workspace'), findsNothing);
+      expect(
+        tester
+            .widget<OutlinedButton>(key('desktop-codex-random'))
+            .style
+            ?.backgroundColor
+            ?.resolve({}),
+        isNot(selectedColor),
+      );
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox());
     });

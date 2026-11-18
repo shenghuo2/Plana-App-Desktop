@@ -3,7 +3,6 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter/scheduler.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/net/remote_image.dart';
@@ -28,7 +27,12 @@ class CodexCardInteractions extends ConsumerStatefulWidget {
   final CodexEntry entry;
   final CodexMedia media;
   final VoidCallback onOpen;
-  final Widget Function(BuildContext, Widget actions, VoidCallback open)
+  final Widget Function(
+    BuildContext,
+    Widget actions,
+    Widget? preview,
+    VoidCallback open,
+  )
   builder;
 
   @override
@@ -37,13 +41,10 @@ class CodexCardInteractions extends ConsumerStatefulWidget {
 }
 
 class _CodexCardInteractionsState extends ConsumerState<CodexCardInteractions> {
-  final _portal = OverlayPortalController();
-  Timer? _showTimer, _hideTimer;
+  Timer? _showTimer;
   ScrollPosition? _scroll;
-  bool _overCard = false, _overPreview = false, _focused = false;
-  bool _suppressed = false, _importing = false;
-  bool _active = true;
-  Offset? _pointer;
+  bool _overCard = false, _focused = false, _previewVisible = false;
+  bool _importing = false, _active = true;
 
   @override
   void didChangeDependencies() {
@@ -57,7 +58,7 @@ class _CodexCardInteractionsState extends ConsumerState<CodexCardInteractions> {
       _scroll = scroll;
       _scroll?.isScrollingNotifier.addListener(_onScroll);
     }
-    if (!_active) _dismiss();
+    if (!_active) _resetPreview();
   }
 
   @override
@@ -65,7 +66,7 @@ class _CodexCardInteractionsState extends ConsumerState<CodexCardInteractions> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.entry.id != widget.entry.id ||
         oldWidget.codex.id != widget.codex.id) {
-      _dismiss();
+      _resetPreview();
     }
   }
 
@@ -73,55 +74,27 @@ class _CodexCardInteractionsState extends ConsumerState<CodexCardInteractions> {
     if (_scroll?.isScrollingNotifier.value ?? false) _dismiss();
   }
 
+  void _resetPreview() {
+    _showTimer?.cancel();
+    _previewVisible = false;
+  }
+
   void _dismiss() {
     _showTimer?.cancel();
-    _hideTimer?.cancel();
-    final box = context.findRenderObject();
-    _suppressed =
-        _pointer != null &&
-        box is RenderBox &&
-        box.hasSize &&
-        (Offset.zero & box.size).contains(box.globalToLocal(_pointer!));
-    _overPreview = false;
-    if (!_portal.isShowing) return;
-    if (SchedulerBinding.instance.schedulerPhase ==
-        SchedulerPhase.persistentCallbacks) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _portal.hide();
-      });
-    } else {
-      _portal.hide();
-    }
+    if (_previewVisible) setState(() => _previewVisible = false);
   }
 
   void _enterCard() {
-    _hideTimer?.cancel();
     setState(() => _overCard = true);
-    if (_suppressed ||
-        !_active ||
-        !ref.read(themeSettingsProvider).codexHoverPreview) {
-      return;
-    }
+    if (!_active || !ref.read(themeSettingsProvider).codexHoverPreview) return;
     _showTimer?.cancel();
     _showTimer = Timer(const Duration(milliseconds: 1500), () {
       if (mounted &&
           _active &&
           _overCard &&
-          !_suppressed &&
+          !(_scroll?.isScrollingNotifier.value ?? false) &&
           ref.read(themeSettingsProvider).codexHoverPreview) {
-        _portal.show();
-      }
-    });
-  }
-
-  void _leave() {
-    _showTimer?.cancel();
-    _hideTimer?.cancel();
-    // Allow crossing the small gap into the preview without losing it.
-    _hideTimer = Timer(const Duration(milliseconds: 140), () {
-      if (mounted && !_overCard && !_overPreview) {
-        _portal.hide();
-        _suppressed = false;
+        setState(() => _previewVisible = true);
       }
     });
   }
@@ -129,7 +102,6 @@ class _CodexCardInteractionsState extends ConsumerState<CodexCardInteractions> {
   @override
   void dispose() {
     _showTimer?.cancel();
-    _hideTimer?.cancel();
     _scroll?.isScrollingNotifier.removeListener(_onScroll);
     super.dispose();
   }
@@ -269,160 +241,100 @@ class _CodexCardInteractionsState extends ConsumerState<CodexCardInteractions> {
     return text.length <= 2400 ? text : '${text.substring(0, 2400)}…';
   }
 
-  @override
-  Widget build(BuildContext context) {
-    ref.listen(themeSettingsProvider.select((s) => s.codexHoverPreview), (
-      _,
-      enabled,
-    ) {
-      if (!enabled) _dismiss();
-    });
-    final enabled = ref.watch(
-      themeSettingsProvider.select((s) => s.codexHoverPreview),
-    );
-    return Focus(
-      onFocusChange: (value) => setState(() => _focused = value),
-      child: MouseRegion(
-        onEnter: (event) {
-          _pointer = event.position;
-          _enterCard();
-        },
-        onHover: (event) => _pointer = event.position,
-        onExit: (_) {
-          setState(() => _overCard = false);
-          _leave();
-        },
-        child: Listener(
-          onPointerDown: (event) {
-            _pointer = event.position;
-            _dismiss();
-          },
-          child: OverlayPortal.overlayChildLayoutBuilder(
-            controller: _portal,
-            overlayChildBuilder: (context, info) {
-              if (!enabled || !_active) return const SizedBox.shrink();
-              final anchor = MatrixUtils.transformRect(
-                info.childPaintTransform,
-                Offset.zero & info.childSize,
-              );
-              return CustomSingleChildLayout(
-                delegate: _HoverLayout(anchor),
-                child: MouseRegion(
-                  onEnter: (event) {
-                    _pointer = event.position;
-                    _overPreview = true;
-                    _hideTimer?.cancel();
-                  },
-                  onHover: (event) => _pointer = event.position,
-                  onExit: (_) {
-                    _overPreview = false;
-                    _leave();
-                  },
-                  child: GestureDetector(
-                    onTap: _dismiss,
-                    behavior: HitTestBehavior.opaque,
-                    child: Material(
-                      key: const ValueKey('codex-hover-preview'),
-                      elevation: 8,
-                      color: Theme.of(context).colorScheme.inverseSurface,
-                      borderRadius: BorderRadius.circular(12),
-                      clipBehavior: Clip.antiAlias,
-                      child: Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            Text(
-                              widget.entry.title,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                color: Theme.of(
-                                  context,
-                                ).colorScheme.onInverseSurface,
-                                fontWeight: FontWeight.w700,
-                                fontSize: 14,
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            Flexible(
-                              child: LayoutBuilder(
-                                builder: (context, bounds) {
-                                  final lineHeight =
-                                      MediaQuery.textScalerOf(
-                                        context,
-                                      ).scale(13) *
-                                      1.5;
-                                  // Fit complete lines before applying ellipsis, even
-                                  // at large text scales in a short window.
-                                  final lines = (bounds.maxHeight / lineHeight)
-                                      .floor()
-                                      .clamp(1, 18);
-                                  return Text(
-                                    _previewText,
-                                    maxLines: lines,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(
-                                      color: Theme.of(
-                                        context,
-                                      ).colorScheme.onInverseSurface,
-                                      fontSize: 13,
-                                      height: 1.5,
-                                    ),
-                                  );
-                                },
-                              ),
-                            ),
-                          ],
+  Widget _preview(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final scale = MediaQuery.textScalerOf(context);
+    final bodyHeight = scale.scale(13) * 1.5;
+    final titleHeight = scale.scale(14) * 1.3;
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 520),
+      child: LayoutBuilder(
+        builder: (context, bounds) {
+          if (bounds.maxHeight < bodyHeight) return const SizedBox.shrink();
+          final inset = math.min(10.0, (bounds.maxHeight - bodyHeight) / 2);
+          final available = bounds.maxHeight - inset * 2;
+          final showTitle = available >= titleHeight + 4 + bodyHeight;
+          final bodySpace = available - (showTitle ? titleHeight + 4 : 0);
+          final lines = (bodySpace / bodyHeight).floor().clamp(1, 18);
+          return GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: _dismiss,
+            child: Material(
+              key: const ValueKey('codex-hover-preview'),
+              elevation: 6,
+              color: scheme.inverseSurface,
+              borderRadius: BorderRadius.circular(12),
+              clipBehavior: Clip.antiAlias,
+              child: Padding(
+                padding: EdgeInsets.symmetric(horizontal: 12, vertical: inset),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    if (showTitle) ...[
+                      Text(
+                        widget.entry.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: scheme.onInverseSurface,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 14,
+                          height: 1.3,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                    ],
+                    Flexible(
+                      child: Text(
+                        _previewText,
+                        maxLines: lines,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: scheme.onInverseSurface,
+                          fontSize: 13,
+                          height: 1.5,
                         ),
                       ),
                     ),
-                  ),
+                  ],
                 ),
-              );
-            },
-            child: widget.builder(context, _actions(), () {
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final enabled = ref.watch(
+      themeSettingsProvider.select((s) => s.codexHoverPreview),
+    );
+    if (!enabled) _resetPreview();
+    return Focus(
+      onFocusChange: (value) => setState(() => _focused = value),
+      child: MouseRegion(
+        onEnter: (_) => _enterCard(),
+        onExit: (_) => setState(() {
+          _overCard = false;
+          _resetPreview();
+        }),
+        child: Listener(
+          onPointerDown: (_) => _showTimer?.cancel(),
+          onPointerUp: (_) => _dismiss(),
+          child: widget.builder(
+            context,
+            _actions(),
+            _previewVisible ? _preview(context) : null,
+            () {
               _dismiss();
               widget.onOpen();
-            }),
+            },
           ),
         ),
       ),
     );
   }
-}
-
-class _HoverLayout extends SingleChildLayoutDelegate {
-  _HoverLayout(this.anchor);
-  final Rect anchor;
-  @override
-  BoxConstraints getConstraintsForChild(BoxConstraints constraints) =>
-      BoxConstraints(
-        maxWidth: math.min(520, math.max(0, constraints.maxWidth - 24)),
-        maxHeight: math.min(480, math.max(0, constraints.maxHeight - 24)),
-      );
-  @override
-  Offset getPositionForChild(Size size, Size childSize) {
-    double x, y;
-    if (anchor.right + 8 + childSize.width <= size.width - 12) {
-      x = anchor.right + 8;
-      y = anchor.top;
-    } else if (anchor.left - 8 - childSize.width >= 12) {
-      x = anchor.left - 8 - childSize.width;
-      y = anchor.top;
-    } else {
-      x = anchor.left;
-      y = anchor.bottom + 8 + childSize.height <= size.height - 12
-          ? anchor.bottom + 8
-          : anchor.top - childSize.height - 8;
-    }
-    return Offset(
-      x.clamp(12, math.max(12, size.width - childSize.width - 12)),
-      y.clamp(12, math.max(12, size.height - childSize.height - 12)),
-    );
-  }
-
-  @override
-  bool shouldRelayout(_HoverLayout oldDelegate) => anchor != oldDelegate.anchor;
 }

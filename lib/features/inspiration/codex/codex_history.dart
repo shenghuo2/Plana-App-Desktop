@@ -77,26 +77,38 @@ class CodexHistoryNotifier extends AsyncNotifier<List<CodexDrawRecord>> {
     return [for (final row in json) ?CodexDrawRecord.fromJson(row)];
   }
 
-  Future<void> record(CodexMeta codex, CodexEntry entry, {int? now}) {
+  Future<bool> record(CodexMeta codex, CodexEntry entry, {int? now}) {
     final draw = CodexDrawRecord(
       codex: codex,
       entry: entry,
       savedAt: now ?? DateTime.now().millisecondsSinceEpoch,
     );
-    // Wait for the initial read and serialize writes, including fast rerolls.
-    return _pending = _pending.then((_) async {
+    return _update((current) => [draw, ...current]);
+  }
+
+  Future<bool> clearAll() => _update((_) => const []);
+
+  // Apply draws and clears in click order, publishing only a saved list.
+  Future<bool> _update(
+    List<CodexDrawRecord> Function(List<CodexDrawRecord>) change,
+  ) {
+    final saved = _pending.then((_) async {
       try {
         final current = await future;
-        if (!ref.mounted) return;
-        final next = [draw, ...current];
-        state = AsyncData(next);
+        if (!ref.mounted) return false;
+        final next = change(current);
         await writeStringAtomic(
           await _file(),
           jsonEncode([for (final item in next) item.toJson()]),
         );
+        if (ref.mounted) state = AsyncData(next);
+        return true;
       } catch (error) {
         logd('[codex] 抽取历史保存失败: $error');
+        return false;
       }
     });
+    _pending = saved.then<void>((_) {});
+    return saved;
   }
 }

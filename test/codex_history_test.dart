@@ -81,6 +81,27 @@ void main() {
           )).map((e) => e.entry.id),
           ['three', 'entry', 'two', 'entry'],
         );
+        final history = container.read(codexHistoryProvider.notifier);
+        final blockedTempFile = Directory(
+          '${temp.path}/codex_random_history.json.tmp',
+        )..createSync();
+        expect(await history.clearAll(), isFalse);
+        expect(container.read(codexHistoryProvider).value, hasLength(4));
+        blockedTempFile.deleteSync();
+        // A late save must not restore cleared records or discard subsequent draws.
+        expect(
+          await Future.wait([
+            history.record(book, entry, now: 4),
+            history.clearAll(),
+            history.record(book, entry, now: 5),
+          ]),
+          [true, true, true],
+        );
+        container.invalidate(codexHistoryProvider);
+        expect(
+          (await container.read(codexHistoryProvider.future)).single.savedAt,
+          5,
+        );
       } finally {
         container.dispose();
         binding.defaultBinaryMessenger.setMockMethodCallHandler(paths, null);
