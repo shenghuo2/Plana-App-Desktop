@@ -7,6 +7,7 @@
 /// 这里定的几项之后都能在「助手设置」里改,两边用的是同一份设置和同样的文字。
 library;
 
+import '../../../l10n/l10n.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -87,7 +88,7 @@ class _IntroDialogState extends ConsumerState<_IntroDialog> {
     mainAxisSize: MainAxisSize.min,
     crossAxisAlignment: CrossAxisAlignment.stretch,
     children: [
-      settingSection(context, '资料库范围'),
+      settingSection(context, l10nNow.libraryScope),
       RadioGroup<LibraryScope>(
         groupValue: effectiveLibraryScope(
           _draft.libraryScope,
@@ -120,24 +121,24 @@ class _IntroDialogState extends ConsumerState<_IntroDialog> {
     mainAxisSize: MainAxisSize.min,
     crossAxisAlignment: CrossAxisAlignment.stretch,
     children: [
-      settingSection(context, '使用习惯'),
+      settingSection(context, l10nNow.usageHabits),
       SettingRow(
         icon: Icons.bolt_outlined,
-        title: '生成提示词后自动出图',
+        title: l10nNow.autoDraw,
         desc: '提示词生成完成后立即开始出图',
         value: _draft.autoGenerate,
         onChanged: (v) => _edit((o) => o.copyWith(autoGenerate: v)),
       ),
       SettingRow(
         icon: Icons.image_outlined,
-        title: '在对话内显示图片',
+        title: l10nNow.inlineImages,
         desc: '生成的图片显示在对话内,同时保存至图库',
         value: _draft.inlineImage,
         onChanged: (v) => _edit((o) => o.copyWith(inlineImage: v)),
       ),
       SettingRow(
         icon: Icons.draw_outlined,
-        title: '自动写入创作页',
+        title: l10nNow.autoWrite,
         desc: '生成的提示词自动写回创作页,无需手动导入',
         value: _draft.autoImport,
         onChanged: (v) => _edit((o) => o.copyWith(autoImport: v)),
@@ -159,7 +160,7 @@ class _IntroDialogState extends ConsumerState<_IntroDialog> {
         insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
         title: Row(
           children: [
-            const Expanded(child: Text('开始使用 AI 助手')),
+            Expanded(child: Text(l10nNow.startUsingAssistant)),
             Text(
               '${_page + 1} / 2',
               style: context.texts.labelMedium!.copyWith(
@@ -188,16 +189,16 @@ class _IntroDialogState extends ConsumerState<_IntroDialog> {
           if (_page == 0)
             FilledButton(
               onPressed: () => setState(() => _page = 1),
-              child: const Text('下一步'),
+              child: Text(l10nNow.next),
             )
           else ...[
             TextButton(
               onPressed: () => setState(() => _page = 0),
-              child: const Text('上一步'),
+              child: Text(l10nNow.previous),
             ),
             FilledButton(
               onPressed: () => _done(authorized),
-              child: const Text('开始使用'),
+              child: Text(l10nNow.getStarted),
             ),
           ],
         ],

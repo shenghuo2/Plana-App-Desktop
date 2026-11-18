@@ -9,6 +9,9 @@ import '../../core/net/backend_config.dart';
 import '../../core/net/nai_client.dart';
 import '../../core/net/nai_key_status.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/theme/app_skin.dart' show Lifted;
+import '../../core/net/backend_client.dart';
+import 'api_keys_page.dart';
 import '../editor/data/completion_source.dart';
 import '../generate/widgets/common.dart'
     show confirmDialog, hintSnack, sharedAxisRoute;
@@ -16,6 +19,7 @@ import '../onboarding/bot_auth_page.dart';
 import '../stats/stats_providers.dart' show fmtInt;
 import 'token_manage_page.dart';
 import '../../core/util/haptics.dart';
+import '../../l10n/l10n.dart';
 
 /// 账号与接入(我的页二级):接入方式切换、Token / Bot 凭据、标签补全来源。
 class AccountPage extends ConsumerStatefulWidget {
@@ -26,6 +30,26 @@ class AccountPage extends ConsumerStatefulWidget {
 }
 
 class _AccountPageState extends ConsumerState<AccountPage> {
+  @override
+  void initState() {
+    super.initState();
+    _syncBotExpiry();
+  }
+
+  /// 后端会话随使用滑动续期,进页时取一次最新过期时间写回本地。
+  Future<void> _syncBotExpiry() async {
+    final sid = (await ref.read(botSessionProvider.future))?.sessionId;
+    if (sid == null || !mounted) return;
+    try {
+      final v = await ref.read(backendClientProvider).validate(sid);
+      if (!mounted || !v.valid) return;
+      if (ref.read(botSessionProvider).value?.sessionId != sid) return;
+      await ref
+          .read(botSessionProvider.notifier)
+          .touch(expiresAtMs: v.expiresAtMs, botUserId: v.botUserId);
+    } catch (_) {}
+  }
+
   void _openTokens() =>
       Navigator.of(context).push(sharedAxisRoute(const TokenManagePage()));
 
@@ -46,15 +70,15 @@ class _AccountPageState extends ConsumerState<AccountPage> {
   Future<void> _revokeBot() async {
     final ok = await confirmDialog(
       context,
-      title: '解除 Bot 授权',
-      message: '将从本机删除会话,需重新授权才能用后端生成。',
+      title: l10nNow.desktopDisconnectBotAuthorization,
+      message: l10nNow.desktopTheSessionWillBeRemovedFromThisDevice,
       confirmLabel: '解除',
     );
     if (!ok) return;
     await ref.read(botSessionProvider.notifier).clear();
     if (!mounted) return;
     Haptics.medium();
-    hintSnack(context, '已解除授权', icon: Icons.check_circle_outline);
+    hintSnack(context, l10nNow.desktopAuthorizationRemoved, icon: Icons.check_circle_outline);
   }
 
   @override
@@ -68,7 +92,7 @@ class _AccountPageState extends ConsumerState<AccountPage> {
     final compSource = ref.watch(effectiveCompletionSourceProvider);
 
     return SettingsScaffold(
-      appBar: AppBar(title: const Text('账号与接入')),
+      appBar: AppBar(title: Text(l10nNow.accountAccess)),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(14, 8, 14, 24),
         children: [
@@ -95,12 +119,52 @@ class _AccountPageState extends ConsumerState<AccountPage> {
             onRevoke: _revokeBot,
           ),
           const SizedBox(height: 12),
+          if (session != null) ...[
+            _ApiKeysEntry(onTap: () => Navigator.of(context).push(sharedAxisRoute(const ApiKeysPage()))),
+            const SizedBox(height:12),
+          ],
           _CompletionCard(
             source: compSource,
             onSelect: (s) =>
                 ref.read(completionSourcePrefProvider.notifier).set(s),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// API 密钥入口(Bot):用自己的 NovelAI 客户端拿 Bot 账户出图,管理在二级页。
+class _ApiKeysEntry extends StatelessWidget {
+  const _ApiKeysEntry({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = context.scheme;
+    return Lifted(
+      radius: BorderRadius.circular(16),
+      child: Material(
+        color: scheme.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(16),
+        clipBehavior: Clip.antiAlias,
+        child: ListTile(
+          onTap: onTap,
+          contentPadding: const EdgeInsets.fromLTRB(16, 2, 12, 2),
+          leading: Icon(Icons.key_outlined, color: scheme.onSurfaceVariant),
+          title: Text(
+            l10nNow.desktopAPIKeys,
+            style: context.texts.bodyMedium!.copyWith(
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          subtitle: Text(
+            l10nNow.desktopGenerateWithYourNovelAIClientAndPayFrom,
+            style: context.texts.labelSmall!.copyWith(color: scheme.outline),
+          ),
+          trailing: Icon(Icons.chevron_right, color: scheme.outline),
+        ),
       ),
     );
   }
@@ -221,7 +285,7 @@ class _TokenCard extends StatelessWidget {
                 OutlinedButton.icon(
                   onPressed: onManage,
                   icon: const Icon(Icons.tune, size: 17),
-                  label: const Text('管理令牌'),
+                  label: Text(l10nNow.manageTokens),
                   style: OutlinedButton.styleFrom(
                     minimumSize: const Size(0, 40),
                     padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -292,13 +356,16 @@ class _TotalsLine extends ConsumerWidget {
       }
     }
     if (got == 0) {
-      return Text('查询账户状态…', style: small.copyWith(color: scheme.outline));
+      return Text(
+        context.l10n.queryingAccount,
+        style: small.copyWith(color: scheme.outline),
+      );
     }
     return Text(
       [
         'Anlas ${fmtInt(anlas)}',
         // 额度只有拿得到才写:官方没承诺过这块字段,读不到就干脆不提。
-        if (hasUsage) '额度 ${pct.round()}%',
+        if (hasUsage) context.l10n.quotaPct(pct.round()),
       ].join(' · '),
       maxLines: 1,
       overflow: TextOverflow.ellipsis,
@@ -395,15 +462,11 @@ class _KeyChipTile extends ConsumerWidget {
 }
 
 class _StatusChip extends StatelessWidget {
-  const _StatusChip({
-    required this.saved,
-    this.onLabel = '已保存',
-    this.offLabel = '未设置',
-  });
+  const _StatusChip({required this.saved, this.onLabel, this.offLabel});
 
   final bool saved;
-  final String onLabel;
-  final String offLabel;
+  final String? onLabel;
+  final String? offLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -430,7 +493,9 @@ class _StatusChip extends StatelessWidget {
           ),
           const SizedBox(width: 5),
           Text(
-            saved ? onLabel : offLabel,
+            saved
+                ? onLabel ?? context.l10n.statusSaved
+                : offLabel ?? context.l10n.notSet,
             style: context.texts.labelMedium!.copyWith(
               color: fg,
               fontWeight: FontWeight.w600,
@@ -473,7 +538,7 @@ class _RouteCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              '生成方式',
+              l10nNow.genMethod,
               style: context.texts.labelMedium!.copyWith(
                 color: scheme.onSurfaceVariant,
                 fontWeight: FontWeight.w700,
@@ -483,15 +548,15 @@ class _RouteCard extends StatelessWidget {
             SizedBox(
               width: double.infinity,
               child: SegmentedButton<AuthMode>(
-                segments: const [
+                segments: [
                   ButtonSegment(
                     value: AuthMode.token,
-                    label: Text('直连 Token'),
+                    label: Text(l10nNow.desktopDirectToken),
                     icon: Icon(Icons.vpn_key, size: 16),
                   ),
                   ButtonSegment(
                     value: AuthMode.bot,
-                    label: Text('使用 Bot 账户'),
+                    label: Text(l10nNow.useBotAccount),
                     icon: Icon(Icons.smart_toy_outlined, size: 16),
                   ),
                 ],
@@ -543,7 +608,7 @@ class _CompletionCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              '标签补全',
+              l10nNow.desktopTagCompletion,
               style: context.texts.labelMedium!.copyWith(
                 color: scheme.onSurfaceVariant,
                 fontWeight: FontWeight.w700,
@@ -556,14 +621,14 @@ class _CompletionCard extends StatelessWidget {
                 segments: [
                   // 不再按 Bot 授权置灰:补全那几个接口都是公开的,
                   // 无会话只是少了画师串/OC 两组(私有数据,fail-soft 返空)。
-                  const ButtonSegment(
+                  ButtonSegment(
                     value: CompletionSource.enhanced,
-                    label: Text('增强补全'),
+                    label: Text(l10nNow.desktopEnhancedCompletion),
                     icon: Icon(Icons.auto_awesome, size: 16),
                   ),
-                  const ButtonSegment(
+                  ButtonSegment(
                     value: CompletionSource.danbooru,
-                    label: Text('离线词库'),
+                    label: Text(l10nNow.desktopOfflineTagLibrary),
                     icon: Icon(Icons.storage, size: 16),
                   ),
                 ],
@@ -617,7 +682,7 @@ class _BotCard extends StatelessWidget {
             Row(
               children: [
                 Text(
-                  'Bot 授权',
+                  l10nNow.botAuth,
                   style: context.texts.labelMedium!.copyWith(
                     color: scheme.onSurfaceVariant,
                     fontWeight: FontWeight.w700,
@@ -645,13 +710,13 @@ class _BotCard extends StatelessWidget {
                   OutlinedButton.icon(
                     onPressed: onAuthorize,
                     icon: const Icon(Icons.refresh, size: 18),
-                    label: const Text('重新授权'),
+                    label: Text(l10nNow.desktopReauthorize),
                   ),
                   const Spacer(),
                   TextButton.icon(
                     onPressed: onRevoke,
                     icon: Icon(Icons.link_off, size: 18, color: scheme.error),
-                    label: Text('解除授权', style: TextStyle(color: scheme.error)),
+                    label: Text(l10nNow.desktopDisconnect, style: TextStyle(color: scheme.error)),
                   ),
                 ],
               ),
@@ -659,7 +724,7 @@ class _BotCard extends StatelessWidget {
               FilledButton.icon(
                 onPressed: onAuthorize,
                 icon: const Icon(Icons.smart_toy_outlined, size: 18),
-                label: const Text('去授权'),
+                label: Text(l10nNow.desktopAuthorize),
                 style: FilledButton.styleFrom(
                   minimumSize: const Size.fromHeight(46),
                   shape: RoundedRectangleBorder(

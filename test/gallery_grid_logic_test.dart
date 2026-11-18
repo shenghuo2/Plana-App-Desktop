@@ -31,8 +31,20 @@ void main() {
     ),
   ];
   final byId = <String, GallerySearchMeta>{
-    'current': (model: 'Model A', text: 'cat outdoors'),
-    'older': (model: 'Model B', text: 'cat indoors'),
+    'current': (
+      model: 'Model A',
+      text: 'cat outdoors',
+      ids: [],
+      cards: [],
+      folds: [],
+    ),
+    'older': (
+      model: 'Model B',
+      text: 'cat indoors',
+      ids: [],
+      cards: [],
+      folds: [],
+    ),
   };
 
   test('selection follows visible images and blocks actions while saving', () {

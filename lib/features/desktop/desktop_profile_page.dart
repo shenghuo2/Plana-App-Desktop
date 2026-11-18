@@ -1,10 +1,11 @@
+import '../../l10n/l10n.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../../core/theme/theme_settings.dart';
 import '../generate/preset_manage_page.dart';
-import '../migrate/web_backup_page.dart';
+import '../profile/backup_page.dart';
 import '../profile/about_page.dart';
 import '../profile/account_page.dart';
 import '../profile/appearance_page.dart';
@@ -16,21 +17,44 @@ import '../shell/shell_state.dart';
 import 'desktop_tools_page.dart';
 
 enum _Section {
-  account('账号与接入', Icons.manage_accounts_outlined, '账户与服务', AccountPage()),
-  network('网络与代理', Icons.settings_ethernet, '账户与服务', NetworkSettingsPage()),
-  dataImport('数据导入', Icons.import_export, '账户与服务', WebBackupPage()),
-  generation('生成设置', Icons.tune, '创作偏好', GenSettingsPage()),
-  presets('提示词预设', Icons.bookmark_outline, '创作偏好', PromptPresetManagePage()),
-  appearance('外观与体验', Icons.color_lens_outlined, '应用', AppearancePage()),
-  storage('存储管理', Icons.storage_outlined, '应用', StoragePage()),
-  tools('工具箱', Icons.handyman_outlined, '应用', null),
-  stats('统计', Icons.query_stats, '应用', StatsPage()),
-  about('关于 Plana', Icons.info_outline, '应用', AboutPage());
+  account(Icons.manage_accounts_outlined, AccountPage()),
+  network(Icons.settings_ethernet, NetworkSettingsPage()),
+  dataImport(Icons.import_export, BackupPage()),
+  generation(Icons.tune, GenSettingsPage()),
+  presets(Icons.bookmark_outline, PromptPresetManagePage()),
+  appearance(Icons.color_lens_outlined, AppearancePage()),
+  storage(Icons.storage_outlined, StoragePage()),
+  tools(Icons.handyman_outlined, null),
+  stats(Icons.query_stats, StatsPage()),
+  about(Icons.info_outline, AboutPage());
 
-  const _Section(this.label, this.icon, this.group, this.page);
-  final String label;
+  const _Section(this.icon, this.page);
+  String get label => switch (this) {
+    _Section.account => l10nNow.accountAccess,
+    _Section.network => l10nNow.desktopNetworkAndProxy,
+    _Section.dataImport => l10nNow.desktopBackupAndImport,
+    _Section.generation => l10nNow.generationSettings,
+    _Section.presets => l10nNow.promptPresets,
+    _Section.appearance => l10nNow.desktopAppearanceAndExperience,
+    _Section.storage => l10nNow.storage,
+    _Section.tools => l10nNow.toolbox,
+    _Section.stats => l10nNow.stats,
+    _Section.about => l10nNow.desktopAboutPlana,
+  };
+  String get group => switch (this) {
+    _Section.account => l10nNow.desktopAccountsAndServices,
+    _Section.network => l10nNow.desktopAccountsAndServices,
+    _Section.dataImport => l10nNow.desktopAccountsAndServices,
+    _Section.generation => l10nNow.desktopCreationPreferences,
+    _Section.presets => l10nNow.desktopCreationPreferences,
+    _Section.appearance => l10nNow.desktopApplication,
+    _Section.storage => l10nNow.desktopApplication,
+    _Section.tools => l10nNow.desktopApplication,
+    _Section.stats => l10nNow.desktopApplication,
+    _Section.about => l10nNow.desktopApplication,
+  };
   final IconData icon;
-  final String group;
+
   final Widget? page;
 }
 
@@ -123,7 +147,8 @@ class _DesktopProfilePageState extends ConsumerState<DesktopProfilePage>
                   children: [
                     Expanded(
                       child: Text(
-                        '账户、创作偏好与应用设置',
+                        l10nNow
+                            .desktopAccountsCreationPreferencesAndAppSettings,
                         style: context.texts.bodySmall!.copyWith(
                           color: scheme.onSurfaceVariant,
                         ),
@@ -132,7 +157,7 @@ class _DesktopProfilePageState extends ConsumerState<DesktopProfilePage>
                     if (!sidebar)
                       PopupMenuButton<_Section>(
                         key: const ValueKey('profile-section-menu'),
-                        tooltip: '设置分类',
+                        tooltip: l10nNow.desktopSettingsCategories,
                         initialValue: _selected,
                         onSelected: _select,
                         itemBuilder: (context) => [
@@ -181,10 +206,10 @@ class _DesktopProfilePageState extends ConsumerState<DesktopProfilePage>
                           child: ListView(
                             padding: const EdgeInsets.fromLTRB(10, 8, 10, 12),
                             children: [
-                              for (final group in const [
-                                '账户与服务',
-                                '创作偏好',
-                                '应用',
+                              for (final group in [
+                                l10nNow.desktopAccountsAndServices,
+                                l10nNow.desktopCreationPreferences,
+                                l10nNow.desktopApplication,
                               ]) ...[
                                 Padding(
                                   padding: const EdgeInsets.fromLTRB(

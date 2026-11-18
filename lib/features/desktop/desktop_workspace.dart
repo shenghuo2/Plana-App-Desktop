@@ -185,14 +185,20 @@ class _DesktopWorkspaceState extends ConsumerState<DesktopWorkspace>
           child: Row(
             children: [
               if (compact) ...[
-                _tab('图片与历史', Icons.image_outlined, !compactTool, () {
-                  shortcutFocus.requestFocus();
-                  setState(() => compactTool = false);
-                }, 'desktop-canvas-tab'),
+                _tab(
+                  context.l10n.desktopImagesAndHistory,
+                  Icons.image_outlined,
+                  !compactTool,
+                  () {
+                    shortcutFocus.requestFocus();
+                    setState(() => compactTool = false);
+                  },
+                  'desktop-canvas-tab',
+                ),
                 const SizedBox(width: 5),
               ],
               _tab(
-                'AI 助手',
+                context.l10n.aiAssistant,
                 Icons.auto_awesome_outlined,
                 (!compact || compactTool) && tool == 0,
                 () => _tool(0),
@@ -200,7 +206,7 @@ class _DesktopWorkspaceState extends ConsumerState<DesktopWorkspace>
               ),
               const SizedBox(width: 5),
               _tab(
-                '灵感',
+                context.l10n.tabInspiration,
                 Icons.lightbulb_outline,
                 (!compact || compactTool) && tool == 1,
                 () => _tool(1),
@@ -208,7 +214,7 @@ class _DesktopWorkspaceState extends ConsumerState<DesktopWorkspace>
               ),
               const SizedBox(width: 5),
               _tab(
-                '法典',
+                context.l10n.sectionCodex,
                 Icons.menu_book_outlined,
                 (!compact || compactTool) && tool == 2,
                 () => _tool(2),
@@ -294,7 +300,13 @@ class _DesktopWorkspaceState extends ConsumerState<DesktopWorkspace>
         key: ValueKey(
           'desktop-${left ? 'left' : 'right'}-${collapsed ? 'expand' : 'collapse'}',
         ),
-        tooltip: '${collapsed ? '展开' : '收起'}${left ? '左' : '右'}侧栏',
+        tooltip: left
+            ? (collapsed
+                  ? context.l10n.desktopExpandLeft
+                  : context.l10n.desktopCollapseLeft)
+            : (collapsed
+                  ? context.l10n.desktopExpandRight
+                  : context.l10n.desktopCollapseRight),
         padding: EdgeInsets.zero,
         icon: Icon(
           left == collapsed ? Icons.chevron_right : Icons.chevron_left,
@@ -344,7 +356,9 @@ class _DesktopWorkspaceState extends ConsumerState<DesktopWorkspace>
           RotatedBox(
             quarterTurns: 1,
             child: Text(
-              left ? '创作参数' : '助手 · 灵感 · 法典',
+              left
+                  ? context.l10n.desktopCreationControls
+                  : context.l10n.desktopRightPanelTabs,
               style: context.texts.labelMedium,
             ),
           ),
@@ -391,7 +405,7 @@ class _DesktopWorkspaceState extends ConsumerState<DesktopWorkspace>
                 if (!_leftCollapsed)
                   DesktopPaneDivider(
                     key: const ValueKey('desktop-left-divider'),
-                    label: '左侧栏',
+                    label: l10nNow.desktopLeftSidebar,
                     paneWidth: left,
                     onResizeStart: () => _beginPaneResize(left, right, wide),
                     onResize: (value) => setState(() {
@@ -458,7 +472,7 @@ class _DesktopWorkspaceState extends ConsumerState<DesktopWorkspace>
                               if (!_rightCollapsed)
                                 DesktopPaneDivider(
                                   key: const ValueKey('desktop-right-divider'),
-                                  label: '右侧栏',
+                                  label: l10nNow.desktopRightSidebar,
                                   paneWidth: right,
                                   trailingPane: true,
                                   onResizeStart: () =>

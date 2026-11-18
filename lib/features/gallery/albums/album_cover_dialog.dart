@@ -1,3 +1,4 @@
+import '../../../l10n/l10n.dart';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -43,14 +44,14 @@ Future<void> showAlbumCoverDialog(
           context: context,
           builder: (context) => AlertDialog(
             key: const ValueKey('album-cover-source-dialog'),
-            title: const Text('自定义封面'),
+            title: Text(l10nNow.desktopCustomCover),
             scrollable: true,
             contentPadding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
             content: SizedBox(
               width: 360,
               child: ImageDropRegion(
                 key: const ValueKey('album-cover-image-drop'),
-                label: '用此图片制作封面',
+                label: l10nNow.desktopUseThisImageAsTheCover,
                 enabled:
                     container.read(desktopModeProvider) &&
                     !container.read(appStoresProvider).albums.readOnly,
@@ -64,7 +65,7 @@ Future<void> showAlbumCoverDialog(
                     ListTile(
                       key: const ValueKey('album-cover-current'),
                       leading: const Icon(Icons.photo_library_outlined),
-                      title: const Text('从这个图库里选择'),
+                      title: Text(l10nNow.desktopChooseFromThisGallery),
                       enabled: images.any(
                         (image) => albums.contains(albumId, image.id),
                       ),
@@ -73,21 +74,21 @@ Future<void> showAlbumCoverDialog(
                             (image) => albums.contains(albumId, image.id),
                           )
                           ? null
-                          : const Text('这个图库还没有作品'),
+                          : Text(l10nNow.desktopThisGalleryHasNoImagesYet),
                       onTap: () => Navigator.pop(context, _CoverSource.current),
                     ),
                     ListTile(
                       key: const ValueKey('album-cover-history'),
                       leading: const Icon(Icons.history),
-                      title: const Text('从历史里选择'),
+                      title: Text(l10nNow.desktopChooseFromHistoryLabel),
                       enabled: images.isNotEmpty,
-                      subtitle: images.isEmpty ? const Text('历史里还没有作品') : null,
+                      subtitle: images.isEmpty ? Text(l10nNow.desktopNoImagesInHistoryYet) : null,
                       onTap: () => Navigator.pop(context, _CoverSource.history),
                     ),
                     ListTile(
                       key: const ValueKey('album-cover-upload'),
                       leading: const Icon(Icons.upload_file_outlined),
-                      title: const Text('从本地上传图片'),
+                      title: Text(l10nNow.desktopUploadAnImageFromDisk),
                       onTap: () => Navigator.pop(context, _CoverSource.upload),
                     ),
                     if (albums.cover(albumId) != null) ...[
@@ -95,7 +96,7 @@ Future<void> showAlbumCoverDialog(
                       ListTile(
                         key: const ValueKey('album-cover-auto'),
                         leading: const Icon(Icons.restore),
-                        title: const Text('恢复自动封面'),
+                        title: Text(l10nNow.desktopRestoreAutomaticCover),
                         onTap: () =>
                             Navigator.pop(context, _CoverSource.automatic),
                       ),
@@ -107,7 +108,7 @@ Future<void> showAlbumCoverDialog(
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(context),
-                child: const Text('取消'),
+                child: Text(l10nNow.cancel),
               ),
             ],
           ),
@@ -117,7 +118,7 @@ Future<void> showAlbumCoverDialog(
     final notifier = container.read(albumsProvider.notifier);
     if (source == _CoverSource.automatic) {
       await notifier.setCover(albumId, null);
-      if (context.mounted) hintSnack(context, '已恢复自动封面');
+      if (context.mounted) hintSnack(context, l10nNow.desktopAutomaticCoverRestored);
       return;
     }
     Uint8List? bytes;
@@ -156,7 +157,7 @@ Future<void> showAlbumCoverDialog(
     );
     if (png == null || !context.mounted) return;
     await notifier.setCover(albumId, png, sourceImageId: imageId);
-    if (context.mounted) hintSnack(context, '封面已更新');
+    if (context.mounted) hintSnack(context, l10nNow.desktopCoverUpdated);
   } catch (error) {
     if (context.mounted) albumError(context, error);
   }
@@ -206,7 +207,7 @@ class _AlbumCoverCropDialogState extends State<_AlbumCoverCropDialog> {
     canPop: !_busy,
     child: AlertDialog(
       key: const ValueKey('album-cover-crop-dialog'),
-      title: const Text('调整封面'),
+      title: Text(l10nNow.desktopAdjustCover),
       scrollable: true,
       content: SizedBox(
         width: 360,
@@ -223,12 +224,12 @@ class _AlbumCoverCropDialogState extends State<_AlbumCoverCropDialog> {
                   fit: BoxFit.cover,
                   alignment: Alignment(_x, _y),
                   errorBuilder: (_, _, _) =>
-                      const Center(child: Text('无法读取这张图片')),
+                      Center(child: Text(l10nNow.cantReadImage)),
                 ),
               ),
             ),
             const SizedBox(height: 16),
-            const Text('水平位置'),
+            Text(l10nNow.desktopHorizontalPosition),
             Slider(
               key: const ValueKey('album-cover-align-x'),
               value: _x,
@@ -236,7 +237,7 @@ class _AlbumCoverCropDialogState extends State<_AlbumCoverCropDialog> {
               max: 1,
               onChanged: _busy ? null : (value) => setState(() => _x = value),
             ),
-            const Text('垂直位置'),
+            Text(l10nNow.desktopVerticalPosition),
             Slider(
               key: const ValueKey('album-cover-align-y'),
               value: _y,
@@ -252,7 +253,7 @@ class _AlbumCoverCropDialogState extends State<_AlbumCoverCropDialog> {
       actions: [
         TextButton(
           onPressed: _busy ? null : () => Navigator.pop(context),
-          child: const Text('取消'),
+          child: Text(l10nNow.cancel),
         ),
         FilledButton(
           key: const ValueKey('album-cover-save'),

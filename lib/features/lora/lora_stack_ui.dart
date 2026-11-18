@@ -1,3 +1,4 @@
+import '../../l10n/l10n.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -36,7 +37,7 @@ Future<void> showSaveLoraStackDialog(
       icon: Icons.layers_outlined,
     );
   } catch (_) {
-    if (context.mounted) hintSnack(context, 'LoRA 组合未能保存，请检查存档后重试');
+    if (context.mounted) hintSnack(context, l10nNow.desktopCouldNotSaveTheLoRAStackCheckYour);
   }
 }
 
@@ -95,7 +96,7 @@ class _SaveLoraStackDialogState extends ConsumerState<_SaveLoraStackDialog> {
     final small = context.texts.labelSmall!.copyWith(color: scheme.outline);
 
     return AlertDialog(
-      title: const Text('保存为 LoRA 堆'),
+      title: Text(l10nNow.desktopSaveAsLoRAStack),
       scrollable: true,
       content: Column(
         mainAxisSize: MainAxisSize.min,
@@ -105,13 +106,13 @@ class _SaveLoraStackDialogState extends ConsumerState<_SaveLoraStackDialog> {
             controller: _ctl,
             autofocus: true,
             maxLength: kLoraStackNameMax,
-            decoration: const InputDecoration(labelText: '名称'),
+            decoration: InputDecoration(labelText: l10nNow.name),
             onChanged: (_) => setState(() {}),
             onSubmitted: (_) => _submit(),
           ),
           if (clash)
             Text(
-              '已有同名的 LoRA 堆,保存会覆盖它',
+              l10nNow.desktopSavingWillReplaceTheLoRAStackWithThe,
               style: context.texts.labelSmall!.copyWith(color: scheme.tertiary),
             ),
           const SizedBox(height: 12),
@@ -128,7 +129,7 @@ class _SaveLoraStackDialogState extends ConsumerState<_SaveLoraStackDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(context),
-          child: const Text('取消'),
+          child: Text(l10nNow.cancel),
         ),
         FilledButton(
           onPressed: trimmed.isEmpty ? null : _submit,
@@ -261,10 +262,10 @@ class LoraStackCard extends StatelessWidget {
                   visualDensity: VisualDensity.compact,
                   padding: const EdgeInsets.symmetric(horizontal: 14),
                 ),
-                child: const Text('应用'),
+                child: Text(l10nNow.desktopApplication),
               ),
               IconButton(
-                tooltip: '删除',
+                tooltip: l10nNow.delete,
                 visualDensity: VisualDensity.compact,
                 icon: Icon(Icons.delete_outline, color: scheme.error),
                 onPressed: onDelete,

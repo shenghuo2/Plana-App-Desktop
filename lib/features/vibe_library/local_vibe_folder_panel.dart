@@ -1,3 +1,4 @@
+import '../../l10n/l10n.dart';
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
@@ -198,7 +199,7 @@ class _LocalVibeFolderPanelState extends ConsumerState<LocalVibeFolderPanel> {
                   ),
                 ),
                 IconButton(
-                  tooltip: '取消关联（保留原文件）',
+                  tooltip: l10nNow.desktopUnlinkAndKeepTheOriginalFiles,
                   onPressed: _adding ? null : library.disconnect,
                   icon: const Icon(Icons.link_off, size: 20),
                 ),
@@ -215,7 +216,7 @@ class _LocalVibeFolderPanelState extends ConsumerState<LocalVibeFolderPanel> {
                   value: _model,
                   isDense: true,
                   items: [
-                    const DropdownMenuItem(value: '', child: Text('全部模型')),
+                    DropdownMenuItem(value: '', child: Text(l10nNow.desktopAllModels)),
                     for (final entry in kEncodingKeyLabel.entries)
                       DropdownMenuItem(
                         value: entry.key,
@@ -240,7 +241,7 @@ class _LocalVibeFolderPanelState extends ConsumerState<LocalVibeFolderPanel> {
                 onPressed: _adding
                     ? null
                     : () => setState(() => _selected.clear()),
-                child: const Text('清空选择'),
+                child: Text(l10nNow.desktopClearSelection),
               ),
             ],
           ),
@@ -277,11 +278,11 @@ class _LocalVibeFolderPanelState extends ConsumerState<LocalVibeFolderPanel> {
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        '支持 .naiv4vibe、.naiv4vibebundle 和 .json',
+                        l10nNow.desktopSupportsNaiv4vibeNaiv4vibebundleAndJson,
                         style: context.texts.bodySmall,
                       ),
                       const SizedBox(height: 4),
-                      Text('读取所选文件夹，不含子文件夹。', style: context.texts.labelSmall),
+                      Text(l10nNow.desktopReadTheSelectedFolderOnlySubfoldersAreExcluded, style: context.texts.labelSmall),
                     ],
                   ),
                 )
@@ -360,7 +361,7 @@ class _LocalVibeFolderPanelState extends ConsumerState<LocalVibeFolderPanel> {
                                     top: 0,
                                     right: 0,
                                     child: PopupMenuButton<String>(
-                                      tooltip: '素材操作',
+                                      tooltip: l10nNow.desktopAssetActions,
                                       onSelected: (action) => setState(() {
                                         if (action == 'pin') {
                                           _pinned = e.key;
@@ -369,14 +370,14 @@ class _LocalVibeFolderPanelState extends ConsumerState<LocalVibeFolderPanel> {
                                           _selected.remove(e.key);
                                         }
                                       }),
-                                      itemBuilder: (_) => const [
+                                      itemBuilder: (_) => [
                                         PopupMenuItem(
                                           value: 'pin',
-                                          child: Text('本次置顶'),
+                                          child: Text(l10nNow.desktopPinForThisSession),
                                         ),
                                         PopupMenuItem(
                                           value: 'hide',
-                                          child: Text('本次隐藏（保留原文件）'),
+                                          child: Text(l10nNow.desktopHideForThisSessionAndKeepTheOriginal),
                                         ),
                                       ],
                                     ),
@@ -429,7 +430,7 @@ class _LocalVibeFolderPanelState extends ConsumerState<LocalVibeFolderPanel> {
             children: [
               Expanded(
                 child: Text(
-                  '选择后加入创作，保留原文件与已有编码。',
+                  l10nNow.desktopAddTheSelectionToCreateKeepTheOriginal,
                   style: context.texts.bodySmall,
                 ),
               ),

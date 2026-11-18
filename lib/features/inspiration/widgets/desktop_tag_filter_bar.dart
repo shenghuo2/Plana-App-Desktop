@@ -1,3 +1,4 @@
+import '../../../l10n/l10n.dart';
 import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
@@ -205,7 +206,7 @@ class _DesktopTagFilterBarState extends State<DesktopTagFilterBar> {
                   tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                 ),
                 icon: const Icon(Icons.settings_outlined, size: 18),
-                label: const Text('管理标签'),
+                label: Text(l10nNow.manageTags),
               ),
             ),
           ],
@@ -241,13 +242,13 @@ class _DesktopTagFilterBarState extends State<DesktopTagFilterBar> {
       children: [
         _chip(
           context,
-          label: '全部',
+          label: l10nNow.all,
           selected: widget.selectedTag == null && !widget.favoritesSelected,
           onTap: () => widget.onTagSelected(null),
         ),
         _chip(
           context,
-          label: '收藏',
+          label: l10nNow.favorites,
           icon: Icons.star_rounded,
           selected: widget.favoritesSelected,
           onTap: widget.onFavoritesSelected,
@@ -287,7 +288,7 @@ class _DesktopTagFilterBarState extends State<DesktopTagFilterBar> {
           if (_overflow)
             _scrollArrow(
               key: const ValueKey('inspiration-tags-left'),
-              tooltip: '向左查看更多标签',
+              tooltip: l10nNow.desktopScrollTagsLeft,
               icon: Icons.chevron_left,
               enabled: _canScrollBack,
               direction: -1,
@@ -364,7 +365,7 @@ class _DesktopTagFilterBarState extends State<DesktopTagFilterBar> {
           if (_overflow)
             _scrollArrow(
               key: const ValueKey('inspiration-tags-right'),
-              tooltip: '向右查看更多标签',
+              tooltip: l10nNow.desktopScrollTagsRight,
               icon: Icons.chevron_right,
               enabled: _canScrollForward,
               direction: 1,
@@ -471,7 +472,7 @@ class _TagPickerState extends State<_TagPicker> {
           padding: const EdgeInsets.fromLTRB(16, 8, 8, 0),
           child: Row(
             children: [
-              Expanded(child: Text('按标签筛选', style: context.texts.titleSmall)),
+              Expanded(child: Text(l10nNow.desktopFilterByTag, style: context.texts.titleSmall)),
               const CloseButton(),
             ],
           ),
@@ -491,13 +492,13 @@ class _TagPickerState extends State<_TagPicker> {
               if (index >= 0) Navigator.pop(context, (tag: widget.tags[index]));
             },
             decoration: InputDecoration(
-              hintText: '搜索标签…',
+              hintText: l10nNow.desktopSearchTags,
               isDense: true,
               prefixIcon: const Icon(Icons.search, size: 20),
               suffixIcon: _query.isEmpty
                   ? null
                   : IconButton(
-                      tooltip: '清空搜索',
+                      tooltip: l10nNow.desktopClearSearch,
                       onPressed: () {
                         _search.clear();
                         _searchTags('');
@@ -513,15 +514,15 @@ class _TagPickerState extends State<_TagPicker> {
         ListTile(
           key: const ValueKey('inspiration-tag-clear'),
           dense: true,
-          title: const Text('不按标签筛选'),
+          title: Text(l10nNow.desktopClearTagFilter),
           onTap: () => Navigator.pop(context, (tag: null)),
         ),
         const Divider(height: 1),
         Flexible(
           child: hits.isEmpty
-              ? const Padding(
+              ? Padding(
                   padding: EdgeInsets.all(24),
-                  child: Text('没有匹配的标签', textAlign: TextAlign.center),
+                  child: Text(l10nNow.desktopNoMatchingTags, textAlign: TextAlign.center),
                 )
               : Scrollbar(
                   controller: _scroll,

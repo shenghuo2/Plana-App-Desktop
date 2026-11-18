@@ -33,7 +33,7 @@ class AppearancePage extends ConsumerWidget {
             ],
           ),
           const SizedBox(height: 16),
-          const SettingsLabel('深浅模式'),
+          SettingsLabel(context.l10n.themeMode),
           SettingsCard(
             children: [
               Padding(
@@ -41,13 +41,19 @@ class AppearancePage extends ConsumerWidget {
                 child: SizedBox(
                   width: double.infinity,
                   child: SegmentedButton<ThemeMode>(
-                    segments: const [
+                    segments: [
                       ButtonSegment(
                         value: ThemeMode.system,
-                        label: Text('跟随系统'),
+                        label: Text(context.l10n.followSystem),
                       ),
-                      ButtonSegment(value: ThemeMode.light, label: Text('浅色')),
-                      ButtonSegment(value: ThemeMode.dark, label: Text('深色')),
+                      ButtonSegment(
+                        value: ThemeMode.light,
+                        label: Text(context.l10n.themeLight),
+                      ),
+                      ButtonSegment(
+                        value: ThemeMode.dark,
+                        label: Text(context.l10n.themeDark),
+                      ),
                     ],
                     selected: {ts.mode},
                     onSelectionChanged: (s) =>
@@ -59,7 +65,7 @@ class AppearancePage extends ConsumerWidget {
             ],
           ),
           const SizedBox(height: 16),
-          const SettingsLabel('主题色'),
+          SettingsLabel(context.l10n.themeColor),
           const SettingsCard(
             children: [
               Padding(padding: EdgeInsets.all(16), child: ThemeSwatches()),
@@ -91,7 +97,7 @@ class AppearancePage extends ConsumerWidget {
                                 : () => notifier.patch(
                                     (x) => x.copyWith(textScale: 1),
                                   ),
-                            child: const Text('恢复默认'),
+                            child: Text(l10nNow.resetSettings),
                           ),
                         ],
                       ),
@@ -136,22 +142,22 @@ class AppearancePage extends ConsumerWidget {
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       Text(
-                        '调整「我的」页面右侧内容区域的水平位置',
+                        l10nNow.desktopSetTheHorizontalAlignmentOfTheProfileContent,
                         style: context.texts.bodySmall!.copyWith(
                           color: context.scheme.onSurfaceVariant,
                         ),
                       ),
                       const SizedBox(height: 12),
                       SegmentedButton<PageAlignment>(
-                        segments: const [
+                        segments: [
                           ButtonSegment(
                             value: PageAlignment.center,
-                            label: Text('居中'),
+                            label: Text(l10nNow.desktopCenter),
                             icon: Icon(Icons.align_horizontal_center),
                           ),
                           ButtonSegment(
                             value: PageAlignment.left,
-                            label: Text('居左'),
+                            label: Text(l10nNow.desktopLeft),
                             icon: Icon(Icons.align_horizontal_left),
                           ),
                         ],
@@ -173,7 +179,7 @@ class AppearancePage extends ConsumerWidget {
             children: [
               _SwitchRow(
                 icon: Icons.auto_awesome,
-                title: '显示 AI 助手',
+                title: l10nNow.showAssistant,
                 subtitle: desktop ? '关掉后顶部导航不再显示 AI 入口' : '关掉后底栏不再显示 AI 入口',
                 value: ts.showAssistant,
                 onChanged: (v) =>
@@ -182,8 +188,8 @@ class AppearancePage extends ConsumerWidget {
               if (desktop)
                 _SwitchRow(
                   icon: Icons.handyman_outlined,
-                  title: '显示工具箱',
-                  subtitle: '开启时在顶部导航显示，关闭后移回「我的」',
+                  title: l10nNow.desktopShowToolbox,
+                  subtitle: l10nNow.desktopShowToolboxInTheTopNavigationOrAccess,
                   value: ts.showTools,
                   onChanged: (v) =>
                       notifier.patch((x) => x.copyWith(showTools: v)),
@@ -191,7 +197,7 @@ class AppearancePage extends ConsumerWidget {
             ],
           ),
           const SizedBox(height: 16),
-          const SettingsLabel('创作页'),
+          SettingsLabel(context.l10n.createPage),
           SettingsCard(
             children: [
               _SwitchRow(
@@ -220,8 +226,8 @@ class AppearancePage extends ConsumerWidget {
                 _SwitchRow(
                   key: const ValueKey('appearance-codex-hover-preview'),
                   icon: Icons.preview_outlined,
-                  title: '法典悬停信息卡片',
-                  subtitle: '停留约 1.5 秒预览提示词；关闭后仍可使用悬停操作按钮',
+                  title: l10nNow.desktopCodexHoverPreview,
+                  subtitle: l10nNow.desktopHoverForAbout15SecondsToPreview,
                   value: ts.codexHoverPreview,
                   onChanged: (value) => notifier.patch(
                     (settings) => settings.copyWith(codexHoverPreview: value),
@@ -237,7 +243,7 @@ class AppearancePage extends ConsumerWidget {
               children: [
                 _SwitchRow(
                   icon: Icons.vibration,
-                  title: '振动反馈',
+                  title: l10nNow.hapticFeedback,
                   value: ts.haptics,
                   onChanged: (v) =>
                       notifier.patch((x) => x.copyWith(haptics: v)),

@@ -6,6 +6,7 @@ import '../../core/platform/desktop.dart';
 import '../../core/ui/settings_scaffold.dart';
 import 'metadata_tool_page.dart';
 import 'weight_convert_page.dart';
+import '../../l10n/l10n.dart';
 
 /// 工具箱(对齐 web):权重转换 / 图片元数据 两个页签,
 /// IndexedStack 保活,切页签不丢已输入内容与已选图。
@@ -36,15 +37,15 @@ class _ToolsPageState extends ConsumerState<ToolsPage> {
       child: SizedBox(
         width: desktop ? null : double.infinity,
         child: SegmentedButton<int>(
-          segments: const [
+          segments: [
             ButtonSegment(
               value: 0,
-              label: Text('权重转换'),
+              label: Text(l10nNow.weightConverter),
               icon: Icon(Icons.swap_horiz, size: 17),
             ),
             ButtonSegment(
               value: 1,
-              label: Text('图片元数据'),
+              label: Text(l10nNow.imageMetadata),
               icon: Icon(Icons.document_scanner_outlined, size: 17),
             ),
           ],
@@ -62,7 +63,7 @@ class _ToolsPageState extends ConsumerState<ToolsPage> {
     );
     const views = [WeightConvertView(), MetadataToolView()];
     return SettingsScaffold(
-      appBar: AppBar(title: const Text('工具箱')),
+      appBar: AppBar(title: Text(l10nNow.toolbox)),
       body: desktop
           ? Scrollbar(
               controller: _scroll,

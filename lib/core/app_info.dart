@@ -4,6 +4,8 @@
 /// 不划算;漂移由 `test/app_info_test.dart` 盯着,对不上直接红。
 library;
 
+import '../l10n/l10n.dart';
+
 /// 对外显示名,与 macOS 产品名、Windows 窗口和安装器同步。
 /// 存储标识独立于显示名,改名不迁移用户配置、图库或加密令牌。
 const kAppName = 'Plana App Desktop';
@@ -59,8 +61,5 @@ const kLicense = 'GPL-3.0';
 const kLicenseUrl = 'https://www.gnu.org/licenses/gpl-3.0.html';
 
 /// 版权与免责,用于 `showLicensePage` 的 legalese 区。
-const kLegalese =
-    'Copyright (C) 2026 Sora_Light\n\n'
-    '本程序是自由软件,依据 GNU GPL v3 或更新版本分发。'
-    '分发本程序是希望它有用,但不作任何担保。\n\n'
-    '$kAppName 是第三方客户端,与 NovelAI 官方无关联。';
+String legalese(AppLocalizations l) =>
+    'Copyright (C) 2026 Sora_Light\n\n${l.legaleseBody(kAppName)}';

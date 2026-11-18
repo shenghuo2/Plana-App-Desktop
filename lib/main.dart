@@ -163,13 +163,16 @@ class PlanaApp extends ConsumerWidget {
       supportedLocales: kSupportedLocales,
       localizationsDelegates: AppLocalizations.localizationsDelegates,
       navigatorObservers: [_inputFocusGuard],
-      builder: (context, child) => desktop
-          ? AppTextScale(
-              factor: ts.textScale,
-              baseline: kDesktopTextBaseline,
-              child: DesktopImageDropHost(child: child!),
-            )
-          : NavBarGuard(child: child!),
+      builder: (context, child) {
+        syncL10nNow(context);
+        return desktop
+            ? AppTextScale(
+                factor: ts.textScale,
+                baseline: kDesktopTextBaseline,
+                child: DesktopImageDropHost(child: child!),
+              )
+            : NavBarGuard(child: child!);
+      },
       home: const _AuthGate(),
     );
   }

@@ -35,6 +35,10 @@ import '../generate/widgets/common.dart'
     show confirmDialog, dropFocusSoon, hintSnack;
 import '../shell/shell_state.dart';
 import 'agent_model.dart';
+import 'domain/image_gen.dart';
+import 'image_gen/image_models.dart';
+import 'widgets/image_option_sheet.dart';
+import '../../l10n/l10n.dart';
 import 'assistant_mode.dart';
 import 'assistant_models.dart';
 import 'assistant_images.dart';
@@ -191,7 +195,9 @@ class _AssistantPageState extends ConsumerState<AssistantPage> {
       // A reader may have opened an older turn while waiting for this reply.
       if (mounted && !ref.read(desktopModeProvider)) _toBottom();
     } catch (_) {
-      if (mounted) hintSnack(context, '未能加入发送队列，输入和图片已保留，请重试');
+      if (mounted) {
+        hintSnack(context, l10nNow.desktopCouldNotQueueThisMessageYourDraftAnd);
+      }
     } finally {
       if (!accepted && mounted) setState(() => _sending = false);
     }
@@ -216,7 +222,9 @@ class _AssistantPageState extends ConsumerState<AssistantPage> {
         );
       }
     } catch (_) {
-      if (mounted) hintSnack(context, '读取图片失败，请重新选择');
+      if (mounted) {
+        hintSnack(context, l10nNow.desktopCouldNotReadTheImageSelectItAgain);
+      }
     } finally {
       if (mounted) setState(() => _choosingFiles = false);
     }
@@ -240,7 +248,10 @@ class _AssistantPageState extends ConsumerState<AssistantPage> {
             item.bytes ?? await ref.read(galleryImageProvider(item.id).future);
         if (!mounted) return;
         if (bytes == null || bytes.isEmpty) {
-          hintSnack(context, '无法读取选中的历史原图，文件可能已被移动或删除，本次未添加图片');
+          hintSnack(
+            context,
+            l10nNow.desktopCouldNotLoadTheOriginalImageFromHistory,
+          );
           return;
         }
         images.add(PickedImage('${item.id}.png', bytes));
@@ -249,7 +260,12 @@ class _AssistantPageState extends ConsumerState<AssistantPage> {
       // and let the shared limit check include picks/drops that finished meanwhile.
       _addImages(images);
     } catch (_) {
-      if (mounted) hintSnack(context, '读取历史原图失败，本次未添加图片，请重新选择');
+      if (mounted) {
+        hintSnack(
+          context,
+          l10nNow.desktopCouldNotAddTheOriginalImageFromHistory,
+        );
+      }
     } finally {
       if (mounted) setState(() => _choosingHistory = false);
     }
@@ -276,7 +292,11 @@ class _AssistantPageState extends ConsumerState<AssistantPage> {
     }
     if (!mounted) return;
     if (images.isEmpty) {
-      hintSnack(context, '剪贴板里没有图片', icon: Icons.error_outline);
+      hintSnack(
+        context,
+        l10nNow.desktopTheClipboardHasNoImage,
+        icon: Icons.error_outline,
+      );
       return;
     }
     _addImages([
@@ -341,12 +361,16 @@ class _AssistantPageState extends ConsumerState<AssistantPage> {
     });
     final st = ref.watch(assistantProvider);
     // 没有 Bot 授权也能用,但只能走免费模型或自定义接口:两样都没有就先挡住
+    final imageModel = ref.watch(assistantImageModelProvider);
     final usable =
+        imageModel != null ||
         ref.watch(assistantBackendAvailableProvider) ||
         ref.watch(assistantEndpointProvider) != null;
-    final supported = assistantSupportsModel(
-      ref.watch(generateProvider.select((g) => g.params.model)),
-    );
+    final supported =
+        imageModel != null ||
+        assistantSupportsModel(
+          ref.watch(generateProvider.select((g) => g.params.model)),
+        );
     _maybeShowIntro();
 
     final desktop = ref.watch(desktopModeProvider);
@@ -395,7 +419,7 @@ class _AssistantPageState extends ConsumerState<AssistantPage> {
 
     return ImageDropRegion(
       key: widget.imageDropKey ?? const ValueKey('assistant-image-drop'),
-      label: '将图片添加到对话框',
+      label: l10nNow.desktopAddImagesToChat,
       multiple: true,
       acceptPaste: true,
       enabled:
@@ -452,7 +476,7 @@ class _AssistantPageState extends ConsumerState<AssistantPage> {
 
   Widget _historyButton({double size = 20}) => Builder(
     builder: (anchor) => IconButton(
-      tooltip: '历史会话',
+      tooltip: l10nNow.chatHistory,
       onPressed: () => showHistorySheet(anchor),
       icon: Icon(Icons.history, size: size),
     ),
@@ -483,14 +507,14 @@ class _AssistantPageState extends ConsumerState<AssistantPage> {
         if (!sidebar) ...[
           _historyButton(),
           IconButton(
-            tooltip: '新对话',
+            tooltip: l10nNow.newChat,
             onPressed: st.running ? null : _newChat,
             icon: const Icon(Icons.edit_square, size: 20),
           ),
         ],
         IconButton(
           key: const ValueKey('assistant-main-settings'),
-          tooltip: '助手设置',
+          tooltip: l10nNow.assistantSettings,
           onPressed: () => showAssistantSettings(context),
           icon: const Icon(Icons.tune, size: 20),
         ),
@@ -511,13 +535,13 @@ class _AssistantPageState extends ConsumerState<AssistantPage> {
             children: [
               Expanded(child: const AssistantModelDropdown()),
               IconButton(
-                tooltip: '助手设置',
+                tooltip: l10nNow.assistantSettings,
                 onPressed: () => showAssistantSettings(context),
                 icon: const Icon(Icons.tune, size: 18),
               ),
               _historyButton(size: 18),
               IconButton(
-                tooltip: '新对话',
+                tooltip: l10nNow.newChat,
                 onPressed: st.running ? null : _newChat,
                 icon: const Icon(Icons.edit_square, size: 18),
               ),
@@ -546,7 +570,7 @@ class _AssistantPageState extends ConsumerState<AssistantPage> {
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
                                   Text(
-                                    'AI 助手',
+                                    l10nNow.aiAssistant,
                                     style: context.texts.titleLarge!.copyWith(
                                       fontWeight: FontWeight.w700,
                                     ),
@@ -585,13 +609,13 @@ class _AssistantPageState extends ConsumerState<AssistantPage> {
                       ),
               ),
               IconButton(
-                tooltip: '助手设置',
+                tooltip: l10nNow.assistantSettings,
                 onPressed: () => showAssistantSettings(context),
                 icon: const Icon(Icons.tune),
               ),
               _historyButton(),
               IconButton(
-                tooltip: '新对话',
+                tooltip: l10nNow.newChat,
                 onPressed: st.isEmpty ? null : _newChat,
                 icon: const Icon(Icons.edit_square),
               ),
@@ -621,7 +645,7 @@ class _AssistantPageState extends ConsumerState<AssistantPage> {
             Padding(
               padding: const EdgeInsets.fromLTRB(4, 0, 4, 14),
               child: Text(
-                '不保存在历史会话中。离开后聊天消失，已开始的出图会继续完成并保存到图库。',
+                l10nNow.desktopTemporaryChatsDisappearWhenYouLeaveImageJobs,
                 style: context.texts.bodySmall!.copyWith(
                   color: scheme.onSurfaceVariant,
                 ),
@@ -948,7 +972,10 @@ class _AssistantPageState extends ConsumerState<AssistantPage> {
       case 'edit' when still:
         if (_sending ||
             _pending.length + q.images.length > kAssistantMaxAttachments) {
-          hintSnack(context, '请先处理输入框中的附件，排队消息已保留');
+          hintSnack(
+            context,
+            l10nNow.desktopFinishAddingOrRemovingTheAttachmentsInYour,
+          );
           return;
         }
         n.unqueue(q.id);
@@ -989,8 +1016,8 @@ class _AssistantPageState extends ConsumerState<AssistantPage> {
     if (!mounted) return false;
     return confirmDialog(
       context,
-      title: '丢掉之后的对话?',
-      message: '这条之后的对话都会丢掉,已经写进创作页的改动不受影响。',
+      title: l10nNow.discardAfterQ,
+      message: l10nNow.discardAfterBody,
       confirmLabel: '丢掉',
     );
   }
@@ -1001,6 +1028,8 @@ class _AssistantPageState extends ConsumerState<AssistantPage> {
   /// 图标只能靠颜色表示状态,而这排里的东西按错了是要花钱或者改画布的。
   /// 横向可滚,以后再加选项直接往后排,不会把输入框挤窄。
   Widget _optionRow(bool hasCanvas) {
+    final image = ref.watch(assistantImageModelProvider);
+    if (image != null) return _imageOptionRow(image);
     // 能开哪几个模式跟着这个模型在用的预设走。还没取到时先不拦 —— 发的时候会再核一遍
     final family = rulesFamilyOf(
       agentImageModel(
@@ -1055,7 +1084,7 @@ class _AssistantPageState extends ConsumerState<AssistantPage> {
                 if (!hasCanvas) {
                   hintSnack(
                     context,
-                    '创作页还没写提示词,没东西可引用',
+                    l10nNow.createPageEmpty,
                     icon: Icons.draw_outlined,
                   );
                   return;
@@ -1074,7 +1103,11 @@ class _AssistantPageState extends ConsumerState<AssistantPage> {
                 ref.watch(assistantProvider).temporary &&
                 !ref.watch(assistantProvider).canChooseTemporary) ...[
               const SizedBox(width: 8),
-              const Tooltip(message: '此聊天不保存在历史会话中', child: Text('临时聊天')),
+              Tooltip(
+                message:
+                    l10nNow.desktopThisChatIsExcludedFromConversationHistory,
+                child: Text(l10nNow.desktopTemporaryChat),
+              ),
             ],
             // 思考等级只对自定义接口有意义:后端渠道的推理档位由服务端按渠道
             // 定死,app 没有可下发的字段。摆一颗按了不生效的芯片比不摆更糟。
@@ -1085,6 +1118,111 @@ class _AssistantPageState extends ConsumerState<AssistantPage> {
           ],
         ),
       ),
+    );
+  }
+
+  Widget _imageOptionRow(ImageModelChoice m) {
+    final s =
+        ref.watch(assistantSettingsProvider).value ?? const AssistantSettings();
+    final n = ref.read(assistantSettingsProvider.notifier);
+    final size = m.sizes.contains(s.imageSize) ? s.imageSize : '';
+    final aspect = m.aspects.contains(s.imageAspect) ? s.imageAspect : '';
+    return Padding(
+      padding: const EdgeInsets.only(left: 4, bottom: 8),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          children: [
+            _imageOptionChip(
+              icon: Icons.photo_size_select_large_outlined,
+              label: context.l10n.resolutionChip(
+                size.isEmpty ? context.l10n.imageAuto : size,
+              ),
+              on: size.isNotEmpty,
+              enabled: m.sizes.isNotEmpty,
+              onTap: () async {
+                final v = await showImageOptionSheet(
+                  context,
+                  title: context.l10n.resolution,
+                  options: m.sizes,
+                  current: size,
+                );
+                if (v != null) await n.patch((x) => x.copyWith(imageSize: v));
+              },
+            ),
+            const SizedBox(width: 8),
+            _imageOptionChip(
+              icon: Icons.aspect_ratio,
+              label: context.l10n.aspectChip(
+                aspect.isEmpty ? context.l10n.imageAuto : aspect,
+              ),
+              on: aspect.isNotEmpty,
+              enabled: m.aspects.isNotEmpty,
+              onTap: () async {
+                final v = await showImageOptionSheet(
+                  context,
+                  title: context.l10n.aspectLabel,
+                  options: m.aspects,
+                  current: aspect,
+                );
+                if (v != null) await n.patch((x) => x.copyWith(imageAspect: v));
+              },
+            ),
+            const SizedBox(width: 8),
+            _imageOptionChip(
+              icon: Icons.burst_mode_outlined,
+              label: context.l10n.imagesN(s.imageCount),
+              on: s.imageCount > 1,
+              enabled: true,
+              onTap: () async {
+                final v = await showImageOptionSheet(
+                  context,
+                  title: context.l10n.imageCount,
+                  options: [for (var i = 1; i <= kMaxImageCount; i++) '$i'],
+                  current: '${s.imageCount}',
+                  auto: false,
+                  labelOf: (v) => context.l10n.imagesN(int.parse(v)),
+                );
+                if (v != null) {
+                  await n.patch((x) => x.copyWith(imageCount: int.parse(v)));
+                }
+              },
+            ),
+            if (widget.embedded &&
+                ref.watch(assistantProvider).canChooseTemporary) ...[
+              const SizedBox(width: 8),
+              _temporaryButton(ref.watch(assistantProvider)),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _imageOptionChip({
+    required IconData icon,
+    required String label,
+    required bool on,
+    required bool enabled,
+    required VoidCallback onTap,
+  }) {
+    final muted = context.scheme.outline;
+    return FilterChip(
+      selected: on,
+      showCheckmark: false,
+      visualDensity: VisualDensity.compact,
+      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      avatar: Icon(
+        icon,
+        size: 16,
+        color: enabled
+            ? (on ? context.scheme.primary : context.scheme.onSurfaceVariant)
+            : muted,
+      ),
+      label: Text(label, style: enabled ? null : TextStyle(color: muted)),
+      onSelected: (_) => enabled
+          ? onTap()
+          : hintSnack(context, context.l10n.modelUnsupported, icon: icon),
     );
   }
 
@@ -1111,7 +1249,7 @@ class _AssistantPageState extends ConsumerState<AssistantPage> {
     }
     return FilterChip(
       key: key,
-      label: const Text('临时聊天'),
+      label: Text(l10nNow.desktopTemporaryChat),
       avatar: const Icon(Icons.chat_bubble_outline, size: 16),
       selected: st.temporary,
       showCheckmark: false,
@@ -1229,7 +1367,7 @@ class _AssistantPageState extends ConsumerState<AssistantPage> {
       });
     }
     final attachment = IconButton(
-      tooltip: '添加图片（可多选）',
+      tooltip: l10nNow.desktopAddOneOrMoreImages,
       onPressed: !enabled || running || _choosingFiles ? null : _pick,
       icon: Icon(
         Icons.image_outlined,
@@ -1238,7 +1376,7 @@ class _AssistantPageState extends ConsumerState<AssistantPage> {
     );
     final historyAttachment = IconButton(
       key: const ValueKey('assistant-history-images'),
-      tooltip: '从历史选择',
+      tooltip: l10nNow.desktopChooseFromHistory,
       onPressed: !enabled || running || _choosingHistory ? null : _pickHistory,
       icon: const Icon(Icons.photo_library_outlined),
     );
@@ -1284,7 +1422,7 @@ class _AssistantPageState extends ConsumerState<AssistantPage> {
       height: 44,
       child: st.running && !hasDraft
           ? IconButton.filledTonal(
-              tooltip: '停止',
+              tooltip: l10nNow.stop,
               onPressed: ref.read(assistantProvider.notifier).stop,
               icon: const Icon(Icons.stop, size: 20),
             )
@@ -1345,7 +1483,8 @@ class _AssistantPageState extends ConsumerState<AssistantPage> {
                   if (_pending.length > 1 &&
                       ref.watch(assistantEndpointProvider) == null)
                     Text(
-                      '多张图片会合并为参考图发送',
+                      l10nNow
+                          .desktopOlderServersCombineMultipleImagesIntoANumbered,
                       style: context.texts.labelSmall?.copyWith(
                         color: scheme.onSurfaceVariant,
                       ),
@@ -1451,14 +1590,14 @@ class _ModelGate extends ConsumerWidget {
             ),
             const SizedBox(height: 15),
             Text(
-              'AI 助手暂不支持这个模型',
+              l10nNow.assistantModelUnsupported,
               style: context.texts.titleSmall!.copyWith(
                 fontWeight: FontWeight.w700,
               ),
             ),
             const SizedBox(height: 10),
             Text(
-              'Anima 与 Krea 的提示词体系和 NAI 是两套。\n去创作页换成 NAI 4.5 或 5 再来。',
+              l10nNow.assistantModelUnsupportedBody,
               textAlign: TextAlign.center,
               style: context.texts.bodySmall!.copyWith(
                 color: scheme.onSurfaceVariant,
@@ -1469,7 +1608,7 @@ class _ModelGate extends ConsumerWidget {
             FilledButton(
               onPressed: () =>
                   ref.read(shellIndexProvider.notifier).select(kTabCreate),
-              child: const Text('去换模型'),
+              child: Text(l10nNow.goChangeModel),
             ),
           ],
         ),
@@ -1531,14 +1670,14 @@ class _Gate extends ConsumerWidget {
             ),
             const SizedBox(height: 15),
             Text(
-              '先选一个模型接口',
+              l10nNow.desktopChooseAModelEndpointFirst,
               style: context.texts.titleSmall!.copyWith(
                 fontWeight: FontWeight.w700,
               ),
             ),
             const SizedBox(height: 10),
             Text(
-              '没有 Bot 授权时,AI 助手只能用你自己的模型接口,\n资料只用本地库。',
+              l10nNow.desktopWithoutBotAuthorizationChooseAnAvailableFreeModel,
               textAlign: TextAlign.center,
               style: context.texts.bodySmall!.copyWith(
                 color: scheme.onSurfaceVariant,
@@ -1548,13 +1687,13 @@ class _Gate extends ConsumerWidget {
             const SizedBox(height: 18),
             FilledButton(
               onPressed: () => showModelSheet(context),
-              child: const Text('选择模型接口'),
+              child: Text(l10nNow.selectEndpoint),
             ),
             const SizedBox(height: 4),
             TextButton(
               onPressed: () =>
                   ref.read(shellIndexProvider.notifier).select(kTabProfile),
-              child: const Text('去 Bot 授权'),
+              child: Text(l10nNow.desktopAuthorizeBot),
             ),
           ],
         ),
@@ -1589,7 +1728,7 @@ class _MessageEditDialogState extends State<_MessageEditDialog> {
   Widget build(BuildContext context) {
     final isUser = widget.message.role == MsgRole.user;
     return AlertDialog(
-      title: const Text('编辑该信息'),
+      title: Text(l10nNow.desktopEditMessage),
       content: SizedBox(
         width: 560,
         child: SingleChildScrollView(
@@ -1623,7 +1762,7 @@ class _MessageEditDialogState extends State<_MessageEditDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(context),
-          child: const Text('取消'),
+          child: Text(l10nNow.cancel),
         ),
         ValueListenableBuilder<TextEditingValue>(
           valueListenable: _text,
@@ -1714,7 +1853,7 @@ class _MsgTile extends ConsumerWidget {
               child: Builder(
                 builder: (buttonContext) => IconButton(
                   key: ValueKey('assistant-message-menu-${msg.id}'),
-                  tooltip: '消息操作',
+                  tooltip: l10nNow.desktopMessageActions,
                   visualDensity: VisualDensity.compact,
                   constraints: const BoxConstraints(
                     minWidth: 32,
@@ -1771,7 +1910,7 @@ class _MsgTile extends ConsumerWidget {
           if (queued)
             Padding(
               padding: const EdgeInsets.only(top: 4, bottom: 4),
-              child: Text('排队中', style: context.texts.labelSmall),
+              child: Text(l10nNow.queued, style: context.texts.labelSmall),
             ),
           if (msg.imageHashes.isNotEmpty)
             Padding(
@@ -1833,7 +1972,7 @@ class _MsgTile extends ConsumerWidget {
                   Icon(Icons.draw_outlined, size: 12, color: scheme.outline),
                   const SizedBox(width: 4),
                   Text(
-                    '引用了创作页',
+                    l10nNow.quotedCreatePage,
                     style: context.texts.labelSmall!.copyWith(
                       color: scheme.outline,
                     ),
@@ -1985,7 +2124,7 @@ class _MsgTile extends ConsumerWidget {
               child: TextButton.icon(
                 onPressed: retry,
                 icon: const Icon(Icons.refresh, size: 17),
-                label: const Text('重试'),
+                label: Text(l10nNow.retry),
                 style: TextButton.styleFrom(
                   foregroundColor: fg,
                   visualDensity: VisualDensity.compact,

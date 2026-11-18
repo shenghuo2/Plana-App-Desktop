@@ -1,3 +1,4 @@
+import '../../l10n/l10n.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -68,7 +69,7 @@ class _VibeBackupSheetState extends ConsumerState<_VibeBackupSheet> {
   Future<void> _run(String tag, Future<void> Function() op) async {
     if (_busy != null) return;
     if (ref.read(botSessionProvider).value == null) {
-      hintSnack(context, 'Vibe 云备份需要 Bot 授权', icon: Icons.cloud_off_outlined);
+      hintSnack(context, l10nNow.desktopVibeCloudBackupRequiresBotAuthorization, icon: Icons.cloud_off_outlined);
       return;
     }
     setState(() {
@@ -98,12 +99,12 @@ class _VibeBackupSheetState extends ConsumerState<_VibeBackupSheet> {
   Future<void> _backup() => _run('backup', () async {
     final local = ref.read(vibeLibraryProvider).value ?? const [];
     if (local.isEmpty) {
-      hintSnack(context, '本地没有 Vibe 可备份', icon: Icons.info_outline);
+      hintSnack(context, l10nNow.desktopNoLocalVibesToBackUp, icon: Icons.info_outline);
       return;
     }
     final ok = await confirmDialog(
       context,
-      title: '备份到云端?',
+      title: l10nNow.desktopBackUpToTheCloud,
       message:
           '本地 ${local.length} 个 Vibe 将推送到云端。'
           '未改动过的会自动跳过,只改过名称/标签的不重传图片。',
@@ -140,7 +141,7 @@ class _VibeBackupSheetState extends ConsumerState<_VibeBackupSheet> {
     final pre = await sync.previewRestore();
     if (!mounted) return;
     if (pre.willAdd.isEmpty && pre.willOverwrite.isEmpty) {
-      hintSnack(context, '本地已与云端一致', icon: Icons.check_circle_outline);
+      hintSnack(context, l10nNow.desktopTheLocalLibraryIsInSync, icon: Icons.check_circle_outline);
       return;
     }
     // 覆盖不可撤销,先把要覆盖的点名列出来(多了只列前 5 个)
@@ -149,7 +150,7 @@ class _VibeBackupSheetState extends ConsumerState<_VibeBackupSheet> {
         : '${pre.willOverwrite.take(5).join('、')} 等 ${pre.willOverwrite.length} 个';
     final ok = await confirmDialog(
       context,
-      title: '从云端恢复?',
+      title: l10nNow.desktopRestoreFromTheCloud,
       message: [
         if (pre.willAdd.isNotEmpty) '新增 ${pre.willAdd.length} 个',
         if (pre.willOverwrite.isNotEmpty)
@@ -241,7 +242,7 @@ class _VibeBackupSheetState extends ConsumerState<_VibeBackupSheet> {
               ),
               const SizedBox(height: 14),
               Text(
-                'Vibe 云备份',
+                l10nNow.desktopVibeCloudBackup,
                 style: context.texts.titleMedium!.copyWith(
                   fontWeight: FontWeight.w700,
                 ),
@@ -299,7 +300,7 @@ class _VibeBackupSheetState extends ConsumerState<_VibeBackupSheet> {
                     child: OutlinedButton.icon(
                       onPressed: authed && _busy == null ? _restore : null,
                       icon: const Icon(Icons.cloud_download_outlined, size: 18),
-                      label: const Text('从云端恢复', maxLines: 1),
+                      label: Text(l10nNow.desktopRestoreFromCloud, maxLines: 1),
                       style: OutlinedButton.styleFrom(
                         minimumSize: const Size(0, 46),
                       ),
@@ -310,7 +311,7 @@ class _VibeBackupSheetState extends ConsumerState<_VibeBackupSheet> {
                     child: FilledButton.icon(
                       onPressed: authed && _busy == null ? _backup : null,
                       icon: const Icon(Icons.cloud_upload_outlined, size: 18),
-                      label: const Text('备份到云端', maxLines: 1),
+                      label: Text(l10nNow.desktopBackUpToCloud, maxLines: 1),
                       style: FilledButton.styleFrom(
                         minimumSize: const Size(0, 46),
                       ),

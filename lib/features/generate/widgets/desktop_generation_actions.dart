@@ -1,3 +1,4 @@
+import '../../../l10n/l10n.dart';
 import 'package:flutter/material.dart';
 
 /// Keep the secondary controls square alongside the desktop generate button.
@@ -23,7 +24,7 @@ class DesktopGenerationActions extends StatelessWidget {
       SizedBox.square(
         dimension: 52,
         child: IconButton.filledTonal(
-          tooltip: '循环生成',
+          tooltip: l10nNow.loopGenerate,
           onPressed: onLoop,
           isSelected: loopActive,
           icon: const Icon(Icons.autorenew, size: 21),
@@ -33,7 +34,7 @@ class DesktopGenerationActions extends StatelessWidget {
       SizedBox.square(
         dimension: 52,
         child: IconButton.outlined(
-          tooltip: '导入图片',
+          tooltip: l10nNow.importImage,
           onPressed: onImport,
           icon: const Icon(Icons.add_photo_alternate_outlined, size: 21),
         ),

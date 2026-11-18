@@ -15,6 +15,7 @@ import 'canvas_state.dart';
 import 'generate_state.dart';
 import 'models.dart';
 import 'widgets/common.dart' show confirmDialog, hintSnack;
+import '../../l10n/l10n.dart';
 
 /// 采样参数能互通的范围:NAI 5 一套、NAI 4 / 4.5 一套,Anima / Krea 按档位
 /// (Turbo 是蒸馏档,CFG 锁 1.0、步数也短,和其它档的配方不能混)。
@@ -100,7 +101,7 @@ String recipeDetail(StyleRecipe r) {
   final model = recipeModelName(r);
   final nai = providerOfModel(model) == GenProvider.nai;
   return [
-    '${r.steps} 步',
+    l10nNow.stepsN(r.steps),
     'CFG ${_num(r.cfg)}',
     _samplerLabel(model, r.sampler),
     _schedulerLabel(model, r.scheduler),
@@ -123,13 +124,16 @@ class StyleRecipeTable extends StatelessWidget {
     final model = recipeModelName(r);
     final nai = providerOfModel(model) == GenProvider.nai;
     final cells = <(String, String)>[
-      ('步数', '${r.steps}'),
+      (context.l10n.steps, '${r.steps}'),
       ('CFG', _num(r.cfg)),
-      ('采样器', _samplerLabel(model, r.sampler)),
+      (context.l10n.sampler, _samplerLabel(model, r.sampler)),
       if (!isNai5Model(model))
-        (nai ? '噪声调度' : '调度器', _schedulerLabel(model, r.scheduler)),
+        (
+          nai ? context.l10n.noiseSchedule : context.l10n.scheduler,
+          _schedulerLabel(model, r.scheduler),
+        ),
       if (nai) ('CFG Rescale', _num(r.cfgRescale)),
-      if (nai) ('Variety+', r.varietyPlus ? '开' : '关'),
+      if (nai) ('Variety+', r.varietyPlus ? context.l10n.on : context.l10n.off),
     ];
     Widget cell((String, String) c) => Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -220,10 +224,10 @@ Future<void> offerStyleRecipe(
   final canvases = ref.read(canvasWorkspaceProvider.notifier);
   final ok = await confirmDialog(
     context,
-    title: '套用「${entry.name}」的推荐参数?',
+    title: context.l10n.applyRecipeTitle(entry.name),
     body: StyleRecipeTable(entry.recipe!),
-    confirmLabel: '套用',
-    cancelLabel: '不用',
+    confirmLabel: context.l10n.apply,
+    cancelLabel: context.l10n.dontApply,
     danger: false,
   );
   if (!ok || !context.mounted) return;
@@ -245,9 +249,9 @@ void _apply(
   if (before == null || !context.mounted) return;
   hintSnack(
     context,
-    '已套用「${entry.name}」的推荐参数',
+    context.l10n.recipeApplied(entry.name),
     icon: Icons.tune,
-    actionLabel: '撤销',
+    actionLabel: context.l10n.undo,
     onAction: () =>
         canvases.updatePrompts(canvasId, (p) => p.copyWith(sampling: before)),
   );

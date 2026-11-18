@@ -271,7 +271,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(picker.multiple, isTrue);
       expect(find.text('已添加 2 张图片'), findsOneWidget);
-      expect(find.text('多张图片会合并为参考图发送'), findsOneWidget);
+      expect(find.text('新版接口逐张发送图片；旧版服务会合并为编号参考图。'), findsOneWidget);
       picker.files = [
         PlatformFile(name: 'third.png', size: pngA.length, bytes: pngA),
       ];

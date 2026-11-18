@@ -1,3 +1,4 @@
+import '../../../l10n/l10n.dart';
 import 'dart:async';
 import 'dart:typed_data';
 
@@ -57,8 +58,8 @@ class _AssistantMessageImageState extends ConsumerState<AssistantMessageImage> {
     }
   }
 
-  Widget _unavailable() => const Tooltip(
-    message: '图片暂时无法读取',
+  Widget _unavailable() => Tooltip(
+    message: l10nNow.desktopImageTemporarilyUnavailable,
     child: SizedBox(
       width: 96,
       height: 96,
@@ -77,7 +78,7 @@ class _AssistantMessageImageState extends ConsumerState<AssistantMessageImage> {
       final bytes = snapshot.data;
       if (bytes == null || bytes.isEmpty) return _unavailable();
       return Tooltip(
-        message: '查看原图',
+        message: l10nNow.desktopViewOriginal,
         child: InkWell(
           borderRadius: BorderRadius.circular(12),
           onTap: () => unawaited(_openImage(bytes)),

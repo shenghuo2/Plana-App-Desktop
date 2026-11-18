@@ -2,6 +2,7 @@
 /// 这段对话最终攒出多少 tag —— 那是用户回头找它的真正理由。
 library;
 
+import '../../../l10n/l10n.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -54,7 +55,7 @@ class _AssistantHistoryPanelState extends ConsumerState<AssistantHistoryPanel> {
   Future<void> _clear(int count) async {
     final ok = await confirmDialog(
       context,
-      title: '清空历史会话?',
+      title: l10nNow.clearHistoryQ,
       message: '$count 段对话都会删掉,当前对话和创作页不受影响。',
       confirmLabel: '清空',
     );
@@ -80,7 +81,7 @@ class _AssistantHistoryPanelState extends ConsumerState<AssistantHistoryPanel> {
           Padding(
             padding: const EdgeInsets.fromLTRB(10, 6, 10, 8),
             child: Text(
-              '历史会话',
+              l10nNow.chatHistory,
               style: context.texts.labelSmall!.copyWith(color: scheme.outline),
             ),
           ),
@@ -115,7 +116,7 @@ class _AssistantHistoryPanelState extends ConsumerState<AssistantHistoryPanel> {
     final clearHistoryButton = state.sessions.isEmpty
         ? null
         : IconButton(
-            tooltip: '清空历史会话',
+            tooltip: l10nNow.desktopClearConversationHistory,
             visualDensity: VisualDensity.compact,
             onPressed: () => _clear(state.sessions.length),
             icon: const Icon(Icons.delete_sweep_outlined, size: 18),
@@ -133,7 +134,7 @@ class _AssistantHistoryPanelState extends ConsumerState<AssistantHistoryPanel> {
                 children: [
                   Expanded(
                     child: Text(
-                      '历史会话',
+                      l10nNow.chatHistory,
                       style: context.texts.titleSmall!.copyWith(
                         fontWeight: FontWeight.w700,
                       ),
@@ -141,7 +142,7 @@ class _AssistantHistoryPanelState extends ConsumerState<AssistantHistoryPanel> {
                   ),
                   ?clearHistoryButton,
                   IconButton(
-                    tooltip: '关闭',
+                    tooltip: l10nNow.close,
                     visualDensity: VisualDensity.compact,
                     onPressed: () => Navigator.pop(context),
                     icon: const Icon(Icons.close, size: 18),
@@ -158,7 +159,7 @@ class _AssistantHistoryPanelState extends ConsumerState<AssistantHistoryPanel> {
                     child: FilledButton.tonalIcon(
                       onPressed: state.running ? null : widget.onNewChat,
                       icon: const Icon(Icons.edit_square, size: 18),
-                      label: const Text('新对话'),
+                      label: Text(l10nNow.newChat),
                     ),
                   ),
                   if (clearHistoryButton != null) ...[
@@ -176,7 +177,7 @@ class _AssistantHistoryPanelState extends ConsumerState<AssistantHistoryPanel> {
                 onChanged: (value) => setState(() => _query = value),
                 style: context.texts.bodySmall,
                 decoration: InputDecoration(
-                  hintText: '搜索会话',
+                  hintText: l10nNow.desktopSearchConversations,
                   prefixIcon: const Icon(Icons.search, size: 18),
                   isDense: true,
                   filled: true,
@@ -229,7 +230,7 @@ class _DesktopSessionRow extends StatelessWidget {
             ListTile(
               key: const ValueKey('assistant-session-rename'),
               leading: const Icon(Icons.drive_file_rename_outline, size: 20),
-              title: const Text('重命名'),
+              title: Text(l10nNow.rename),
               onTap: () => Navigator.pop(context, 'rename'),
             ),
             ListTile(
@@ -239,7 +240,7 @@ class _DesktopSessionRow extends StatelessWidget {
                 size: 20,
                 color: context.scheme.error,
               ),
-              title: Text('删除', style: TextStyle(color: context.scheme.error)),
+              title: Text(l10nNow.delete, style: TextStyle(color: context.scheme.error)),
               onTap: () => Navigator.pop(context, 'delete'),
             ),
           ],
@@ -331,7 +332,7 @@ class _DesktopSessionRow extends StatelessWidget {
                   Builder(
                     builder: (anchor) => IconButton(
                       key: ValueKey('assistant-session-menu-${session.id}'),
-                      tooltip: '会话操作',
+                      tooltip: l10nNow.desktopConversationActions,
                       visualDensity: VisualDensity.compact,
                       constraints: const BoxConstraints.tightFor(
                         width: 32,
@@ -377,7 +378,7 @@ class _RenameConversationState extends State<_RenameConversation> {
 
   @override
   Widget build(BuildContext context) => AlertDialog(
-    title: const Text('重命名会话'),
+    title: Text(l10nNow.desktopRenameConversation),
     content: SizedBox(
       width: 360,
       child: TextField(
@@ -385,7 +386,7 @@ class _RenameConversationState extends State<_RenameConversation> {
         controller: _name,
         autofocus: true,
         maxLength: 100,
-        decoration: const InputDecoration(labelText: '会话名称'),
+        decoration: InputDecoration(labelText: l10nNow.desktopConversationName),
         onChanged: (_) => setState(() {}),
         onSubmitted: (_) => _save(),
       ),
@@ -393,11 +394,11 @@ class _RenameConversationState extends State<_RenameConversation> {
     actions: [
       TextButton(
         onPressed: () => Navigator.pop(context),
-        child: const Text('取消'),
+        child: Text(l10nNow.cancel),
       ),
       FilledButton(
         onPressed: _name.text.trim().isEmpty ? null : _save,
-        child: const Text('保存'),
+        child: Text(l10nNow.save),
       ),
     ],
   );
@@ -426,7 +427,7 @@ class _HistorySheet extends ConsumerWidget {
                 children: [
                   Expanded(
                     child: Text(
-                      '历史会话',
+                      l10nNow.chatHistory,
                       style: context.texts.titleMedium!.copyWith(
                         fontWeight: FontWeight.w700,
                       ),
@@ -437,7 +438,7 @@ class _HistorySheet extends ConsumerWidget {
                       onPressed: () async {
                         final ok = await confirmDialog(
                           context,
-                          title: '清空历史会话?',
+                          title: l10nNow.clearHistoryQ,
                           message: '${sessions.length} 段对话都会删掉,已经写进创作页的改动不受影响。',
                           confirmLabel: '清空',
                         );
@@ -447,7 +448,7 @@ class _HistorySheet extends ConsumerWidget {
                         foregroundColor: scheme.error,
                         minimumSize: const Size(0, 44),
                       ),
-                      child: const Text('清空'),
+                      child: Text(l10nNow.clear),
                     ),
                 ],
               ),
@@ -456,7 +457,7 @@ class _HistorySheet extends ConsumerWidget {
               Padding(
                 padding: const EdgeInsets.fromLTRB(20, 30, 20, 46),
                 child: Text(
-                  '还没有归档的对话。\n点右上角「新对话」就会把当前这段存进来。',
+                  l10nNow.noArchivedChats,
                   textAlign: TextAlign.center,
                   style: context.texts.bodySmall!.copyWith(
                     color: scheme.onSurfaceVariant,

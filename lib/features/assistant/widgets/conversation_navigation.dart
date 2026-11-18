@@ -1,3 +1,4 @@
+import '../../../l10n/l10n.dart';
 import 'dart:async';
 import 'dart:math' as math;
 
@@ -314,7 +315,7 @@ class _ConversationNavigationState extends State<ConversationNavigation> {
                       ),
                       child: IconButton(
                         key: const ValueKey('assistant-to-bottom'),
-                        tooltip: '回到底部',
+                        tooltip: l10nNow.desktopScrollToBottom,
                         onPressed: nav.toBottom,
                         icon: Icon(
                           Icons.arrow_downward,
@@ -515,7 +516,7 @@ class _FisheyeOutlineState extends State<_FisheyeOutline> {
         return KeyEventResult.handled;
       },
       child: Semantics(
-        label: '对话导航',
+        label: l10nNow.desktopChatNavigation,
         value: '第 ${_active + 1} 轮，共 ${entries.length} 轮',
         increasedValue:
             '第 ${math.min(entries.length, _active + 2)} 轮，共 ${entries.length} 轮',

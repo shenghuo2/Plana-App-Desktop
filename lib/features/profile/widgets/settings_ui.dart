@@ -106,14 +106,14 @@ class SettingsRow extends StatelessWidget {
                 ),
               ),
             ),
-            if (onTap != null || dropdown) ...[
-              const SizedBox(width: 4),
-              Icon(
-                dropdown ? Icons.expand_more : Icons.chevron_right,
-                size: 18,
-                color: scheme.outline,
-              ),
-            ],
+              if (onTap != null || dropdown) ...[
+                const SizedBox(width: 4),
+                Icon(
+                  dropdown ? Icons.expand_more : Icons.chevron_right,
+                  size: 18,
+                  color: scheme.outline,
+                ),
+              ],
           ],
         ),
       ),

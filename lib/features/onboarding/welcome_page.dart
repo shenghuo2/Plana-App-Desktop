@@ -23,6 +23,7 @@ import '../profile/widgets/token_status.dart';
 import 'bot_auth_panel.dart';
 import 'desktop_welcome_layout.dart';
 import '../../core/util/haptics.dart';
+import '../../l10n/l10n.dart';
 
 /// 欢迎流程:欢迎 → 外观 → 接入 → 扩展 → 完成。
 /// 移动端在完成前另有通知说明。
@@ -184,7 +185,7 @@ class _WelcomePageState extends ConsumerState<WelcomePage> {
                     ? '完成设置'
                     : skipBot
                     ? '跳过扩展'
-                    : '下一步',
+                    : context.l10n.next,
                 onSkip: needPick ? _skipAccess : null,
                 onClose: widget.replay
                     ? () => Navigator.of(context).pop()
@@ -250,12 +251,12 @@ class _WelcomePageState extends ConsumerState<WelcomePage> {
                     ),
                     child: Text(
                       last
-                          ? '开始使用'
+                          ? context.l10n.getStarted
                           : notifyPage
-                          ? '开启通知'
+                          ? context.l10n.enableNotifications
                           : skipBot
-                          ? '跳过'
-                          : '下一步',
+                          ? context.l10n.skipStep
+                          : context.l10n.next,
                       style: const TextStyle(fontWeight: FontWeight.w700),
                     ),
                   ),
@@ -265,12 +266,12 @@ class _WelcomePageState extends ConsumerState<WelcomePage> {
                     child: notifyPage
                         ? TextButton(
                             onPressed: () => _notifyChoice(false),
-                            child: const Text('暂不开启'),
+                            child: Text(context.l10n.notNow),
                           )
                         : needPick
                         ? TextButton(
                             onPressed: _skipAccess,
-                            child: const Text('暂时跳过'),
+                            child: Text(l10nNow.skipForNow),
                           )
                         : null,
                   ),
@@ -528,7 +529,7 @@ class _IntroStep extends ConsumerWidget {
     return _Step(
       active: active,
       icon: Icons.auto_awesome,
-      title: desktop ? '欢迎使用 $kAppName' : '欢迎使用 Plana',
+      title: desktop ? context.l10n.welcomeTitle.replaceFirst('Plana', kAppName) : context.l10n.welcomeTitle,
       desc: desktop ? kAppTagline : 'NovelAI 移动创作端',
       child: Column(
         children: [
@@ -578,7 +579,7 @@ class _AppearanceStep extends ConsumerWidget {
     return _Step(
       active: active,
       icon: Icons.color_lens_outlined,
-      title: '外观配色',
+      title: l10nNow.appearanceColors,
       desc: desktop ? '选择明暗模式和主题色，修改会立即生效。' : null,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -586,10 +587,19 @@ class _AppearanceStep extends ConsumerWidget {
           SizedBox(
             width: double.infinity,
             child: SegmentedButton<ThemeMode>(
-              segments: const [
-                ButtonSegment(value: ThemeMode.system, label: Text('跟随系统')),
-                ButtonSegment(value: ThemeMode.light, label: Text('浅色')),
-                ButtonSegment(value: ThemeMode.dark, label: Text('深色')),
+              segments: [
+                ButtonSegment(
+                  value: ThemeMode.system,
+                  label: Text(context.l10n.followSystem),
+                ),
+                ButtonSegment(
+                  value: ThemeMode.light,
+                  label: Text(context.l10n.themeLight),
+                ),
+                ButtonSegment(
+                  value: ThemeMode.dark,
+                  label: Text(context.l10n.themeDark),
+                ),
               ],
               selected: {ts.mode},
               onSelectionChanged: (s) =>
@@ -755,7 +765,7 @@ class _AccessStepState extends ConsumerState<_AccessStep>
     // —— 中转站多半没开 GET,探测失败反而拦住能用的地址。
     final url = _third ? naiEndpointFor(_urlCtrl.text, _format) : '';
     if (_third && (url.isEmpty || !naiBaseLooksValid(url))) {
-      setState(() => _urlError = '请填 http:// 或 https:// 开头的接口地址');
+      setState(() => _urlError = context.l10n.urlNeedsHttp);
       return;
     }
     setState(() => _saving = true);
@@ -801,14 +811,14 @@ class _AccessStepState extends ConsumerState<_AccessStep>
     return _Step(
       active: widget.active,
       icon: Icons.key,
-      title: '生成接入方式',
+      title: l10nNow.accessMethod,
       desc: '之后可在「我的」里改',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           _AccessCard(
             icon: Icons.vpn_key,
-            title: '直连 NovelAI Token',
+            title: l10nNow.desktopConnectWithANovelAIToken,
             note: savedToken ? '已保存' : null,
             selected: !bot,
             expand: _tokenExpand,
@@ -823,9 +833,9 @@ class _AccessStepState extends ConsumerState<_AccessStep>
                 SizedBox(
                   width: double.infinity,
                   child: SegmentedButton<bool>(
-                    segments: const [
-                      ButtonSegment(value: false, label: Text('官方')),
-                      ButtonSegment(value: true, label: Text('第三方')),
+                    segments: [
+                      ButtonSegment(value: false, label: Text(l10nNow.official)),
+                      ButtonSegment(value: true, label: Text(l10nNow.thirdParty)),
                     ],
                     selected: {_third},
                     showSelectedIcon: false,
@@ -1016,7 +1026,7 @@ class _AccessStepState extends ConsumerState<_AccessStep>
                         padding: const EdgeInsets.symmetric(horizontal: 4),
                       ),
                       icon: const Icon(Icons.mail_outline, size: 15),
-                      label: const Text('没有令牌?用邮箱密码登录'),
+                      label: Text(l10nNow.noTokenUseLogin),
                     ),
                   ),
               ],
@@ -1025,7 +1035,7 @@ class _AccessStepState extends ConsumerState<_AccessStep>
           const SizedBox(height: 10),
           _AccessCard(
             icon: Icons.smart_toy_outlined,
-            title: '用 Bot 账户生成',
+            title: l10nNow.desktopGenerateWithABotAccount,
             note: hasBot ? '已授权' : null,
             selected: bot,
             expand: _botExpand,
@@ -1037,7 +1047,7 @@ class _AccessStepState extends ConsumerState<_AccessStep>
             child: hasBot
                 ? null
                 : Text(
-                    '需先完成 Bot 授权,当前仅为邀请制;没有邀请请先用直连 Token',
+                    l10nNow.desktopBotAccountsRequireAnInvitationYouCanAlso,
                     style: context.texts.labelSmall!.copyWith(
                       color: scheme.outline,
                     ),
@@ -1177,7 +1187,7 @@ class _BotStep extends ConsumerWidget {
     return _Step(
       active: active,
       icon: Icons.smart_toy_outlined,
-      title: '扩展功能',
+      title: l10nNow.desktopExtensions,
       desc: needForGen
           ? '你选了用 Bot 账户生成,需要先授权'
           : hasBot
@@ -1218,7 +1228,7 @@ class _BotStep extends ConsumerWidget {
                 Icon(Icons.verified_outlined, size: 17, color: scheme.tertiary),
                 const SizedBox(width: 6),
                 Text(
-                  '已授权',
+                  l10nNow.desktopAuthorized,
                   style: context.texts.bodyMedium!.copyWith(
                     color: scheme.tertiary,
                     fontWeight: FontWeight.w600,
@@ -1246,8 +1256,8 @@ class _NotifyStep extends StatelessWidget {
     return _Step(
       active: active,
       icon: Icons.notifications_active_outlined,
-      title: '生成进度通知',
-      desc: '开启后可接收生成进度及完成通知,Android 16+ 支持灵动岛显示',
+      title: context.l10n.notifyTitle,
+      desc: context.l10n.notifyDesc,
     );
   }
 }
@@ -1277,7 +1287,7 @@ class _DoneStep extends ConsumerWidget {
       return _Step(
         active: active,
         icon: Icons.check_rounded,
-        title: '设置完成',
+        title: l10nNow.desktopSetupComplete,
         desc: ready ? '接入已配置，可以返回工作台开始创作。' : '已完成引导，添加令牌后即可开始生成。',
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1330,7 +1340,7 @@ class _DoneStep extends ConsumerWidget {
             if (!ready) ...[
               const SizedBox(height: 16),
               Text(
-                '稍后可在「我的 → 账号与接入」添加官方令牌或第三方接口。',
+                l10nNow.desktopYouCanAddATokenOrACustom,
                 style: context.texts.bodySmall!.copyWith(
                   color: scheme.onSurfaceVariant,
                 ),
@@ -1365,7 +1375,7 @@ class _DoneStep extends ConsumerWidget {
             active: active,
             delayMs: 220,
             child: Text(
-              '全部完成',
+              context.l10n.allDone,
               style: context.texts.headlineSmall!.copyWith(
                 fontWeight: FontWeight.w800,
               ),

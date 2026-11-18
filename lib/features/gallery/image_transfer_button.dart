@@ -1,3 +1,4 @@
+import '../../l10n/l10n.dart';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -37,7 +38,7 @@ class ImageTransferButton extends ConsumerWidget {
       ),
       child: IconButton(
         key: const ValueKey('preview-image-transfer'),
-        tooltip: '点击复制图片；按住拖到其他应用',
+        tooltip: l10nNow.desktopClickToCopyOrDragToAnotherApp,
         onPressed: () => copyPreparedImage(context, prepare()),
         icon: const Icon(Icons.copy_outlined),
       ),

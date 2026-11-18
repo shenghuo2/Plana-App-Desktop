@@ -247,6 +247,11 @@ void main() {
         var publicLoads = 0;
         Map<String, dynamic>? body;
         server.listen((request) async {
+          if (request.uri.path == '/api/agent/channel') {
+            request.response.statusCode = HttpStatus.notFound;
+            await request.response.close();
+            return;
+          }
           body =
               jsonDecode(await utf8.decoder.bind(request).join())
                   as Map<String, dynamic>;
@@ -352,7 +357,7 @@ void main() {
                   ? 'local negative'
                   : 'local negative, public negative',
           });
-          expect(publicLoads, scope == LibraryScope.all ? 1 : 0);
+          expect(publicLoads, scope == LibraryScope.all ? 2 : 0);
           expect(body!['current_positive'], 'watercolor');
           expect(reply.change!.canvasId, source);
           expect(c.read(canvasWorkspaceProvider).activeId, other);

@@ -1,3 +1,4 @@
+import '../../l10n/l10n.dart';
 import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
@@ -150,7 +151,7 @@ class _NetworkSettingsPageState extends ConsumerState<NetworkSettingsPage> {
           : await showDialog<ProxyAddressCandidate>(
               context: context,
               builder: (context) => SimpleDialog(
-                title: const Text('选择识别到的代理地址'),
+                title: Text(l10nNow.desktopChooseADetectedProxyAddress),
                 children: [
                   for (final candidate in candidates)
                     SimpleDialogOption(
@@ -171,7 +172,7 @@ class _NetworkSettingsPageState extends ConsumerState<NetworkSettingsPage> {
                     ),
                   SimpleDialogOption(
                     onPressed: () => Navigator.pop(context),
-                    child: const Text('取消'),
+                    child: Text(l10nNow.cancel),
                   ),
                 ],
               ),
@@ -273,9 +274,9 @@ class _NetworkSettingsPageState extends ConsumerState<NetworkSettingsPage> {
       color: context.scheme.onSurfaceVariant,
     );
     return SettingsScaffold(
-      appBar: AppBar(title: const Text('网络与代理')),
+      appBar: AppBar(title: Text(l10nNow.desktopNetworkAndProxy)),
       body: ImageDropRegion(
-        label: '识别代理设置截图',
+        label: l10nNow.desktopReadProxySettingsFromAScreenshot,
         acceptInternal: false,
         acceptPaste: true,
         // Keep claiming repeated pastes during OCR, so they cannot fall through
@@ -296,7 +297,7 @@ class _NetworkSettingsPageState extends ConsumerState<NetworkSettingsPage> {
                     Row(
                       children: [
                         Expanded(
-                          child: Text('本机代理', style: context.texts.titleMedium),
+                          child: Text(l10nNow.desktopLocalProxy, style: context.texts.titleMedium),
                         ),
                         IconButton(
                           key: const ValueKey('network-proxy-expand'),
@@ -310,11 +311,11 @@ class _NetworkSettingsPageState extends ConsumerState<NetworkSettingsPage> {
                       ],
                     ),
                     const SizedBox(height: 6),
-                    Text('通过 Clash 或其他代理软件连接网络。请先启动代理软件。', style: small),
+                    Text(l10nNow.desktopConnectThroughClashOrAnotherProxyAppStart, style: small),
                     SwitchListTile(
                       contentPadding: EdgeInsets.zero,
-                      title: const Text('使用本机 HTTP 代理'),
-                      subtitle: const Text('开关立即生效，使用已保存的地址'),
+                      title: Text(l10nNow.desktopUseLocalHTTPProxy),
+                      subtitle: Text(l10nNow.desktopTakesEffectImmediatelyUsingTheSavedAddress),
                       value: saved.enabled,
                       onChanged: _saving || _toggling ? null : _setEnabled,
                     ),
@@ -326,7 +327,7 @@ class _NetworkSettingsPageState extends ConsumerState<NetworkSettingsPage> {
                             : () => _setEnabled(
                                 ref.read(networkProxyProvider).enabled,
                               ),
-                        child: const Text('重试保存开关'),
+                        child: Text(l10nNow.desktopRetrySavingProxyToggle),
                       ),
                     ],
                     TextFormField(
@@ -335,8 +336,8 @@ class _NetworkSettingsPageState extends ConsumerState<NetworkSettingsPage> {
                       enabled: !_saving,
                       autocorrect: false,
                       enableSuggestions: false,
-                      decoration: const InputDecoration(
-                        labelText: 'HTTP / Mixed 代理地址',
+                      decoration: InputDecoration(
+                        labelText: l10nNow.desktopHTTPOrMixedProxyAddress,
                         hintText: kDefaultNetworkProxyAddress,
                         border: OutlineInputBorder(),
                         errorMaxLines: 3,
@@ -356,13 +357,13 @@ class _NetworkSettingsPageState extends ConsumerState<NetworkSettingsPage> {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      '7890 仅为示例，请以代理软件的 HTTP / Mixed 端口为准。不要填订阅链接、控制端口或 SOCKS 端口。',
+                      l10nNow.desktop7890IsAnExampleUseYourProxyApp,
                       style: small,
                     ),
                     if (!_expanded && dirty)
                       TextButton(
                         onPressed: () => setState(() => _expanded = true),
-                        child: const Text('有未应用的修改，展开后保存'),
+                        child: Text(l10nNow.desktopUnsavedChangesExpandToSave),
                       ),
                     if (_expanded) ...[
                       const SizedBox(height: 10),
@@ -380,13 +381,13 @@ class _NetworkSettingsPageState extends ConsumerState<NetworkSettingsPage> {
                                 ? null
                                 : _pickScreenshot,
                             icon: const Icon(Icons.image_search, size: 18),
-                            label: const Text('选择截图'),
+                            label: Text(l10nNow.desktopSelectScreenshot),
                           ),
                         ],
                       ),
                       const SizedBox(height: 6),
                       Text(
-                        '复制截图或文字地址后点「粘贴识别」。也可直接在本页粘贴或拖入截图；图片仅在本机识别。',
+                        l10nNow.desktopCopyAScreenshotOrAddressThenChoosePaste,
                         style: small,
                       ),
                       if (_importMessage != null)
@@ -399,14 +400,14 @@ class _NetworkSettingsPageState extends ConsumerState<NetworkSettingsPage> {
                         key: ValueKey('proxy-software-${_software.name}'),
                         initialValue: _software,
                         isExpanded: true,
-                        decoration: const InputDecoration(
-                          labelText: '软件名称（用于路线显示）',
+                        decoration: InputDecoration(
+                          labelText: l10nNow.desktopAppNameForTheConnectionPath,
                           border: OutlineInputBorder(),
                         ),
-                        items: const [
+                        items: [
                           DropdownMenuItem(
                             value: ProxySoftware.auto,
-                            child: Text('自动识别'),
+                            child: Text(l10nNow.autoDetect),
                           ),
                           DropdownMenuItem(
                             value: ProxySoftware.clash,
@@ -414,7 +415,7 @@ class _NetworkSettingsPageState extends ConsumerState<NetworkSettingsPage> {
                           ),
                           DropdownMenuItem(
                             value: ProxySoftware.other,
-                            child: Text('代理软件'),
+                            child: Text(l10nNow.desktopProxyApplication),
                           ),
                         ],
                         onChanged: _saving
@@ -427,8 +428,8 @@ class _NetworkSettingsPageState extends ConsumerState<NetworkSettingsPage> {
                       CheckboxListTile(
                         contentPadding: EdgeInsets.zero,
                         controlAffinity: ListTileControlAffinity.leading,
-                        title: const Text('本机与局域网直连'),
-                        subtitle: const Text('跳过 localhost、.local 名称和私有 IP 地址'),
+                        title: Text(l10nNow.desktopConnectDirectlyToLocalNetworkAddresses),
+                        subtitle: Text(l10nNow.desktopBypassLocalhostLocalNamesAndPrivateIPAddresses),
                         value: _bypassLocal,
                         onChanged: _saving
                             ? null
@@ -456,14 +457,14 @@ class _NetworkSettingsPageState extends ConsumerState<NetworkSettingsPage> {
                             icon: const Icon(Icons.network_check, size: 18),
                             label: Text(_testing ? '测试中…' : '测试代理'),
                           ),
-                          if (dirty) Text('有未应用的修改', style: small),
+                          if (dirty) Text(l10nNow.desktopUnappliedChanges, style: small),
                         ],
                       ),
                       const SizedBox(height: 10),
-                      Text('「保存并应用」仅保存地址、软件名称和局域网直连设置，不改变开关。', style: small),
+                      Text(l10nNow.desktopSaveAndApplyUpdatesTheAddressAppName, style: small),
                       const SizedBox(height: 6),
                       Text(
-                        '测试只用所填代理访问 NovelAI，不携带令牌、不生成图片，也不会自动启用或保存设置。',
+                        l10nNow.desktopTestTheEnteredProxyWithNovelAITestingDoes,
                         style: small,
                       ),
                       if (_saveMessage != null)
@@ -488,7 +489,7 @@ class _NetworkSettingsPageState extends ConsumerState<NetworkSettingsPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('当前已应用的路线', style: context.texts.titleSmall),
+                  Text(l10nNow.desktopActiveConnectionPath, style: context.texts.titleSmall),
                   const SizedBox(height: 8),
                   Text(
                     appliedProxyRoute(
@@ -526,18 +527,18 @@ class _NetworkSettingsPageState extends ConsumerState<NetworkSettingsPage> {
                             onPressed: () => ref.invalidate(
                               detectedProxySoftwareProvider(saved.address),
                             ),
-                            child: const Text('重新识别'),
+                            child: Text(l10nNow.desktopDetectAgain),
                           ),
                       ],
                     ),
                   const SizedBox(height: 8),
                   Text(
-                    '本机代理适用于 Plana 的联网请求，包括 NovelAI、Bot 后端、AI 助手和下载。此处按应用设置显示路线；系统 TUN 等外部接管不在识别范围。',
+                    l10nNow.desktopTheLocalProxyAppliesToPlanaNetworkRequests,
                     style: small,
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    '上方路线仅指官方 NovelAI 接口。第三方接口和 Bot 后端不受云端转发开关影响；两项都开启时，会先经过本机代理，再经过云端转发。',
+                    l10nNow.desktopThePathAboveIsForOfficialNovelAIRequests,
                     style: small,
                   ),
                 ],

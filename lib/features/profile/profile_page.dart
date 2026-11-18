@@ -5,7 +5,7 @@ import '../../core/theme/app_theme.dart';
 import '../../core/ui/scroll_memory.dart';
 import '../generate/preset_manage_page.dart';
 import '../generate/widgets/common.dart' show sharedAxisRoute;
-import '../migrate/web_backup_page.dart';
+import 'backup_page.dart';
 import '../stats/stats_page.dart';
 import '../tools/tools_page.dart';
 import 'about_page.dart';
@@ -13,6 +13,7 @@ import 'account_page.dart';
 import 'appearance_page.dart';
 import 'gen_settings_page.dart';
 import 'storage_page.dart';
+import '../../l10n/l10n.dart';
 
 class ProfilePage extends ConsumerWidget {
   const ProfilePage({super.key});
@@ -33,7 +34,7 @@ class ProfilePage extends ConsumerWidget {
             children: [
               Expanded(
                 child: Text(
-                  '我的',
+                  context.l10n.tabProfile,
                   style: context.texts.headlineSmall!.copyWith(
                     fontWeight: FontWeight.w700,
                   ),
@@ -48,13 +49,13 @@ class ProfilePage extends ConsumerWidget {
                 icon: Icons.import_export,
                 // 不叫「同步」:这是选文件→预览→落库的单向一次性导入,
                 // 手机这边的改动不会回流,叫同步会让人等一个不存在的回程。
-                label: '导入',
-                onTap: () => push(const WebBackupPage()),
+                label: l10nNow.backup,
+                onTap: () => push(const BackupPage()),
               ),
               const SizedBox(width: 8),
               _HeaderBtn(
                 icon: Icons.info_outline,
-                label: '关于',
+                label: context.l10n.about,
                 onTap: () => push(const AboutPage()),
               ),
             ],
@@ -69,50 +70,50 @@ class ProfilePage extends ConsumerWidget {
               children: [
                 _EntryCard(
                   icon: Icons.manage_accounts_outlined,
-                  title: '账号与接入',
-                  subtitle: 'Token 与 Bot 授权',
+                  title: l10nNow.accountAccess,
+                  subtitle: l10nNow.accountAccessSub,
                   onTap: () => push(const AccountPage()),
                 ),
                 const SizedBox(height: 10),
                 _EntryCard(
                   icon: Icons.query_stats,
-                  title: '统计',
-                  subtitle: '用量 · 钱包 · 全平台统计',
+                  title: l10nNow.stats,
+                  subtitle: l10nNow.statsSub,
                   onTap: () => push(const StatsPage()),
                 ),
                 const SizedBox(height: 10),
                 _EntryCard(
                   icon: Icons.bookmark_outline,
-                  title: '提示词预设',
-                  subtitle: '正负面提示词模板',
+                  title: l10nNow.promptPresets,
+                  subtitle: l10nNow.promptPresetsSub,
                   onTap: () => push(const PromptPresetManagePage()),
                 ),
                 const SizedBox(height: 10),
                 _EntryCard(
                   icon: Icons.tune,
-                  title: '生成设置',
-                  subtitle: '自动重试 · 功能模块 · 默认保存',
+                  title: l10nNow.generationSettings,
+                  subtitle: l10nNow.genSettingsSub,
                   onTap: () => push(const GenSettingsPage()),
                 ),
                 const SizedBox(height: 10),
                 _EntryCard(
                   icon: Icons.handyman_outlined,
-                  title: '工具箱',
-                  subtitle: '权重转换 · 图片元数据',
+                  title: l10nNow.toolbox,
+                  subtitle: l10nNow.toolboxSub,
                   onTap: () => push(const ToolsPage()),
                 ),
                 const SizedBox(height: 10),
                 _EntryCard(
                   icon: Icons.color_lens_outlined,
-                  title: '外观与触感',
-                  subtitle: '主题配色 · 振动反馈',
+                  title: l10nNow.appearanceHaptics,
+                  subtitle: l10nNow.appearanceSub,
                   onTap: () => push(const AppearancePage()),
                 ),
                 const SizedBox(height: 10),
                 _EntryCard(
                   icon: Icons.storage,
-                  title: '存储管理',
-                  subtitle: '空间占用与清理',
+                  title: l10nNow.storage,
+                  subtitle: l10nNow.storageSub,
                   onTap: () => push(const StoragePage()),
                 ),
               ],

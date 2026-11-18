@@ -28,6 +28,7 @@ import 'widgets/gallery_trash_actions.dart';
 import 'widgets/gallery_trash_content.dart';
 import 'widgets/desktop_canvas_gutters.dart';
 import 'widgets/result_canvas.dart';
+import '../../l10n/l10n.dart';
 
 /// 图库页:上方结果画布(大图 + 操作轨 + seed)、下方历史胶片条。
 /// 生成链路产出的结果落在这里查看与二次操作。
@@ -63,6 +64,11 @@ const _kGalleryHints = <({String key, String text, IconData icon})>[
     icon: Icons.swipe_up_outlined,
   ),
 ];
+
+String _hintText(AppLocalizations l, String key) => switch (key) {
+  'hint_save_longpress' => l.hintSaveLongPress,
+  _ => l.hintStripSwipe,
+};
 
 class _GalleryPageState extends ConsumerState<GalleryPage>
     with AutomaticKeepAliveClientMixin {
@@ -365,7 +371,11 @@ class _GalleryPageState extends ConsumerState<GalleryPage>
     );
     if (!mounted) return;
     if (prep.files.isEmpty) {
-      hintSnack(context, '没有可分享的图片', icon: Icons.error_outline);
+      hintSnack(
+        context,
+        context.l10n.nothingToShare,
+        icon: Icons.error_outline,
+      );
       return;
     }
     await SharePlus.instance.share(ShareParams(files: prep.files));
@@ -383,7 +393,9 @@ class _GalleryPageState extends ConsumerState<GalleryPage>
       prefs.write(key: h.key, value: '1');
       // build 里不能直接弹 overlay,推到帧后
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) hintSnack(context, h.text, icon: h.icon);
+        if (mounted) {
+          hintSnack(context, _hintText(context.l10n, h.key), icon: h.icon);
+        }
       });
       return; // 一次一条
     }
@@ -449,7 +461,7 @@ class _GalleryPageState extends ConsumerState<GalleryPage>
               key: const ValueKey('empty-gallery-trash'),
               onPressed: () => showGalleryTrash(context),
               icon: const Icon(Icons.delete_outline),
-              label: const Text('回收站'),
+              label: Text(l10nNow.trashName),
             ),
           if (widget.desktop) _historyHeader(0),
         ],
@@ -580,12 +592,8 @@ class _GalleryPageState extends ConsumerState<GalleryPage>
                           // 整图。整图生成时 pasteUnder 为空,走原来那条。
                           _ZoomableImage(
                             bytes: gen.pasteUnder ?? gen.preview ?? selBytes,
-                            width: gen.pasteUnder != null
-                                ? (selected?.width ?? gen.width)
-                                : gen.width,
-                            height: gen.pasteUnder != null
-                                ? (selected?.height ?? gen.height)
-                                : gen.height,
+                            width: gen.pasteSize?.w ?? gen.width,
+                            height: gen.pasteSize?.h ?? gen.height,
                             overlay: gen.pasteUnder == null
                                 ? null
                                 : gen.preview,
@@ -687,7 +695,7 @@ class _GalleryPageState extends ConsumerState<GalleryPage>
                     child: Row(
                       children: [
                         IconButton(
-                          tooltip: '返回历史',
+                          tooltip: l10nNow.backToHistory,
                           onPressed: () => ref
                               .read(galleryResultPreviewProvider.notifier)
                               .clear(),
@@ -710,7 +718,7 @@ class _GalleryPageState extends ConsumerState<GalleryPage>
                                     ? preview.target.albumId
                                     : null,
                               ),
-                          child: const Text('浏览图库'),
+                          child: Text(l10nNow.desktopBrowseGallery),
                         ),
                       ],
                     ),
@@ -1073,13 +1081,13 @@ class _DesktopEmptyCanvas extends ConsumerWidget {
                   color: context.scheme.primary,
                 ),
                 const SizedBox(height: 20),
-                const Text(
-                  '等待灵感落笔',
+                Text(
+                  l10nNow.desktopReadyToCreate,
                   style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
                 ),
                 const SizedBox(height: 10),
                 Text(
-                  '写下提示词，开始第一张创作',
+                  l10nNow.desktopEnterAPromptToCreateYourFirstImage,
                   style: TextStyle(
                     fontSize: 12,
                     color: context.scheme.onSurfaceVariant,
@@ -1122,7 +1130,7 @@ class _EmptyGallery extends ConsumerWidget {
           const SizedBox(height: 6),
           TextButton(
             onPressed: () => showAlbumLibrary(context),
-            child: const Text('选择 / 创建图库'),
+            child: Text(l10nNow.desktopChooseOrCreateAGallery),
           ),
           if (ref.watch(galleryBrowseAlbumProvider) != null) ...[
             TextButton(
@@ -1138,17 +1146,17 @@ class _EmptyGallery extends ConsumerWidget {
                   if (context.mounted) albumError(context, e);
                 }
               },
-              child: const Text('从全部作品添加'),
+              child: Text(l10nNow.desktopAddFromAllImages),
             ),
             TextButton(
               onPressed: () => ref
                   .read(albumsProvider.notifier)
                   .setSave(ref.read(galleryBrowseAlbumProvider)),
-              child: const Text('将新图保存到这里'),
+              child: Text(l10nNow.desktopSaveNewImagesHere),
             ),
           ],
           Text(
-            '去「创作」生成第一张',
+            context.l10n.goCreateFirst,
             style: context.texts.bodySmall!.copyWith(color: scheme.outline),
           ),
         ],

@@ -3,6 +3,8 @@ library;
 
 import 'dart:typed_data';
 
+import '../../core/util/webp_to_png.dart' show webpSizeOf;
+
 import '../editor/editor_models.dart'
     show PromptFoldLink, pickEditorText, validPromptFoldLinks;
 import 'res_rules.dart' show kFreePixelThreshold;
@@ -34,6 +36,7 @@ class CharacterPrompt {
     this.position, // 'A1'..'E5';null = AUTO
     this.activeTab = CharTab.positive,
     this.avatar,
+    this.source,
   });
 
   final String id;
@@ -44,6 +47,9 @@ class CharacterPrompt {
   /// 头像:从灵感角色库选来时带上的预览图(http URL 或本机文件路径)。
   /// 只在角色卡上显示,不进载荷;null = 没有(手写 / AI 写的 / 导入的角色)。
   final String? avatar;
+
+  /// 从灵感角色库选来时的条目 id,不进载荷;图库按角色归类认它。
+  final String? source;
 
   /// 编辑器原文草稿(含禁用 `~tag~` / 折叠 `<#名字: …>` 等仅编辑期语法),
   /// 空 = 与定稿无差别,不必单独存。有效性由读取侧判定,见 [pickEditorText]。
@@ -66,6 +72,7 @@ class CharacterPrompt {
     Object? position = _unset,
     CharTab? activeTab,
     Object? avatar = _unset,
+    Object? source = _unset,
   }) {
     return CharacterPrompt(
       id: id,
@@ -96,6 +103,7 @@ class CharacterPrompt {
       position: position == _unset ? this.position : position as String?,
       activeTab: activeTab ?? this.activeTab,
       avatar: avatar == _unset ? this.avatar : avatar as String?,
+      source: source == _unset ? this.source : source as String?,
     );
   }
 }
@@ -119,6 +127,7 @@ class PromptSection {
     this.foldLinks = const [],
     this.enabled = true,
     this.artist = false,
+    this.sources = const [],
   });
 
   /// 主体那一行(见 [kMainSectionId])。
@@ -129,6 +138,7 @@ class PromptSection {
       positiveRaw = '',
       negativeRaw = '',
       foldLinks = const [],
+      sources = const [],
       artist = false;
 
   final String id;
@@ -148,6 +158,9 @@ class PromptSection {
   /// 「画风」而不是「分区 N」。
   final bool artist;
 
+  /// 这一格来自的灵感库条目 id(合并过的格子有几个);图库按角色 / 画风归类认它。
+  final List<String> sources;
+
   bool get isMain => id == kMainSectionId;
 
   PromptSection copyWith({
@@ -158,6 +171,7 @@ class PromptSection {
     String? negativeRaw,
     List<PromptFoldLink>? foldLinks,
     bool? enabled,
+    List<String>? sources,
   }) => PromptSection(
     id: id,
     name: name ?? this.name,
@@ -178,6 +192,7 @@ class PromptSection {
     ),
     enabled: enabled ?? this.enabled,
     artist: artist,
+    sources: sources ?? this.sources,
   );
 }
 
@@ -326,6 +341,8 @@ class InpaintJob {
 }
 
 /// 只读 PNG 头拿宽高(IHDR 在 offset 16 / 20),不解码整图;不是 PNG 给 null。
+(int, int)? imageSizeOf(Uint8List b) => pngSizeOf(b) ?? webpSizeOf(b);
+
 (int, int)? pngSizeOf(Uint8List b) {
   const sig = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
   if (b.length < 24) return null;
@@ -618,6 +635,8 @@ String animaTierOf(String displayModel) => switch (displayModel) {
 /// 去掉了 Anima Turbo 的「(默认)」:那在 web 指「anima 档位里的默认」,
 /// 而本 app 默认模型是 NAI 4.5 Full,七档平铺一张表会被读成"app 的默认"。
 /// 分隔符统一用 ` · `(web 的 NAI 用逗号、anima 用点,混着来一页两套版式)。
+///
+/// NAI 各档的文案在 ARB 里(descNai*),这张表只剩 Anima / Krea。
 const modelDescriptions = <String, String>{
   'NAI 5.0 Full': '最新旗舰模型 · 1471 token · NSFW',
   'NAI 5.0 Full Medium': '最新旗舰 Medium 档 · 节约 40% 额度 · NSFW',
@@ -1301,6 +1320,8 @@ class GenerateState {
     this.negativePromptRaw = '',
     this.promptFoldLinks = const [],
     this.sections = const [],
+    this.composedSections = const [],
+    this.usedEntries = const [],
     required this.characters,
     required this.vibes,
     required this.charRefs,
@@ -1347,6 +1368,14 @@ class GenerateState {
   /// 也能删(正向随之清空),这时列表里就没有它。
   /// 只活在创作页:生成快照里已拼进 [prompt](见 composeSections)。
   final List<PromptSection> sections;
+
+  /// 生成快照里拼进 [prompt] 的那几格(只留进了载荷的,主体的词也写在行里,
+  /// 见 composeSections)。不发给 NAI、不落盘,入库时写进 PNG(见 section_layout.dart)。
+  final List<PromptSection> composedSections;
+
+  /// 生成快照里拼进 [prompt] 的那几格来自的灵感库条目 id(见 composeSections)。
+  /// 不发给 NAI;图库按角色 / 画风归类认它。
+  final List<String> usedEntries;
 
   final List<CharacterPrompt> characters;
   final List<VibeItem> vibes;
@@ -1414,6 +1443,8 @@ class GenerateState {
     String? negativePromptRaw,
     List<PromptFoldLink>? promptFoldLinks,
     List<PromptSection>? sections,
+    List<PromptSection>? composedSections,
+    List<String>? usedEntries,
     List<CharacterPrompt>? characters,
     List<VibeItem>? vibes,
     List<CharRefItem>? charRefs,
@@ -1452,6 +1483,8 @@ class GenerateState {
               promptFoldLinks ?? this.promptFoldLinks,
             ),
       sections: sections ?? this.sections,
+      composedSections: composedSections ?? this.composedSections,
+      usedEntries: usedEntries ?? this.usedEntries,
       characters: characters ?? this.characters,
       vibes: vibes ?? this.vibes,
       charRefs: charRefs ?? this.charRefs,

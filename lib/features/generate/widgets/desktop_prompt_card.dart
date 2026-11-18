@@ -1,3 +1,4 @@
+import '../../../l10n/l10n.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -74,7 +75,7 @@ class PromptFullscreenButton extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return IconButton(
-      tooltip: '大屏编辑提示词',
+      tooltip: l10nNow.desktopOpenFullScreenPromptEditor,
       icon: const Icon(Icons.open_in_full, size: 16),
       constraints: const BoxConstraints.tightFor(width: 26, height: 32),
       padding: EdgeInsets.zero,

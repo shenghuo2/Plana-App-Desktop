@@ -1,3 +1,4 @@
+import '../../l10n/l10n.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/theme/app_theme.dart';
@@ -12,7 +13,7 @@ class LibrarySamples extends StatelessWidget {
       Padding(
         padding: const EdgeInsets.fromLTRB(14, 14, 14, 4),
         child: Text(
-          '示例预览 · 用来查看卡片大小和不同画幅，导入素材后显示你的图片。',
+          l10nNow.desktopPreviewCardSizesAndAspectRatiosImportImages,
           style: TextStyle(
             fontSize: 12,
             color: context.scheme.onSurfaceVariant,

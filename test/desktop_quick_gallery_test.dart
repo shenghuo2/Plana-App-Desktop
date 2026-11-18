@@ -56,7 +56,7 @@ class _Picker extends FilePicker {
     bool lockParentWindow = false,
   }) async {
     final file = File('$path/$fileName');
-    await file.writeAsBytes(bytes!);
+    if (bytes != null) await file.writeAsBytes(bytes);
     savedZip = file;
     return file.path;
   }

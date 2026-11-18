@@ -1,3 +1,4 @@
+import '../../l10n/l10n.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -90,13 +91,13 @@ class _MetadataToolViewState extends ConsumerState<MetadataToolView> {
     final mode = _mode;
     final prompt = _customPrompt.text.trim();
     if (mode == _BatchMode.custom && prompt.isEmpty) {
-      hintSnack(context, '先填要覆写的提示词', icon: Icons.edit_outlined);
+      hintSnack(context, l10nNow.enterOverwritePrompt, icon: Icons.edit_outlined);
       return;
     }
     final ok = await Gal.hasAccess() || await Gal.requestAccess();
     if (!mounted) return;
     if (!ok) {
-      hintSnack(context, '未获相册权限', icon: Icons.error_outline);
+      hintSnack(context, l10nNow.noPhotoPermission, icon: Icons.error_outline);
       return;
     }
     setState(() {
@@ -125,7 +126,9 @@ class _MetadataToolViewState extends ConsumerState<MetadataToolView> {
     });
     hintSnack(
       context,
-      failed == 0 ? '已保存 $saved 张到相册' : '已保存 $saved 张 · $failed 张失败',
+      failed == 0
+          ? context.l10n.savedToPhotos(saved)
+          : context.l10n.savedToPhotosFailed(saved, failed),
       icon: failed == 0 ? Icons.check_circle_outline : Icons.error_outline,
     );
   }
@@ -144,7 +147,7 @@ class _MetadataToolViewState extends ConsumerState<MetadataToolView> {
             child: Row(
               children: [
                 Text(
-                  '${_items.length} 张',
+                  context.l10n.imagesN(_items.length),
                   style: context.texts.bodySmall!.copyWith(
                     color: scheme.onSurfaceVariant,
                   ),
@@ -159,7 +162,11 @@ class _MetadataToolViewState extends ConsumerState<MetadataToolView> {
                   style: TextButton.styleFrom(
                     visualDensity: VisualDensity.compact,
                   ),
-                  child: Text(allSelected ? '取消全选' : '全选'),
+                  child: Text(
+                    allSelected
+                        ? context.l10n.deselectAll
+                        : context.l10n.selectAll,
+                  ),
                 ),
                 IconButton(
                   onPressed: _loading ? null : _pick,
@@ -167,7 +174,7 @@ class _MetadataToolViewState extends ConsumerState<MetadataToolView> {
                     Icons.add_photo_alternate_outlined,
                     size: 21,
                   ),
-                  tooltip: '添加图片',
+                  tooltip: context.l10n.addImages,
                   visualDensity: VisualDensity.compact,
                 ),
               ],
@@ -196,7 +203,7 @@ class _MetadataToolViewState extends ConsumerState<MetadataToolView> {
           ),
           const SizedBox(height: 14),
           Text(
-            '查看生成参数 · 批量清除或覆写元数据',
+            context.l10n.metadataToolIntro,
             style: context.texts.bodySmall!.copyWith(
               color: scheme.onSurfaceVariant,
             ),
@@ -211,7 +218,7 @@ class _MetadataToolViewState extends ConsumerState<MetadataToolView> {
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
                 : const Icon(Icons.add_photo_alternate_outlined, size: 19),
-            label: const Text('选择图片'),
+            label: Text(context.l10n.selectImage),
           ),
         ],
       ),
@@ -338,7 +345,7 @@ class _MetadataToolViewState extends ConsumerState<MetadataToolView> {
                   decoration: InputDecoration(
                     filled: true,
                     fillColor: scheme.surfaceContainerHigh,
-                    hintText: '要覆写进图片的提示词…',
+                    hintText: l10nNow.overwritePromptHint,
                     hintStyle: TextStyle(color: scheme.outline, fontSize: 12),
                     isDense: true,
                     border: OutlineInputBorder(
@@ -356,11 +363,11 @@ class _MetadataToolViewState extends ConsumerState<MetadataToolView> {
               Row(
                 children: [
                   SegmentedButton<_BatchMode>(
-                    segments: const [
-                      ButtonSegment(value: _BatchMode.clean, label: Text('清除')),
+                    segments: [
+                      ButtonSegment(value: _BatchMode.clean, label: Text(l10nNow.clearMeta)),
                       ButtonSegment(
                         value: _BatchMode.custom,
-                        label: Text('覆写'),
+                        label: Text(l10nNow.overwrite),
                       ),
                     ],
                     selected: {_mode},
@@ -402,7 +409,7 @@ class _NoMetaPage extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = context.scheme;
     return Scaffold(
-      appBar: AppBar(title: const Text('图片信息')),
+      appBar: AppBar(title: Text(context.l10n.imageInfo)),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(14, 8, 14, 24),
         children: [
@@ -412,7 +419,7 @@ class _NoMetaPage extends StatelessWidget {
           ),
           const SizedBox(height: 14),
           Text(
-            '${item.name} · 未识别到元数据',
+            context.l10n.noMetadataFor(item.name),
             textAlign: TextAlign.center,
             style: context.texts.bodySmall!.copyWith(
               color: scheme.onSurfaceVariant,

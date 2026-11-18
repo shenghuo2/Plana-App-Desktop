@@ -1,3 +1,4 @@
+import '../../../l10n/l10n.dart';
 import 'canvas_history_sheet.dart';
 import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/gestures.dart';
@@ -106,7 +107,7 @@ class _DesktopCanvasTabsState extends ConsumerState<DesktopCanvasTabs> {
         final ok = await confirmDialog(
           context,
           title: '删除「${target.name}」？',
-          message: '移除这张画布的提示词和参数，已生成的图片会保留。',
+          message: l10nNow.desktopRemoveThisCanvasAndItsSettingsGeneratedImages,
           confirmLabel: '删除',
         );
         if (!ok || !mounted) return;
@@ -114,7 +115,7 @@ class _DesktopCanvasTabsState extends ConsumerState<DesktopCanvasTabs> {
         if (removed == null) return;
         hintSnack(
           context,
-          '已删除画布',
+          l10nNow.desktopCanvasDeleted,
           actionLabel: '撤销',
           onAction: () => canvases.restore(
             removed.canvas,
@@ -128,14 +129,14 @@ class _DesktopCanvasTabsState extends ConsumerState<DesktopCanvasTabs> {
         await showDialog<void>(
           context: context,
           builder: (context) => AlertDialog(
-            title: const Text('画布与参考图'),
-            content: const Text(
-              '每张画布分别保存提示词、角色、预设、参考图、底图、重绘、LoRA 和采样参数。',
+            title: Text(l10nNow.desktopCanvasesAndReferences),
+            content: Text(
+              l10nNow.desktopEachCanvasKeepsItsOwnPromptsCharactersPresets,
             ),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(context),
-                child: const Text('知道了'),
+                child: Text(l10nNow.desktopGotIt),
               ),
             ],
           ),
@@ -147,21 +148,27 @@ class _DesktopCanvasTabsState extends ConsumerState<DesktopCanvasTabs> {
     CanvasWorkspace workspace,
     CanvasDraft target,
   ) => [
-    const PopupMenuItem(value: 'new', child: Text('新建画布')),
-    const PopupMenuItem(value: 'duplicate', child: Text('复制当前画布')),
+    PopupMenuItem(value: 'new', child: Text(l10nNow.newCanvas)),
+    PopupMenuItem(
+      value: 'duplicate',
+      child: Text(l10nNow.desktopDuplicateCurrentCanvas),
+    ),
     PopupMenuItem(
       value: 'rename',
       enabled: target.id != workspace.defaultId,
-      child: const Text('重命名'),
+      child: Text(l10nNow.rename),
     ),
     PopupMenuItem(
       value: 'remove',
       enabled: target.id != workspace.defaultId,
-      child: const Text('删除当前画布'),
+      child: Text(l10nNow.desktopDeleteCurrentCanvas),
     ),
     const PopupMenuDivider(),
-    const PopupMenuItem(value: 'history', child: Text('画布历史')),
-    const PopupMenuItem(value: 'shared', child: Text('画布与参考图')),
+    PopupMenuItem(value: 'history', child: Text(l10nNow.desktopCanvasHistory)),
+    PopupMenuItem(
+      value: 'shared',
+      child: Text(l10nNow.desktopCanvasesAndReferences),
+    ),
   ];
 
   Future<void> _showContextMenu(
@@ -288,7 +295,7 @@ class _DesktopCanvasTabsState extends ConsumerState<DesktopCanvasTabs> {
               width: 36,
               child: PopupMenuButton<String>(
                 key: const ValueKey('desktop-canvas-picker'),
-                tooltip: '切换画布',
+                tooltip: l10nNow.switchCanvas,
                 padding: EdgeInsets.zero,
                 icon: const Icon(Icons.expand_more, size: 20),
                 initialValue: workspace.activeId,

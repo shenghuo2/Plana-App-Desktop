@@ -1,3 +1,4 @@
+import '../../l10n/l10n.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/theme/app_theme.dart';
@@ -54,7 +55,7 @@ class DesktopWelcomeLayout extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          '使用引导',
+                          l10nNow.desktopGettingStarted,
                           style: context.texts.titleMedium!.copyWith(
                             fontWeight: FontWeight.w700,
                           ),
@@ -75,7 +76,7 @@ class DesktopWelcomeLayout extends StatelessWidget {
                       key: const ValueKey('desktop-welcome-close'),
                       onPressed: onClose,
                       icon: const Icon(Icons.arrow_back, size: 18),
-                      label: const Text('返回'),
+                      label: Text(l10nNow.desktopBack),
                     ),
                 ],
               ),
@@ -225,13 +226,13 @@ class DesktopWelcomeLayout extends StatelessWidget {
         key: const ValueKey('desktop-welcome-back'),
         onPressed: onBack,
         icon: const Icon(Icons.chevron_left, size: 18),
-        label: const Text('上一步'),
+        label: Text(l10nNow.previous),
       ),
       if (onSkip != null)
         TextButton(
           key: const ValueKey('desktop-welcome-skip'),
           onPressed: onSkip,
-          child: const Text('暂时跳过'),
+          child: Text(l10nNow.skipForNow),
         ),
       FilledButton.icon(
         key: const ValueKey('desktop-welcome-next'),

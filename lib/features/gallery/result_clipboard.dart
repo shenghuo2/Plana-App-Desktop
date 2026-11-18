@@ -1,3 +1,4 @@
+import '../../l10n/l10n.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -96,7 +97,7 @@ Future<void> copyPreparedImage(
     );
   } catch (_) {
     if (context.mounted && sequence == _copySequence) {
-      hintSnack(context, '无法准备要复制的图片，请重试', icon: Icons.error_outline);
+      hintSnack(context, l10nNow.desktopCouldNotPrepareTheImageForCopyingTry, icon: Icons.error_outline);
     }
   }
 }

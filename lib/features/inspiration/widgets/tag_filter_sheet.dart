@@ -4,6 +4,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/ui/desktop_popover.dart';
 import '../artist_models.dart';
 import '../tag_models.dart';
+import '../../../l10n/l10n.dart';
 
 /// 灵感页搜索框右侧那个漏斗的弹层:作者 + 适用模型两个维度。
 ///
@@ -172,7 +173,7 @@ class _FilterSheetState extends State<_FilterSheet> {
                 ),
                 const SizedBox(width: 8),
                 Text(
-                  '筛选',
+                  context.l10n.filter,
                   style: texts.titleMedium!.copyWith(
                     fontWeight: FontWeight.w700,
                   ),
@@ -183,11 +184,11 @@ class _FilterSheetState extends State<_FilterSheet> {
                       ? () =>
                             Navigator.pop(context, (author: null, model: null))
                       : null,
-                  child: const Text('重置'),
+                  child: Text(context.l10n.reset),
                 ),
                 if (widget.desktop)
                   IconButton(
-                    tooltip: '关闭筛选',
+                    tooltip: l10nNow.desktopCloseFilters,
                     onPressed: () => Navigator.pop(context),
                     icon: const Icon(Icons.close, size: 18),
                   ),
@@ -203,7 +204,12 @@ class _FilterSheetState extends State<_FilterSheet> {
                 children: [
                   _dimTab(context, 0, '作者', widget.current.author != null),
                   const SizedBox(width: 8),
-                  _dimTab(context, 1, '适用模型', widget.current.model != null),
+                  _dimTab(
+                    context,
+                    1,
+                    context.l10n.applicableModels,
+                    widget.current.model != null,
+                  ),
                 ],
               ),
             ),
@@ -221,7 +227,7 @@ class _FilterSheetState extends State<_FilterSheet> {
                 },
                 decoration: InputDecoration(
                   isDense: true,
-                  hintText: '昵称或 QQ 号',
+                  hintText: context.l10n.nicknameOrQq,
                   prefixIcon: const Icon(Icons.search, size: 20),
                   filled: true,
                   fillColor: scheme.surfaceContainerHigh,
@@ -299,7 +305,7 @@ class _FilterSheetState extends State<_FilterSheet> {
       if (_q.trim().isEmpty)
         _row(
           context,
-          label: '全部',
+          label: context.l10n.all,
           selected: widget.current.author == null,
           onTap: () => _apply(author: const _Clear()),
         ),
@@ -316,7 +322,9 @@ class _FilterSheetState extends State<_FilterSheet> {
         Padding(
           padding: const EdgeInsets.fromLTRB(18, 12, 18, 12),
           child: Text(
-            widget.authors.isEmpty ? '库里还没有署名的条目' : '没有匹配的作者',
+            widget.authors.isEmpty
+                ? context.l10n.noSignedEntries
+                : context.l10n.noMatchingAuthors,
             style: context.texts.bodySmall!.copyWith(
               color: context.scheme.onSurfaceVariant,
             ),
@@ -327,9 +335,9 @@ class _FilterSheetState extends State<_FilterSheet> {
 
   List<Widget> _modelRows(BuildContext context) => [
     for (final e in <(String?, String)>[
-      (null, '全部'),
+      (null, context.l10n.all),
       for (final g in ArtistModelGroup.values) (g.name, g.filterLabel),
-      (kGenericModelFilter, '$kGenericModelLabel(没标注的)'),
+      (kGenericModelFilter, context.l10n.genericUnlabeled(kGenericModelLabel)),
     ])
       _row(
         context,

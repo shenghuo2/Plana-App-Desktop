@@ -182,6 +182,15 @@ class AlbumsNotifier extends Notifier<AlbumsData> {
     return id;
   }
 
+  Future<void> moveTo(String albumId, String targetId) => _edit((data) {
+    final albums = data.albums.toList();
+    final from = albums.indexWhere((album) => album.id == albumId);
+    final to = albums.indexWhere((album) => album.id == targetId);
+    if (from < 0 || to < 0 || from == to) return data;
+    albums.insert(to, albums.removeAt(from));
+    return data.copyWith(albums: albums);
+  });
+
   Future<void> rename(String id, String name) async {
     if (isFixedGallery(id)) throw StateError('固定入口不能改名');
     name = name.trim();

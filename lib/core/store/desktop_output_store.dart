@@ -1,3 +1,5 @@
+import '../util/webp_to_png.dart' show isWebp;
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -91,19 +93,28 @@ class DesktopOutputStore {
     await folder.create(recursive: true);
     _checkFolder(folder);
     final stem = '${result.id}_${result.createdAt}';
+    final extension = isWebp(bytes) ? '.webp' : '.png';
     for (var suffix = 0; suffix < 10000; suffix++) {
       final name = '$stem${suffix == 0 ? '' : '_$suffix'}';
-      final target = File('${folder.path}/$name.png');
+      final target = File('${folder.path}/$name$extension');
+      final other = File(
+        '${folder.path}/$name${extension == '.png' ? '.webp' : '.png'}',
+      );
       final sidecar = File('${folder.path}/$name.json');
-      final pending = File('${target.path}.part');
-      if (_exists(target) || _exists(sidecar) || _exists(pending)) continue;
+      final pending = File('${folder.path}/$name.png.part');
+      if (_exists(target) ||
+          _exists(other) ||
+          _exists(sidecar) ||
+          _exists(pending)) {
+        continue;
+      }
       try {
         await pending.create(exclusive: true);
       } on FileSystemException {
         if (await pending.exists()) continue;
         rethrow;
       }
-      if (await target.exists()) {
+      if (_exists(target) || _exists(other) || _exists(sidecar)) {
         await pending.delete();
         continue;
       }
@@ -116,6 +127,7 @@ class DesktopOutputStore {
         final krea = p != null && isKreaModel(p.model);
         final metadata = <String, Object?>{
           'managedBy': 'plana-gallery',
+          if (extension == '.webp') 'format': 'webp',
           'id': result.id,
           'createdAt': result.createdAt,
           'albumId': albumId,
@@ -308,7 +320,8 @@ class DesktopOutputStore {
     if (!_matchesStem(sourceName, stem) || _deleted.contains(stem)) {
       return false;
     }
-    final sourcePng = File(p.setExtension(sidecar.path, '.png'));
+    final extension = metadata['format'] == 'webp' ? '.webp' : '.png';
+    final sourcePng = File(p.setExtension(sidecar.path, extension));
     final sourceType = FileSystemEntity.typeSync(
       sourcePng.path,
       followLinks: false,
@@ -332,9 +345,13 @@ class DesktopOutputStore {
 
     for (var suffix = 0; suffix < 10000; suffix++) {
       final name = '$stem${suffix == 0 ? '' : '_$suffix'}';
-      final png = File(p.join(folder.path, '$name.png'));
+      final png = File(p.join(folder.path, '$name$extension'));
       final json = File(p.join(folder.path, '$name.json'));
-      final pending = File('${png.path}.part');
+      final pending = File(p.join(folder.path, '$name.png.part'));
+      final other = File(
+        p.join(folder.path, '$name${extension == '.png' ? '.webp' : '.png'}'),
+      );
+      if (_exists(other)) continue;
       if (_exists(pending)) continue; // A different process is saving it.
       final existsPng = _exists(png);
       final existsJson = _exists(json);
@@ -426,7 +443,7 @@ class DesktopOutputStore {
   }) {
     return _queue(() async {
       final byStem = {for (final r in results) _identity(r): r};
-      final files = <String, List<File>>{};
+      final files = <String, List<(File, String)>>{};
       for (final outputRoot in [root, ...legacyRoots]) {
         await for (final entry in _sidecars(outputRoot)) {
           final name = p.basenameWithoutExtension(entry.path);
@@ -448,19 +465,23 @@ class DesktopOutputStore {
                     metadata['managedBy'] != 'plana-gallery')) {
               continue;
             }
+            (files[result.id] ??= []).add((
+              entry,
+              metadata['format'] == 'webp' ? '.webp' : '.png',
+            ));
           } catch (_) {
             // Matching names with unreadable metadata cannot be safely owned.
             throw StateError('作品参数文件无法读取，已保留图片：${p.basename(entry.path)}');
           }
-          (files[result.id] ??= []).add(entry);
         }
       }
       final deleted = <String>{};
       for (final result in results) {
         if (canDelete?.call(result.id) == false) continue;
         var success = true;
-        for (final sidecar in files[result.id] ?? const <File>[]) {
-          final png = File(p.setExtension(sidecar.path, '.png'));
+        for (final (sidecar, extension)
+            in files[result.id] ?? const <(File, String)>[]) {
+          final png = File(p.setExtension(sidecar.path, extension));
           try {
             // Keep the final ownership guard and unlink in one event-loop turn.
             if (canDelete?.call(result.id) == false ||

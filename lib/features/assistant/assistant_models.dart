@@ -4,6 +4,8 @@
 /// 只存 blob 键 —— 与工作台存档同一条路子。
 library;
 
+import 'domain/image_gen.dart';
+
 import 'dart:convert';
 
 import '../../core/net/backend_client.dart' show AgentCharacter;
@@ -480,6 +482,9 @@ class AssistantMsg {
     this.mode = AssistantMode.normal,
     this.noDraw = false,
     this.imageIds = const [],
+    this.imageBatch = 1,
+    this.imageGen,
+    this.imageModel,
     this.resources = const {},
     this.tools = const [],
     this.draw,
@@ -518,6 +523,9 @@ class AssistantMsg {
   /// 对话里再挂一份是重复。图本身**始终**入库,这里存的只是个引用;库里删了
   /// 就查不到,界面按「没有」处理,不留破图。
   final List<String> imageIds;
+  final int imageBatch;
+  final ImageGenSpec? imageGen;
+  final String? imageModel;
 
   /// 这一轮结束时的**沿用资源账本**(画师串 / OC)。仅 [MsgRole.ai]。
   ///
@@ -574,6 +582,7 @@ class AssistantMsg {
     List<ToolTrace>? tools,
     AssistantChange? change,
     List<String>? imageIds,
+    int? imageBatch,
   }) => AssistantMsg(
     id: id,
     role: role,
@@ -584,6 +593,9 @@ class AssistantMsg {
     mode: mode,
     noDraw: noDraw,
     imageIds: imageIds ?? this.imageIds,
+    imageBatch: imageBatch ?? this.imageBatch,
+    imageGen: imageGen,
+    imageModel: imageModel,
     resources: resources,
     tools: tools ?? this.tools,
     draw: draw,
@@ -602,6 +614,9 @@ class AssistantMsg {
     if (mode != AssistantMode.normal) 'mode': mode.name,
     if (noDraw) 'noDraw': true,
     if (imageIds.isNotEmpty) 'imageIds': imageIds,
+    if (imageBatch > 1) 'imageBatch': imageBatch,
+    if (imageGen != null) 'imageGen': imageGen!.toJson(),
+    if (imageModel != null) 'imageModel': imageModel,
     if (resources.isNotEmpty) 'resources': resources,
     if (tools.isNotEmpty) 'tools': [for (final t in tools) t.toJson()],
     if (draw != null) 'draw': draw!.toJson(),
@@ -624,6 +639,9 @@ class AssistantMsg {
     mode: AssistantMode.values.asNameMap()[j['mode']] ?? AssistantMode.normal,
     // 「纯文本格式」早先是模式之一,那时存下的消息写的是 mode: noDraw
     noDraw: j['noDraw'] == true || j['mode'] == 'noDraw',
+    imageGen: ImageGenSpec.fromJson(j['imageGen']),
+    imageModel: j['imageModel'] as String?,
+    imageBatch: (j['imageBatch'] as num?)?.toInt() ?? 1,
     imageIds: [for (final e in (j['imageIds'] as List? ?? const [])) '$e'],
     resources: decodeResources(j['resources']),
     tools: [

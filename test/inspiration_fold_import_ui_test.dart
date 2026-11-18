@@ -459,6 +459,7 @@ void main() {
       gen.addNamedCharactersFrom([
         (
           avatar: null,
+          source: null,
           name: '已有角色',
           positive: 'original words',
           negative: 'original negative',

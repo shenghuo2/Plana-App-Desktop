@@ -1,3 +1,4 @@
+import '../../l10n/l10n.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -215,7 +216,7 @@ class DirectorController extends Notifier<DirectorState> {
     } catch (_) {
       state = state.copyWith(
         failed: true,
-        message: '保存失败，结果仍在内存中。请释放磁盘空间后重试保存。',
+        message: l10nNow.desktopTheResultIsStillInMemoryFreeSome,
       );
     } finally {
       if (ref.mounted) state = state.copyWith(busy: false);
@@ -267,7 +268,7 @@ class DirectorController extends Notifier<DirectorState> {
           preview: next.retry,
           failed: true,
           hasPendingSave: true,
-          message: '转换已完成，但保存失败。请重试保存；不会再次请求转换。',
+          message: l10nNow.desktopConversionFinishedRetrySavingTheResultWithoutRunning,
         );
         return;
       }

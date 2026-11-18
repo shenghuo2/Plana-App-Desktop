@@ -7,8 +7,43 @@ import 'package:image/image.dart' as img;
 
 import 'image_resources.dart';
 import 'transparency.dart' show rgbaHasAlpha;
+import 'webp_to_png.dart' show isWebp, webpToPng;
 
-/// Read dimensions without allocating a full decoded pixel frame.
+bool isNaiImageFormat(Uint8List b) {
+  bool at(int i, List<int> sig) {
+    if (b.length < i + sig.length) return false;
+    for (var k = 0; k < sig.length; k++) {
+      if (b[i + k] != sig[k]) return false;
+    }
+    return true;
+  }
+
+  return at(0, const [0x89, 0x50, 0x4E, 0x47]) ||
+      at(0, const [0xFF, 0xD8, 0xFF]) ||
+      (at(0, 'RIFF'.codeUnits) && at(8, 'WEBP'.codeUnits));
+}
+
+/// 转成 PNG:本来就是 PNG 的原样返回;WebP 无损还原(像素 / alpha 隐写 / 参数都在,
+/// 见 webp_to_png);其余格式(JPEG 等)解码后重编码。
+Future<Uint8List> ensurePng(Uint8List src) async {
+  const sig = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+  var isPng = src.length >= sig.length;
+  for (var i = 0; isPng && i < sig.length; i++) {
+    isPng = src[i] == sig[i];
+  }
+  if (isPng) return src;
+  if (isWebp(src)) {
+    try {
+      return await compute(webpToPng, src);
+    } catch (_) {} // 有损 / 动图之类 webpToPng 解不了的,走下面通用那条
+  }
+  return withDecodedImage(src, (image) async {
+    final data = await image.toByteData(format: ui.ImageByteFormat.png);
+    if (data == null) throw StateError('PNG 编码失败');
+    return data.buffer.asUint8List();
+  });
+}
+
 Future<(int, int)> decodeImageSize(Uint8List bytes) async {
   final buffer = await ui.ImmutableBuffer.fromUint8List(bytes);
   ui.ImageDescriptor? descriptor;

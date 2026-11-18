@@ -5,7 +5,9 @@
 /// 所见即所发;发送框 64 对齐、结果只把 tight 区域贴回原图。
 library;
 
+import 'dart:async';
 import 'dart:convert';
+import '../../core/util/png_meta.dart' show withPngTextFrom;
 import 'dart:math' as math;
 import 'dart:typed_data';
 
@@ -490,11 +492,18 @@ IntRect capSendRect(
 
 /// 网格导出黑白 mask PNG(白=重绘区)。[region] 非空时输出该区域
 /// (坐标相对原图,尺寸=region;框外格子自然丢弃),空时输出整图尺寸。
-Future<Uint8List> maskToPng(MaskGrid g, {IntRect? region}) async {
-  final w = region?.w ?? g.imgW;
-  final h = region?.h ?? g.imgH;
+Future<Uint8List> maskToPng(
+  MaskGrid g, {
+  IntRect? region,
+  int? outW,
+  int? outH,
+}) async {
+  final rw = region?.w ?? g.imgW;
+  final rh = region?.h ?? g.imgH;
   final ox = region?.x ?? 0;
   final oy = region?.y ?? 0;
+  final w = outW ?? rw;
+  final h = outH ?? rh;
 
   final recorder = ui.PictureRecorder();
   final canvas = ui.Canvas(recorder, ui.Rect.fromLTWH(0, 0, w * 1.0, h * 1.0));
@@ -503,38 +512,79 @@ Future<Uint8List> maskToPng(MaskGrid g, {IntRect? region}) async {
     ui.Paint()..color = const ui.Color(0xFF000000),
   );
   final white = ui.Paint()..color = const ui.Color(0xFFFFFFFF);
-  for (final r in g.displayRects()) {
-    final shifted = r.shift(ui.Offset(-ox * 1.0, -oy * 1.0));
-    if (shifted.right <= 0 ||
-        shifted.bottom <= 0 ||
-        shifted.left >= w ||
-        shifted.top >= h) {
-      continue;
+  if (w == rw && h == rh) {
+    for (final r in g.displayRects()) {
+      final shifted = r.shift(ui.Offset(-ox * 1.0, -oy * 1.0));
+      if (shifted.right <= 0 ||
+          shifted.bottom <= 0 ||
+          shifted.left >= w ||
+          shifted.top >= h) {
+        continue;
+      }
+      canvas.drawRect(shifted, white);
     }
-    canvas.drawRect(shifted, white);
+  } else {
+    bool on(int px, int py) {
+      final gx = px ~/ 8, gy = py ~/ 8;
+      return px >= 0 &&
+          py >= 0 &&
+          gx < g.gw &&
+          gy < g.gh &&
+          g.cells[gy * g.gw + gx] != 0;
+    }
+
+    final sgw = (w / 8).ceil(), sgh = (h / 8).ceil();
+    for (var sy = 0; sy < sgh; sy++) {
+      final py = oy + ((sy * 8 + 4) * rh / h).floor();
+      var runStart = -1;
+      for (var sx = 0; sx <= sgw; sx++) {
+        final hit = sx < sgw && on(ox + ((sx * 8 + 4) * rw / w).floor(), py);
+        if (hit && runStart < 0) runStart = sx;
+        if (!hit && runStart >= 0) {
+          canvas.drawRect(
+            ui.Rect.fromLTWH(
+              runStart * 8.0,
+              sy * 8.0,
+              (sx - runStart) * 8.0,
+              8,
+            ),
+            white,
+          );
+          runStart = -1;
+        }
+      }
+    }
   }
-  final picture = recorder.endRecording();
-  return pictureToPng(picture, w, h);
+  return pictureToPng(recorder.endRecording(), w, h);
 }
 
 /// 从 PNG 裁出子区(像素精确),输出 PNG。
-Future<Uint8List> cropPng(Uint8List src, IntRect rect) async {
-  return withDecodedImage(src, (img) async {
-    final recorder = ui.PictureRecorder();
-    final canvas = ui.Canvas(
-      recorder,
-      ui.Rect.fromLTWH(0, 0, rect.w * 1.0, rect.h * 1.0),
-    );
-    canvas.drawImageRect(
-      img,
-      ui.Rect.fromLTWH(rect.x * 1.0, rect.y * 1.0, rect.w * 1.0, rect.h * 1.0),
-      ui.Rect.fromLTWH(0, 0, rect.w * 1.0, rect.h * 1.0),
-      ui.Paint(),
-    );
-    final picture = recorder.endRecording();
-    return pictureToPng(picture, rect.w, rect.h);
-  });
-}
+Future<Uint8List> cropPng(
+  Uint8List src,
+  IntRect rect, {
+  int? outW,
+  int? outH,
+}) => withDecodedImage(src, (image) async {
+  final w = outW ?? rect.w, h = outH ?? rect.h;
+  final source = ui.Rect.fromLTWH(
+    rect.x.toDouble(),
+    rect.y.toDouble(),
+    rect.w.toDouble(),
+    rect.h.toDouble(),
+  );
+  final dest = ui.Rect.fromLTWH(0, 0, w.toDouble(), h.toDouble());
+  final recorder = ui.PictureRecorder();
+  ui.Canvas(recorder, dest).drawImageRect(
+    image,
+    source,
+    dest,
+    ui.Paint()
+      ..filterQuality = (w == rect.w && h == rect.h)
+          ? ui.FilterQuality.none
+          : ui.FilterQuality.medium,
+  );
+  return pictureToPng(recorder.endRecording(), w, h);
+});
 
 /// 扩图发送底图(对齐 web 桌面端 handleGenerate 扩图分支):
 /// 白底 (imgW+padL+padR)×(imgH+padT+padB) 画布,原图贴在 (padL, padT)。
@@ -1176,4 +1226,190 @@ class InpaintPrefsNotifier extends Notifier<InpaintPrefs> {
           .write(key: _inpaintPrefsKey, value: jsonEncode(p.toJson()));
     } catch (_) {} // 写失败只影响下次恢复
   }
+}
+
+/// 混合遮罩外扩的格数(8px 一格)与模糊半径、遍数,与官方一致。
+const _blendDilateCells = 4;
+const _blendBlurRadius = 20;
+const _blendBlurPasses = 2;
+
+/// 重绘成图混回底图用的 alpha(w×h,一像素一字节,255 = 全取成图)。
+///
+/// [cells] 是发送遮罩的 8×8 格(gw×gh,非 0 = 重绘):外扩 [_blendDilateCells] 格、
+/// 放大回像素后做 [_blendBlurPasses] 遍半径 [_blendBlurRadius] 的盒式模糊(边缘按
+/// 最近像素延伸)。过渡带落在遮罩外圈,遮罩内恒为成图、远处恒为原图。
+Uint8List inpaintBlendAlpha(Uint8List cells, int gw, int gh, int w, int h) {
+  const d = _blendDilateCells;
+  final grown = Uint8List(gw * gh);
+  for (var gy = 0; gy < gh; gy++) {
+    for (var gx = 0; gx < gw; gx++) {
+      if (cells[gy * gw + gx] == 0) continue;
+      for (var y = math.max(0, gy - d); y <= math.min(gh - 1, gy + d); y++) {
+        grown.fillRange(
+          y * gw + math.max(0, gx - d),
+          y * gw + math.min(gw, gx + d + 1),
+          1,
+        );
+      }
+    }
+  }
+  var a = Uint8List(w * h);
+  for (var y = 0; y < h; y++) {
+    final row = (y >> 3) * gw;
+    for (var x = 0; x < w; x++) {
+      if (grown[row + (x >> 3)] != 0) a[y * w + x] = 255;
+    }
+  }
+  for (var i = 0; i < _blendBlurPasses; i++) {
+    a = _boxBlur(a, w, h, _blendBlurRadius);
+  }
+  return a;
+}
+
+Uint8List _blendAlphaJob((Uint8List, int, int, int, int) a) =>
+    inpaintBlendAlpha(a.$1, a.$2, a.$3, a.$4, a.$5);
+
+/// 单通道盒式模糊,窗口 2r+1,边缘按最近像素延伸。
+Uint8List _boxBlur(Uint8List src, int w, int h, int r) {
+  final rows = Int32List(w * h); // 横向窗口和
+  for (var y = 0; y < h; y++) {
+    final o = y * w;
+    var sum = 0;
+    for (var k = -r; k <= r; k++) {
+      sum += src[o + k.clamp(0, w - 1)];
+    }
+    for (var x = 0; x < w; x++) {
+      rows[o + x] = sum;
+      sum += src[o + math.min(x + r + 1, w - 1)] - src[o + math.max(x - r, 0)];
+    }
+  }
+  final out = Uint8List(w * h);
+  final div = (2 * r + 1) * (2 * r + 1);
+  for (var x = 0; x < w; x++) {
+    var sum = 0;
+    for (var k = -r; k <= r; k++) {
+      sum += rows[k.clamp(0, h - 1) * w + x];
+    }
+    for (var y = 0; y < h; y++) {
+      out[y * w + x] = (sum + div ~/ 2) ~/ div;
+      sum +=
+          rows[math.min(y + r + 1, h - 1) * w + x] -
+          rows[math.max(y - r, 0) * w + x];
+    }
+  }
+  return out;
+}
+
+/// 重绘成图按羽化遮罩混回底图,输出底图尺寸的 PNG。
+///
+/// [base]:局部重绘是原图,整图 / 扩图是发出去的那张底图;[patch] 与 [mask] 是
+/// 发送尺寸的成图和黑白遮罩(白 = 重绘)。它们在 [base] 里占的区域左上角是
+/// ([x], [y]),大小 [regionW]×[regionH](不给 = 发送尺寸;局部框放大发送时
+/// 成图与羽化遮罩一起缩回这个大小,同官方)。
+/// 混合按预乘 alpha 线性插值:透明成图在遮罩里照样透明,不会透出底图。
+/// 成图里的 PNG 文本块(生成参数)搬到输出上。
+Future<({Uint8List png, int width, int height})> blendInpaintResult({
+  required Uint8List base,
+  required Uint8List patch,
+  required Uint8List mask,
+  int x = 0,
+  int y = 0,
+  int? regionW,
+  int? regionH,
+}) async {
+  return withDecodedImage(
+    base,
+    (baseImg) => withDecodedImage(
+      patch,
+      (patchImg) => withDecodedImage(mask, (maskImg) async {
+        ui.Image? alphaImg;
+        try {
+          final w = patchImg.width, h = patchImg.height;
+          if (maskImg.width != w || maskImg.height != h) {
+            throw StateError(
+              '成图 $w×$h 与遮罩 ${maskImg.width}×${maskImg.height} 尺寸不符',
+            );
+          }
+          // 每格取格心像素判定
+          final rgba = (await maskImg.toByteData(
+            format: ui.ImageByteFormat.rawRgba,
+          ))!.buffer.asUint8List();
+          final gw = (w / 8).ceil(), gh = (h / 8).ceil();
+          final cells = Uint8List(gw * gh);
+          for (var gy = 0; gy < gh; gy++) {
+            final py = math.min(h - 1, gy * 8 + 4);
+            for (var gx = 0; gx < gw; gx++) {
+              final px = math.min(w - 1, gx * 8 + 4);
+              if (rgba[(py * w + px) * 4] > 127) cells[gy * gw + gx] = 1;
+            }
+          }
+          final alpha = await compute(_blendAlphaJob, (cells, gw, gh, w, h));
+          final pixels = Uint8List(w * h * 4);
+          for (var i = 0; i < alpha.length; i++) {
+            final v = alpha[i];
+            pixels
+              ..[i * 4] = v
+              ..[i * 4 + 1] = v
+              ..[i * 4 + 2] = v
+              ..[i * 4 + 3] = v;
+          }
+          final done = Completer<ui.Image>();
+          ui.decodeImageFromPixels(
+            pixels,
+            w,
+            h,
+            ui.PixelFormat.rgba8888,
+            done.complete,
+          );
+          alphaImg = await done.future;
+
+          final bw = baseImg.width, bh = baseImg.height;
+          final rw = regionW != null && regionW > 0 ? regionW : w;
+          final rh = regionH != null && regionH > 0 ? regionH : h;
+          final src = ui.Rect.fromLTWH(0, 0, w * 1.0, h * 1.0);
+          final dst = ui.Rect.fromLTWH(x * 1.0, y * 1.0, rw * 1.0, rh * 1.0);
+          // 缩回区域时成图与遮罩同一种采样;缩小用 medium(带 mipmap),high 缩小会出锯齿
+          final q = rw == w && rh == h
+              ? ui.FilterQuality.none
+              : ui.FilterQuality.medium;
+          final recorder = ui.PictureRecorder();
+          final canvas = ui.Canvas(
+            recorder,
+            ui.Rect.fromLTWH(0, 0, bw * 1.0, bh * 1.0),
+          );
+          canvas.drawImage(baseImg, ui.Offset.zero, ui.Paint());
+          // 底图 × (1 - a) 与 成图 × a 相加
+          canvas.drawImageRect(
+            alphaImg,
+            src,
+            dst,
+            ui.Paint()
+              ..blendMode = ui.BlendMode.dstOut
+              ..filterQuality = q,
+          );
+          canvas.saveLayer(dst, ui.Paint()..blendMode = ui.BlendMode.plus);
+          canvas.drawImageRect(
+            patchImg,
+            src,
+            dst,
+            ui.Paint()..filterQuality = q,
+          );
+          canvas.drawImageRect(
+            alphaImg,
+            src,
+            dst,
+            ui.Paint()
+              ..blendMode = ui.BlendMode.dstIn
+              ..filterQuality = q,
+          );
+          canvas.restore();
+          final picture = recorder.endRecording();
+          final png = await pictureToPng(picture, bw, bh);
+          return (png: withPngTextFrom(png, patch), width: bw, height: bh);
+        } finally {
+          alphaImg?.dispose();
+        }
+      }),
+    ),
+  );
 }

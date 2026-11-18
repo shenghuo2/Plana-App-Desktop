@@ -8,6 +8,7 @@ import '../../../core/auth/bot_session_store.dart';
 import '../../../core/net/backend_config.dart';
 import '../../inspiration/tag_models.dart';
 import 'suggestions.dart';
+import '../../../l10n/l10n.dart';
 
 /// 画师串 + OC 库(增强模式,需 Bearer session)。
 /// `GET /api/artists/list` + `GET /api/oc/list`,内存缓存(会话生命周期)。
@@ -221,7 +222,7 @@ class ArtistOcLibrary {
         Suggestion(
           text: name,
           kind: SuggestionKind.oc,
-          source: '本地库',
+          source: l10nNow.localLibrary,
           insertText: group,
           local: true,
         ),

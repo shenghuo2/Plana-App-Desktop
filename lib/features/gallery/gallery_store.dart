@@ -9,7 +9,8 @@ import 'package:crypto/crypto.dart';
 import '../../core/store/atomic_file.dart';
 import '../../core/store/blob_store.dart';
 import '../../core/util/image_ops.dart';
-import '../generate/models.dart' show GenerateState;
+import '../../core/util/webp_to_png.dart' show isWebp;
+import '../generate/models.dart' show GenerateState, imageSizeOf;
 import '../generate/state_codec.dart';
 import 'models.dart';
 
@@ -36,6 +37,17 @@ typedef _HistoryInput = ({
   Set<String> retainedRefs,
 });
 
+/// 一张图的检索元数据(见 gallery_search):[text] 已按 normalizeSearchText 归一;
+/// 后三项是图库按角色 / 画风归类认的来源 —— [ids] 灵感库条目 id(分区与角色卡
+/// 记下的),[cards] 启用的角色卡名,[folds] 草稿里的折叠组名。
+typedef GallerySearchMeta = ({
+  String model,
+  String text,
+  List<String> ids,
+  List<String> cards,
+  List<String> folds,
+});
+
 /// 图库持久化(`<support>/gallery/`):每张结果 `images/<id>.png` 原图 +
 /// `thumbs/<id>.jpg|png` 缩略图 + `inputs/<id>.json` 参数快照(参考图外置
 /// blob 仓),旁挂 index.json(顺序/选中/发号器)。启动只读索引,像素
@@ -52,9 +64,24 @@ class GalleryStore {
   Directory get _inputsDir => Directory('${_root.path}/inputs');
   File get _indexFile => File('${_root.path}/index.json');
 
-  File imageFileForPreview(String id) => _imageFile(id);
+  File imageFileForPreview(String id) {
+    final png = _imageFile(id);
+    if (png.existsSync()) return png;
+    final webp = _imageWebp(id);
+    return webp.existsSync() ? webp : png;
+  }
 
   File _imageFile(String id) => File('${_imagesDir.path}/$id.png');
+  File _imageWebp(String id) => File('${_imagesDir.path}/$id.webp');
+
+  /// 盘上那张原图(PNG 优先);都没有给 null。
+  Future<File?> _existingImage(String id) async {
+    for (final f in [_imageFile(id), _imageWebp(id)]) {
+      if (await f.exists()) return f;
+    }
+    return null;
+  }
+
   File _thumbPng(String id) => File('${_thumbsDir.path}/$id.png');
   File _thumbJpg(String id) => File('${_thumbsDir.path}/$id.jpg');
   File _thumbSourceFile(String id) => File('${_thumbsDir.path}/$id.json');
@@ -186,15 +213,18 @@ class GalleryStore {
     };
     final extra = <ResultImage>[];
     await for (final entry in _imagesDir.list()) {
-      if (entry is! File || !entry.path.endsWith('.png')) continue;
+      if (entry is! File ||
+          !(entry.path.endsWith('.png') || entry.path.endsWith('.webp'))) {
+        continue;
+      }
       final id = _idOf(entry);
       final match = _seqRe.firstMatch(id);
       if (match != null) {
         final next = int.parse(match[1]!) + 1;
         if (next > seq) seq = next;
       }
-      if (known.contains(id)) continue;
-      final (width, height) = await _pngSize(entry);
+      if (!known.add(id)) continue;
+      final (width, height) = await _imageSize(entry);
       extra.add(
         ResultImage(
           id: id,
@@ -229,8 +259,8 @@ class GalleryStore {
       }
       var t = 0;
       try {
-        final f = _imageFile(r.id);
-        if (await f.exists()) {
+        final f = await _existingImage(r.id);
+        if (f != null) {
           t = (await f.stat()).modified.millisecondsSinceEpoch;
         }
       } catch (_) {}
@@ -259,7 +289,10 @@ class GalleryStore {
     try {
       final files = <File>[];
       await for (final ent in _imagesDir.list()) {
-        if (ent is File && ent.path.endsWith('.png')) files.add(ent);
+        if (ent is File &&
+            (ent.path.endsWith('.png') || ent.path.endsWith('.webp'))) {
+          files.add(ent);
+        }
       }
       int numOf(File f) {
         final m = _seqRe.firstMatch(_idOf(f));
@@ -269,7 +302,7 @@ class GalleryStore {
       files.sort((a, b) => numOf(a).compareTo(numOf(b))); // 还原生成先后
       for (final f in files) {
         final id = _idOf(f);
-        final (w, h) = await _pngSize(f);
+        final (w, h) = await _imageSize(f);
         var t = 0;
         try {
           t = (await f.stat()).modified.millisecondsSinceEpoch;
@@ -303,20 +336,19 @@ class GalleryStore {
 
   static String _idOf(File f) {
     final n = f.uri.pathSegments.last;
-    return n.substring(0, n.length - 4); // 去 .png
+    return n.substring(0, n.lastIndexOf('.')); // 去 .png / .webp
   }
 
-  /// 只读 PNG 头拿宽高(IHDR 里 offset 16/20),不解码整图。
-  static Future<(int, int)> _pngSize(File f) async {
+  /// 只读文件头拿宽高(PNG 的 IHDR / WebP 的 VP8X 等),不解码整图。
+  static Future<(int, int)> _imageSize(File? f) async {
+    if (f == null) return (0, 0);
     try {
       final head = <int>[];
-      await for (final chunk in f.openRead(0, 24)) {
+      await for (final chunk in f.openRead(0, 30)) {
         head.addAll(chunk);
-        if (head.length >= 24) break;
+        if (head.length >= 30) break;
       }
-      if (head.length < 24) return (0, 0);
-      final bd = ByteData.sublistView(Uint8List.fromList(head));
-      return (bd.getUint32(16), bd.getUint32(20));
+      return imageSizeOf(Uint8List.fromList(head)) ?? (0, 0);
     } catch (_) {
       return (0, 0);
     }
@@ -360,9 +392,12 @@ class GalleryStore {
     return _enqueue(() async {
       // 全部走原子写:半截 PNG 会变成永远打不开的坏图,半截快照 JSON 会让
       // 「重新生成」读不出参数(见 atomic_file.dart)
-      await writeBytesAtomic(_imageFile(r.id), bytes);
+      await writeBytesAtomic(
+        isWebp(bytes) ? _imageWebp(r.id) : _imageFile(r.id),
+        bytes,
+      );
       try {
-        await _writeThumb(r.id, bytes, await _imageFile(r.id).stat());
+        await _writeThumb(r.id, bytes, await imageFileForPreview(r.id).stat());
       } catch (
         _
       ) {} // Invalid/missing provenance makes readers use the original.
@@ -492,13 +527,13 @@ class GalleryStore {
   }) => _enqueue(() async {
     final deleted = <String>{};
     for (final id in ids.toSet()) {
-      final original = _imageFile(id);
+      final originals = [_imageFile(id), _imageWebp(id)];
       try {
         if (canDelete?.call(id) == false) continue;
         // Revoke recovery before unlinking the original. A failed cleanup keeps
         // the image and its index entry available for a later retry.
         for (final file in [
-          original,
+          ...originals,
           _thumbPng(id),
           _thumbJpg(id),
           _thumbSourceFile(id),
@@ -506,29 +541,29 @@ class GalleryStore {
         ]) {
           await _deleteRecoveryFiles(file);
         }
-        final type = await FileSystemEntity.type(
-          original.path,
-          followLinks: false,
-        );
-        if (type == FileSystemEntityType.file ||
-            type == FileSystemEntityType.link) {
-          if (canDelete != null) {
-            // A membership change may arrive while stat is in progress. Keep
-            // the last guard and unlink in one event-loop turn for this path.
-            if (!canDelete(id)) continue;
-            original.deleteSync();
-          } else {
-            await original.delete();
+        final present = <File>[];
+        var removable = true;
+        for (final original in originals) {
+          final type = await FileSystemEntity.type(
+            original.path,
+            followLinks: false,
+          );
+          if (type == FileSystemEntityType.file ||
+              type == FileSystemEntityType.link) {
+            present.add(original);
+          } else if (type != FileSystemEntityType.notFound) {
+            removable = false;
           }
         }
-        final remaining = canDelete != null
-            ? FileSystemEntity.typeSync(original.path, followLinks: false)
-            : await FileSystemEntity.type(original.path, followLinks: false);
-        if (remaining != FileSystemEntityType.notFound) {
-          continue;
+        if (!removable || canDelete?.call(id) == false) continue;
+        for (final original in present) {
+          original.deleteSync();
         }
-        if (type == FileSystemEntityType.notFound &&
-            canDelete?.call(id) == false) {
+        if (originals.any(
+          (file) =>
+              FileSystemEntity.typeSync(file.path, followLinks: false) !=
+              FileSystemEntityType.notFound,
+        )) {
           continue;
         }
         deleted.add(id);
@@ -678,8 +713,8 @@ class GalleryStore {
 
   Future<Uint8List?> readImage(String id) async {
     try {
-      final f = _imageFile(id);
-      if (!await f.exists()) return null;
+      final f = await _existingImage(id);
+      if (f == null) return null;
       return await f.readAsBytes();
     } catch (_) {
       return null;
@@ -710,7 +745,7 @@ class GalleryStore {
     ({Uint8List bytes, bool jpeg}) thumb,
     FileStat source,
   ) async {
-    final current = await _imageFile(id).stat();
+    final current = await imageFileForPreview(id).stat();
     if (!_sameSource(current, source)) return;
     final format = thumb.jpeg ? 'jpg' : 'png';
     await writeBytesAtomic(
@@ -751,7 +786,7 @@ class GalleryStore {
   Future<({FileStat source, Uint8List bytes, bool cached})?> _thumbInput(
     String id,
   ) async {
-    final source = await _imageFile(id).stat();
+    final source = await imageFileForPreview(id).stat();
     if (source.type != FileSystemEntityType.file) return null;
     try {
       final signature = jsonDecode(await _thumbSourceFile(id).readAsString());
@@ -765,7 +800,7 @@ class GalleryStore {
             await (signature['format'] == 'jpg' ? _thumbJpg(id) : _thumbPng(id))
                 .readAsBytes();
         if (signature['thumbSha256'] == sha256.convert(thumb).toString() &&
-            _sameSource(await _imageFile(id).stat(), source)) {
+            _sameSource(await imageFileForPreview(id).stat(), source)) {
           return (source: source, bytes: thumb, cached: true);
         }
       }
@@ -785,10 +820,10 @@ class GalleryStore {
       // Decoding runs outside the write queue; only a still-current original may
       // publish its cache. A delete/clear queued during decoding wins safely.
       await _enqueue(() => _cacheThumb(id, thumb, source));
-      final current = await _imageFile(id).stat();
+      final current = await imageFileForPreview(id).stat();
       if (current.type == FileSystemEntityType.notFound) {
         await _enqueue(() async {
-          if (await _imageFile(id).exists()) return;
+          if (await _existingImage(id) != null) return;
           for (final file in [
             _thumbPng(id),
             _thumbJpg(id),
@@ -821,18 +856,23 @@ class GalleryStore {
   ///
   ///   1 → 2:禁用的角色卡不再进索引(旧版把它们也收了,搜得到图里没画的东西,
   ///          按角色分组也跟着归错)。
-  static const _searchVersion = 2;
+  ///   2 → 3:多存来源(灵感库条目 id、角色卡名、折叠组名);换行算分隔。
+  static const _searchVersion = 3;
 
   /// 检索索引读入;空/坏/**版本不对** → 空表(回填会重扫快照补齐)。
-  /// 值是结构化 record,与 gallery_search 的 GallerySearchMeta 结构同型
-  /// (record 按结构判型,这里不 import 上层 feature 文件,避免环)。
-  Future<Map<String, ({String model, String text})>> readSearchIndex() async {
+  Future<Map<String, GallerySearchMeta>> readSearchIndex() async {
     try {
       if (!await _searchFile.exists()) return const {};
       final j = jsonDecode(await _searchFile.readAsString());
       if (j is! Map || j['v'] != _searchVersion || j['items'] is! Map) {
         return const {};
       }
+      List<String> strs(Object? v) => v is List
+          ? [
+              for (final x in v)
+                if (x is String) x,
+            ]
+          : const [];
       return {
         for (final e in (j['items'] as Map).entries)
           if (e.key is String &&
@@ -841,6 +881,9 @@ class GalleryStore {
             e.key as String: (
               model: ((e.value as Map)['m'] as String?) ?? '',
               text: (e.value as Map)['t'] as String,
+              ids: strs((e.value as Map)['i']),
+              cards: strs((e.value as Map)['c']),
+              folds: strs((e.value as Map)['f']),
             ),
       };
     } catch (_) {
@@ -850,9 +893,9 @@ class GalleryStore {
 
   // 检索索引防抖写(与主索引同节奏)。窗口内被杀 → 下次启动回填重建,无妨。
   Timer? _searchTimer;
-  Map<String, ({String model, String text})>? _searchPending;
+  Map<String, GallerySearchMeta>? _searchPending;
 
-  void writeSearchIndex(Map<String, ({String model, String text})> byId) {
+  void writeSearchIndex(Map<String, GallerySearchMeta> byId) {
     _searchPending = byId;
     _searchTimer?.cancel();
     _searchTimer = Timer(const Duration(milliseconds: 400), () {
@@ -866,7 +909,13 @@ class GalleryStore {
             'v': _searchVersion,
             'items': {
               for (final e in m.entries)
-                e.key: {'m': e.value.model, 't': e.value.text},
+                e.key: {
+                  'm': e.value.model,
+                  't': e.value.text,
+                  if (e.value.ids.isNotEmpty) 'i': e.value.ids,
+                  if (e.value.cards.isNotEmpty) 'c': e.value.cards,
+                  if (e.value.folds.isNotEmpty) 'f': e.value.folds,
+                },
             },
           }),
         );

@@ -1,3 +1,4 @@
+import '../../l10n/l10n.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -21,7 +22,7 @@ class GpuBillsPage extends ConsumerWidget {
     final async = ref.watch(gpuBillsProvider);
     final b = async.value;
     return Scaffold(
-      appBar: AppBar(title: const Text('算力账单')),
+      appBar: AppBar(title: Text(l10nNow.desktopComputeBill)),
       body: RefreshIndicator(
         onRefresh: () async => ref.invalidate(gpuBillsProvider),
         child: ListView(
@@ -30,7 +31,7 @@ class GpuBillsPage extends ConsumerWidget {
             if (async.isLoading && b == null)
               const _SumCard(bills: null)
             else if (b == null || !b.ok)
-              const StatsCard(child: Text('账单加载失败,下拉重试')),
+              StatsCard(child: Text(l10nNow.desktopCouldNotLoadTheBillPullToRetry)),
             if (b != null && b.ok) ...[
               if (b.isEmpty)
                 // 刚结完账正是这个分支:本期空的,但上期账单还得看得见 ——
@@ -75,7 +76,7 @@ class _EmptyHint extends StatelessWidget {
       ),
       const SizedBox(height: 4),
       Text(
-        '免费共享出图不计费,只有独享实例和生成视频才产生费用。',
+        l10nNow.desktopSharedImageGenerationIsFreeDedicatedInstancesAnd,
         style: context.texts.bodySmall!.copyWith(
           color: context.scheme.onSurfaceVariant,
         ),
@@ -156,7 +157,7 @@ class _SumCard extends StatelessWidget {
               Expanded(
                 child: _Part(
                   icon: Icons.developer_board,
-                  label: '出图租卡',
+                  label: l10nNow.desktopGPURentalForImageGeneration,
                   value: b == null ? null : fmtYuan(b.rentalCost),
                   sub: b == null
                       ? null
@@ -168,7 +169,7 @@ class _SumCard extends StatelessWidget {
               Expanded(
                 child: _Part(
                   icon: Icons.movie_outlined,
-                  label: '生成视频',
+                  label: l10nNow.desktopVideoGeneration,
                   value: b == null ? null : fmtYuan(b.videoCost),
                   sub: b == null
                       ? null
@@ -179,7 +180,7 @@ class _SumCard extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           Text(
-            '免费共享出图不计费',
+            l10nNow.desktopSharedImageGenerationIsFree,
             style: context.texts.labelSmall!.copyWith(color: scheme.outline),
           ),
         ],
@@ -293,7 +294,7 @@ class _LastPeriodCard extends StatelessWidget {
               ),
               const SizedBox(width: 6),
               Text(
-                '上期账单',
+                l10nNow.desktopPreviousBill,
                 style: context.texts.bodyMedium!.copyWith(
                   fontWeight: FontWeight.w600,
                 ),
@@ -355,7 +356,7 @@ class _RunningCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  '正在计费中',
+                  l10nNow.desktopBillingInProgress,
                   style: context.texts.bodyMedium!.copyWith(
                     fontWeight: FontWeight.w600,
                   ),
@@ -412,7 +413,7 @@ class _DetailCard extends StatelessWidget {
           Row(
             children: [
               Text(
-                '消费明细',
+                l10nNow.desktopChargeDetails,
                 style: context.texts.bodyMedium!.copyWith(
                   fontWeight: FontWeight.w600,
                 ),

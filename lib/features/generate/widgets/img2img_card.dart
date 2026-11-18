@@ -137,13 +137,15 @@ class _Img2ImgCardState extends ConsumerState<Img2ImgCard> {
         if (hasImage)
           RoundIconBtn(
             Icons.delete_outline,
-            tooltip: '移除底图',
+            tooltip: context.l10n.removeBaseImage,
             color: context.scheme.error,
             onTap: notifier.disableImg2Img,
           ),
         RoundIconBtn(
           Icons.add,
-          tooltip: hasImage ? '更换底图' : '选择底图',
+          tooltip: hasImage
+              ? context.l10n.changeBaseImage
+              : context.l10n.selectBaseImage,
           color: context.scheme.primary,
           onTap: _onPick,
         ),
@@ -201,7 +203,7 @@ class _Img2ImgCardState extends ConsumerState<Img2ImgCard> {
             key: ValueKey(
               ref.watch(canvasWorkspaceProvider.select((w) => w.activeId)),
             ),
-            label: '用作图生图底图',
+            label: l10nNow.desktopUseAsImageToImageInput,
             acceptPaste: true,
             onDrop: (images, _) =>
                 setImg2ImgFromImage(context, ref, images.single.bytes),

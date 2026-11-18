@@ -1,3 +1,4 @@
+import '../../../l10n/l10n.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -124,7 +125,7 @@ class _TransferDialogState extends ConsumerState<_TransferDialog> {
               const SizedBox(height: 12),
               Expanded(
                 child: targets.isEmpty
-                    ? const Center(child: Text('还没有其他图库，可以先新建一个'))
+                    ? Center(child: Text(l10nNow.desktopCreateAnotherGalleryFirst))
                     : ListView.builder(
                         itemCount: targets.length,
                         itemBuilder: (_, i) {
@@ -170,7 +171,7 @@ class _TransferDialogState extends ConsumerState<_TransferDialog> {
                         }
                       },
                 icon: const Icon(Icons.create_new_folder_outlined),
-                label: const Text('新建图库'),
+                label: Text(l10nNow.desktopNewGallery),
               ),
             ],
           ),
@@ -178,7 +179,7 @@ class _TransferDialogState extends ConsumerState<_TransferDialog> {
         actions: [
           TextButton(
             onPressed: _busy ? null : () => Navigator.pop(context),
-            child: const Text('取消'),
+            child: Text(l10nNow.cancel),
           ),
           FilledButton(
             key: const ValueKey('gallery-transfer-submit'),

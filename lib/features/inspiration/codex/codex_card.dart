@@ -1,3 +1,4 @@
+import '../../../l10n/l10n.dart';
 import 'package:flutter/material.dart';
 
 import '../../../core/net/remote_image.dart';
@@ -218,7 +219,7 @@ class CodexCard extends StatelessWidget {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    '预览加载中…',
+                    l10nNow.desktopLoadingPreview,
                     style: context.texts.bodySmall?.copyWith(
                       color: scheme.outline,
                     ),

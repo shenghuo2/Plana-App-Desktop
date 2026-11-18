@@ -20,6 +20,7 @@ import '../tag_models.dart';
 import 'tag_card.dart';
 import 'tag_filter_chips.dart';
 import 'tag_sheets.dart';
+import '../../../l10n/l10n.dart';
 
 /// 选中的一个条目:条目 + 它该显示的预览(按 publicId 补过,见 [tagPreviewOf])。
 typedef PickedChar = ({TagEntry entry, String? preview});
@@ -147,7 +148,11 @@ class _PickSheetState extends ConsumerState<_PickSheet> {
 
   bool _roomFull() {
     if (_count < widget.max) return false;
-    hintSnack(context, '最多选 ${widget.max} 个', icon: Icons.block_outlined);
+    hintSnack(
+      context,
+      context.l10n.maxSelectN(widget.max),
+      icon: Icons.block_outlined,
+    );
     return true;
   }
 
@@ -259,7 +264,7 @@ class _PickSheetState extends ConsumerState<_PickSheet> {
                       ),
                     ),
                     IconButton(
-                      tooltip: '关闭',
+                      tooltip: l10nNow.close,
                       onPressed: () => Navigator.pop(context),
                       icon: const Icon(Icons.close),
                     ),
@@ -317,7 +322,9 @@ class _PickSheetState extends ConsumerState<_PickSheet> {
                     size: 18,
                   ),
                   label: Text(
-                    widget.library ? '加入 ($_count)' : '加入角色 ($_count)',
+                    widget.library
+                        ? context.l10n.addLibN(_count)
+                        : context.l10n.addCharsN(_count),
                   ),
                 ),
               ),
@@ -384,7 +391,6 @@ class _PickSheetState extends ConsumerState<_PickSheet> {
               previewUrl: preview,
               decodeWidth: cellW,
               selected: _picks.containsKey(_tagKey(e)),
-              isPublic: false,
               showCheck: _multi,
               onTap: () => _toggle(e, preview),
               onLongPress: () => showTagDetailSheet(context, e),
@@ -414,7 +420,9 @@ class _PickSheetState extends ConsumerState<_PickSheet> {
     if (list.isEmpty) {
       return _empty(
         Icons.menu_book_outlined,
-        favs.isEmpty ? '还没有收藏' : '没有匹配的词条',
+        favs.isEmpty
+            ? context.l10n.noFavoritesYet
+            : context.l10n.noMatchingEntries,
       );
     }
     // 收藏里存的是词条快照,图 URL 还得靠 meta;索引里找不到就给个占位,

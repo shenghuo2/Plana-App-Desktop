@@ -2,6 +2,7 @@
 /// 后续接 NAI 生成链路时补 bytes / 本地缓存路径与生成参数快照。
 library;
 
+import '../../l10n/l10n.dart';
 import 'dart:typed_data';
 import 'dart:ui' show Color;
 
@@ -19,7 +20,7 @@ extension ResultBadgeX on ResultBadge {
   String? get label => switch (this) {
     ResultBadge.upscaled => '4x',
     ResultBadge.upscaled2x => '2x',
-    ResultBadge.inpaint => '重绘',
+    ResultBadge.inpaint => l10nNow.inpaint,
     ResultBadge.censored => '打码',
     ResultBadge.director => '导演',
     ResultBadge.none => null,

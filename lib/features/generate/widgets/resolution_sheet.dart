@@ -27,6 +27,7 @@ String _sizeLabel(AppLocalizations l, String name) => switch (name) {
   '方形' => l.sizeSquare,
   '竖屏' => l.sizePortraitScreen,
   '横屏' => l.sizeLandscapeScreen,
+  '手机' => l.sizePhone,
   _ => name,
 };
 SizePreset _asSize(ResPreset p) =>
@@ -136,7 +137,7 @@ class _ResolutionSheetState extends ConsumerState<_ResolutionSheet> {
     try {
       await ref.read(resPresetsProvider.notifier).add(w, h);
     } catch (_) {
-      if (mounted) hintSnack(context, '尺寸预设未能保存，请检查磁盘后重试');
+      if (mounted) hintSnack(context, l10nNow.desktopCouldNotSaveTheSizePresetCheckYour);
     }
     if (!mounted) return;
     final p = ref.read(resPresetsProvider.notifier).find(w, h);
@@ -169,7 +170,7 @@ class _ResolutionSheetState extends ConsumerState<_ResolutionSheet> {
     try {
       await saving;
     } catch (_) {
-      if (mounted) hintSnack(context, '删除未能保存，请检查磁盘后重试');
+      if (mounted) hintSnack(context, l10nNow.desktopCouldNotSaveTheDeletionCheckYourDisk);
     }
   }
 
@@ -182,7 +183,7 @@ class _ResolutionSheetState extends ConsumerState<_ResolutionSheet> {
         ? _save
         : null,
     icon: const Icon(Icons.bookmark_add_outlined, size: 18),
-    label: const Text('保存尺寸预设'),
+    label: Text(l10nNow.desktopSaveSizePreset),
   );
 
   @override
@@ -324,7 +325,7 @@ class _ResolutionSheetState extends ConsumerState<_ResolutionSheet> {
                 ),
               ),
               IconButton(
-                tooltip: '关闭',
+                tooltip: l10nNow.close,
                 onPressed: () => Navigator.pop(context),
                 constraints: const BoxConstraints.tightFor(
                   width: 32,
@@ -397,7 +398,7 @@ class _ResolutionSheetState extends ConsumerState<_ResolutionSheet> {
           if (_isCustom) _saveButton(),
           const Divider(height: 24),
           Tooltip(
-            message: '免费档（≤1.05 MP）：Opus ≤28 步单张免费；更大按张扣 Anlas。',
+            message: l10nNow.desktopFreeTier105MPOpusCoversA,
             child: _StatusStrip(width: _effW, height: _effH),
           ),
           const SizedBox(height: 16),
@@ -487,17 +488,21 @@ class _ResolutionSheetState extends ConsumerState<_ResolutionSheet> {
           ),
           const SizedBox(height: 6),
           SegmentedButton<String>(
+            // 英文段名长,五段时窄屏挤不下的那段缩字号
             segments: [
               for (final t in sizeTabs.keys)
                 ButtonSegment(
                   value: t,
-                  label: Text(_sizeLabel(context.l10n, t)),
+                  label: _SegLabel(_sizeLabel(context.l10n, t)),
                 ),
               if (mine.isNotEmpty)
-                const ButtonSegment(value: _mineTab, label: Text(_mineTab)),
+                ButtonSegment(
+                  value: _mineTab,
+                  label: _SegLabel(context.l10n.sizeMine),
+                ),
               ButtonSegment(
                 value: _customTab,
-                label: Text(context.l10n.sizeCustom),
+                label: _SegLabel(context.l10n.sizeCustom),
               ),
             ],
             selected: {tab},
@@ -554,7 +559,7 @@ class _ResolutionSheetState extends ConsumerState<_ResolutionSheet> {
             _saveButton(),
             const SizedBox(height: 8),
             Text(
-              '可手动输入宽高；小数取整数部分，尺寸自动对齐 64 像素。',
+              l10nNow.desktopEnterWidthAndHeightDecimalsAreTruncatedAnd,
               style: context.texts.bodySmall,
             ),
           ],
@@ -1023,6 +1028,17 @@ class _SwapBtn extends StatelessWidget {
   }
 }
 
+/// 分段按钮的段名:放不下时缩字号,不折行。
+class _SegLabel extends StatelessWidget {
+  const _SegLabel(this.text);
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) =>
+      FittedBox(fit: BoxFit.scaleDown, child: Text(text, maxLines: 1));
+}
+
 class _QuickChip extends StatelessWidget {
   const _QuickChip(this.label, {required this.onTap});
 
@@ -1141,7 +1157,7 @@ class _PresetCard extends StatelessWidget {
                 ),
                 if (onLongPress != null)
                   IconButton(
-                    tooltip: '删除尺寸预设',
+                    tooltip: l10nNow.desktopDeleteSizePreset,
                     onPressed: onLongPress,
                     visualDensity: VisualDensity.compact,
                     icon: const Icon(Icons.delete_outline, size: 18),

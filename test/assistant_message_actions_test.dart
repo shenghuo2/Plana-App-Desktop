@@ -78,6 +78,11 @@ const _messages = [
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  setUpAll(() async {
+    for (final family in RulesFamily.values) {
+      await bundledDefaultRules(family);
+    }
+  });
   late AppStores stores;
   late ProviderContainer c;
 
@@ -447,6 +452,11 @@ void main() {
       final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
       addTearDown(() => server.close(force: true));
       server.listen((request) async {
+        if (request.uri.path == '/api/agent/channel') {
+          request.response.statusCode = HttpStatus.notFound;
+          await request.response.close();
+          return;
+        }
         requests.add(
           jsonDecode(await utf8.decoder.bind(request).join())
               as Map<String, dynamic>,

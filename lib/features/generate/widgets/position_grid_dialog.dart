@@ -11,6 +11,7 @@ import '../char_position.dart';
 import '../generate_state.dart';
 import '../models.dart';
 import '../../../l10n/l10n.dart';
+import '../display_names.dart';
 
 /// 角色定位弹窗(对齐 web `CharacterPositionModal`)。
 ///
@@ -423,7 +424,7 @@ class _PositionDialogState extends ConsumerState<_PositionDialog> {
               ),
               const SizedBox(width: 6),
               Text(
-                c.name,
+                characterDisplayName(context.l10n, c.name),
                 style: context.texts.labelMedium!.copyWith(
                   fontWeight: FontWeight.w600,
                   color: active
@@ -565,7 +566,7 @@ class _PositionDialogState extends ConsumerState<_PositionDialog> {
             Text(
               _dragging
                   ? positionChipLabel(_draft[_selectedId])
-                  : '${params.width}×${params.height} · 点按或拖动放置角色',
+                  : context.l10n.positionHint(params.width, params.height),
               style: context.texts.labelSmall!.copyWith(
                 fontFeatures: const [FontFeature.tabularFigures()],
                 color: scheme.onSurfaceVariant,

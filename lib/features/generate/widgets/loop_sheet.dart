@@ -12,6 +12,7 @@ import '../loop_controller.dart';
 import '../models.dart';
 import '../vibe_encoder.dart';
 import 'common.dart' show confirmDialog, hintSnack;
+import '../../../l10n/l10n.dart';
 
 /// 循环生成面板:选张数 → 看预估 → 开始;运行中切换为批次进度 + 停止。
 /// 抓手由 BottomSheetTheme(showDragHandle: true)统一提供。
@@ -89,26 +90,27 @@ class _SetupState extends ConsumerState<_Setup> {
         isValidCustomLoopCount(int.tryParse(_customCount.text.trim()));
     final n = p.loopCount;
 
+    final l = context.l10n;
     final free = cost == 0 && vibeFee == 0;
     final costText = free
-        ? '免费'
+        ? l.free
         : n > 0
-        ? '$cost/张 · 共 ${cost * n + vibeFee} Anlas'
-        : '$cost Anlas/张${vibeFee > 0 ? ' + 编码 $vibeFee' : ''}';
+        ? l.costPerImageTotal(cost, cost * n + vibeFee)
+        : '${l.costPerImage(cost)}'
+              '${vibeFee > 0 ? l.costEncodeExtra(vibeFee) : ''}';
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          '循环生成',
+          l.loopGenerate,
           style: context.texts.titleMedium!.copyWith(
             fontWeight: FontWeight.w700,
           ),
         ),
         const SizedBox(height: 6),
         Text(
-          '按当前参数一张接一张地出图,种子留空就每张随机。'
-          '中途出错会自动停下,也可以退到后台,进度在通知栏继续。',
+          l.loopIntro,
           style: context.texts.bodySmall!.copyWith(
             color: scheme.onSurfaceVariant,
           ),
@@ -117,7 +119,7 @@ class _SetupState extends ConsumerState<_Setup> {
         Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('张数', style: context.texts.bodyMedium),
+            Text(l10nNow.imageCount, style: context.texts.bodyMedium),
             const SizedBox(height: 8),
             SizedBox(
               width: double.infinity,
@@ -155,7 +157,7 @@ class _SetupState extends ConsumerState<_Setup> {
             autofocus: true,
             keyboardType: TextInputType.number,
             decoration: InputDecoration(
-              labelText: '自定义张数',
+              labelText: l10nNow.desktopCustomImageCount,
               suffixText: '张',
               helperText: '输入 1–$kMaxCustomLoopCount 的整数',
               errorText: valid ? null : '请输入 1–$kMaxCustomLoopCount 的整数',
@@ -172,7 +174,9 @@ class _SetupState extends ConsumerState<_Setup> {
         const SizedBox(height: 12),
         Row(
           children: [
-            Expanded(child: Text('预估消耗', style: context.texts.bodyMedium)),
+            Expanded(
+              child: Text(l.estimatedCost, style: context.texts.bodyMedium),
+            ),
             // 「12/张 · 共 246 Anlas」这类串在窄屏会顶破一行,收进 Flexible
             Flexible(
               child: Text(
@@ -203,12 +207,11 @@ class _SetupState extends ConsumerState<_Setup> {
                   if (n == 0 && (cost > 0 || vibeFee > 0)) {
                     final ok = await confirmDialog(
                       context,
-                      title: '无限循环会持续扣点',
-                      message:
-                          '当前参数每张约 $cost Anlas'
-                          '${vibeFee > 0 ? '(另首张含 $vibeFee 点 Vibe 编码费)' : ''}'
-                          ',张数为无限——不点停止就会一直生成,退到后台也会继续。确定开始?',
-                      confirmLabel: '开始',
+                      title: l.infiniteLoopTitle,
+                      message: vibeFee > 0
+                          ? l.infiniteLoopBodyFee(cost, vibeFee)
+                          : l.infiniteLoopBody(cost),
+                      confirmLabel: l.start,
                     );
                     if (!ok || !context.mounted) return;
                   }
@@ -219,7 +222,7 @@ class _SetupState extends ConsumerState<_Setup> {
                   if (skipped > 0) {
                     hintSnack(
                       context,
-                      '$skipped 个 Vibe 缺当前模型编码,已停用',
+                      l.vibesDisabledNoEncoding(skipped),
                       icon: Icons.visibility_off_outlined,
                     );
                   }
@@ -268,7 +271,7 @@ class _Running extends ConsumerWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          '循环生成中',
+          context.l10n.loopRunning,
           style: context.texts.titleMedium!.copyWith(
             fontWeight: FontWeight.w700,
           ),
@@ -279,8 +282,8 @@ class _Running extends ConsumerWidget {
           children: [
             Text(
               loop.total > 0
-                  ? '第 ${loop.batch} / ${loop.total} 张'
-                  : '第 ${loop.batch} 张',
+                  ? context.l10n.loopImageOf(loop.batch, loop.total)
+                  : context.l10n.loopImage(loop.batch),
               style: context.texts.titleLarge!.copyWith(
                 fontWeight: FontWeight.w700,
               ),
@@ -315,7 +318,9 @@ class _Running extends ConsumerWidget {
             ),
           ),
           child: Text(
-            loop.stopping ? '本张后停止' : '停止(本张跑完后)',
+            loop.stopping
+                ? context.l10n.loopStopping
+                : context.l10n.loopStopAfterThis,
             style: const TextStyle(fontWeight: FontWeight.w700),
           ),
         ),

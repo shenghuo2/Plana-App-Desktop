@@ -1,3 +1,4 @@
+import '../../l10n/l10n.dart';
 import 'dart:typed_data';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -132,7 +133,7 @@ class _DirectorPageState extends ConsumerState<DirectorPage> {
       );
       if (mounted) hintSnack(context, '已保存：${file.path}');
     } catch (error) {
-      if (mounted) hintSnack(context, '保存失败，请检查文件夹权限和剩余空间');
+      if (mounted) hintSnack(context, l10nNow.desktopCouldNotSaveCheckFolderPermissionsAndAvailable);
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -151,11 +152,11 @@ class _DirectorPageState extends ConsumerState<DirectorPage> {
       key: const ValueKey('director-page'),
       appBar: AppBar(
         leading: IconButton(
-          tooltip: '返回创作',
+          tooltip: l10nNow.desktopBackToCreate,
           icon: const Icon(Icons.arrow_back),
           onPressed: () => Navigator.of(context).pop(),
         ),
-        title: const Text('导演工具'),
+        title: Text(l10nNow.desktopDirectorTools),
         actions: [
           if (state.busy)
             const Padding(
@@ -221,7 +222,7 @@ class _DirectorPageState extends ConsumerState<DirectorPage> {
                           child: DirectorPreview(
                             key: const ValueKey('director-source'),
                             identity: source?.id,
-                            title: '待处理图片',
+                            title: l10nNow.desktopInputImages,
                             bytes: source?.bytes,
                             width: source?.width,
                             height: source?.height,
@@ -238,7 +239,7 @@ class _DirectorPageState extends ConsumerState<DirectorPage> {
                         child: DirectorPreview(
                           key: const ValueKey('director-result'),
                           identity: preview?.id,
-                          title: '结果／历史预览',
+                          title: l10nNow.desktopResultAndHistoryPreview,
                           bytes: previewBytes,
                           width: preview?.width,
                           height: preview?.height,
@@ -389,7 +390,7 @@ class _DirectorPageState extends ConsumerState<DirectorPage> {
                           if (state.hasPendingSave && !state.busy)
                             TextButton(
                               onPressed: controller.retrySave,
-                              child: const Text('重试保存'),
+                              child: Text(l10nNow.desktopRetrySave),
                             ),
                         ],
                       ),
@@ -406,7 +407,7 @@ class _DirectorPageState extends ConsumerState<DirectorPage> {
 
   Widget _drop({required Widget child, bool acceptPaste = false}) =>
       ImageDropRegion(
-        label: '加入待处理图片',
+        label: l10nNow.desktopAddToInputImages,
         multiple: true,
         enabled: !_adding,
         acceptPaste: acceptPaste,
@@ -425,13 +426,13 @@ class _DirectorPageState extends ConsumerState<DirectorPage> {
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           IconButton(
-            tooltip: '添加图片',
+            tooltip: l10nNow.addImages,
             visualDensity: VisualDensity.compact,
             onPressed: _adding ? null : _pick,
             icon: const Icon(Icons.add_photo_alternate_outlined),
           ),
           IconButton(
-            tooltip: '粘贴图片',
+            tooltip: l10nNow.desktopPasteImage,
             visualDensity: VisualDensity.compact,
             onPressed: _adding ? null : _paste,
             icon: const Icon(Icons.content_paste),
@@ -469,7 +470,7 @@ class _DirectorPageState extends ConsumerState<DirectorPage> {
                       top: 0,
                       right: 0,
                       child: IconButton.filledTonal(
-                        tooltip: '移除待处理图片',
+                        tooltip: l10nNow.desktopRemoveInputImage,
                         visualDensity: VisualDensity.compact,
                         constraints: const BoxConstraints.tightFor(
                           width: 26,
@@ -497,7 +498,7 @@ class _DirectorPageState extends ConsumerState<DirectorPage> {
     String album,
   ) => Column(
     children: [
-      const Text('历史'),
+      Text(l10nNow.history),
       Padding(
         padding: const EdgeInsets.symmetric(vertical: 8),
         child: Tooltip(
@@ -634,19 +635,19 @@ class _DirectorPageState extends ConsumerState<DirectorPage> {
                     }
                   },
             icon: const Icon(Icons.west, size: 18),
-            label: const Text('加入待处理'),
+            label: Text(l10nNow.desktopAddAsInput),
           ),
           TextButton.icon(
             onPressed: () => copyResultToClipboard(context, ref, preview),
             icon: const Icon(Icons.content_copy, size: 18),
-            label: const Text('复制'),
+            label: Text(l10nNow.copy),
           ),
           Tooltip(
-            message: '遵循图库默认保存设置；JPG 会将透明区域合成为白色',
+            message: l10nNow.desktopUsesYourGallerySaveSettingsJPGFillsTransparent,
             child: TextButton.icon(
               onPressed: _saving ? null : () => _save(preview),
               icon: const Icon(Icons.download_outlined, size: 18),
-              label: const Text('保存'),
+              label: Text(l10nNow.save),
             ),
           ),
         ],
@@ -734,8 +735,8 @@ class _DirectorPageState extends ConsumerState<DirectorPage> {
                   final n = int.tryParse(text ?? '');
                   return n == null || n < 2 || n > 256 ? '请输入 2–256' : null;
                 },
-                decoration: const InputDecoration(
-                  labelText: '颜色数 2–256',
+                decoration: InputDecoration(
+                  labelText: l10nNow.desktopPaletteSize2256,
                   border: OutlineInputBorder(),
                 ),
                 onChanged: (s) {
@@ -754,7 +755,7 @@ class _DirectorPageState extends ConsumerState<DirectorPage> {
             width: 200,
             child: CheckboxListTile(
               contentPadding: EdgeInsets.zero,
-              title: const Text('避免过度细化'),
+              title: Text(l10nNow.desktopAvoidOverRefining),
               value: options.avoidOverRefining,
               onChanged: (v) =>
                   controller.options(options.copyWith(avoidOverRefining: v)),
@@ -764,7 +765,7 @@ class _DirectorPageState extends ConsumerState<DirectorPage> {
             width: 160,
             child: CheckboxListTile(
               contentPadding: EdgeInsets.zero,
-              title: const Text('放大输出'),
+              title: Text(l10nNow.desktopUpscaleOutput),
               value: options.upscale,
               onChanged: (v) =>
                   controller.options(options.copyWith(upscale: v)),
@@ -804,8 +805,8 @@ class _DirectorPageState extends ConsumerState<DirectorPage> {
             maxLength: 10000,
             minLines: 1,
             maxLines: 2,
-            decoration: const InputDecoration(
-              labelText: '提示词（可选）',
+            decoration: InputDecoration(
+              labelText: l10nNow.desktopPromptOptional,
               border: OutlineInputBorder(),
               counterText: '',
             ),
@@ -882,7 +883,7 @@ class _DirectorPreviewState extends State<DirectorPreview> {
                   ),
                 ),
                 IconButton(
-                  tooltip: '适应窗口',
+                  tooltip: l10nNow.desktopFitToWindow,
                   icon: const Icon(Icons.fit_screen_outlined, size: 20),
                   onPressed: () => _transform.value = Matrix4.identity(),
                 ),

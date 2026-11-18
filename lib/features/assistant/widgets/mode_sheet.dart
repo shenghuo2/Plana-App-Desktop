@@ -3,6 +3,7 @@
 /// 桌面端贴近按钮显示，移动端使用底部弹层；选中后关闭。
 library;
 
+import '../../../l10n/l10n.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -79,7 +80,7 @@ class _ModeSheet extends StatelessWidget {
           ),
         ),
     ];
-    if (!desktop) return SettingSheet(title: '对话模式', children: items);
+    if (!desktop) return SettingSheet(title: l10nNow.chatMode, children: items);
     return SingleChildScrollView(
       padding: const EdgeInsets.symmetric(vertical: 8),
       child: Column(
@@ -89,7 +90,7 @@ class _ModeSheet extends StatelessWidget {
             padding: const EdgeInsets.only(left: 16, right: 8),
             child: Row(
               children: [
-                const Expanded(child: Text('对话模式')),
+                Expanded(child: Text(l10nNow.chatMode)),
                 const CloseButton(),
               ],
             ),

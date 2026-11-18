@@ -260,10 +260,18 @@ class GenerateNotifier extends Notifier<GenerateState> {
   }
 
   /// 灵感页「加入角色」/ 角色卡头「角色库」:带名追加(名字取自角色条目,
-  /// 头像取条目预览),尊重张数上限(按模型取,见 maxCharactersOf),超出静默
-  /// 截断(对齐 web availableSlots 语义)。返回实际加入条数。
+  /// 头像取条目预览,[source] 是条目 id),尊重张数上限(按模型取,见
+  /// maxCharactersOf),超出静默截断(对齐 web availableSlots 语义)。返回实际加入条数。
   int addNamedCharactersFrom(
-    List<({String name, String positive, String negative, String? avatar})>
+    List<
+      ({
+        String name,
+        String positive,
+        String negative,
+        String? avatar,
+        String? source,
+      })
+    >
     chars,
   ) {
     final cap = maxCharactersOf(state.params.model);
@@ -279,6 +287,7 @@ class GenerateNotifier extends Notifier<GenerateState> {
           negative: c.negative,
           position: _spawnPos(base),
           avatar: c.avatar,
+          source: c.source,
         ),
       );
       added++;
@@ -290,7 +299,7 @@ class GenerateNotifier extends Notifier<GenerateState> {
     return added;
   }
 
-  /// 角色卡点头像换人:名字、正负向、头像整份换成库条目的,站位和开关不动。
+  /// 角色卡点头像换人:名字、正负向、头像、来源整份换成库条目的,站位和开关不动。
   /// 编辑器草稿一并清空(空 = 与定稿无差别)—— 那份草稿对的是旧提示词。
   /// 条目没有预览图时头像也清掉,别让新名字挂着上一个人的脸。
   void fillCharacterFrom(
@@ -299,6 +308,7 @@ class GenerateNotifier extends Notifier<GenerateState> {
     required String positive,
     required String negative,
     String? avatar,
+    String? source,
   }) {
     state = state.copyWith(
       characters: [
@@ -311,6 +321,7 @@ class GenerateNotifier extends Notifier<GenerateState> {
               positiveRaw: '',
               negativeRaw: '',
               avatar: avatar,
+              source: source,
             )
           else
             c,
@@ -869,27 +880,51 @@ class GenerateNotifier extends Notifier<GenerateState> {
   /// 改分区都从这份改起。
   List<PromptSection> get _rows => withMainRow(state.sections, state.prompt);
 
-  /// 整串换掉提示词(读图导入、反推)。分区里同一侧的词一并清掉、骨架留着 ——
-  /// 导进来的是一张图完整的那串,分区再拼上去就重复了。
+  /// 整串换掉提示词(读图导入、反推)。换了正向:分区整列清掉(同卡头清空);
+  /// 只换负面:各格负面清空,格子留着。
   void replacePrompts({String? positive, String? negative}) {
     setPrompts(positive: positive, negative: negative);
     if (state.sections.isEmpty) return;
-    final p = positive != null ? '' : null;
-    final n = negative != null ? '' : null;
+    if (positive != null) {
+      state = state.copyWith(sections: const []);
+      return;
+    }
+    if (negative == null) return;
     state = state.copyWith(
       sections: [
         for (final s in state.sections)
-          s.isMain
-              ? s
-              : s.copyWith(
-                  positive: p,
-                  positiveRaw: p,
-                  negative: n,
-                  negativeRaw: n,
-                ),
+          s.isMain ? s : s.copyWith(negative: '', negativeRaw: ''),
       ],
     );
   }
+
+  /// 读图导入、反推选「新建分区」:正负向成一格「分区 N」接在最后,原有的不动
+  /// (见 [importPromptsInto])。
+  void addPromptSection({String positive = '', String negative = ''}) {
+    state = importPromptsInto(
+      state,
+      positive,
+      negative,
+      SectionImport.newSection,
+      newId: _newId,
+      sectionName: nextSectionName(
+        state.sections.isEmpty ? const [PromptSection.main()] : _rows,
+      ),
+    );
+  }
+
+  /// 读图导入图里存的分区(见 [importSectionsInto])。
+  void importSections(
+    List<PromptSection> rows, {
+    String? mainNegative,
+    required bool append,
+  }) => state = importSectionsInto(
+    state,
+    rows,
+    mainNegative: mainNegative,
+    append: append,
+    newId: _newId,
+  );
 
   /// AI 助手的提议写进来(见 [importPromptsInto])。
   void importPrompts(String positive, String negative, SectionImport mode) =>

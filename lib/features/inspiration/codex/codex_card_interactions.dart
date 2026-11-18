@@ -1,3 +1,4 @@
+import '../../../l10n/l10n.dart';
 import 'dart:async';
 import 'dart:math' as math;
 
@@ -108,7 +109,7 @@ class _CodexCardInteractionsState extends ConsumerState<CodexCardInteractions> {
 
   Future<void> _copy() async {
     await Clipboard.setData(ClipboardData(text: widget.entry.fullText));
-    if (mounted) hintSnack(context, '已复制提示词', icon: Icons.copy);
+    if (mounted) hintSnack(context, l10nNow.promptCopied, icon: Icons.copy);
   }
 
   void _importPrompt(bool section) {
@@ -155,7 +156,7 @@ class _CodexCardInteractionsState extends ConsumerState<CodexCardInteractions> {
       );
     } catch (_) {
       if (mounted) {
-        hintSnack(context, '原图没下下来，检查下网络', icon: Icons.wifi_off_outlined);
+        hintSnack(context, l10nNow.desktopCouldNotDownloadTheOriginalCheckYourConnection, icon: Icons.wifi_off_outlined);
       }
     } finally {
       if (mounted) setState(() => _importing = false);

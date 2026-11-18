@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart' show setEquals;
+import '../../../l10n/l10n.dart';
 
 const allPhotosName = '全部作品';
 // Virtual scopes cannot collide with persisted user album IDs.
@@ -166,11 +167,11 @@ class AlbumsData {
   }) {
     if (targets.any((id) => !exists(id)) ||
         sources?.any((id) => !exists(id)) == true) {
-      throw StateError('图库已不存在，请重新选择');
+      throw StateError(l10nNow.galleryGone);
     }
     if (sources != null &&
         (sources.isEmpty || sources.intersection(targets).isNotEmpty)) {
-      throw StateError('请选择不同的来源和目标图库');
+      throw StateError(l10nNow.chooseDifferentAlbums);
     }
     final next = {...memberships};
     for (final id in imageIds) {

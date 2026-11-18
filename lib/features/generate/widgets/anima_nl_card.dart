@@ -1,3 +1,4 @@
+import '../../../l10n/l10n.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -73,13 +74,13 @@ class _AnimaNlCardState extends ConsumerState<AnimaNlCard> {
 
     return SectionCard(
       icon: Icons.format_align_left,
-      title: '自然语言',
+      title: l10nNow.desktopNaturalLanguage,
       reorderIndex: widget.reorderIndex,
       // 收起时也答得上「这次带没带这段」——同重绘放大卡头报目标尺寸
       inline: [
         if (applied)
           Text(
-            '已写入',
+            l10nNow.desktopAdded,
             style: context.texts.labelMedium!.copyWith(color: scheme.primary),
           ),
       ],
@@ -117,7 +118,7 @@ class _AnimaNlCardState extends ConsumerState<AnimaNlCard> {
               isDense: true,
               filled: true,
               fillColor: scheme.surfaceContainerHigh.withValues(alpha: .5),
-              hintText: '补充要求(可选)· 例:强调雨天湿透的质感',
+              hintText: l10nNow.desktopOptionalInstructionsEGEmphasizeTheRainSoaked,
               hintStyle: context.texts.bodySmall!.copyWith(
                 color: scheme.outline,
               ),
@@ -146,13 +147,13 @@ class _AnimaNlCardState extends ConsumerState<AnimaNlCard> {
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    'AI 正在写句子…',
+                    l10nNow.desktopWritingWithAI,
                     style: context.texts.labelMedium!.copyWith(
                       color: scheme.onSurfaceVariant,
                     ),
                   ),
                 ),
-                TextButton(onPressed: notifier.cancel, child: const Text('取消')),
+                TextButton(onPressed: notifier.cancel, child: Text(l10nNow.cancel)),
               ],
             ),
           ],
@@ -166,7 +167,7 @@ class _AnimaNlCardState extends ConsumerState<AnimaNlCard> {
               children: [
                 Expanded(
                   child: Text(
-                    '点击写入/移出正向提示词',
+                    l10nNow.desktopClickToAddOrRemoveFromThePositive,
                     style: context.texts.labelSmall!.copyWith(
                       color: scheme.outline,
                     ),
@@ -176,7 +177,7 @@ class _AnimaNlCardState extends ConsumerState<AnimaNlCard> {
                   Icons.refresh,
                   size: 30,
                   iconSize: 17,
-                  tooltip: '换个角度重写',
+                  tooltip: l10nNow.desktopRewriteFromAnotherAngle,
                   color: scheme.onSurfaceVariant,
                   onTap: busy || st.mode == null
                       ? null
@@ -187,7 +188,7 @@ class _AnimaNlCardState extends ConsumerState<AnimaNlCard> {
                   Icons.delete_outline,
                   size: 30,
                   iconSize: 17,
-                  tooltip: '清空结果(不动已写进正向词的句子)',
+                  tooltip: l10nNow.desktopClearResultsAndKeepSentencesAlreadyInThe,
                   color: scheme.onSurfaceVariant,
                   onTap: notifier.clearResult,
                 ),

@@ -1,3 +1,4 @@
+import '../../l10n/l10n.dart';
 import 'package:flutter/material.dart';
 
 import '../generate/widgets/common.dart' show InfoNote;
@@ -11,7 +12,7 @@ class BotAuthPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Bot 授权')),
+      appBar: AppBar(title: Text(l10nNow.botAuth)),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
         children: [

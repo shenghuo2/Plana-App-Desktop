@@ -1,3 +1,4 @@
+import '../../l10n/l10n.dart';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
@@ -19,7 +20,7 @@ import '../gallery/gallery_state.dart';
 import '../generate/generate_state.dart';
 import '../generate/style_recipes.dart';
 import '../generate/widgets/common.dart'
-    show ExpandBody, confirmDialog, hintSnack, sharedAxisRoute;
+    show ExpandBody, confirmDialog, hintSnack, measureText, sharedAxisRoute;
 import 'artist_models.dart';
 import 'public_tags.dart';
 import 'tag_library.dart';
@@ -313,7 +314,11 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
       _rememberCategory();
       if (!mounted) return;
       Navigator.pop(context);
-      hintSnack(context, '已保存', icon: Icons.check_circle_outline);
+      hintSnack(
+        context,
+        context.l10n.savedLabel,
+        icon: Icons.check_circle_outline,
+      );
     });
   }
 
@@ -359,7 +364,11 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
           );
       if (!mounted) return;
       Navigator.pop(context);
-      hintSnack(context, '已保存', icon: Icons.check_circle_outline);
+      hintSnack(
+        context,
+        context.l10n.savedLabel,
+        icon: Icons.check_circle_outline,
+      );
     });
   }
 
@@ -415,11 +424,19 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
     if (_guardValidation()) return;
     final session = ref.read(botSessionProvider).value;
     if (session == null) {
-      hintSnack(context, '发布需要 Bot 授权', icon: Icons.cloud_off_outlined);
+      hintSnack(
+        context,
+        l10nNow.desktopPublishingRequiresBotAuthorization,
+        icon: Icons.cloud_off_outlined,
+      );
       return;
     }
     if (!_slots.any((s) => s.filled)) {
-      hintSnack(context, '发布需要一张预览图', icon: Icons.image_not_supported_outlined);
+      hintSnack(
+        context,
+        l10nNow.desktopAddAPreviewImageBeforePublishing,
+        icon: Icons.image_not_supported_outlined,
+      );
       setState(() => _open = 'preview');
       return;
     }
@@ -466,7 +483,11 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
       _rememberCategory();
       if (!mounted) return;
       Navigator.pop(context);
-      hintSnack(context, '已发布到公共库', icon: Icons.public);
+      hintSnack(
+        context,
+        l10nNow.desktopPublishedToThePublicLibrary,
+        icon: Icons.public,
+      );
     });
   }
 
@@ -475,7 +496,11 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
     if (_guardValidation()) return;
     final session = ref.read(botSessionProvider).value;
     if (session == null) {
-      hintSnack(context, '同步需要 Bot 授权', icon: Icons.cloud_off_outlined);
+      hintSnack(
+        context,
+        l10nNow.desktopSyncRequiresBotAuthorization,
+        icon: Icons.cloud_off_outlined,
+      );
       return;
     }
     await _run(() async {
@@ -514,7 +539,11 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
       ref.invalidate(publicTagsProvider(_category));
       if (!mounted) return;
       Navigator.pop(context);
-      hintSnack(context, '已保存并同步', icon: Icons.cloud_done_outlined);
+      hintSnack(
+        context,
+        l10nNow.desktopSavedAndSynced,
+        icon: Icons.cloud_done_outlined,
+      );
     });
   }
 
@@ -531,7 +560,11 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
       await lib.upsert(entry);
       if (!mounted) return;
       Navigator.pop(context);
-      hintSnack(context, '已存为本地副本', icon: Icons.file_copy_outlined);
+      hintSnack(
+        context,
+        l10nNow.desktopSavedAsALocalCopy,
+        icon: Icons.file_copy_outlined,
+      );
     });
   }
 
@@ -539,14 +572,18 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
     final edit = _edit!;
     final ok = await confirmDialog(
       context,
-      title: '撤回公共发布',
+      title: l10nNow.desktopUnpublishFromThePublicLibrary,
       message: '将从公共库撤回「${edit.name}」,本地保留一份可继续编辑的副本。',
       confirmLabel: '撤回',
     );
     if (!ok || !mounted) return;
     final session = ref.read(botSessionProvider).value;
     if (session == null) {
-      hintSnack(context, '需要 Bot 授权', icon: Icons.cloud_off_outlined);
+      hintSnack(
+        context,
+        l10nNow.desktopBotAuthorizationRequired,
+        icon: Icons.cloud_off_outlined,
+      );
       return;
     }
     await _run(() async {
@@ -567,7 +604,11 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
       ref.invalidate(publicTagsProvider(_category));
       if (!mounted) return;
       Navigator.pop(context);
-      hintSnack(context, '已撤回发布,本地保留', icon: Icons.undo);
+      hintSnack(
+        context,
+        l10nNow.desktopUnpublishedTheLocalCopyIsSaved,
+        icon: Icons.undo,
+      );
     });
   }
 
@@ -586,7 +627,7 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
               color: context.scheme.primary,
             ),
             const SizedBox(width: 8),
-            const Text('转让所有者'),
+            Text(l10nNow.desktopTransferOwnership),
           ],
         ),
         content: Column(
@@ -615,9 +656,9 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
               autofocus: true,
               keyboardType: TextInputType.number,
               inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-              decoration: const InputDecoration(
+              decoration: InputDecoration(
                 isDense: true,
-                labelText: '新主人 ID(QQ 号)',
+                labelText: l10nNow.desktopNewOwnerIDQQNumber,
               ),
             ),
           ],
@@ -625,7 +666,7 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('取消'),
+            child: Text(context.l10n.cancel),
           ),
           ValueListenableBuilder(
             valueListenable: input,
@@ -637,7 +678,7 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
                 backgroundColor: context.scheme.error,
                 foregroundColor: context.scheme.onError,
               ),
-              child: const Text('确认转让'),
+              child: Text(l10nNow.desktopConfirmTransfer),
             ),
           ),
         ],
@@ -647,7 +688,11 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
     if (target == null || target.isEmpty || !mounted) return;
     final session = ref.read(botSessionProvider).value;
     if (session == null) {
-      hintSnack(context, '需要 Bot 授权', icon: Icons.cloud_off_outlined);
+      hintSnack(
+        context,
+        l10nNow.desktopBotAuthorizationRequired,
+        icon: Icons.cloud_off_outlined,
+      );
       return;
     }
     await _run(() async {
@@ -668,7 +713,11 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
       ref.invalidate(publicTagsProvider(_category));
       if (!mounted) return;
       Navigator.pop(context);
-      hintSnack(context, '已转让', icon: Icons.manage_accounts_outlined);
+      hintSnack(
+        context,
+        l10nNow.desktopOwnershipTransferred,
+        icon: Icons.manage_accounts_outlined,
+      );
     });
   }
 
@@ -677,9 +726,11 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
     final isCreated = edit.origin == TagOrigin.created;
     final ok = await confirmDialog(
       context,
-      title: '删除「${edit.name}」?',
-      message: isCreated ? '将同时删除公共库条目与本地副本,不可恢复。' : '仅删除本地条目,不可恢复。',
-      confirmLabel: '删除',
+      title: context.l10n.deleteNamedQ(edit.name),
+      message: isCreated
+          ? '将同时删除公共库条目与本地副本,不可恢复。'
+          : context.l10n.localOnlyDeleteBody,
+      confirmLabel: context.l10n.delete,
     );
     if (!ok) return;
     await _run(() async {
@@ -697,7 +748,7 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
       await ref.read(tagLibraryProvider.notifier).remove(edit.id);
       if (!mounted) return;
       Navigator.pop(context);
-      hintSnack(context, '已删除', icon: Icons.delete_outline);
+      hintSnack(context, context.l10n.deletedLabel, icon: Icons.delete_outline);
     });
   }
 
@@ -712,7 +763,11 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
     };
     final code = suggestArtistCode(occupied);
     if (code == null) {
-      hintSnack(context, '编号已用尽', icon: Icons.error_outline);
+      hintSnack(
+        context,
+        context.l10n.numbersExhausted,
+        icon: Icons.error_outline,
+      );
       return;
     }
     setState(() => _name.text = code);
@@ -728,7 +783,7 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
       ];
       if (usable.isNotEmpty) {
         return (
-          '导入角色提示词',
+          context.l10n.importCharPrompt,
           () => setState(() {
             _positive.text = usable.first.positive.trim();
             final neg = usable.first.negative.trim();
@@ -742,7 +797,7 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
     }
     if (gen.prompt.trim().isEmpty) return null;
     return (
-      '导入主提示词',
+      context.l10n.importMainPrompt,
       () => setState(() {
         _positive.text = gen.prompt.trim();
         final neg = gen.negativePrompt.trim();
@@ -805,7 +860,11 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
   Future<void> _pickFromHistory({int? into}) async {
     final results = ref.read(galleryProvider).results;
     if (results.isEmpty) {
-      hintSnack(context, '图库还没有图片', icon: Icons.photo_library_outlined);
+      hintSnack(
+        context,
+        context.l10n.galleryNoImages,
+        icon: Icons.photo_library_outlined,
+      );
       return;
     }
     final picked = await showModalBottomSheet<String>(
@@ -824,14 +883,14 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
                   Icon(Icons.history, size: 20, color: context.scheme.primary),
                   const SizedBox(width: 8),
                   Text(
-                    '从图库选取',
+                    context.l10n.pickFromGallery,
                     style: context.texts.titleMedium!.copyWith(
                       fontWeight: FontWeight.w700,
                     ),
                   ),
                   const Spacer(),
                   Text(
-                    '共 ${results.length} 张',
+                    context.l10n.totalImagesN(results.length),
                     style: context.texts.labelSmall!.copyWith(
                       color: context.scheme.onSurfaceVariant,
                     ),
@@ -868,7 +927,13 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
             ?.bytes ??
         await ref.read(galleryImageProvider(picked).future);
     if (bytes == null) {
-      if (mounted) hintSnack(context, '读取图片失败', icon: Icons.error_outline);
+      if (mounted) {
+        hintSnack(
+          context,
+          context.l10n.readImageFailed,
+          icon: Icons.error_outline,
+        );
+      }
       return;
     }
     setState(() {
@@ -882,7 +947,11 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
 
   Future<void> _generateInto(List<int> indexes) async {
     if (_positive.text.trim().isEmpty) {
-      hintSnack(context, '先填写正向提示词', icon: Icons.error_outline);
+      hintSnack(
+        context,
+        context.l10n.enterPositiveFirst,
+        icon: Icons.error_outline,
+      );
       return;
     }
     if (_generating) return;
@@ -937,7 +1006,7 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
             if (_slotCount > 1 && i != _cover)
               ListTile(
                 leading: const Icon(Icons.star_outline),
-                title: const Text('设为封面'),
+                title: Text(l10nNow.setAsCover),
                 onTap: () {
                   Navigator.pop(sheet);
                   setState(() => _cover = i);
@@ -945,7 +1014,7 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
               ),
             ListTile(
               leading: const Icon(Icons.image_outlined),
-              title: const Text('替换'),
+              title: Text(context.l10n.replace),
               onTap: () {
                 Navigator.pop(sheet);
                 _pickImages(into: i);
@@ -953,7 +1022,7 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
             ),
             ListTile(
               leading: const Icon(Icons.photo_library_outlined),
-              title: const Text('从图库选取'),
+              title: Text(context.l10n.pickFromGallery),
               onTap: () {
                 Navigator.pop(sheet);
                 _pickFromHistory(into: i);
@@ -962,7 +1031,7 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
             if (_canGenerate)
               ListTile(
                 leading: const Icon(Icons.auto_fix_high_outlined),
-                title: const Text('重新生成'),
+                title: Text(context.l10n.regenerate),
                 onTap: () {
                   Navigator.pop(sheet);
                   _generateInto([i]);
@@ -970,7 +1039,10 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
               ),
             ListTile(
               leading: Icon(Icons.delete_outline, color: context.scheme.error),
-              title: Text('移除', style: TextStyle(color: context.scheme.error)),
+              title: Text(
+                context.l10n.remove,
+                style: TextStyle(color: context.scheme.error),
+              ),
               onTap: () {
                 Navigator.pop(sheet);
                 setState(() => _slots[i].clear());
@@ -1022,7 +1094,7 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
                       children: [
                         _section(
                           id: 'name',
-                          title: '名称',
+                          title: l10nNow.name,
                           required: true,
                           filled: _nameOk,
                           collapsedValue: _name.text.trim().isEmpty
@@ -1032,7 +1104,7 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
                         ),
                         _section(
                           id: 'prompt',
-                          title: '提示词',
+                          title: l10nNow.prompt,
                           required: true,
                           filled: _positiveOk,
                           collapsedValue: _positive.text.trim().isEmpty
@@ -1043,7 +1115,7 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
                         if (_hasPreview)
                           _section(
                             id: 'preview',
-                            title: '预览图',
+                            title: l10nNow.previewImage,
                             filled: _slots.any((s) => s.filled),
                             collapsedValue: _slots.any((s) => s.filled)
                                 ? '${_slots.where((s) => s.filled).length} 张'
@@ -1054,7 +1126,7 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
                         if (_category == TagCategory.artist)
                           _section(
                             id: 'models',
-                            title: '适用模型',
+                            title: l10nNow.applicableModels,
                             filled: _models.isNotEmpty,
                             collapsedValue: _models.isEmpty
                                 ? kGenericModelLabel
@@ -1066,13 +1138,13 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
                         if (_category == TagCategory.artist)
                           _section(
                             id: 'recipe',
-                            title: '推荐参数',
+                            title: l10nNow.recommendedParams,
                             filled: _recipe != null,
                             body: _recipeBody(scheme),
                           ),
                         _section(
                           id: 'tags',
-                          title: '标签',
+                          title: l10nNow.tagLabel,
                           filled: _tags.isNotEmpty,
                           collapsedValue: _tags.isEmpty
                               ? null
@@ -1261,7 +1333,7 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
                 borderRadius: BorderRadius.circular(9),
               ),
               child: Text(
-                '已发布',
+                l10nNow.desktopPublished,
                 style: context.texts.labelSmall!.copyWith(
                   color: scheme.onPrimaryContainer,
                   fontWeight: FontWeight.w700,
@@ -1275,7 +1347,7 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
           ],
           if (widget.floating) ...[
             IconButton(
-              tooltip: '关闭编辑器',
+              tooltip: l10nNow.desktopCloseEditor,
               icon: const Icon(Icons.close),
               onPressed: _busy || _generating
                   ? null
@@ -1300,7 +1372,7 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
           Icon(Icons.error_outline, size: 16, color: scheme.onErrorContainer),
           const SizedBox(width: 8),
           Text(
-            '还有必填项未完成,已用红色标出',
+            l10nNow.desktopCompleteTheRequiredFieldsMarkedInRed,
             style: context.texts.bodySmall!.copyWith(
               color: scheme.onErrorContainer,
             ),
@@ -1412,7 +1484,7 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
                           borderRadius: BorderRadius.circular(7),
                         ),
                         child: Text(
-                          '必填',
+                          l10nNow.desktopRequired,
                           style: context.texts.labelSmall!.copyWith(
                             color: scheme.onErrorContainer,
                             fontWeight: FontWeight.w700,
@@ -1572,7 +1644,7 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
                         padding: const EdgeInsets.symmetric(horizontal: 10),
                       ),
                       icon: const Icon(Icons.auto_awesome, size: 13),
-                      label: const Text('编号'),
+                      label: Text(l10nNow.numberLabel),
                     ),
                   )
                 : null,
@@ -1586,7 +1658,7 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
           const SizedBox(height: 10),
           _foldHeader(
             open: _showAliases,
-            title: '别名',
+            title: l10nNow.aliasLabel,
             suffix: _aliases.isEmpty ? '(可选)' : '(已加 ${_aliases.length} 个)',
             onTap: () => setState(() => _showAliases = !_showAliases),
           ),
@@ -1617,7 +1689,7 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
           builder: (context, constraints) => Row(
             children: [
               Text(
-                '正向',
+                l10nNow.positiveLabel,
                 style: context.texts.labelMedium!.copyWith(
                   color: scheme.onSurfaceVariant,
                   fontWeight: FontWeight.w700,
@@ -1661,14 +1733,18 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
         const SizedBox(height: 10),
         _foldHeader(
           open: _showNegative,
-          title: '负面提示词',
+          title: l10nNow.negativePromptAlt,
           suffix: _negative.text.trim().isEmpty ? '(可选)' : '',
           onTap: () => setState(() => _showNegative = !_showNegative),
           actions: [
             if (_negative.text.trim().isNotEmpty)
               _tokenPill(_tokens(_negative.text)),
             if (_showNegative && !_locked)
-              _miniAction(Icons.content_paste, '粘贴', () => _paste(_negative)),
+              _miniAction(
+                Icons.content_paste,
+                context.l10n.paste,
+                () => _paste(_negative),
+              ),
           ],
         ),
         ExpandBody(
@@ -1681,7 +1757,7 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
               maxLines: 4,
               minLines: 3,
               style: mono(context, size: 12.5).copyWith(height: 1.6),
-              decoration: _fieldDeco('例如: bad anatomy, worst quality'),
+              decoration: _fieldDeco(context.l10n.exampleNegative),
               onChanged: (_) => setState(() {}),
             ),
           ),
@@ -1778,51 +1854,94 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
           const SizedBox(height: 12),
           // 三等分固定布局:生成中也不改 flex、不加长文案(进度在槽位上显示),
           // 否则相邻按钮被挤到换行竖排。
-          Row(
-            children: [
-              Expanded(
-                child: OutlinedButton.icon(
-                  style: desktop ? _previewButtonStyle() : null,
-                  onPressed: _generating ? null : () => _pickImages(),
-                  icon: const Icon(Icons.upload_outlined, size: 16),
-                  label: const Text('上传', maxLines: 1, softWrap: false),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: OutlinedButton.icon(
-                  style: desktop ? _previewButtonStyle() : null,
-                  onPressed: _generating ? null : () => _pickFromHistory(),
-                  icon: const Icon(Icons.history, size: 16),
-                  label: const Text('历史', maxLines: 1, softWrap: false),
-                ),
-              ),
-              if (_canGenerate) ...[
-                const SizedBox(width: 8),
-                Expanded(
-                  child: FilledButton.icon(
-                    style: desktop ? _previewButtonStyle() : null,
-                    onPressed: _generating || _positive.text.trim().isEmpty
-                        ? null
-                        : () => _generateInto([
-                            for (var i = 0; i < _slotCount; i++) i,
-                          ]),
-                    icon: _generating
-                        ? const SizedBox(
-                            width: 14,
-                            height: 14,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Icon(Icons.auto_fix_high_outlined, size: 16),
-                    label: Text(
-                      _generating ? '生成中' : '生成',
-                      maxLines: 1,
-                      softWrap: false,
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final count = _canGenerate ? 3 : 2;
+              final available =
+                  (constraints.maxWidth - 8 * (count - 1)) / count;
+              final labels = [
+                context.l10n.upload,
+                context.l10n.history,
+                if (_canGenerate) ...[
+                  context.l10n.generate,
+                  context.l10n.generating,
+                ],
+              ];
+              final icons = labels.every(
+                (label) =>
+                    measureText(context, label, context.texts.labelLarge!) +
+                        64 <=
+                    available,
+              );
+              final style = icons
+                  ? (desktop ? _previewButtonStyle() : null)
+                  : const ButtonStyle(
+                      padding: WidgetStatePropertyAll(
+                        EdgeInsets.symmetric(horizontal: 8),
+                      ),
+                    );
+              return Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      style: style,
+                      onPressed: _generating ? null : () => _pickImages(),
+                      icon: icons
+                          ? const Icon(Icons.upload_outlined, size: 16)
+                          : null,
+                      label: Text(l10nNow.upload, maxLines: 1, softWrap: false),
                     ),
                   ),
-                ),
-              ],
-            ],
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      style: style,
+                      onPressed: _generating ? null : () => _pickFromHistory(),
+                      icon: icons ? const Icon(Icons.history, size: 16) : null,
+                      label: Text(
+                        l10nNow.history,
+                        maxLines: 1,
+                        softWrap: false,
+                      ),
+                    ),
+                  ),
+                  if (_canGenerate) ...[
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: FilledButton.icon(
+                        style: style,
+                        onPressed: _generating || _positive.text.trim().isEmpty
+                            ? null
+                            : () => _generateInto([
+                                for (var i = 0; i < _slotCount; i++) i,
+                              ]),
+                        icon: !icons
+                            ? null
+                            : _generating
+                            ? const SizedBox(
+                                width: 14,
+                                height: 14,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Icon(
+                                Icons.auto_fix_high_outlined,
+                                size: 16,
+                              ),
+                        label: Text(
+                          _generating
+                              ? context.l10n.generating
+                              : context.l10n.generate,
+                          maxLines: 1,
+                          softWrap: false,
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              );
+            },
           ),
           const SizedBox(height: 8),
           Center(
@@ -1838,7 +1957,7 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
     return desktop
         ? ImageDropRegion(
             key: const ValueKey('tag-preview-image-drop'),
-            label: '导入预览图',
+            label: l10nNow.desktopImportPreviewImage,
             enabled: !_locked && !_busy && !_generating,
             multiple: !single,
             onDrop: (images, _) async {
@@ -1909,7 +2028,7 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
                     borderRadius: BorderRadius.circular(6),
                   ),
                   child: Text(
-                    '封面',
+                    l10nNow.desktopCover,
                     style: context.texts.labelSmall!.copyWith(
                       color: scheme.onPrimary,
                       fontWeight: FontWeight.w800,
@@ -1956,7 +2075,7 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
     return ref.watch(desktopModeProvider)
         ? ImageDropRegion(
             key: ValueKey('tag-preview-slot-drop-$i'),
-            label: '替换这张预览图',
+            label: l10nNow.desktopReplaceThisPreview,
             enabled: !_locked && !_busy && !_generating,
             onDrop: (images, _) async => _applyPickedImages(images, into: i),
             child: tile,
@@ -1975,7 +2094,7 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
         ),
         const SizedBox(height: 3),
         Text(
-          '点击上传',
+          context.l10n.tapToUpload,
           style: context.texts.labelSmall!.copyWith(
             color: scheme.outline,
             fontSize: 10,
@@ -2041,7 +2160,7 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
         // 否则它会一直挂在这条画风上、还没法处理。
         if (_models.any((id) => findArtistModel(id) == null)) ...[
           Text(
-            '未知模型(来自其它版本)',
+            context.l10n.unknownModelOtherVersion,
             style: context.texts.labelMedium!.copyWith(
               color: scheme.onSurfaceVariant,
               fontWeight: FontWeight.w700,
@@ -2079,7 +2198,7 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
       onPressed: () =>
           setState(() => _recipe = recipeOf(ref.read(generateProvider).params)),
       icon: const Icon(Icons.download_outlined, size: 16),
-      label: const Text('导入创作页', maxLines: 1, softWrap: false),
+      label: Text(l10nNow.importToCreatePage, maxLines: 1, softWrap: false),
     );
     if (r == null) {
       return Column(
@@ -2089,7 +2208,7 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
           const SizedBox(height: 8),
           Center(
             child: Text(
-              '用这条画风时,模型对得上会问要不要套用',
+              l10nNow.desktopOfferToApplyTheseSettingsWhenTheStyle,
               style: context.texts.labelSmall!.copyWith(color: scheme.outline),
             ),
           ),
@@ -2116,7 +2235,11 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
               child: OutlinedButton.icon(
                 onPressed: () => setState(() => _recipe = null),
                 icon: const Icon(Icons.close, size: 16),
-                label: const Text('清除', maxLines: 1, softWrap: false),
+                label: Text(
+                  context.l10n.clearMeta,
+                  maxLines: 1,
+                  softWrap: false,
+                ),
               ),
             ),
           ],
@@ -2166,25 +2289,25 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
         OutlinedButton.icon(
           onPressed: _busy ? null : _unpublish,
           icon: const Icon(Icons.undo, size: 16),
-          label: const Text('取消发布'),
+          label: Text(l10nNow.desktopUnpublish),
         ),
         OutlinedButton.icon(
           onPressed: _busy ? null : _transfer,
           icon: const Icon(Icons.manage_accounts_outlined, size: 16),
-          label: const Text('转让'),
+          label: Text(l10nNow.desktopTransfer),
         ),
       ],
       if (origin == TagOrigin.favorited)
         OutlinedButton.icon(
           onPressed: _busy ? null : _saveAsCopy,
           icon: const Icon(Icons.file_copy_outlined, size: 16),
-          label: const Text('另存为本地副本'),
+          label: Text(l10nNow.desktopSaveAsALocalCopy),
         ),
       OutlinedButton.icon(
         onPressed: _busy ? null : _delete,
         style: OutlinedButton.styleFrom(foregroundColor: scheme.error),
         icon: const Icon(Icons.delete_outline, size: 16),
-        label: const Text('删除'),
+        label: Text(context.l10n.delete),
       ),
     ];
     return Padding(
@@ -2212,14 +2335,14 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
                 child: OutlinedButton(
                   onPressed: _busy ? null : _saveLocal,
                   style: _outStyle(),
-                  child: const Text('保存到本地', maxLines: 1),
+                  child: Text(context.l10n.saveLocal, maxLines: 1),
                 ),
               ),
               const SizedBox(width: 10),
               Expanded(
                 child: _primaryBtn(
                   icon: Icons.public,
-                  label: '保存并发布',
+                  label: context.l10n.saveAndPublish,
                   onPressed: _publish,
                 ),
               ),
@@ -2228,7 +2351,7 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
               Expanded(
                 child: _primaryBtn(
                   icon: Icons.save_outlined,
-                  label: '保存',
+                  label: context.l10n.save,
                   onPressed: _saveLocal,
                 ),
               ),
@@ -2240,14 +2363,14 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
             onPressed: _busy ? null : _saveAsCopy,
             style: _outStyle(),
             icon: const Icon(Icons.file_copy_outlined, size: 16),
-            label: const Text('存为本地副本'),
+            label: Text(l10nNow.desktopSaveLocalCopy),
           ),
         ),
         const SizedBox(width: 10),
         Expanded(
           child: _primaryBtn(
             icon: Icons.cloud_sync_outlined,
-            label: '保存并同步',
+            label: l10nNow.desktopSaveAndSync,
             onPressed: _syncPublic,
           ),
         ),
@@ -2266,14 +2389,14 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
           child: OutlinedButton(
             onPressed: _busy ? null : _saveLocal,
             style: _outStyle(),
-            child: const Text('保存修改', maxLines: 1),
+            child: Text(context.l10n.saveChanges, maxLines: 1),
           ),
         ),
         const SizedBox(width: 10),
         Expanded(
           child: _primaryBtn(
             icon: Icons.public,
-            label: '保存并发布',
+            label: context.l10n.saveAndPublish,
             onPressed: _publish,
           ),
         ),
@@ -2283,7 +2406,9 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
         Expanded(
           child: _primaryBtn(
             icon: Icons.save_outlined,
-            label: _locked ? '保存标签修改' : '保存修改',
+            label: _locked
+                ? context.l10n.saveTagChanges
+                : context.l10n.saveChanges,
             onPressed: _locked ? _saveTagsOnly : _saveLocal,
           ),
         ),
@@ -2461,7 +2586,7 @@ class _ChipPickerState extends State<_ChipPicker> {
                   )
                 : _chip(
                     scheme,
-                    label: '新建',
+                    label: l10nNow.newLabel,
                     leading: Icons.add,
                     dashed: true,
                     onTap: () => setState(() => _creating = true),
@@ -2571,7 +2696,7 @@ class _CategoryPickSheet extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.fromLTRB(18, 0, 18, 6),
               child: Text(
-                '存到',
+                context.l10n.storeIn,
                 style: context.texts.titleMedium!.copyWith(
                   fontWeight: FontWeight.w700,
                 ),

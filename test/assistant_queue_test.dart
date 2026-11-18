@@ -113,6 +113,11 @@ void main() {
     stores = AppStores.ephemeral();
     server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     server.listen((request) async {
+      if (request.uri.path == '/api/agent/channel') {
+        request.response.statusCode = HttpStatus.notFound;
+        await request.response.close();
+        return;
+      }
       if (request.uri.path != '/api/agent/prompt/stream' &&
           request.uri.path != '/reply') {
         // Auxiliary tools/rules endpoints return empty local fixtures.

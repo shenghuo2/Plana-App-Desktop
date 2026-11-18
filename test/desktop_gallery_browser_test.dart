@@ -35,9 +35,27 @@ class _Search extends GallerySearchNotifier {
   @override
   GallerySearchState build() => const GallerySearchState(
     byId: {
-      'sample0': (model: 'NAI 4.5 Full', text: 'cat, outdoors'),
-      'sample1': (model: 'NAI 4 Curated', text: 'cat, indoors'),
-      'sample2': (model: 'NAI 4.5 Full', text: 'landscape, outdoors'),
+      'sample0': (
+        model: 'NAI 4.5 Full',
+        text: 'cat, outdoors',
+        ids: [],
+        cards: [],
+        folds: [],
+      ),
+      'sample1': (
+        model: 'NAI 4 Curated',
+        text: 'cat, indoors',
+        ids: [],
+        cards: [],
+        folds: [],
+      ),
+      'sample2': (
+        model: 'NAI 4.5 Full',
+        text: 'landscape, outdoors',
+        ids: [],
+        cards: [],
+        folds: [],
+      ),
     },
   );
 }

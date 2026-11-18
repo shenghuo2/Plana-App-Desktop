@@ -1,3 +1,4 @@
+import '../../../l10n/l10n.dart';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
@@ -66,19 +67,19 @@ class _CodexRandomWorkspaceState extends ConsumerState<CodexRandomWorkspace> {
     final saved = await ref
         .read(codexHistoryProvider.notifier)
         .record(widget.codex, result);
-    if (!saved && mounted) hintSnack(context, '抽取结果保存失败，请重试');
+    if (!saved && mounted) hintSnack(context, l10nNow.desktopCouldNotSaveTheRandomDrawTryAgain);
   }
 
   Future<void> _clearHistory(int count) async {
     final confirmed = await confirmDialog(
       context,
-      title: '删除抽取历史？',
+      title: l10nNow.desktopDeleteDrawHistory,
       message: '将清空所有法典的 $count 条抽取记录。',
       confirmLabel: '删除历史',
     );
     if (!confirmed || !mounted) return;
     final cleared = await ref.read(codexHistoryProvider.notifier).clearAll();
-    if (!cleared && mounted) hintSnack(context, '历史删除失败，请重试');
+    if (!cleared && mounted) hintSnack(context, l10nNow.desktopCouldNotDeleteHistoryTryAgain);
   }
 
   @override
@@ -130,7 +131,7 @@ class _CodexRandomWorkspaceState extends ConsumerState<CodexRandomWorkspace> {
                     ),
                   ),
                   IconButton(
-                    tooltip: '返回法典浏览',
+                    tooltip: l10nNow.desktopBackToCodex,
                     onPressed: widget.onClose,
                     icon: const Icon(Icons.close, size: 20),
                   ),
@@ -152,7 +153,7 @@ class _CodexRandomWorkspaceState extends ConsumerState<CodexRandomWorkspace> {
                   FilledButton.icon(
                     key: const ValueKey('codex-random-draw'),
                     icon: const Icon(Icons.casino_outlined, size: 18),
-                    label: const Text('随机抽取'),
+                    label: Text(l10nNow.desktopDrawAtRandom),
                     onPressed: widget.candidateCount == 0 ? null : _draw,
                   ),
                   Row(
@@ -169,7 +170,7 @@ class _CodexRandomWorkspaceState extends ConsumerState<CodexRandomWorkspace> {
                       const SizedBox(width: 4),
                       IconButton(
                         key: const ValueKey('codex-random-clear'),
-                        tooltip: '删除历史',
+                        tooltip: l10nNow.desktopDeleteHistory,
                         icon: const Icon(Icons.delete_outline, size: 20),
                         onPressed: total == 0
                             ? null
@@ -192,13 +193,13 @@ class _CodexRandomWorkspaceState extends ConsumerState<CodexRandomWorkspace> {
                     child: TextButton.icon(
                       onPressed: () => ref.invalidate(codexHistoryProvider),
                       icon: const Icon(Icons.refresh),
-                      label: const Text('抽取历史加载失败，点击重试'),
+                      label: Text(l10nNow.desktopCouldNotLoadDrawHistoryClickToRetry),
                     ),
                   ),
                   data: (_) => records.isEmpty
-                      ? const Center(
+                      ? Center(
                           child: Text(
-                            '还没有抽取记录\n抽取结果会按时间保存在这里',
+                            l10nNow.desktopNoDrawsYetDrawsWillAppearHereIn,
                             textAlign: TextAlign.center,
                           ),
                         )
@@ -253,7 +254,7 @@ class _CodexRandomWorkspaceState extends ConsumerState<CodexRandomWorkspace> {
                     now: DateTime.now().millisecondsSinceEpoch,
                   );
                   if (context.mounted && !selected && notifier.isFull) {
-                    hintSnack(context, '收藏夹已满');
+                    hintSnack(context, l10nNow.desktopFavoritesAreFull);
                   }
                 },
                 onTap: () => showCodexDetailSheet(

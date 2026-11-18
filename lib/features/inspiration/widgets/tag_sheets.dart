@@ -18,8 +18,10 @@ import '../../migrate/web_backup.dart';
 import '../../migrate/web_backup_import.dart';
 import '../public_tags.dart';
 import '../tag_library.dart';
+import '../codex/codex_favorites.dart';
 import '../tag_models.dart';
 import 'prompt_chips.dart';
+import '../../../l10n/l10n.dart';
 
 /// 灵感页的三个弹层:条目详情、标签池管理、数据备份
 /// (新建/编辑走全屏 TagEditorPage)。
@@ -124,7 +126,7 @@ class _DetailSheet extends ConsumerWidget {
               Padding(
                 padding: const EdgeInsets.fromLTRB(18, 2, 18, 0),
                 child: Text(
-                  '作者 $authorLabel',
+                  context.l10n.authorNamed(authorLabel),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: context.texts.bodySmall!.copyWith(
@@ -164,10 +166,10 @@ class _DetailSheet extends ConsumerWidget {
                       ),
                     ],
                     const SizedBox(height: 12),
-                    _block(context, '正向', e.positive),
+                    _block(context, context.l10n.positiveLabel, e.positive),
                     if (e.negative.trim().isNotEmpty) ...[
                       const SizedBox(height: 10),
-                      _block(context, '负面', e.negative),
+                      _block(context, context.l10n.negativeLabel, e.negative),
                     ],
                   ],
                 ),
@@ -180,11 +182,15 @@ class _DetailSheet extends ConsumerWidget {
                   await Clipboard.setData(ClipboardData(text: e.positive));
                   if (context.mounted) {
                     Navigator.pop(context);
-                    hintSnack(context, '已复制提示词', icon: Icons.copy);
+                    hintSnack(
+                      context,
+                      context.l10n.promptCopied,
+                      icon: Icons.copy,
+                    );
                   }
                 },
                 icon: const Icon(Icons.copy, size: 18),
-                label: const Text('复制提示词'),
+                label: Text(context.l10n.copyPrompt),
                 style: FilledButton.styleFrom(minimumSize: const Size(0, 44)),
               ),
             ),
@@ -265,7 +271,11 @@ class _PoolSheetState extends ConsumerState<_PoolSheet> {
     if (ok) {
       _input.clear();
     } else {
-      hintSnack(context, '标签已存在', icon: Icons.error_outline);
+      hintSnack(
+        context,
+        context.l10n.tagExistsShort,
+        icon: Icons.error_outline,
+      );
     }
   }
 
@@ -292,7 +302,7 @@ class _PoolSheetState extends ConsumerState<_PoolSheet> {
                 ),
                 if (widget.desktop)
                   IconButton(
-                    tooltip: '关闭',
+                    tooltip: l10nNow.close,
                     icon: const Icon(Icons.close, size: 18),
                     onPressed: () => Navigator.pop(context),
                   ),
@@ -308,7 +318,7 @@ class _PoolSheetState extends ConsumerState<_PoolSheet> {
                     controller: _input,
                     decoration: InputDecoration(
                       isDense: true,
-                      hintText: '新建标签…',
+                      hintText: context.l10n.newTagEllipsis,
                       filled: true,
                       fillColor: scheme.surfaceContainerHigh,
                       border: OutlineInputBorder(
@@ -324,7 +334,10 @@ class _PoolSheetState extends ConsumerState<_PoolSheet> {
                   ),
                 ),
                 const SizedBox(width: 8),
-                FilledButton.tonal(onPressed: _add, child: const Text('添加')),
+                FilledButton.tonal(
+                  onPressed: _add,
+                  child: Text(context.l10n.add),
+                ),
               ],
             ),
           ),
@@ -333,7 +346,7 @@ class _PoolSheetState extends ConsumerState<_PoolSheet> {
                 ? Padding(
                     padding: const EdgeInsets.all(28),
                     child: Text(
-                      '暂无标签',
+                      context.l10n.noTags,
                       textAlign: TextAlign.center,
                       style: context.texts.bodySmall!.copyWith(
                         color: scheme.onSurfaceVariant,
@@ -365,7 +378,7 @@ class _PoolSheetState extends ConsumerState<_PoolSheet> {
                             key: ValueKey('tag-pool-drag-$t'),
                             index: i,
                             child: Tooltip(
-                              message: '拖动调整标签顺序',
+                              message: l10nNow.desktopDragToReorderTags,
                               child: SizedBox(
                                 width: 30,
                                 height: 40,
@@ -402,9 +415,10 @@ class _PoolSheetState extends ConsumerState<_PoolSheet> {
                                       n == 0 ||
                                       await confirmDialog(
                                         context,
-                                        title: '删除标签「$t」?',
-                                        message: '$n 个条目会摘掉该标签,条目本身保留。',
-                                        confirmLabel: '删除',
+                                        title: context.l10n.deleteTagQ(t),
+                                        message: context.l10n
+                                            .deleteTagEntriesBody(n),
+                                        confirmLabel: context.l10n.delete,
                                       );
                                   if (ok && mounted) {
                                     await notifier.removePoolTag(widget.cat, t);
@@ -465,7 +479,11 @@ class _TagPickSheetState extends ConsumerState<_TagPickSheet> {
         children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(18, 14, 18, 8),
-            child: _sheetTitle(context, Icons.sell_outlined, '添加标签'),
+            child: _sheetTitle(
+              context,
+              Icons.sell_outlined,
+              context.l10n.addTag,
+            ),
           ),
           Padding(
             padding: const EdgeInsets.fromLTRB(18, 0, 18, 10),
@@ -476,7 +494,7 @@ class _TagPickSheetState extends ConsumerState<_TagPickSheet> {
                     controller: _input,
                     decoration: InputDecoration(
                       isDense: true,
-                      hintText: '新建标签…',
+                      hintText: context.l10n.newTagEllipsis,
                       filled: true,
                       fillColor: scheme.surfaceContainerHigh,
                       border: OutlineInputBorder(
@@ -500,7 +518,7 @@ class _TagPickSheetState extends ConsumerState<_TagPickSheet> {
                     final t = _input.text.trim();
                     if (t.isNotEmpty) Navigator.pop(context, t);
                   },
-                  child: const Text('使用'),
+                  child: Text(context.l10n.use),
                 ),
               ],
             ),
@@ -599,7 +617,7 @@ class _BackupSheetState extends ConsumerState<_BackupSheet> {
     if (_busy != null) return;
     final session = ref.read(botSessionProvider).value;
     if (session == null) {
-      hintSnack(context, '数据备份需要 Bot 授权', icon: Icons.cloud_off_outlined);
+      hintSnack(context, l10nNow.desktopDataBackupRequiresBotAuthorization, icon: Icons.cloud_off_outlined);
       return;
     }
     setState(() => _busy = tag);
@@ -636,7 +654,7 @@ class _BackupSheetState extends ConsumerState<_BackupSheet> {
     final cloudTotal = _cloudCounts.values.fold(0, (a, b) => a + b);
     final ok = await confirmDialog(
       context,
-      title: '上传备份?',
+      title: l10nNow.desktopUploadBackup,
       message: cloudTotal > 0
           ? '本地 $n 个条目将整体覆盖云端现有的 $cloudTotal 个(本机预览图不随备份上传)。'
           : '本地 $n 个条目将上传为云端备份(本机预览图不随备份上传)。',
@@ -648,6 +666,8 @@ class _BackupSheetState extends ConsumerState<_BackupSheet> {
       sessionId: sid,
       categories: categories,
       custom: custom,
+      pools: lib.encodePools(),
+      codexFavorites: ref.read(codexFavoritesProvider.notifier).encodeBackup(),
     );
     final detail = _detailLine({
       for (final d in _allDefs)
@@ -679,7 +699,7 @@ class _BackupSheetState extends ConsumerState<_BackupSheet> {
     }
     if (n == 0 && r.custom == null) {
       if (mounted) {
-        hintSnack(context, '云端暂无备份', icon: Icons.cloud_off_outlined);
+        hintSnack(context, l10nNow.desktopNoCloudBackupsYet, icon: Icons.cloud_off_outlined);
       }
       return;
     }
@@ -802,7 +822,7 @@ class _BackupSheetState extends ConsumerState<_BackupSheet> {
         );
       }
       if (parsed.items.isEmpty) {
-        if (mounted) hintSnack(context, '文件里没有条目', icon: Icons.info_outline);
+        if (mounted) hintSnack(context, l10nNow.fileNoEntries, icon: Icons.info_outline);
         return;
       }
       final restoredDef = TagCategoryDef.fromJson(j['categoryDefinition']);
@@ -819,7 +839,7 @@ class _BackupSheetState extends ConsumerState<_BackupSheet> {
       if (!mounted) return;
       final picked = await showImportPicker(
         context,
-        title: '选择要导入的内容',
+        title: l10nNow.chooseImportContent,
         options: [
           for (final def in [importDef])
             if (payload[def.webId] case final List items)
@@ -898,7 +918,7 @@ class _BackupSheetState extends ConsumerState<_BackupSheet> {
                   ),
                 if (widget.desktop)
                   IconButton(
-                    tooltip: '关闭',
+                    tooltip: l10nNow.close,
                     icon: const Icon(Icons.close, size: 18),
                     onPressed: () => Navigator.pop(context),
                   ),
@@ -951,7 +971,7 @@ class _BackupSheetState extends ConsumerState<_BackupSheet> {
             Row(
               children: [
                 Text(
-                  '本地文件',
+                  l10nNow.desktopLocalFiles,
                   style: context.texts.labelLarge!.copyWith(
                     fontWeight: FontWeight.w700,
                   ),
@@ -959,7 +979,7 @@ class _BackupSheetState extends ConsumerState<_BackupSheet> {
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    '按分类导出 / 导入 JSON,与网页端互通',
+                    l10nNow.desktopImportOrExportJSONByCategoryFilesAre,
                     style: context.texts.labelSmall!.copyWith(
                       color: scheme.onSurfaceVariant,
                     ),
@@ -1032,7 +1052,7 @@ class _BackupSheetState extends ConsumerState<_BackupSheet> {
           ),
           _fileBtn(
             icon: Icons.file_upload_outlined,
-            tooltip: '导入',
+            tooltip: l10nNow.importLabel,
             onTap: _busy != null ? null : () => _importFile(d),
           ),
         ],

@@ -1,3 +1,4 @@
+import '../../../l10n/l10n.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -307,7 +308,7 @@ class _FoldInspectorState extends ConsumerState<FoldInspector> {
       children: [
         const SizedBox(height: 8),
         Text(
-          '点击文字即可编辑；下方操作作用于整块。',
+          l10nNow.desktopClickTextToEditItTheControlsBelow,
           style: context.texts.labelSmall!.copyWith(
             color: context.scheme.outline,
           ),

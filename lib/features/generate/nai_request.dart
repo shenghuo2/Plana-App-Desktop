@@ -138,6 +138,7 @@ Map<String, double> _center(String? pos) {
   /// 透明图的 alpha 编码约定(true=直通 Straight / false=预乘 Premultiplied)。
   /// 官方默认直通,见生成设置里的同名开关。
   bool straightAlpha = true,
+  String imageFormat = 'png',
 
   /// 当前任务选中的 Key 使用第三方接口；官方云端转发仍走官方参数。
   bool thirdParty = false,
@@ -257,7 +258,7 @@ Map<String, double> _center(String? pos) {
     'negative_prompt': s.negativePrompt,
     'deliberate_euler_ancestral_bug': false,
     'prefer_brownian': true,
-    'image_format': 'png',
+    'image_format': imageFormat,
     'stream': 'msgpack',
   };
 

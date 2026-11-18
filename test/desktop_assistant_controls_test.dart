@@ -357,6 +357,18 @@ void main() {
       expect(find.byType(RulesPresetPage), findsOneWidget);
       await tester.tap(find.text('Test preset'));
       await tester.pumpAndSettle();
+      await tester.tap(find.text('启用的模型'));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.widgetWithText(
+          CheckboxListTile,
+          rulesFamilyLabel(RulesFamily.nai45),
+        ),
+      );
+      await tester.tap(find.text('确认'));
+      await tester.pumpAndSettle();
+      await tester.pageBack();
+      await tester.pumpAndSettle();
       expect(
         c.read(rulesLibraryProvider).value!.activeFor(RulesFamily.nai45).id,
         customId,

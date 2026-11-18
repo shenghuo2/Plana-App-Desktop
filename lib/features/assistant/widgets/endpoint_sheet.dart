@@ -5,6 +5,7 @@
 /// 有些自建服务压根没有列表接口,手填照样能用。
 library;
 
+import '../../../l10n/l10n.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -95,7 +96,7 @@ class _EndpointSheetState extends ConsumerState<_EndpointSheet> {
     if (!_headersOk()) return;
     final draft = _draft();
     if (draft.apiKey.isEmpty) {
-      hintSnack(context, '先填 API Key 才能拉列表', icon: Icons.key_off_outlined);
+      hintSnack(context, l10nNow.desktopEnterAnAPIKeyToLoadModels, icon: Icons.key_off_outlined);
       return;
     }
     setState(() => _loading = true);
@@ -120,11 +121,11 @@ class _EndpointSheetState extends ConsumerState<_EndpointSheet> {
     if (!_headersOk()) return;
     final draft = _draft();
     if (draft.model.isEmpty) {
-      hintSnack(context, '还没填模型', icon: Icons.error_outline);
+      hintSnack(context, l10nNow.desktopNoModelConfigured, icon: Icons.error_outline);
       return;
     }
     if (draft.apiKey.isEmpty) {
-      hintSnack(context, '还没填 API Key', icon: Icons.key_off_outlined);
+      hintSnack(context, l10nNow.noApiKeyYet, icon: Icons.key_off_outlined);
       return;
     }
     setState(() {
@@ -147,8 +148,8 @@ class _EndpointSheetState extends ConsumerState<_EndpointSheet> {
     if (id == null) return;
     final ok = await confirmDialog(
       context,
-      title: '删除这个接口?',
-      message: '地址和 API Key 都会从本机删除。已经发生过的对话不受影响。',
+      title: l10nNow.deleteEndpointQ,
+      message: l10nNow.deleteEndpointBody,
       confirmLabel: '删除',
     );
     if (!ok || !mounted) return;
@@ -181,7 +182,7 @@ class _EndpointSheetState extends ConsumerState<_EndpointSheet> {
     return SettingSheet(
       title: widget.source == null ? '添加接口' : '编辑接口',
       children: [
-        settingSection(context, '格式'),
+        settingSection(context, l10nNow.format),
         Padding(
           padding: const EdgeInsets.fromLTRB(20, 2, 20, 6),
           child: SegmentedButton<AgentApiFormat>(
@@ -210,7 +211,7 @@ class _EndpointSheetState extends ConsumerState<_EndpointSheet> {
         ),
         _field('API Key', _key, obscure: true),
         _field('请求头', _headers, hint: '一行一条,如 X-Title: Plana', multiline: true),
-        settingSection(context, '模型'),
+        settingSection(context, l10nNow.model),
         Padding(
           padding: const EdgeInsets.fromLTRB(20, 2, 20, 8),
           child: Row(
@@ -219,9 +220,9 @@ class _EndpointSheetState extends ConsumerState<_EndpointSheet> {
                 child: TextField(
                   controller: _model,
                   autocorrect: false,
-                  decoration: const InputDecoration(
+                  decoration: InputDecoration(
                     isDense: true,
-                    labelText: '模型',
+                    labelText: l10nNow.model,
                     hintText: 'gpt-5.6-luna',
                     floatingLabelBehavior: FloatingLabelBehavior.always,
                     border: OutlineInputBorder(),
@@ -239,7 +240,7 @@ class _EndpointSheetState extends ConsumerState<_EndpointSheet> {
                           height: 16,
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
-                      : const Text('模型列表'),
+                      : Text(l10nNow.modelList),
                 ),
               ),
             ],
@@ -247,7 +248,7 @@ class _EndpointSheetState extends ConsumerState<_EndpointSheet> {
         ),
         _field('名称', _name, hint: '不填就显示模型名'),
         if (reading)
-          const Padding(
+          Padding(
             padding: EdgeInsets.fromLTRB(20, 8, 20, 0),
             child: Row(
               children: [
@@ -257,7 +258,7 @@ class _EndpointSheetState extends ConsumerState<_EndpointSheet> {
                   child: CircularProgressIndicator(strokeWidth: 2),
                 ),
                 SizedBox(width: 8),
-                Text('正在读取接口…'),
+                Text(l10nNow.desktopLoadingEndpoints),
               ],
             ),
           )
@@ -294,7 +295,7 @@ class _EndpointSheetState extends ConsumerState<_EndpointSheet> {
                                 ref.invalidate(customEndpointsProvider);
                               },
                         icon: const Icon(Icons.refresh, size: 18),
-                        label: const Text('重新加载接口'),
+                        label: Text(l10nNow.desktopReloadEndpoints),
                       ),
                     ),
                 ],
@@ -309,12 +310,12 @@ class _EndpointSheetState extends ConsumerState<_EndpointSheet> {
                 TextButton(
                   onPressed: blocked ? null : _delete,
                   style: TextButton.styleFrom(foregroundColor: scheme.error),
-                  child: const Text('删除'),
+                  child: Text(l10nNow.delete),
                 ),
               const Spacer(),
               FilledButton(
                 onPressed: blocked ? null : _save,
-                child: const Text('保存'),
+                child: Text(l10nNow.save),
               ),
             ],
           ),

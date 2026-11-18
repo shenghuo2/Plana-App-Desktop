@@ -13,6 +13,7 @@
 /// 图**始终在图库里**,库里删掉的直接不画,不留一格破图 —— 最新那张删了就往前找一张。
 library;
 
+import '../../../l10n/l10n.dart';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
@@ -62,6 +63,31 @@ class InlineImages extends ConsumerWidget {
         latest = all.where((r) => r.id == id).firstOrNull;
         if (latest != null) break;
       }
+    }
+    if (msg.imageGen != null) {
+      final all = ref.watch(galleryProvider).results;
+      final batch = msg.imageIds.reversed.take(msg.imageBatch).toSet();
+      final results = {
+        for (final r in all)
+          if (batch.contains(r.id)) r.id: r,
+      };
+      return LayoutBuilder(
+        builder: (context, box) => Column(
+          children: [
+            for (final id in msg.imageIds.where(batch.contains))
+              if (results[id] case final result?)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: _Done(
+                    key: ValueKey(id),
+                    msgId: msg.id,
+                    result: result,
+                    maxW: box.maxWidth,
+                  ),
+                ),
+          ],
+        ),
+      );
     }
     final running = job;
 
@@ -359,7 +385,7 @@ class _AgainButton extends ConsumerWidget {
         // 这颗要吃掉自己的点击，避免同时触发图片查看。
         onTap: () => ref.read(assistantProvider.notifier).generateFrom(msgId),
         child: Tooltip(
-          message: '重新生成',
+          message: l10nNow.regenerate,
           child: Padding(
             padding: const EdgeInsets.all(12),
             child: Icon(Icons.refresh, size: 24, color: scheme.primary),

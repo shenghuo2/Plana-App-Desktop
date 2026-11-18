@@ -1,3 +1,4 @@
+import '../../../l10n/l10n.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -26,10 +27,10 @@ class _GalleryOutputFolderButtonState
     try {
       await ref.read(galleryOutputFolderProvider.notifier).open();
       if (mounted && _visible && store.lastMigration?.hasErrors == true) {
-        hintSnack(context, '部分旧作品未能迁移，仍保留在原目录；图库历史可正常使用');
+        hintSnack(context, l10nNow.desktopSomeOlderImagesAreStillInTheirOriginal);
       }
     } on TimeoutException {
-      if (mounted && _visible) hintSnack(context, '打开作品文件夹超时，请稍后重试');
+      if (mounted && _visible) hintSnack(context, l10nNow.desktopOpeningTheImagesFolderTimedOutTryAgain);
     } catch (_) {
       if (mounted && _visible) {
         hintSnack(context, '无法打开作品文件夹，请检查目录是否可用：${store.root.path}');

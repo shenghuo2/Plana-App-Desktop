@@ -1,3 +1,4 @@
+import '../../../l10n/l10n.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -72,7 +73,7 @@ Future<Set<String>> purgeGalleryTrash(
   if (!await confirmDialog(
         context,
         title: '彻底删除 ${present.length} 张作品？',
-        message: '将删除原图、生成参数和应用管理的作品文件，此操作不可恢复。',
+        message: l10nNow.desktopPermanentlyDeleteTheOriginalsGenerationSettingsAndApp,
         confirmLabel: '彻底删除',
       ) ||
       !context.mounted) {
@@ -92,7 +93,7 @@ Future<Set<String>> purgeGalleryTrash(
     return removed;
   } catch (_) {
     if (context.mounted) {
-      hintSnack(context, '清理尚未完成，请检查磁盘后重试', icon: Icons.error_outline);
+      hintSnack(context, l10nNow.desktopCleanupIsIncompleteCheckYourDiskAndTry, icon: Icons.error_outline);
     }
     return {};
   }
@@ -109,9 +110,9 @@ Future<void> showGalleryTrashMenu(BuildContext context, Offset position) async {
       local & Size.zero,
       Offset.zero & overlay.size,
     ),
-    items: const [
-      PopupMenuItem(value: 'restore', child: Text('全部恢复')),
-      PopupMenuItem(value: 'purge', child: Text('清空回收站')),
+    items: [
+      PopupMenuItem(value: 'restore', child: Text(l10nNow.restoreAll)),
+      PopupMenuItem(value: 'purge', child: Text(l10nNow.emptyTrash)),
     ],
   );
   if (!context.mounted || choice == null) return;
@@ -141,7 +142,7 @@ Future<void> toggleGalleryFavorite(BuildContext context, String id) async {
     await container.read(appStoresProvider).gallery.flushIndex();
   } catch (_) {
     if (context.mounted) {
-      hintSnack(context, '收藏更改尚未保存，请检查磁盘后重试', icon: Icons.error_outline);
+      hintSnack(context, l10nNow.desktopCouldNotSaveFavoritesCheckYourDiskAnd, icon: Icons.error_outline);
     }
     return;
   }

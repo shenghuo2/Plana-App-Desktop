@@ -1,3 +1,4 @@
+import '../../l10n/l10n.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
@@ -77,11 +78,11 @@ class _LoraUploadSheetState extends State<_LoraUploadSheet> {
     final f = res?.files.singleOrNull;
     if (f == null || !mounted) return;
     if (!f.name.toLowerCase().endsWith('.safetensors')) {
-      hintSnack(context, '只支持 .safetensors 文件');
+      hintSnack(context, l10nNow.desktopChooseASafetensorsFile);
       return;
     }
     if (f.path == null) {
-      hintSnack(context, '读不到这个文件,换个位置再试');
+      hintSnack(context, l10nNow.desktopCouldNotReadTheFileTryAnotherLocation);
       return;
     }
     if (f.size > _kMaxUploadBytes) {
@@ -90,7 +91,7 @@ class _LoraUploadSheetState extends State<_LoraUploadSheet> {
     }
     if (f.size < 1024) {
       // 服务端也拦这一档;本地先挡掉,顺带避免 0 字节把 contentLength 报错
-      hintSnack(context, '不是有效的 safetensors 文件');
+      hintSnack(context, l10nNow.desktopInvalidSafetensorsFile);
       return;
     }
     setState(() {
@@ -161,7 +162,7 @@ class _LoraUploadSheetState extends State<_LoraUploadSheet> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Text(
-              '上传 LoRA',
+              l10nNow.desktopUploadLoRA,
               style: context.texts.titleMedium!.copyWith(
                 fontWeight: FontWeight.w700,
               ),
@@ -187,7 +188,7 @@ class _LoraUploadSheetState extends State<_LoraUploadSheet> {
                 ),
                 const SizedBox(width: 8),
                 IconButton.filledTonal(
-                  tooltip: '添加这一组',
+                  tooltip: l10nNow.desktopAddThisSet,
                   onPressed: _addGroup,
                   icon: const Icon(Icons.add, size: 20),
                 ),
@@ -216,7 +217,7 @@ class _LoraUploadSheetState extends State<_LoraUploadSheet> {
             const SizedBox(height: 16),
             Row(
               children: [
-                Expanded(child: Text('分类', style: context.texts.bodyMedium)),
+                Expanded(child: Text(l10nNow.categories, style: context.texts.bodyMedium)),
                 SegmentedButton<String>(
                   segments: [
                     for (final t in const ['character', 'style', 'concept'])
@@ -235,17 +236,17 @@ class _LoraUploadSheetState extends State<_LoraUploadSheet> {
             const SizedBox(height: 12),
             Row(
               children: [
-                Expanded(child: Text('可见性', style: context.texts.bodyMedium)),
+                Expanded(child: Text(l10nNow.desktopVisibility, style: context.texts.bodyMedium)),
                 SegmentedButton<bool>(
-                  segments: const [
+                  segments: [
                     ButtonSegment(
                       value: false,
-                      label: Text('私有'),
+                      label: Text(l10nNow.desktopPrivate),
                       icon: Icon(Icons.lock_outline, size: 15),
                     ),
                     ButtonSegment(
                       value: true,
-                      label: Text('公开'),
+                      label: Text(l10nNow.desktopPublic),
                       icon: Icon(Icons.public, size: 15),
                     ),
                   ],
@@ -268,7 +269,7 @@ class _LoraUploadSheetState extends State<_LoraUploadSheet> {
                   borderRadius: BorderRadius.circular(23),
                 ),
               ),
-              child: const Text('开始上传'),
+              child: Text(l10nNow.desktopStartUpload),
             ),
           ],
         ),
@@ -343,7 +344,7 @@ class _FilePickTile extends StatelessWidget {
               ),
               if (f != null)
                 Text(
-                  '重选',
+                  l10nNow.desktopChooseAgain,
                   style: context.texts.labelMedium!.copyWith(
                     color: scheme.primary,
                     fontWeight: FontWeight.w600,

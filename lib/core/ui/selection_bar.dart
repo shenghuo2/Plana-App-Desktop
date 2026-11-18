@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../theme/app_skin.dart';
 import '../theme/app_theme.dart';
 import 'expand_body.dart';
+import '../../l10n/l10n.dart';
 
 /// 多选底栏(Vibe 管理器 / 角色参考图库 / 灵感页共用)。
 ///
@@ -77,7 +78,7 @@ class SelectionBar extends StatelessWidget {
                     borderRadius: BorderRadius.circular(kSelectionActionRadius),
                   ),
                 ),
-                child: const Text('取消选择'),
+                child: Text(l10nNow.clearSelection),
               ),
               const SizedBox(width: 10),
               Expanded(child: primary),

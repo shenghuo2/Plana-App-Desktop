@@ -47,6 +47,7 @@ dependencies:
   animations: ^2.2.0
   flutter_secure_storage: ^10.3.1
   http: ^1.6.0
+  http_parser: ^4.1.2
   archive: ^4.0.9
   msgpack_dart: ^1.0.1
   file_picker: ^10.1.0
@@ -132,6 +133,8 @@ flutter:
     # 用户写预设不必再抄工具说明。见 lib/features/assistant/preset_rules.dart。
     - assets/prompts/tool_layer.md
     - assets/prompts/output_format.md
+    - assets/prompts/tools/
+    - assets/prompts/texts.yaml
     # 关于页那颗图标(77 KB)。**不是** icons/app_icon.png —— 那张是给
     # flutter_launcher_icons 用的 1024² 原图,不进包。这张是按自适应图标
     # 的真实几何(背景色 + inset 16% 前景 + 裁到中心 72dp)预合成好的

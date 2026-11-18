@@ -1,3 +1,4 @@
+import '../../../l10n/l10n.dart';
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
@@ -130,7 +131,7 @@ class _GalleryExportDialogState extends ConsumerState<_GalleryExportDialog> {
           context: context,
           builder: (confirmationContext) => AlertDialog(
             key: const ValueKey('gallery-export-confirm-dialog'),
-            title: const Text('确认导出'),
+            title: Text(l10nNow.desktopConfirmExport),
             content: SizedBox(
               width: 470,
               child: SingleChildScrollView(
@@ -191,12 +192,12 @@ class _GalleryExportDialogState extends ConsumerState<_GalleryExportDialog> {
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(confirmationContext, false),
-                child: const Text('取消'),
+                child: Text(l10nNow.cancel),
               ),
               FilledButton(
                 key: const ValueKey('gallery-export-confirm'),
                 onPressed: () => Navigator.pop(confirmationContext, true),
-                child: const Text('确认导出并执行'),
+                child: Text(l10nNow.desktopConfirmAndExport),
               ),
             ],
           ),
@@ -396,7 +397,7 @@ class _GalleryExportDialogState extends ConsumerState<_GalleryExportDialog> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Text('导出图片', style: context.texts.headlineSmall),
+                Text(l10nNow.desktopExportImages, style: context.texts.headlineSmall),
                 const SizedBox(height: 8),
                 Text('「${widget.albumName}」· 已选 ${widget.selected.length} 张'),
                 const SizedBox(height: 18),
@@ -413,9 +414,9 @@ class _GalleryExportDialogState extends ConsumerState<_GalleryExportDialog> {
                                 key: const ValueKey('gallery-export-directory'),
                                 controller: _directory,
                                 enabled: !_busy,
-                                decoration: const InputDecoration(
-                                  labelText: '导出文件夹',
-                                  hintText: '浏览选择保存位置',
+                                decoration: InputDecoration(
+                                  labelText: l10nNow.desktopExportFolder,
+                                  hintText: l10nNow.desktopChooseASaveLocation,
                                   border: OutlineInputBorder(),
                                   isDense: true,
                                 ),
@@ -429,7 +430,7 @@ class _GalleryExportDialogState extends ConsumerState<_GalleryExportDialog> {
                                 Icons.folder_open_outlined,
                                 size: 18,
                               ),
-                              label: const Text('浏览'),
+                              label: Text(l10nNow.desktopBrowse),
                             ),
                           ],
                         ),
@@ -443,7 +444,7 @@ class _GalleryExportDialogState extends ConsumerState<_GalleryExportDialog> {
                                     setState(() => _createFolder = value!),
                           contentPadding: EdgeInsets.zero,
                           controlAffinity: ListTileControlAffinity.leading,
-                          title: const Text('创建子文件夹'),
+                          title: Text(l10nNow.desktopCreateSubfolder),
                           dense: true,
                         ),
                         if (_createFolder)
@@ -476,8 +477,8 @@ class _GalleryExportDialogState extends ConsumerState<_GalleryExportDialog> {
                             ),
                           ),
                         const SizedBox(height: 10),
-                        const Text(
-                          '导出后',
+                        Text(
+                          l10nNow.desktopAfterExport,
                           style: TextStyle(fontWeight: FontWeight.w600),
                         ),
                         const SizedBox(height: 8),
@@ -544,7 +545,7 @@ class _GalleryExportDialogState extends ConsumerState<_GalleryExportDialog> {
                           Padding(
                             padding: const EdgeInsets.only(top: 6),
                             child: Text(
-                              '“全部作品”是基础图库，始终保留；这里只清理图片。',
+                              l10nNow.desktopAllImagesIsTheDefaultGalleryThisAction,
                               style: TextStyle(
                                 fontSize: 12,
                                 color: scheme.onSurfaceVariant,

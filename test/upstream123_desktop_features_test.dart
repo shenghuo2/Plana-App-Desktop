@@ -193,7 +193,13 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(c.read(themeSettingsProvider).language, 'en');
-      await tester.tap(find.byTooltip('浮卡 蓝'));
+      await tester.tap(
+        find.byTooltip(
+          lookupAppLocalizations(const Locale('en')).floatCardsColor(
+            lookupAppLocalizations(const Locale('en')).colorBlue,
+          ),
+        ),
+      );
       await tester.pumpAndSettle();
       expect(c.read(themeSettingsProvider).floatAccent, kFloatBlue);
       expect(tester.takeException(), isNull);
@@ -203,14 +209,19 @@ void main() {
           .patch((s) => s.copyWith(mode: ThemeMode.dark));
       await tester.pumpAndSettle();
       await captureDesktop(tester, capture, 'upstream123-appearance-dark');
-      await tester.tap(find.byTooltip('青'));
+      await tester.tap(
+        find.byTooltip(lookupAppLocalizations(const Locale('en')).colorTeal),
+      );
       await tester.pumpAndSettle();
       expect(c.read(themeSettingsProvider).float, isFalse);
       expect(c.read(themeSettingsProvider).seedKey, 'teal');
       final selected = tester
           .widgetList<ThemeSwatch>(find.byType(ThemeSwatch))
           .where((s) => s.selected);
-      expect(selected.single.label, '青');
+      expect(
+        selected.single.label,
+        lookupAppLocalizations(const Locale('en')).colorTeal,
+      );
       expect(tester.takeException(), isNull);
       await finish(tester);
     },

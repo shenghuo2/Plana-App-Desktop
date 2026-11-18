@@ -1,3 +1,4 @@
+import '../../l10n/l10n.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -55,7 +56,7 @@ class _BotAuthPanelState extends ConsumerState<BotAuthPanel> {
         ? (ref.read(backendBaseProvider).value ?? '')
         : _urlCtrl.text.trim();
     if (url.isEmpty) {
-      hintSnack(context, '请先填写后端地址', icon: Icons.error_outline);
+      hintSnack(context, l10nNow.desktopEnterTheBackendURLFirst, icon: Icons.error_outline);
       return;
     }
     FocusScope.of(context).unfocus();
@@ -157,7 +158,11 @@ class _BotAuthPanelState extends ConsumerState<BotAuthPanel> {
     _timer?.cancel();
     setState(() => _code = null);
     Haptics.medium();
-    hintSnack(context, 'Bot 授权成功', icon: Icons.verified_outlined);
+    hintSnack(
+      context,
+      l10nNow.desktopBotAuthorizationComplete,
+      icon: Icons.verified_outlined,
+    );
     widget.onAuthorized?.call();
   }
 
@@ -179,14 +184,14 @@ class _BotAuthPanelState extends ConsumerState<BotAuthPanel> {
         // 内嵌模式不露后端地址(走已存/内置默认),只留一句流程说明
         if (widget.compact && !hasCode) ...[
           Text(
-            '获取授权码后,复制指令发送给 Bot 即可完成授权',
+            l10nNow.desktopGetACodeThenCopyTheCommandAnd,
             style: context.texts.labelSmall!.copyWith(color: scheme.outline),
           ),
           const SizedBox(height: 12),
         ],
         if (!widget.compact) ...[
           Text(
-            '后端地址',
+            l10nNow.desktopBackendURL,
             style: context.texts.labelLarge!.copyWith(
               fontWeight: FontWeight.w700,
             ),
@@ -234,8 +239,8 @@ class _BotAuthPanelState extends ConsumerState<BotAuthPanel> {
                       color: scheme.onPrimary,
                     ),
                   )
-                : const Text(
-                    '获取授权码',
+                : Text(
+                    l10nNow.desktopGetAuthorizationCode,
                     style: TextStyle(fontWeight: FontWeight.w700),
                   ),
           )
@@ -251,7 +256,7 @@ class _BotAuthPanelState extends ConsumerState<BotAuthPanel> {
               Clipboard.setData(ClipboardData(text: 'web授权${_code!}'));
               hintSnack(
                 context,
-                '已复制,粘贴发给 Bot',
+                l10nNow.desktopCopiedPasteTheCommandIntoYourBotChat,
                 icon: Icons.check_circle_outline,
               );
             },
@@ -304,7 +309,7 @@ class _CodePanel extends StatelessWidget {
             child: Column(
               children: [
                 Text(
-                  '复制指令发送给 Bot',
+                  l10nNow.desktopCopyTheCommandAndSendItToThe,
                   style: context.texts.bodySmall!.copyWith(
                     color: scheme.onPrimaryContainer.withValues(alpha: .8),
                   ),
@@ -340,7 +345,7 @@ class _CodePanel extends StatelessWidget {
                     TextButton.icon(
                       onPressed: onCopy,
                       icon: const Icon(Icons.content_copy, size: 15),
-                      label: const Text('复制指令'),
+                      label: Text(l10nNow.desktopCopyCommand),
                     ),
                   ],
                 ),
@@ -376,7 +381,7 @@ class _CodePanel extends StatelessWidget {
             ),
             if (pollError == null) ...[
               const SizedBox(width: 8),
-              TextButton(onPressed: onCancel, child: const Text('取消')),
+              TextButton(onPressed: onCancel, child: Text(l10nNow.cancel)),
             ],
           ],
         ),
@@ -387,9 +392,9 @@ class _CodePanel extends StatelessWidget {
               TextButton.icon(
                 onPressed: polling ? null : onRetry,
                 icon: const Icon(Icons.refresh, size: 16),
-                label: const Text('重试'),
+                label: Text(l10nNow.retry),
               ),
-              TextButton(onPressed: onCancel, child: const Text('取消')),
+              TextButton(onPressed: onCancel, child: Text(l10nNow.cancel)),
             ],
           ),
       ],

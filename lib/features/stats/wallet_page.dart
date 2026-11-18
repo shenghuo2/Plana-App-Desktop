@@ -1,3 +1,4 @@
+import '../../l10n/l10n.dart';
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
@@ -34,7 +35,7 @@ class WalletPage extends ConsumerWidget {
     final scope = account.asData?.value;
     if (scope == null) {
       return SettingsScaffold(
-        appBar: AppBar(title: const Text('钱包')),
+        appBar: AppBar(title: Text(l10nNow.desktopWallet)),
         body: ListView(
           padding: const EdgeInsets.all(16),
           children: [
@@ -42,7 +43,7 @@ class WalletPage extends ConsumerWidget {
             if (account.isLoading)
               const Center(child: CircularProgressIndicator())
             else
-              const StatsCard(child: Text('请先完成 Bot 授权，再查看钱包。')),
+              StatsCard(child: Text(l10nNow.desktopAuthorizeABotAccountToViewYourWallet)),
           ],
         ),
       );
@@ -50,14 +51,14 @@ class WalletPage extends ConsumerWidget {
     final summary = ref.watch(walletSummaryProvider);
     if (summary.asData != null && summary.asData!.value == null) {
       return SettingsScaffold(
-        appBar: AppBar(title: const Text('账单')),
+        appBar: AppBar(title: Text(l10nNow.desktopBilling)),
         body: ListView(
           padding: const EdgeInsets.all(16),
           children: [
             const SettingsPageHeader(),
-            const Text('当前后端使用原账单，可分别查看 NAI 与算力费用。'),
+            Text(l10nNow.desktopThisBackendUsesSeparateNovelAIAndComputeBills),
             ListTile(
-              title: const Text('NAI 账单'),
+              title: Text(l10nNow.desktopNovelAIBill),
               trailing: const Icon(Icons.chevron_right),
               onTap: () => Navigator.of(context).push(
                 MaterialPageRoute<void>(
@@ -66,7 +67,7 @@ class WalletPage extends ConsumerWidget {
               ),
             ),
             ListTile(
-              title: const Text('算力账单'),
+              title: Text(l10nNow.desktopComputeBill),
               trailing: const Icon(Icons.chevron_right),
               onTap: () => Navigator.of(context).push(
                 MaterialPageRoute<void>(builder: (_) => const GpuBillsPage()),
@@ -250,10 +251,10 @@ class _WalletPageState extends ConsumerState<_WalletView> {
     final showList = _loaded && _items.isNotEmpty;
     return SettingsScaffold(
       appBar: AppBar(
-        title: const Text('钱包'),
+        title: Text(l10nNow.desktopWallet),
         actions: [
           IconButton(
-            tooltip: '刷新钱包',
+            tooltip: l10nNow.desktopRefreshWallet,
             onPressed: _refreshing ? null : _refresh,
             icon: const Icon(Icons.refresh),
           ),
@@ -324,7 +325,7 @@ class _WalletPageState extends ConsumerState<_WalletView> {
     child: Row(
       children: [
         Text(
-          '流水',
+          l10nNow.desktopTransactions,
           style: context.texts.bodyMedium!.copyWith(
             fontWeight: FontWeight.w600,
           ),
@@ -361,10 +362,10 @@ class _WalletPageState extends ConsumerState<_WalletView> {
     if (_failed) {
       return Row(
         children: [
-          Expanded(child: Text('流水暂时查不到', style: hint)),
+          Expanded(child: Text(l10nNow.desktopTransactionsAreTemporarilyUnavailable, style: hint)),
           TextButton(
             onPressed: () => _load(reset: true),
-            child: const Text('重试'),
+            child: Text(l10nNow.retry),
           ),
         ],
       );
@@ -405,9 +406,9 @@ class _WalletPageState extends ConsumerState<_WalletView> {
       );
     }
     if (_incomplete) {
-      return const Padding(
+      return Padding(
         padding: EdgeInsets.symmetric(vertical: 12),
-        child: Text('后续流水暂未取得，仅显示已加载记录；可刷新重试。'),
+        child: Text(l10nNow.desktopMoreTransactionsCouldNotBeLoadedRefreshTo),
       );
     }
     final from = summary?.startFrom ?? '';
@@ -462,7 +463,7 @@ class _BalanceCard extends StatelessWidget {
               ),
               const SizedBox(width: 6),
               Text(
-                '余额',
+                l10nNow.desktopBalance,
                 style: context.texts.bodyMedium!.copyWith(
                   fontWeight: FontWeight.w600,
                 ),
@@ -490,7 +491,7 @@ class _BalanceCard extends StatelessWidget {
             SkeletonText(sample: '¥000.00', style: big, width: 112)
           else if (w == null)
             Text(
-              '余额暂时查不到，请刷新重试',
+              l10nNow.desktopBalanceTemporarilyUnavailableRefreshToRetry,
               style: context.texts.bodyMedium!.copyWith(color: scheme.outline),
             )
           else
@@ -501,7 +502,7 @@ class _BalanceCard extends StatelessWidget {
                 Text(fmtFen(w.balanceFen, sign: false), style: big),
                 if (owing) ...[
                   Text(
-                    '余额为负,请充值',
+                    l10nNow.desktopYourBalanceIsNegativeTopItUpTo,
                     style: context.texts.labelMedium!.copyWith(
                       color: scheme.error,
                     ),
@@ -515,7 +516,7 @@ class _BalanceCard extends StatelessWidget {
               Expanded(
                 child: StatTile(
                   icon: Icons.remove_circle_outline,
-                  label: '累计扣款',
+                  label: l10nNow.desktopTotalCharges,
                   value: w == null ? null : fmtFen(w.chargedFen, sign: false),
                   loading: loading,
                 ),
@@ -523,7 +524,7 @@ class _BalanceCard extends StatelessWidget {
               Expanded(
                 child: StatTile(
                   icon: Icons.add_circle_outline,
-                  label: '累计充值',
+                  label: l10nNow.desktopTotalTopUps,
                   value: w == null ? null : fmtFen(w.creditedFen, sign: false),
                   loading: loading,
                 ),
@@ -801,22 +802,22 @@ class _TopUpSheetState extends ConsumerState<_TopUpSheet> {
         if (decoded == null) throw const FormatException('无效的收款码图片');
         await writeBytesAtomic(File(path), img.encodePng(decoded));
         if (mounted) {
-          hintSnack(context, '已保存收款码', icon: Icons.check_circle_outline);
+          hintSnack(context, l10nNow.desktopPaymentQRCodeSaved, icon: Icons.check_circle_outline);
         }
       } else {
         final ok = await Gal.hasAccess() || await Gal.requestAccess();
         if (!ok) {
-          if (mounted) hintSnack(context, '未获相册权限', icon: Icons.error_outline);
+          if (mounted) hintSnack(context, l10nNow.noPhotoPermission, icon: Icons.error_outline);
           return;
         }
         final bytes = await fetchRemoteImageBytes(url);
         await Gal.putImageBytes(bytes, name: 'plana_payment_qr_$type');
         if (mounted) {
-          hintSnack(context, '已保存到相册', icon: Icons.check_circle_outline);
+          hintSnack(context, l10nNow.savedToPhotos1, icon: Icons.check_circle_outline);
         }
       }
     } catch (_) {
-      if (mounted) hintSnack(context, '保存失败', icon: Icons.error_outline);
+      if (mounted) hintSnack(context, l10nNow.saveFailed, icon: Icons.error_outline);
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -832,10 +833,10 @@ class _TopUpSheetState extends ConsumerState<_TopUpSheet> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Text('账号或后端已切换，请重新打开充值。'),
+            Text(l10nNow.desktopTheAccountOrBackendHasChangedReopenThe),
             TextButton(
               onPressed: () => Navigator.pop(context),
-              child: const Text('关闭'),
+              child: Text(l10nNow.close),
             ),
           ],
         ),
@@ -862,7 +863,7 @@ class _TopUpSheetState extends ConsumerState<_TopUpSheet> {
             children: [
               Expanded(
                 child: Text(
-                  '充值',
+                  l10nNow.desktopTopUp,
                   style: context.texts.titleSmall!.copyWith(
                     fontWeight: FontWeight.w700,
                   ),
@@ -870,7 +871,7 @@ class _TopUpSheetState extends ConsumerState<_TopUpSheet> {
               ),
               if (widget.desktop)
                 IconButton(
-                  tooltip: '关闭',
+                  tooltip: l10nNow.close,
                   onPressed: () => Navigator.pop(context),
                   icon: const Icon(Icons.close),
                 ),
@@ -878,9 +879,9 @@ class _TopUpSheetState extends ConsumerState<_TopUpSheet> {
           ),
           const SizedBox(height: 12),
           SegmentedButton<String>(
-            segments: const [
-              ButtonSegment(value: 'wechat', label: Text('微信')),
-              ButtonSegment(value: 'alipay', label: Text('支付宝')),
+            segments: [
+              ButtonSegment(value: 'wechat', label: Text(l10nNow.desktopWeChatPay)),
+              ButtonSegment(value: 'alipay', label: Text(l10nNow.desktopAlipay)),
             ],
             selected: {_type},
             onSelectionChanged: (s) => setState(() => _type = s.first),
@@ -928,7 +929,7 @@ class _TopUpSheetState extends ConsumerState<_TopUpSheet> {
               errorBuilder: (context, _, _) => box(
                 Center(
                   child: Text(
-                    '收款码待配置',
+                    l10nNow.desktopPaymentQRCodeNotConfigured,
                     style: context.texts.bodyMedium!.copyWith(
                       color: scheme.onSurfaceVariant,
                     ),
@@ -939,7 +940,7 @@ class _TopUpSheetState extends ConsumerState<_TopUpSheet> {
           ),
           const SizedBox(height: 10),
           Text(
-            '扫码转账后联系管理员入账',
+            l10nNow.desktopScanToTransferThenContactTheAdministratorTo,
             textAlign: TextAlign.center,
             style: context.texts.bodyMedium!.copyWith(
               color: scheme.onSurfaceVariant,

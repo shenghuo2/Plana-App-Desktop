@@ -1,3 +1,4 @@
+import '../../l10n/l10n.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -58,7 +59,7 @@ class DesktopAlbumMenuController {
             child: ListTile(
               enabled: canRename,
               leading: const Icon(Icons.edit_outlined),
-              title: const Text('重命名'),
+              title: Text(l10nNow.rename),
               contentPadding: EdgeInsets.zero,
               dense: true,
             ),
@@ -70,7 +71,7 @@ class DesktopAlbumMenuController {
             child: ListTile(
               enabled: !readOnly,
               leading: const Icon(Icons.image_outlined),
-              title: const Text('自定义封面'),
+              title: Text(l10nNow.desktopCustomCover),
               contentPadding: EdgeInsets.zero,
               dense: true,
             ),
@@ -118,7 +119,7 @@ class DesktopAlbumMenuController {
         .jobs
         .any((job) => albumId == null || job.galleryTarget.albumId == albumId);
     if (hasGeneration()) {
-      hintSnack(context, '该图库仍有生成任务，请任务结束后再删除');
+      hintSnack(context, l10nNow.desktopWaitForGenerationToFinishBeforeDeletingThis);
       return;
     }
     if (albumId == null) {
@@ -130,7 +131,7 @@ class DesktopAlbumMenuController {
       if (ids.isEmpty) return;
       final confirmed = await confirmDialog(
         context,
-        title: '清空全部作品？',
+        title: l10nNow.desktopClearAllImages,
         message:
             '将删除全部 ${ids.length} 张作品及其历史参数，移除它们在各图库中的归属。'
             '“全部作品”和其他图库容器会保留，已导出的文件不受影响。此操作不可恢复。',
@@ -138,7 +139,7 @@ class DesktopAlbumMenuController {
       );
       if (!confirmed || !context.mounted) return;
       if (hasGeneration()) {
-        hintSnack(context, '仍有生成任务，已保留全部作品');
+        hintSnack(context, l10nNow.desktopImagesWereKeptBecauseGenerationIsStillRunning);
         return;
       }
       final deleted = await container

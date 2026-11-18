@@ -1,3 +1,4 @@
+import '../../../l10n/l10n.dart';
 import 'dart:async';
 import 'dart:math' as math;
 
@@ -97,7 +98,7 @@ class _GalleryTrashContentState extends ConsumerState<GalleryTrashContent> {
     await showDialog<void>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('回收站预览'),
+        title: Text(l10nNow.desktopTrashPreview),
         content: SizedBox(
           width: math.min(560, MediaQuery.sizeOf(dialogContext).width * .7),
           height: math.min(480, MediaQuery.sizeOf(dialogContext).height * .55),
@@ -120,14 +121,14 @@ class _GalleryTrashContentState extends ConsumerState<GalleryTrashContent> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('关闭'),
+            child: Text(l10nNow.close),
           ),
           TextButton(
             onPressed: () async {
               await _act([image.id], restore: false);
               if (dialogContext.mounted) Navigator.pop(dialogContext);
             },
-            child: const Text('彻底删除'),
+            child: Text(l10nNow.deleteForever),
           ),
           FilledButton.icon(
             onPressed: () async {
@@ -135,7 +136,7 @@ class _GalleryTrashContentState extends ConsumerState<GalleryTrashContent> {
               if (dialogContext.mounted) Navigator.pop(dialogContext);
             },
             icon: const Icon(Icons.restore),
-            label: const Text('恢复'),
+            label: Text(l10nNow.restore),
           ),
         ],
       ),
@@ -187,13 +188,13 @@ class _GalleryTrashContentState extends ConsumerState<GalleryTrashContent> {
           Row(
             children: [
               IconButton(
-                tooltip: '返回图库',
+                tooltip: l10nNow.desktopBackToGallery,
                 onPressed: _busy ? null : widget.onBack,
                 icon: const Icon(Icons.arrow_back),
               ),
-              const Expanded(
+              Expanded(
                 child: Text(
-                  '回收站',
+                  l10nNow.trashName,
                   style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
                 ),
               ),
@@ -233,7 +234,7 @@ class _GalleryTrashContentState extends ConsumerState<GalleryTrashContent> {
                   onPressed: _busy
                       ? null
                       : () => setState(() => _picked.addAll(ids)),
-                  child: const Text('全选'),
+                  child: Text(l10nNow.selectAll),
                 ),
               FilledButton.tonalIcon(
                 key: const ValueKey('trash-restore'),
@@ -258,7 +259,7 @@ class _GalleryTrashContentState extends ConsumerState<GalleryTrashContent> {
           const SizedBox(height: 8),
           Expanded(
             child: trash.isEmpty
-                ? const Center(child: Text('回收站为空'))
+                ? Center(child: Text(l10nNow.desktopTrashIsEmpty))
                 : LayoutBuilder(
                     builder: (_, size) {
                       final cols = (size.maxWidth / 190).floor().clamp(1, 6);

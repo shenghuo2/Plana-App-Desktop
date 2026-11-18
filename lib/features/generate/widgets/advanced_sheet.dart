@@ -114,22 +114,24 @@ class _AdvancedSheetState extends ConsumerState<_AdvancedSheet> {
             padding: const EdgeInsets.fromLTRB(20, 4, 20, 16),
             children: [
               // 预设选择即时生效(全局偏好,不随「恢复默认/确认」走草稿)。
-              _SectionLabel('提示词预设'),
-              const SizedBox(height: 10),
-              _PresetRow(model: draft.model),
-              const SizedBox(height: 4),
-              Text(
-                '生成时自动拼进正/负提示词,不占用输入框。V5 与 4.5 各有一套档。',
-                style: context.texts.labelSmall!.copyWith(
-                  color: scheme.outline,
+              if (!draft.isNaiMedium) ...[
+                _SectionLabel('提示词预设'),
+                const SizedBox(height: 10),
+                _PresetRow(model: draft.model),
+                const SizedBox(height: 4),
+                Text(
+                  l10nNow.promptPresetsHelp,
+                  style: context.texts.labelSmall!.copyWith(
+                    color: scheme.outline,
+                  ),
                 ),
-              ),
-              const SizedBox(height: 18),
-              Divider(
-                color: scheme.outlineVariant.withValues(alpha: .5),
-                height: 1,
-              ),
-              const SizedBox(height: 14),
+                const SizedBox(height: 18),
+                Divider(
+                  color: scheme.outlineVariant.withValues(alpha: .5),
+                  height: 1,
+                ),
+                const SizedBox(height: 14),
+              ],
               _SectionLabel('采样'),
               const SizedBox(height: 10),
               if (isAnima) ...[
@@ -425,7 +427,7 @@ class _AdvancedSheetState extends ConsumerState<_AdvancedSheet> {
                 height: 1,
               ),
               const SizedBox(height: 14),
-              _SectionLabel('修正'),
+              _SectionLabel(context.l10n.sectionAdjust),
               const SizedBox(height: 10),
               // 「随机」是开关不是动作:开着 = 每次随机,输入框一并锁死(灰掉、
               // 点不进去),要手填种子先关掉它。骰子原先挂在输入框的 suffixIcon
@@ -461,7 +463,9 @@ class _AdvancedSheetState extends ConsumerState<_AdvancedSheet> {
                     height: 48,
                     child: IconButton(
                       padding: EdgeInsets.zero,
-                      tooltip: randomSeed ? '每次随机 · 点击手填种子' : '手填种子 · 点击改为每次随机',
+                      tooltip: randomSeed
+                          ? context.l10n.seedRandomTooltip
+                          : context.l10n.seedManualTooltip,
                       onPressed: () => _setRandomSeed(!randomSeed),
                       // 图标字体只有一档笔画,选中态靠外面这圈主色底托 + 描边撑。
                       // 方角:挨着输入框,圆角对齐它的 12
@@ -821,7 +825,7 @@ class _PresetRow extends ConsumerWidget {
         ),
         const SizedBox(width: 6),
         IconButton(
-          tooltip: '管理预设',
+          tooltip: context.l10n.managePresets,
           visualDensity: VisualDensity.compact,
           onPressed: () => Navigator.of(
             context,

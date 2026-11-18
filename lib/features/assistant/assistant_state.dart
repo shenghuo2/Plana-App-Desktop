@@ -14,6 +14,21 @@ library;
 
 import 'dart:async';
 import 'dart:convert';
+import 'package:http/http.dart' as http;
+import '../../core/util/image_ops.dart' show decodeImageSize, ensurePng;
+import '../../l10n/l10n.dart';
+import '../gallery/albums/album_state.dart' show gallerySaveTargetProvider;
+import '../editor/data/tag_completion.dart' show tagCompletionProvider;
+import 'domain/image_gen.dart';
+import 'domain/agent_event.dart' show AgentFailure, AgentChannelUnavailable;
+import 'domain/turn_request.dart';
+import 'image_gen/image_gen_client.dart';
+import 'image_gen/image_models.dart';
+import 'llm/llm_image.dart' show prepareLlmImage;
+import 'runtime/agent_runtime.dart';
+import 'tools/offline_tags.dart';
+import 'tools/online_tags.dart';
+import 'tools/tool_settings.dart';
 import 'dart:typed_data';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -38,7 +53,7 @@ import '../generate/generate_state.dart';
 import '../generate/generation_controller.dart'
     show GenOutcome, generationProvider;
 import '../generate/models.dart'
-    show GenerateState, isAnimaModel, isKreaModel, isNai5Model;
+    show GenerateState, imageSizeOf, isAnimaModel, isKreaModel, isNai5Model;
 import '../inspiration/tag_library.dart';
 import '../inspiration/tag_models.dart';
 import 'agent_model.dart';
@@ -47,8 +62,7 @@ import 'assistant_mode.dart';
 import 'assistant_images.dart';
 import 'assistant_models.dart';
 import 'assistant_settings.dart';
-import 'custom_endpoint.dart' show CustomEndpoint;
-import 'direct_agent.dart';
+import 'custom_endpoint.dart' show CustomEndpoint, customEndpointsProvider;
 import 'preset_rules.dart';
 import 'session_store.dart';
 
@@ -323,7 +337,11 @@ final assistantProvider = NotifierProvider<AssistantNotifier, AssistantState>(
 const _keepFences = 2;
 
 class AssistantNotifier extends Notifier<AssistantState> {
+  final _legacyAgentServers = <String>{};
+
   StreamSubscription<AgentEvent>? _sub;
+  final _imageClients = <http.Client>{};
+  http.Client? _activeImage;
   bool _preparing = false;
 
   /// 发号作废:取消 / 又发了一次时,回来的旧事件对不上号,整轮丢弃。
@@ -347,6 +365,10 @@ class AssistantNotifier extends Notifier<AssistantState> {
   @override
   AssistantState build() {
     ref.onDispose(() {
+      for (final client in _imageClients) {
+        client.close();
+      }
+      _imageClients.clear();
       _sub?.cancel();
       _sub = null;
     });
@@ -587,37 +609,6 @@ class AssistantNotifier extends Notifier<AssistantState> {
     );
   }
 
-  /// 当前画面那一块,直连那条自己拼。
-  ///
-  /// 走后端时这块由 `_build_current_prompt_context` 生成并入用户那段(见那边);
-  /// 直连没有那条通路,所以在这儿照同一个形状拼一份 —— 字段名必须一致
-  /// (positive / negative / characters + position),内置预设里讲的就是这几个名字。
-  String _canvasBlock(GenerateState g) {
-    final pos = canvasPositive(g), neg = canvasNegative(g);
-    final lines = <String>[
-      '请在下面这份提示词的基础上改:没让你动的部分原样留着;characters 连 '
-          'position 一起带回来,不带会把我摆好的构图打乱。除非我明说要全新主题 / '
-          '重做,否则都按这份改。',
-      '[当前画面提示词]',
-      'positive: ${pos.trim().isEmpty ? "(空)" : pos}',
-      'negative: ${neg.trim().isEmpty ? "(空)" : neg}',
-    ];
-    final chars = _charsForAgent(g);
-    if (chars.isNotEmpty) {
-      lines.add('characters:');
-      for (final c in chars) {
-        lines.add('  - name: ${c['name']}');
-        final pos = (c['positive'] as String? ?? '').trim();
-        lines.add('    positive: ${pos.isEmpty ? "(空)" : pos}');
-        final neg = (c['negative'] as String? ?? '').trim();
-        if (neg.isNotEmpty) lines.add('    negative: $neg');
-        final at = (c['position'] as String? ?? '').trim();
-        if (at.isNotEmpty) lines.add('    position: $at');
-      }
-    }
-    return lines.join('\n');
-  }
-
   /// 发一轮。[images] 是用户带的全部原图，按顺序存进 blob。
   /// [image] 保留旧单图调用兼容；同时传入时放在 [images] 前面。
   ///
@@ -684,7 +675,10 @@ class AssistantNotifier extends Notifier<AssistantState> {
       }
       // 界面已经挡了(见 _ModelGate),这儿再挡一道:自动生成、重试这些不经过界面。
       final model = sourceState.params.model;
-      if (!assistantSupportsModel(model)) {
+      final imageKey = imageChoiceKeyOf(
+        ref.read(assistantModelPrefProvider).value ?? '',
+      );
+      if (imageKey == null && !assistantSupportsModel(model)) {
         _pushError(
           'AI 助手暂不支持 Anima / Krea,去创作页换成 NAI 再来',
           AssistErrorKind.unknown,
@@ -700,7 +694,7 @@ class AssistantNotifier extends Notifier<AssistantState> {
       // 选了自定义接口就在本机跑 agent 循环,否则打 Plana 后端那条 SSE。
       // 没有 Bot 授权只能走前一条:后端渠道要授权(界面上也不列)。
       final endpoint = ref.read(assistantEndpointProvider);
-      if (sid.isEmpty && endpoint == null) {
+      if (imageKey == null && sid.isEmpty && endpoint == null) {
         try {
           await ref.read(agentModelsProvider.future);
         } catch (_) {}
@@ -712,7 +706,7 @@ class AssistantNotifier extends Notifier<AssistantState> {
           return;
         }
       }
-      if (endpoint == null && base.trim().isEmpty) {
+      if (imageKey == null && endpoint == null && base.trim().isEmpty) {
         _pushError('未配置后端地址，原对话已保留。', AssistErrorKind.unknown);
         return;
       }
@@ -724,17 +718,18 @@ class AssistantNotifier extends Notifier<AssistantState> {
       // 画布是空的就当没勾 —— 记在消息上的也是这个结果,免得气泡挂着「引用了创作页」
       // 而实际什么都没发出去。
       final g = composeSections(sourceState);
-      final canvas = withCanvas && canvasHasContent(g);
+      final canvas = imageKey == null && withCanvas && canvasHasContent(g);
       final picked = queued?.mode ?? state.mode;
       final noDraw = assistantSettingsOf(ref).noDraw;
 
       var hashes = const <String>[];
-      String? b64;
       if (images.isNotEmpty) {
-        if (endpoint == null) {
-          b64 = base64Encode(await prepareAssistantReferenceSheet(images));
+        if (endpoint == null && imageKey == null && images.length > 1) {
+          for (final image in images) {
+            await decodeImageSize(image);
+          }
+          if (!valid()) return;
         }
-        if (!valid()) return;
         hashes =
             replacing?.imageHashes ??
             await _store.putImages(images, temporary: temporary);
@@ -768,12 +763,16 @@ class AssistantNotifier extends Notifier<AssistantState> {
           liveReasoning: '',
           // 一开始是模型在想,不是在查资料:大多数轮次根本不调工具,开场就报「查资料」
           // 是在说一件还没发生、多半也不会发生的事。真调了工具再切过去(见下面的事件)。
-          stage: '思考中',
+          stage: imageKey == null ? l10nNow.thinking : l10nNow.drawingImage,
         ),
       );
       _preparing = false;
       _preparingQueueId = null;
       onAccepted?.call();
+      if (imageKey != null) {
+        await _imageTurn(imageKey, trimmed, images, seq);
+        return;
+      }
       // 记录跟着这条提问一起开:下面还要等灵感库、规则这些,这期间按了停止也得收尾。
       // 设置快照等那些取齐了再补上。
       final trace = AgentTrace(
@@ -867,78 +866,144 @@ class AssistantNotifier extends Notifier<AssistantState> {
             0,
             (sum, image) => sum + image.length,
           ),
-          'image_delivery': endpoint == null && images.length > 1
-              ? 'numbered_reference_sheet'
-              : 'separate_images',
+          'image_delivery': 'separate_images',
         },
       });
-      final stream = endpoint != null
-          ? streamDirectPrompt(
-              endpoint: endpoint,
-              backendBase: base,
-              sessionId: sid,
-              userRequest: trimmed,
-              images: images,
-              // 直连没有外壳,规则直接当系统提示:在用的预设(没自定义就是服务端默认那份)
-              // 挂上 app 的工具层,再补上出图格式 —— 这两样后端那条由服务端自己发
-              rules: withToolLayer(
-                custom ??
-                    await defaultRules(
-                      family,
-                      backendBase: base,
-                      sessionId: sid,
-                    ),
-                await appToolLayer(),
+      final settings = assistantSettingsOf(ref);
+      final toolsConfig = ToolSettings(
+        disabledTools: scope == LibraryScope.none
+            ? const {'search_artist', 'search_oc'}
+            : const {},
+        enabledOptions: settings.ocPlaceholders && endpoint != null
+            ? const {kOcPlaceholdersOption}
+            : const {},
+      );
+      final publicOcs = <TagEntry>[];
+      if (scope == LibraryScope.all) {
+        try {
+          publicOcs.addAll(
+            await ref.read(publicTagsProvider(TagCategory.character).future),
+          );
+        } catch (_) {}
+      }
+      if (!ref.mounted || seq != _seq) return;
+      final channelModel = ref.read(assistantModelKeyProvider);
+      final runtime = agentRuntimeFor(
+        endpoint: endpoint,
+        backendBase: base,
+        sessionId: sid,
+        backendModel: channelModel,
+        imageModel: imageModel,
+        offline: ref.read(offlineTagsProvider),
+        online: base.isEmpty
+            ? null
+            : CompletionOnlineTags(
+                ref.read(tagCompletionProvider),
+                sessionId: sid,
               ),
-              outputFormat: await appOutputFormat(),
-              // 直连没有独立的「当前画面」通道,画布当一段文本发过去
-              canvasBlock: canvas ? _canvasBlock(g) : '',
-              history: history,
-              // 库只在本机用:预匹配、占位符、记账、查库工具都在 app 里做,
-              // 不发给后端(见 local_library.dart)
-              webArtists: lib.artists,
-              webOcs: lib.ocs,
-              ocPlaceholders: assistantSettingsOf(ref).ocPlaceholders,
-              resources: latestResources(state.msgs),
-              libraryScope: libraryScopeWire(scope),
-              chosenModes: modeKeys,
-              think: assistantSettingsOf(ref).thinkLevel,
-              stream: assistantSettingsOf(ref).stream,
-              trace: trace,
-            )
-          : streamAgentPrompt(
-              baseUrl: base,
-              sessionId: sid,
-              userRequest: images.length > 1
-                  ? assistantReferenceSheetPrompt(trimmed, images.length)
-                  : trimmed,
-              // 空串 = 用后端的全局默认。用户在顶栏选过才带 key 出去。
-              model: ref.read(assistantModelKeyProvider),
-              imageModel: imageModel,
-              imageB64: b64,
-              history: history,
-              historyTurns: assistantSettingsOf(ref).historyTurns,
-              currentPositive: canvas ? g.prompt : '',
-              currentNegative: canvas ? g.negativePrompt : '',
-              currentCharacters: canvas ? _charsForAgent(g) : const [],
-              webArtists: lib.artists,
-              webOcs: lib.ocs,
-              // 沿用中的画风 / OC:预匹配逐条消息做,用户这轮没再提「A1」块就不出现,
-              // 出处断在那儿。账本由服务端算、客户端存(这条链路没有服务端会话)。
-              resources: latestResources(state.msgs),
-              libraryScope: libraryScopeWire(scope),
-              // 没自定义就不发,服务端用它自己那份(自带工具说明,永远是最新的);
-              // 自定义的预设只讲写提示词,挂上 app 的工具层再发 —— 服务端换掉的是
-              // 整段规则主体,不挂的话它自己那份工具说明也跟着被换没了
-              presetRules: [
-                if (custom != null)
-                  for (final r in withToolLayer(custom, await appToolLayer()))
-                    r.toJson(),
-              ],
-              modes: modeKeys,
-              onRequest: (body) => trace.request = body,
-              onEvent: trace.event,
-            );
+      );
+      final request = AgentTurnRequest(
+        userText: trimmed,
+        imageModel: imageModel,
+        images: images,
+        history: history,
+        canvas: canvas
+            ? CanvasSnapshot(
+                positive: canvasPositive(g),
+                negative: canvasNegative(g),
+                characters: _charsForAgent(g),
+              )
+            : null,
+        customRules: custom,
+        modeKeys: modeKeys,
+        tools: toolsConfig,
+        artists: [
+          for (final e in artistEntries)
+            if (e.positive.trim().isNotEmpty)
+              {'id': e.name, 'name': e.name, 'prompt': e.positive},
+        ],
+        ocs: [
+          ...lib.ocs,
+          for (final e in publicOcs)
+            {
+              'en_name': e.publicId ?? e.id,
+              'zh_name': e.name,
+              'zh_aliases': e.aliases,
+              'tag_group': e.positive,
+            },
+        ],
+        resources: scope == LibraryScope.none
+            ? const {}
+            : latestResources(preceding),
+        think: settings.thinkLevel,
+        stream: settings.stream,
+        retries: settings.retries,
+        rerolls: settings.rerolls,
+        refusalKeywords: settings.refusalKeywords,
+      );
+      Stream<AgentEvent> legacyBackend() async* {
+        final referenceSheet = images.isEmpty
+            ? null
+            : base64Encode(await prepareAssistantReferenceSheet(images));
+        if (!ref.mounted || seq != _seq) return;
+        if (images.length > 1) {
+          trace.settings['image_delivery'] = 'numbered_reference_sheet';
+        }
+        yield* streamAgentPrompt(
+          baseUrl: base,
+          sessionId: sid,
+          userRequest: images.length > 1
+              ? assistantReferenceSheetPrompt(trimmed, images.length)
+              : trimmed,
+          // 空串 = 用后端的全局默认。用户在顶栏选过才带 key 出去。
+          model: channelModel,
+          imageModel: imageModel,
+          imageB64: referenceSheet,
+          history: history,
+          historyTurns: settings.historyTurns,
+          currentPositive: canvas ? canvasPositive(g) : '',
+          currentNegative: canvas ? canvasNegative(g) : '',
+          currentCharacters: canvas ? _charsForAgent(g) : const [],
+          webArtists: lib.artists,
+          webOcs: lib.ocs,
+          // 沿用中的画风 / OC:预匹配逐条消息做,用户这轮没再提「A1」块就不出现,
+          // 出处断在那儿。账本由服务端算、客户端存(这条链路没有服务端会话)。
+          resources: latestResources(preceding),
+          libraryScope: libraryScopeWire(scope),
+          // 没自定义就不发,服务端用它自己那份(自带工具说明,永远是最新的);
+          // 自定义的预设只讲写提示词,挂上 app 的工具层再发 —— 服务端换掉的是
+          // 整段规则主体,不挂的话它自己那份工具说明也跟着被换没了
+          presetRules: [
+            if (custom != null)
+              for (final r in withToolLayer(custom, await appToolLayer()))
+                r.toJson(),
+          ],
+          modes: modeKeys,
+          onRequest: (body) => trace.request = body,
+          onEvent: trace.event,
+        );
+      }
+
+      Stream<AgentEvent> backendStream() async* {
+        if (!_legacyAgentServers.contains(base)) {
+          var received = false;
+          try {
+            await for (final event in runtime.run(request, trace: trace)) {
+              received = true;
+              yield event;
+            }
+            return;
+          } on AgentChannelUnavailable {
+            if (received) rethrow;
+            _legacyAgentServers.add(base);
+          }
+        }
+        if (ref.mounted && seq == _seq) yield* legacyBackend();
+      }
+
+      final stream = endpoint == null
+          ? backendStream()
+          : runtime.run(request, trace: trace);
       // 上面几处 await(读规则、灵感库,慢的时候十几秒)期间可能已经点了停止,
       // 或者又发了一条:这一轮作废。两个流都是 listen 才发请求,在这儿拦住就不花钱,
       // 也不会把新一轮刚挂上的订阅掐掉。
@@ -1004,7 +1069,7 @@ class AssistantNotifier extends Notifier<AssistantState> {
             ref.invalidate(agentModelsProvider);
           }
           final msg = e is BackendException ? e.message : '$e';
-          _pushError(msg, _kindOf(e));
+          _pushError(endpoint?.redactSecrets(msg) ?? msg, _kindOf(e));
         },
         onDone: () {
           if (seq != _seq) return;
@@ -1031,7 +1096,129 @@ class AssistantNotifier extends Notifier<AssistantState> {
     }
   }
 
+  Future<void> _imageTurn(
+    String key,
+    String prompt,
+    List<Uint8List> images,
+    int seq, {
+    AssistantMsg? redo,
+  }) async {
+    final client = http.Client();
+    _imageClients.add(client);
+    _activeImage = client;
+    CustomEndpoint? endpoint;
+    try {
+      if (prompt.isEmpty) throw AgentFailure(l10nNow.imagePromptEmpty);
+      final target = ref.read(gallerySaveTargetProvider);
+      final backendBase = ref.read(backendBaseProvider).value ?? '';
+      final sid = (await ref.read(botSessionProvider.future))?.sessionId ?? '';
+      if (!ref.mounted || !_imageClients.contains(client)) return;
+      PlanaImageChannels? channels;
+      if (key.startsWith(kPlanaImagePrefix)) {
+        channels = await ref
+            .read(planaImageChannelsProvider.future)
+            .timeout(const Duration(seconds: 5));
+      }
+      if (!ref.mounted || !_imageClients.contains(client)) return;
+      final endpoints = key.startsWith(kPlanaImagePrefix)
+          ? const <CustomEndpoint>[]
+          : await ref.read(customEndpointsProvider.future);
+      final choice = imageModelOf(imageModelChoices(channels, endpoints), key);
+      if (choice == null) throw AgentFailure(l10nNow.imageGenNoModel);
+      endpoint = choice.endpoint;
+      final settings = assistantSettingsOf(ref);
+      final spec =
+          redo?.imageGen ??
+          ImageGenSpec(
+            prompt: prompt,
+            attached: images.isNotEmpty,
+            size: choice.sizes.contains(settings.imageSize)
+                ? settings.imageSize
+                : '',
+            aspect: choice.aspects.contains(settings.imageAspect)
+                ? settings.imageAspect
+                : '',
+            count: settings.imageCount,
+          );
+      final input = (
+        prompt: spec.prompt,
+        images: [for (final image in images) await prepareLlmImage(image)],
+        size: spec.size,
+        aspect: spec.aspect,
+      );
+      if (!ref.mounted || !_imageClients.contains(client)) return;
+      final gen = imageGenClientFor(
+        choice,
+        backendBase: backendBase,
+        sessionId: sid,
+      );
+      final (ids, error) = await drawBatch(spec.count, () async {
+        final png = await ensurePng(await gen.generate(input, client: client));
+        if (!ref.mounted || !_imageClients.contains(client)) return null;
+        final (w, h) = imageSizeOf(png) ?? await decodeImageSize(png);
+        if (!ref.mounted || !_imageClients.contains(client)) return null;
+        final result = await ref
+            .read(galleryProvider.notifier)
+            .addResultToGallery(
+              bytes: png,
+              width: w,
+              height: h,
+              seed: 0,
+              target: target,
+              canSelect: () => ref.mounted && seq == _seq,
+            );
+        return result.id;
+      });
+      if (!ref.mounted || seq != _seq) return;
+      if (ids.isEmpty) throw error ?? AgentFailure(l10nNow.imageGenNoImage);
+      final detail = error == null
+          ? ''
+          : endpoint?.redactSecrets('$error') ?? '$error';
+      final messages = [...state.msgs];
+      if (redo == null) {
+        messages.add(
+          AssistantMsg(
+            id: _newId(),
+            role: MsgRole.ai,
+            text: detail,
+            at: _now,
+            imageIds: ids,
+            imageBatch: ids.length,
+            imageGen: spec,
+            imageModel: key,
+          ),
+        );
+      } else {
+        final i = messages.indexWhere((m) => m.id == redo.id);
+        if (i >= 0) {
+          messages[i] = messages[i].copyWith(
+            text: detail,
+            imageIds: [...messages[i].imageIds, ...ids],
+            imageBatch: ids.length,
+          );
+        }
+      }
+      _set(state.copyWith(msgs: messages, running: false, stage: ''));
+      unawaited(_drain());
+    } catch (e) {
+      if (ref.mounted && seq == _seq) {
+        _pushError(endpoint?.redactSecrets('$e') ?? '$e', _kindOf(e));
+      }
+    } finally {
+      client.close();
+      _imageClients.remove(client);
+      if (identical(_activeImage, client)) _activeImage = null;
+    }
+  }
+
   AssistErrorKind _kindOf(Object e) {
+    if (e is AgentFailure) {
+      if (e.status == 401 || e.status == 403) return AssistErrorKind.auth;
+      if (e.message.contains('拒绝') || e.message.contains('declined')) {
+        return AssistErrorKind.refusal;
+      }
+      return AssistErrorKind.unknown;
+    }
     if (e is! BackendException) return AssistErrorKind.unknown;
     if (e.status == 401 || e.status == 403) return AssistErrorKind.auth;
     if (e.message.contains('没等到回复') ||
@@ -1220,7 +1407,42 @@ class AssistantNotifier extends Notifier<AssistantState> {
   /// 显示成纯文本的那种提议([AssistantMsg.promptAsText])不出图。界面上本来就没有
   /// 按钮,这里再挡一道:以后加的入口也都得从这儿过。
   Future<void> generateFrom(String msgId, {String? canvasId}) async {
-    if (_msg(msgId)?.promptAsText ?? false) return;
+    final msg = _msg(msgId);
+    if (msg?.imageGen case final spec?) {
+      if (_busy || msg!.imageModel == null) return;
+      final seq = ++_seq;
+      _set(
+        state.copyWith(running: true, stage: l10nNow.drawingImage),
+        persist: false,
+      );
+      final images = <Uint8List>[];
+      try {
+        final user = state.msgs
+            .takeWhile((m) => m.id != msgId)
+            .where((m) => m.role == MsgRole.user)
+            .lastOrNull;
+        if (spec.attached && user != null) {
+          for (final hash in user.imageHashes) {
+            final data = await _store.image(hash);
+            if (data == null) throw StateError('无法读取原有附件');
+            images.add(data);
+          }
+        }
+        if (ref.mounted && seq == _seq) {
+          await _imageTurn(
+            msg.imageModel!,
+            spec.prompt,
+            images,
+            seq,
+            redo: msg,
+          );
+        }
+      } catch (e) {
+        if (ref.mounted && seq == _seq) _pushError('$e', _kindOf(e));
+      }
+      return;
+    }
+    if (msg?.promptAsText ?? false) return;
     final sent = previewSendState(msgId, canvasId: canvasId);
     if (sent == null) return;
     final inline = assistantSettingsOf(ref).inlineImage;
@@ -1266,7 +1488,15 @@ class AssistantNotifier extends Notifier<AssistantState> {
   }
 
   /// 停:掐掉这一轮。服务端那次 LLM 已经在跑,掐不掉,但用户不用再干等。
-  void stop() {
+  void stop({bool keepImages = false}) {
+    final image = _activeImage;
+    if (image != null) {
+      _activeImage = null;
+      if (!keepImages) {
+        _imageClients.remove(image);
+        image.close();
+      }
+    }
     if (!_busy) return;
     _finishTrace('手动停止');
     _seq++;
@@ -1537,7 +1767,7 @@ class AssistantNotifier extends Notifier<AssistantState> {
   /// 「新对话」:当前这段存进历史,清空。返回是否真的归档了(空对话不入库)。
   /// 模式回到「无」 —— 模式跟着对话走,新对话从「无」开始。
   bool archiveCurrent() {
-    stop();
+    stop(keepImages: true);
     _clearTraces();
     final current = state.currentSession;
     _store.clearTemporaryImages();
@@ -1561,7 +1791,7 @@ class AssistantNotifier extends Notifier<AssistantState> {
     final i = state.sessions.indexWhere((s) => s.id == id);
     if (i < 0) return;
     final target = state.sessions[i];
-    stop();
+    stop(keepImages: true);
     _clearTraces();
     final rest = [...state.sessions]..removeAt(i);
     final current = state.currentSession;

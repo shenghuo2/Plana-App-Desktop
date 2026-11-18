@@ -140,6 +140,14 @@ void main() {
     ], newId: _nextId);
     // 主体留在原位,新格子按加进来的先后往下排
     expect(_names(list), ['主体', 'A12', '雨夜']);
+    expect(
+      [for (final s in list) s.sources],
+      [
+        const [],
+        ['t1'],
+        ['s1'],
+      ],
+    );
     expect(list[1].artist, isTrue);
     expect(list[1].positive, 'artist:wlop, artist:ask');
     expect(list[1].positiveRaw, isEmpty); // 原样放进去,不折叠
@@ -289,11 +297,11 @@ void main() {
         'lowres, blurry',
       );
       // 读图导入写进了正向:主体那一行补回最上面,也照样进载荷
-      gen.replacePrompts(positive: '2girls');
+      gen.setPrompts(positive: '2girls');
       expect(_names(withMainRow(st().sections, st().prompt)), ['主体', 'A12']);
       expect(
         stripHiddenModules(st(), const GenModuleSettings()).prompt,
-        '2girls',
+        '2girls, artist:wlop, artist:ask',
       );
       // 撤销删主体:放回原位
       final back = restoreSection(
@@ -337,20 +345,46 @@ void main() {
     expect(stripHiddenModules(st(), const GenModuleSettings()).prompt, '1girl');
   });
 
-  test('读图导入整串替换:分区同一侧的词清掉、骨架留着;清空连分区一起清掉', () {
+  test('读图导入整串替换:导了正向连分区一起清掉;只导负面格子留着;清空连分区一起清掉', () {
     gen.setPrompts(positive: '1girl', negative: 'lowres');
     gen.addEntrySections([_a12]);
-    gen.replacePrompts(positive: 'artist:wlop, 2girls');
+    gen.replacePrompts(negative: 'bad anatomy');
     final art = st().sections.firstWhere((s) => s.artist);
-    expect(art.positive, isEmpty);
-    expect(art.positiveRaw, isEmpty);
-    expect(art.negative, 'lowres, blurry'); // 只导了正向,负面不动
+    expect(art.positive, isNotEmpty);
+    expect(art.negative, isEmpty);
+    gen.replacePrompts(positive: 'artist:wlop, 2girls');
+    expect(st().sections, isEmpty);
     expect(st().prompt, 'artist:wlop, 2girls');
+    expect(st().negativePrompt, 'bad anatomy');
     gen.addEntrySections([_watercolor]);
     gen.clearPositive();
     expect(st().prompt, isEmpty);
     expect(st().sections, isEmpty); // 卡片回到没分区的样子
-    expect(st().negativePrompt, 'lowres'); // 主体的负面留着
+    expect(st().negativePrompt, 'bad anatomy'); // 主体的负面留着
+  });
+
+  test('读图导入新建分区:正负向成一格接在最后,原有的不动、已有的词不重复', () {
+    gen.setPrompts(positive: '1girl', negative: 'lowres');
+    gen.addEntrySections([_a12]);
+    gen.addPromptSection(
+      positive: 'artist:wlop, 2girls, smile',
+      negative: 'lowres, bad hands',
+    );
+    expect(_names(st().sections), ['主体', 'A12', '分区 1']);
+    final added = st().sections.last;
+    expect(added.positive, '2girls, smile');
+    expect(added.negative, 'bad hands');
+    expect(st().prompt, '1girl');
+    expect(st().negativePrompt, 'lowres');
+    // 没分区时连主体一起建出来
+    gen.clearPositive();
+    gen.setPrompts(positive: '1girl');
+    gen.addPromptSection(positive: 'night');
+    expect(_names(st().sections), ['主体', '分区 1']);
+    expect(
+      stripHiddenModules(st(), const GenModuleSettings()).prompt,
+      '1girl, night',
+    );
   });
 
   test('编辑器开着分区只写这一格,主提示词不动', () {
@@ -447,8 +481,14 @@ void main() {
       name: '画风',
       positive: 'artist:wlop',
       negative: 'blurry',
+      sources: ['t1'],
     );
-    const b = PromptSection(id: 'b', name: '画风', positive: 'watercolor');
+    const b = PromptSection(
+      id: 'b',
+      name: '画风',
+      positive: 'watercolor',
+      sources: ['t2'],
+    );
     const sc = PromptSection(id: 'c', name: '场景', positive: 'night');
 
     test('留下最上面那格,词按行序从上往下接;挨着的几格合完拼出来的串不变', () {
@@ -459,6 +499,7 @@ void main() {
       expect(m.sections[1].id, 'a');
       expect(m.sections[1].positive, 'artist:wlop, watercolor, night');
       expect(m.sections[1].negative, 'blurry');
+      expect(m.sections[1].sources, ['t1', 't2'], reason: '来源跟着词并过来');
       expect(composeSections(m).prompt, before);
       // 不挨着的两格:下面那格的词挪上来,接在上面那格后面
       final gap = mergeSectionsIn(s, {'a', 'c'})!;
@@ -504,16 +545,14 @@ void main() {
     });
   });
 
-  test('新画布沿用分区骨架、词清空;复制画布带上整组', () {
+  test('新画布不带分区;复制画布带上整组', () {
     gen.setPrompts(positive: '1girl');
     gen.addEntrySections([_a12]);
     final canvases = c.read(canvasWorkspaceProvider.notifier);
     canvases.create(duplicate: true);
     expect(st().sections.firstWhere((s) => s.artist).positive, isNotEmpty);
     canvases.create();
-    expect(_names(st().sections), ['主体', 'A12']);
-    expect(st().sections.last.positive, isEmpty);
-    expect(st().sections.last.negative, isEmpty);
+    expect(st().sections, isEmpty);
     expect(st().prompt, isEmpty);
   });
 
@@ -540,11 +579,31 @@ void main() {
     );
     expect(_names(back.sections), ['人物', 'A12', '场景']);
     expect(back.sections[1].artist, isTrue);
+    expect(back.sections[1].sources, ['t1']);
     expect(back.sections[1].positive, s.sections[1].positive);
     expect(back.sections.last.enabled, isFalse);
     expect(back.sections.first.isMain, isTrue);
     // 没分区的存档不写这个键
     final plain = await encodeGenerateState(GenerateState.initial(), blobs);
     expect(plain.json.containsKey('sections'), isFalse);
+    expect(plain.json.containsKey('usedEntries'), isFalse);
+  });
+
+  test('生成快照往返保留来源:各格的条目 id、角色卡的条目 id', () async {
+    final blobs = stores.blobs;
+    final snap = GenerateState.initial().copyWith(
+      prompt: '1girl',
+      usedEntries: const ['t1', 't4'],
+      characters: const [
+        CharacterPrompt(id: 'a', name: '初音', positive: 'miku', source: 'c1'),
+        CharacterPrompt(id: 'b', name: '角色 2', positive: 'rin'),
+      ],
+    );
+    final back = await decodeGenerateState(
+      (await encodeGenerateState(snap, blobs)).json,
+      blobs,
+    );
+    expect(back.usedEntries, ['t1', 't4']);
+    expect([for (final c in back.characters) c.source], ['c1', null]);
   });
 }

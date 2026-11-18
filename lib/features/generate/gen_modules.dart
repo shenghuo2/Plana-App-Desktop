@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/store/app_stores.dart';
 import 'models.dart';
 import 'prompt_sections.dart';
+import '../../l10n/l10n.dart';
 
 export 'models.dart'
     show GenProvider, isAnimaModel, providerLabel, providerOfModel;
@@ -266,6 +267,7 @@ GenerateState stripHiddenModules(GenerateState s, GenModuleSettings ms) {
     if (out.img2img != null) out = out.copyWith(img2img: null);
     if (out.inpaint != null) out = out.copyWith(inpaint: null);
   }
+  out = withoutInpaintVibes(out);
   // LoRA 挂载列表两个父类共用一份,但启用位分两个 key —— 按当前模型那个判。
   if (!on(loraModuleOf(model)) && out.loras.isNotEmpty) {
     out = out.copyWith(loras: const []);
@@ -296,6 +298,11 @@ GenerateState stripHiddenModules(GenerateState s, GenModuleSettings ms) {
   }
   return out;
 }
+
+/// 重绘不带 Vibe(同官方:V4 / V4.5 的重绘不收 Vibe,V5 本来没有)。
+/// 画布里的 Vibe 原样留着,去掉遮罩就照常发。
+GenerateState withoutInpaintVibes(GenerateState s) =>
+    s.inpaint != null && s.vibes.isNotEmpty ? s.copyWith(vibes: const []) : s;
 
 /// 把快照适配到**另一个模型**:只按型号能力剥,不看用户的模块显隐。
 ///
@@ -373,3 +380,12 @@ class GenModulesNotifier extends AsyncNotifier<GenModuleSettings> {
     } catch (_) {}
   }
 }
+
+/// 模块名按界面语言显示;Bot 专属的几个保持原文。
+String genModuleLabel(AppLocalizations l, GenModuleDef d) => switch (d.key) {
+  GenModule.character => l.characters,
+  GenModule.vibe => l.vibeTransfer,
+  GenModule.charRef => l.preciseReference,
+  GenModule.img2img => l.img2img,
+  _ => d.label,
+};

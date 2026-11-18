@@ -9,6 +9,7 @@ import '../../core/util/prompt_convert.dart';
 import '../generate/generate_state.dart';
 import '../generate/widgets/common.dart' show hintSnack;
 import '../shell/shell_state.dart';
+import '../../l10n/l10n.dart';
 
 enum _Dir { sd2nai, nai2sd }
 
@@ -50,14 +51,14 @@ class _WeightConvertViewState extends ConsumerState<WeightConvertView> {
     final out = _output;
     if (out == null || out.isEmpty) return;
     Clipboard.setData(ClipboardData(text: out));
-    hintSnack(context, '已复制', icon: Icons.check_circle_outline);
+    hintSnack(context, context.l10n.copied, icon: Icons.check_circle_outline);
   }
 
   void _import() {
     final out = _output;
     if (out == null || out.isEmpty) return;
     ref.read(generateProvider.notifier).setPrompts(positive: out);
-    hintSnack(context, '已导入提示词', icon: Icons.download_done);
+    hintSnack(context, context.l10n.promptImported, icon: Icons.download_done);
     ref.read(shellIndexProvider.notifier).select(kTabCreate);
     if (!ref.read(desktopModeProvider)) Navigator.of(context).maybePop();
   }
@@ -156,7 +157,7 @@ class _WeightConvertViewState extends ConsumerState<WeightConvertView> {
                   key: const ValueKey('weight-convert-run'),
                   onPressed: _input.text.trim().isEmpty ? null : _convert,
                   icon: const Icon(Icons.swap_horiz, size: 18),
-                  label: const Text('转换'),
+                  label: Text(l10nNow.convert),
                 ),
               ),
               TextButton.icon(
@@ -167,7 +168,7 @@ class _WeightConvertViewState extends ConsumerState<WeightConvertView> {
                         _output = null;
                       }),
                 icon: const Icon(Icons.clear, size: 18),
-                label: const Text('清空输入'),
+                label: Text(l10nNow.desktopClearInput),
               ),
             ],
           ),
@@ -204,7 +205,7 @@ class _WeightConvertViewState extends ConsumerState<WeightConvertView> {
                     )
                   : Center(
                       child: Text(
-                        '转换结果会显示在这里',
+                        l10nNow.desktopTheConvertedResultWillAppearHere,
                         style: context.texts.bodySmall!.copyWith(
                           color: scheme.onSurfaceVariant,
                         ),
@@ -221,12 +222,12 @@ class _WeightConvertViewState extends ConsumerState<WeightConvertView> {
                 FilledButton.tonalIcon(
                   onPressed: hasOutput ? _import : null,
                   icon: const Icon(Icons.download, size: 18),
-                  label: const Text('导入提示词'),
+                  label: Text(l10nNow.importPrompt),
                 ),
               FilledButton.icon(
                 onPressed: hasOutput ? _copy : null,
                 icon: const Icon(Icons.content_copy, size: 18),
-                label: const Text('复制结果'),
+                label: Text(l10nNow.copyResult),
               ),
             ],
           ),
@@ -251,7 +252,7 @@ class _WeightConvertViewState extends ConsumerState<WeightConvertView> {
                           _output = null;
                         }),
                       ),
-                      const Text('去除 LoRA'),
+                      Text(l10nNow.desktopRemoveLoRA),
                     ],
                   ),
               ],
@@ -299,7 +300,7 @@ class _WeightConvertViewState extends ConsumerState<WeightConvertView> {
                     visualDensity: VisualDensity.compact,
                     onChanged: (v) => setState(() => _stripLora = v ?? true),
                   ),
-                  Text('去 Lora', style: context.texts.bodySmall),
+                  Text(context.l10n.stripLora, style: context.texts.bodySmall),
                 ],
               ],
             ),
@@ -331,7 +332,7 @@ class _WeightConvertViewState extends ConsumerState<WeightConvertView> {
             FilledButton.icon(
               onPressed: _convert,
               icon: const Icon(Icons.swap_horiz, size: 19),
-              label: const Text('转换'),
+              label: Text(context.l10n.convert),
               style: FilledButton.styleFrom(
                 minimumSize: const Size.fromHeight(46),
               ),
@@ -366,13 +367,13 @@ class _WeightConvertViewState extends ConsumerState<WeightConvertView> {
                     FilledButton.tonalIcon(
                       onPressed: _import,
                       icon: const Icon(Icons.download, size: 18),
-                      label: const Text('导入提示词'),
+                      label: Text(context.l10n.importPrompt),
                     ),
                   const Spacer(),
                   FilledButton.icon(
                     onPressed: _copy,
                     icon: const Icon(Icons.content_copy, size: 17),
-                    label: const Text('复制结果'),
+                    label: Text(context.l10n.copyResult),
                   ),
                 ],
               ),

@@ -1,3 +1,4 @@
+import '../../l10n/l10n.dart';
 import 'dart:async';
 import 'dart:io';
 
@@ -127,7 +128,7 @@ class _ExternalImageDragState extends State<ExternalImageDrag> {
       if (mounted) {
         ScaffoldMessenger.maybeOf(
           context,
-        )?.showSnackBar(const SnackBar(content: Text('无法拖出这张图片，请重试或使用复制图片')));
+        )?.showSnackBar(SnackBar(content: Text(l10nNow.desktopCouldNotDragThisImageTryAgainOr)));
       }
     } finally {
       session.handingOff = false;

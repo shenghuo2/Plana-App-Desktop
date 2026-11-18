@@ -1,3 +1,4 @@
+import '../../../l10n/l10n.dart';
 import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -495,7 +496,7 @@ class _FilmStripState extends State<FilmStrip>
     Haptics.medium();
     _vacated.add('r:$id');
     widget.onDelete(id);
-    if (mounted) hintSnack(context, '已删除', icon: Icons.delete_outline);
+    if (mounted) hintSnack(context, l10nNow.deletedLabel, icon: Icons.delete_outline);
   }
 
   /// 把选中缩略图滚到**视野中央**。位置按渲染同款公式推算(缩略图宽 +
@@ -964,7 +965,7 @@ class _FilmThumbState extends State<_FilmThumb> {
                 Positioned(
                   left: 4,
                   top: 4,
-                  child: ResultBadgeChip(badge: result.badge),
+                  child: ResultBadgeChip(badge: result.badge, maxWidth: w - 8),
                 ),
               if (result.saved)
                 const Positioned(right: 4, top: 4, child: SavedMark(size: 14)),
@@ -1092,16 +1093,16 @@ class _DropBandsState extends State<_DropBands>
             _DropBand(
               icon: Icons.delete_outline,
               activeIcon: Icons.delete_forever,
-              label: '拖到这里删除',
-              activeLabel: '松手删除',
+              label: context.l10n.dropToDelete,
+              activeLabel: context.l10n.releaseToDelete,
               destructive: true,
               onAccept: widget.onDelete,
             ),
             const SizedBox(height: _bandSpacing),
             _DropBand(
               icon: Icons.ios_share,
-              label: '拖到这里分享',
-              activeLabel: '松手分享',
+              label: context.l10n.dropToShare,
+              activeLabel: context.l10n.releaseToShare,
               destructive: false,
               onAccept: widget.onShare,
             ),

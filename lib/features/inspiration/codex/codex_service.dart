@@ -6,6 +6,8 @@ import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 
 import '../../../core/store/atomic_file.dart';
+import '../../../l10n/l10n.dart';
+import 'codex_artist_styles.dart';
 import 'codex_models.dart';
 import 'codex_tag_zh.dart';
 
@@ -107,17 +109,37 @@ class CodexService {
     }
   }
 
+  Future<String?> _fetchArtistStyles() async {
+    try {
+      return await _fetchWithCopy(artistStylesFile, (raw) {
+        if (parseArtistStyles(jsonDecode(raw)) == null) {
+          throw CodexException(l10nNow.codexBadData);
+        }
+        return raw;
+      });
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// 一部法典的完整数据:命中缓存读盘;否则拉网 → 解析通过 → 落盘(淘汰旧版本)。
   ///
   /// 盘上那份解析不了(早先非原子写留下的半截文件之类)就删掉回源 —— 否则重试
   /// 读的还是同一个坏文件,这部法典会一直卡在「加载失败」。
   Future<CodexData> fetchCodex(CodexMeta meta) async {
+    final styles = meta.id == artistStylesCodexId
+        ? _fetchArtistStyles()
+        : Future<String?>.value();
     final f = await _codexFile(meta);
     if (f != null && await f.exists()) {
       try {
         final s = await f.readAsString();
         if (s.isNotEmpty) {
-          return await compute(codexParsePayload, <Object?>[s, meta.raw]);
+          return await compute(codexParsePayload, <Object?>[
+            s,
+            meta.raw,
+            await styles,
+          ]);
         }
       } catch (_) {}
       try {
@@ -126,7 +148,11 @@ class CodexService {
     }
 
     final raw = await _download(meta);
-    final data = await compute(codexParsePayload, <Object?>[raw, meta.raw]);
+    final data = await compute(codexParsePayload, <Object?>[
+      raw,
+      meta.raw,
+      await styles,
+    ]);
     if (f != null) await _storeCodex(meta, f, raw);
     return data;
   }
@@ -250,12 +276,17 @@ CodexData codexParsePayload(List<Object?> args) {
   final indexRaw = args[1] as Map<String, dynamic>?;
   final j = jsonDecode(raw);
   if (j is! Map<String, dynamic>) {
-    throw const CodexException('法典数据格式异常');
+    throw CodexException(l10nNow.codexBadData);
   }
   final idx = (indexRaw != null && indexRaw.isNotEmpty)
       ? CodexMeta.fromJson(indexRaw)
       : null;
-  return CodexData.parse(j, indexMeta: idx);
+  final data = CodexData.parse(j, indexMeta: idx);
+  final stylesRaw = args.length > 2 ? args[2] as String? : null;
+  final styles = stylesRaw == null
+      ? null
+      : parseArtistStyles(jsonDecode(stylesRaw));
+  return styles == null ? data : applyArtistStyles(data, styles);
 }
 
 class CodexException implements Exception {

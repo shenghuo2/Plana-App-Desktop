@@ -6,6 +6,8 @@
 /// 常量与判定。
 library;
 
+import '../../l10n/l10n.dart';
+
 /// NAI 官方直连基址。`/ai/*` 与 `/user/*` 现在同在 image 子域
 /// (2026-07-04 起,旧 api.novelai.net 回 400 "Please refresh NovelAI.net")。
 const kNaiOfficialBase = 'https://image.novelai.net';
@@ -64,18 +66,18 @@ String naiBaseHost(String base) =>
 /// 第三方接口的请求格式,添加时选。
 enum NaiApiFormat {
   /// NovelAI 官方格式:`/ai/generate-image(-stream)`。
-  nai('NovelAI 格式', '兼容 NovelAI 接口的中转站或自建反代 · /ai/generate-image'),
+  nai,
+  openai;
 
-  /// OpenAI 兼容:`/v1/chat/completions`,见 `nai_chat_compat.dart`。
-  openai(
-    'OpenAI 格式',
-    '用于支持 NovelAI 绘图的 OpenAI 格式中转。整张生成后返回，不显示逐步预览；不提供账户查询、超分或新 Vibe 编码。',
-  );
+  String get label => switch (this) {
+    nai => l10nNow.formatNai,
+    openai => l10nNow.formatOpenai,
+  };
 
-  const NaiApiFormat(this.label, this.hint);
-
-  final String label;
-  final String hint;
+  String get hint => switch (this) {
+    nai => l10nNow.formatNaiHint,
+    openai => l10nNow.formatOpenaiHint,
+  };
 }
 
 const _chatPath = '/chat/completions';

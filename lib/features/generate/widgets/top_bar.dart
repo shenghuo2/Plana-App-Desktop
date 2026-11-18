@@ -317,7 +317,7 @@ class _ModelSheetState extends State<_ModelSheet>
   );
 
   Widget _modelTile(String model) {
-    final desc = m.modelDescriptions[model];
+    final desc = _modelDescription(context.l10n, model);
     return ListTile(
       onTap: () => Navigator.pop(context, model),
       title: Text(model, style: context.texts.bodyMedium),
@@ -390,14 +390,14 @@ class _AuthModeChip extends ConsumerWidget {
       borderRadius: BorderRadius.circular(_height / 2),
       clipBehavior: Clip.antiAlias,
       child: PopupMenuButton<AuthMode>(
-        tooltip: '生成方式',
+        tooltip: l10nNow.genMethod,
         position: PopupMenuPosition.under,
         onSelected: (v) {
           if (v == mode) return;
           if (v == AuthMode.bot && !canSwitch) {
             hintSnack(
               context,
-              '尚未授权 Bot,去「我的 → 账号与接入」授权后可切',
+              l10nNow.desktopAuthorizeYourBotAccountInProfileUnderAccounts,
               icon: Icons.smart_toy_outlined,
             );
             return;
@@ -460,7 +460,7 @@ class _DesktopModelDropdown extends ConsumerWidget {
           child: Row(
             children: [
               Text(
-                '生成方式',
+                l10nNow.genMethod,
                 style: context.texts.labelMedium!.copyWith(
                   color: context.scheme.onSurfaceVariant,
                   fontWeight: FontWeight.w600,
@@ -554,3 +554,14 @@ class _DesktopModelDropdown extends ConsumerWidget {
     );
   }
 }
+
+String? _modelDescription(AppLocalizations l, String model) => switch (model) {
+  'NAI 5.0 Full' => l.descNai5Full,
+  'NAI 5.0 Full Medium' => l.descNai5Medium,
+  'NAI 5.0 Curated' => l.descNai5Curated,
+  'NAI 4.5 Full' => l.descNai45Full,
+  'NAI 4.5 Curated' => l.descNai45Curated,
+  'NAI 4.0 Full' => l.descNai4Full,
+  'NAI 4.0 Curated' => l.descNai4Curated,
+  _ => m.modelDescriptions[model],
+};

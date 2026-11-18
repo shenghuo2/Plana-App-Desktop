@@ -6,6 +6,10 @@
 /// 自己在放权,不能替他决定。
 library;
 
+import '../refusal_keywords_page.dart';
+import '../endpoints_page.dart';
+import '../../../l10n/l10n.dart';
+
 import 'dart:convert';
 
 import 'package:file_picker/file_picker.dart';
@@ -177,12 +181,12 @@ class _DesktopSettingsPanel extends ConsumerWidget {
                               ),
                             ),
                             const SizedBox(width: 12),
-                            const Expanded(
+                            Expanded(
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(
-                                    '助手设置',
+                                    l10nNow.assistantSettings,
                                     style: TextStyle(
                                       fontSize: 17,
                                       fontWeight: FontWeight.w600,
@@ -190,14 +194,14 @@ class _DesktopSettingsPanel extends ConsumerWidget {
                                   ),
                                   SizedBox(height: 3),
                                   Text(
-                                    '调整对话与创作习惯',
+                                    l10nNow.desktopChatAndCreationPreferences,
                                     style: TextStyle(fontSize: 12),
                                   ),
                                 ],
                               ),
                             ),
                             IconButton(
-                              tooltip: '关闭助手设置',
+                              tooltip: l10nNow.desktopCloseAssistantSettings,
                               onPressed: () => Navigator.pop(context),
                               icon: const Icon(Icons.close, size: 20),
                             ),
@@ -224,7 +228,7 @@ class _DesktopSettingsPanel extends ConsumerWidget {
                                     section('阅读与回复', [
                                       SettingStepperRow(
                                         icon: Icons.format_size,
-                                        title: '消息字号',
+                                        title: l10nNow.settingMessageSize,
                                         desc: '对话消息的文字大小',
                                         value: s.fontSize,
                                         min: AssistantSettings.fontSizeMin,
@@ -237,7 +241,7 @@ class _DesktopSettingsPanel extends ConsumerWidget {
                                       ),
                                       SettingRow(
                                         icon: Icons.keyboard_outlined,
-                                        title: '流式输出',
+                                        title: l10nNow.streamOutput,
                                         desc: '逐字显示回复',
                                         value: s.stream,
                                         onChanged: (v) => n.patch(
@@ -246,7 +250,7 @@ class _DesktopSettingsPanel extends ConsumerWidget {
                                       ),
                                       SettingRow(
                                         icon: Icons.image_outlined,
-                                        title: '在对话内显示图片',
+                                        title: l10nNow.inlineImages,
                                         desc: '生成图片仍会保存至图库',
                                         value: s.inlineImage,
                                         onChanged: (v) => n.patch(
@@ -257,7 +261,7 @@ class _DesktopSettingsPanel extends ConsumerWidget {
                                     section('侧栏图片按钮', [
                                       SettingRow(
                                         icon: Icons.image_outlined,
-                                        title: '添加图片',
+                                        title: l10nNow.addImages,
                                         desc: '在创作页侧栏显示文件选择按钮，支持多选',
                                         value: s.showSidebarImagePicker,
                                         onChanged: (v) => n.patch(
@@ -268,7 +272,7 @@ class _DesktopSettingsPanel extends ConsumerWidget {
                                       ),
                                       SettingRow(
                                         icon: Icons.photo_library_outlined,
-                                        title: '从历史选择',
+                                        title: l10nNow.desktopChooseFromHistory,
                                         desc: '在创作页侧栏显示历史图片按钮',
                                         value: s.showSidebarHistoryPicker,
                                         onChanged: (v) => n.patch(
@@ -279,7 +283,7 @@ class _DesktopSettingsPanel extends ConsumerWidget {
                                       ),
                                       SettingRow(
                                         icon: Icons.content_paste,
-                                        title: '从剪贴板粘贴',
+                                        title: l10nNow.desktopPasteFromClipboard,
                                         desc: '在创作页侧栏显示图片粘贴按钮',
                                         value: s.showSidebarClipboardButton,
                                         onChanged: (v) => n.patch(
@@ -290,9 +294,10 @@ class _DesktopSettingsPanel extends ConsumerWidget {
                                       ),
                                     ]),
                                     section('对话记忆', [
+                                      ..._retrySettings(context, s, n),
                                       SettingStepperRow(
                                         icon: Icons.history,
-                                        title: '上下文轮数',
+                                        title: l10nNow.contextTurns,
                                         desc: '每次发送带上最近几轮对话',
                                         value: s.historyTurns.toDouble(),
                                         min: AssistantSettings.historyTurnsMin
@@ -313,7 +318,7 @@ class _DesktopSettingsPanel extends ConsumerWidget {
                                     section('提示词结果', [
                                       SettingRow(
                                         icon: Icons.notes,
-                                        title: '纯文本格式',
+                                        title: l10nNow.plainTextFormat,
                                         desc: '提示词只显示为文本，不导入也不出图',
                                         value: s.noDraw,
                                         onChanged: (v) => n.patch(
@@ -331,7 +336,7 @@ class _DesktopSettingsPanel extends ConsumerWidget {
                                     section('自动操作', [
                                       SettingRow(
                                         icon: Icons.draw_outlined,
-                                        title: '自动写入创作页',
+                                        title: l10nNow.autoWrite,
                                         desc: '生成的提示词自动写回创作页',
                                         enabled: !s.noDraw,
                                         value: s.autoImport,
@@ -341,7 +346,7 @@ class _DesktopSettingsPanel extends ConsumerWidget {
                                       ),
                                       SettingRow(
                                         icon: Icons.bolt_outlined,
-                                        title: '生成提示词后自动出图',
+                                        title: l10nNow.autoDraw,
                                         desc: '提示词完成后立即生成图片',
                                         enabled: !s.noDraw,
                                         value: s.autoGenerate,
@@ -352,7 +357,7 @@ class _DesktopSettingsPanel extends ConsumerWidget {
                                     ]),
                                     if (s.noDraw)
                                       Text(
-                                        '纯文本格式已开启，自动写入与自动出图暂不生效。',
+                                        l10nNow.desktopPlainTextIsOnAutomaticImportAndGeneration,
                                         style: TextStyle(
                                           fontSize: 12,
                                           height: 1.6,
@@ -368,8 +373,8 @@ class _DesktopSettingsPanel extends ConsumerWidget {
                                           crossAxisAlignment:
                                               CrossAxisAlignment.start,
                                           children: [
-                                            const Text(
-                                              '资料库范围',
+                                            Text(
+                                              l10nNow.libraryScope,
                                               style: TextStyle(
                                                 fontSize: 13,
                                                 fontWeight: FontWeight.w600,
@@ -377,7 +382,7 @@ class _DesktopSettingsPanel extends ConsumerWidget {
                                             ),
                                             const SizedBox(height: 6),
                                             Text(
-                                              '查询画师串与角色时使用的资料来源',
+                                              l10nNow.desktopSourcesUsedToLookUpArtistPromptsAnd,
                                               style: TextStyle(
                                                 fontSize: 11,
                                                 color: scheme.onSurfaceVariant,
@@ -388,7 +393,7 @@ class _DesktopSettingsPanel extends ConsumerWidget {
                                               LibraryScope
                                             >(
                                               id: 'assistant-library-dropdown',
-                                              label: '资料库范围',
+                                              label: l10nNow.libraryScope,
                                               value: effectiveLibraryScope(
                                                 s.libraryScope,
                                                 botAuthorized: authorized,
@@ -420,7 +425,7 @@ class _DesktopSettingsPanel extends ConsumerWidget {
                                     section('创作规则', [
                                       SettingNavRow(
                                         icon: Icons.rule_outlined,
-                                        title: '规则预设',
+                                        title: l10nNow.rulePresets,
                                         desc: '生成提示词时遵循的规则',
                                         value: _rulesValue(ref),
                                         onTap: () => Navigator.of(context).push(
@@ -434,7 +439,7 @@ class _DesktopSettingsPanel extends ConsumerWidget {
                                     section('记录', [
                                       SettingNavRow(
                                         icon: Icons.file_download_outlined,
-                                        title: '导出对话记录',
+                                        title: l10nNow.exportChatLog,
                                         desc: '保存当前对话的请求与回复',
                                         value: '',
                                         onTap: () => _exportTrace(context, ref),
@@ -451,7 +456,7 @@ class _DesktopSettingsPanel extends ConsumerWidget {
                       Padding(
                         padding: const EdgeInsets.all(12),
                         child: Text(
-                          '修改后自动保存',
+                          l10nNow.desktopChangesAreSavedAutomatically,
                           textAlign: TextAlign.center,
                           style: TextStyle(
                             fontSize: 11,
@@ -504,9 +509,9 @@ class _DesktopImportChoice extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: 14),
-                const Expanded(
+                Expanded(
                   child: SettingRowTexts(
-                    title: '导入方式',
+                    title: l10nNow.importMode,
                     desc: '提示词写入主提示词的位置',
                   ),
                 ),
@@ -515,7 +520,7 @@ class _DesktopImportChoice extends StatelessWidget {
             const SizedBox(height: 12),
             DesktopSettingsDropdown<SectionImport>(
               id: 'assistant-import-dropdown',
-              label: '导入方式',
+              label: l10nNow.importMode,
               value: value,
               enabled: enabled,
               options: SectionImport.values,
@@ -542,7 +547,7 @@ class _SettingsSheet extends ConsumerWidget {
     final authorized = ref.watch(assistantBotAuthorizedProvider);
     final customEndpoint = ref.watch(assistantEndpointProvider) != null;
     return SettingSheet(
-      title: '助手设置',
+      title: l10nNow.assistantSettings,
       children: [
         if (s == null)
           const Padding(
@@ -550,10 +555,10 @@ class _SettingsSheet extends ConsumerWidget {
             child: Center(child: CircularProgressIndicator()),
           )
         else ...[
-          settingSection(context, '显示'),
+          settingSection(context, l10nNow.settingDisplay),
           SettingStepperRow(
             icon: Icons.format_size,
-            title: '消息字号',
+            title: l10nNow.settingMessageSize,
             desc: '对话消息的文字显示大小',
             value: s.fontSize,
             min: AssistantSettings.fontSizeMin,
@@ -564,22 +569,22 @@ class _SettingsSheet extends ConsumerWidget {
           ),
           SettingRow(
             icon: Icons.keyboard_outlined,
-            title: '流式输出',
+            title: l10nNow.streamOutput,
             desc: '逐字显示回复',
             value: s.stream,
             onChanged: (v) => n.patch((o) => o.copyWith(stream: v)),
           ),
-          settingSection(context, '出图'),
+          settingSection(context, l10nNow.settingDraw),
           SettingRow(
             icon: Icons.notes,
-            title: '纯文本格式',
+            title: l10nNow.plainTextFormat,
             desc: '提示词只显示为文本,不导入也不出图',
             value: s.noDraw,
             onChanged: (v) => n.patch((o) => o.copyWith(noDraw: v)),
           ),
           SettingChoiceRow<SectionImport>(
             icon: Icons.splitscreen_outlined,
-            title: '导入方式',
+            title: l10nNow.importMode,
             desc: '提示词写入创作页主提示词的位置',
             enabled: !s.noDraw,
             value: s.importTo,
@@ -587,11 +592,11 @@ class _SettingsSheet extends ConsumerWidget {
             labelOf: sectionImportLabel,
             onChanged: (v) => n.patch((o) => o.copyWith(importTo: v)),
           ),
-          settingSection(context, '自动'),
+          settingSection(context, l10nNow.aiChoice),
           // 纯文本格式开着时这两项不会发生,淡显
           SettingRow(
             icon: Icons.bolt_outlined,
-            title: '生成提示词后自动出图',
+            title: l10nNow.autoDraw,
             desc: '提示词生成完成后立即开始出图',
             enabled: !s.noDraw,
             value: s.autoGenerate,
@@ -599,23 +604,24 @@ class _SettingsSheet extends ConsumerWidget {
           ),
           SettingRow(
             icon: Icons.image_outlined,
-            title: '在对话内显示图片',
+            title: l10nNow.inlineImages,
             desc: '生成的图片显示在对话内,同时保存至图库',
             value: s.inlineImage,
             onChanged: (v) => n.patch((o) => o.copyWith(inlineImage: v)),
           ),
           SettingRow(
             icon: Icons.draw_outlined,
-            title: '自动写入创作页',
+            title: l10nNow.autoWrite,
             desc: '生成的提示词自动写回创作页,无需手动导入',
             enabled: !s.noDraw,
             value: s.autoImport,
             onChanged: (v) => n.patch((o) => o.copyWith(autoImport: v)),
           ),
-          settingSection(context, '对话'),
+          settingSection(context, l10nNow.settingChat),
+          ..._retrySettings(context, s, n),
           SettingStepperRow(
             icon: Icons.history,
-            title: '上下文轮数',
+            title: l10nNow.contextTurns,
             desc: '每次发送带上最近几轮对话',
             value: s.historyTurns.toDouble(),
             min: AssistantSettings.historyTurnsMin.toDouble(),
@@ -625,10 +631,10 @@ class _SettingsSheet extends ConsumerWidget {
             onChanged: (v) =>
                 n.patch((o) => o.copyWith(historyTurns: v.round())),
           ),
-          settingSection(context, '资料'),
+          settingSection(context, l10nNow.settingLibrary),
           SettingChoiceRow<LibraryScope>(
             icon: Icons.library_books_outlined,
-            title: '资料库范围',
+            title: l10nNow.libraryScope,
             desc: '查询画师串与角色时使用的资料来源',
             value: effectiveLibraryScope(
               s.libraryScope,
@@ -645,7 +651,7 @@ class _SettingsSheet extends ConsumerWidget {
           ),
           SettingRow(
             icon: Icons.person_outline,
-            title: 'OC 使用占位符',
+            title: l10nNow.ocPlaceholder,
             desc: customEndpoint
                 ? '本地与公共 OC 只给 AI 占位符，出图时还原；调整原设时请关闭'
                 : '仅自定义接口渠道可用',
@@ -653,20 +659,20 @@ class _SettingsSheet extends ConsumerWidget {
             enabled: customEndpoint,
             onChanged: (v) => n.patch((o) => o.copyWith(ocPlaceholders: v)),
           ),
-          settingSection(context, '规则'),
+          settingSection(context, l10nNow.settingRules),
           SettingNavRow(
             icon: Icons.rule_outlined,
-            title: '规则预设',
+            title: l10nNow.rulePresets,
             desc: '生成提示词时遵循的规则',
             value: _rulesValue(ref),
             onTap: () => Navigator.of(context).push(
               MaterialPageRoute<void>(builder: (_) => const RulesPresetPage()),
             ),
           ),
-          settingSection(context, '调试'),
+          settingSection(context, l10nNow.settingDebug),
           SettingNavRow(
             icon: Icons.bug_report_outlined,
-            title: '导出对话记录',
+            title: l10nNow.exportChatLog,
             desc: '当前对话每一轮发给 AI 的内容和返回',
             value: switch (ref.read(assistantProvider.notifier).traceCount) {
               0 => '',
@@ -683,7 +689,7 @@ class _SettingsSheet extends ConsumerWidget {
 /// 导出成一个文本文件,存到用户选的位置。内容见 `renderTraceExport`。
 Future<void> _exportTrace(BuildContext context, WidgetRef ref) async {
   if (ref.read(assistantProvider).msgs.isEmpty) {
-    hintSnack(context, '当前对话是空的', icon: Icons.info_outline);
+    hintSnack(context, l10nNow.chatEmpty, icon: Icons.info_outline);
     return;
   }
   try {
@@ -697,7 +703,7 @@ Future<void> _exportTrace(BuildContext context, WidgetRef ref) async {
       bytes: utf8.encode(ref.read(assistantProvider.notifier).exportTrace()),
     );
     if (path != null && context.mounted) {
-      hintSnack(context, '已导出对话记录', icon: Icons.check_circle_outline);
+      hintSnack(context, l10nNow.chatLogExported, icon: Icons.check_circle_outline);
     }
   } catch (e) {
     if (context.mounted) {
@@ -715,4 +721,21 @@ String _rulesValue(WidgetRef ref) {
   if (used.every((p) => p.isDefault)) return '默认';
   if (used.every((p) => p.id == used.first.id)) return used.first.name;
   return '自定义';
+}
+
+List<Widget> _retrySettings(BuildContext context, AssistantSettings s, AssistantSettingsNotifier n) {
+  final l = context.l10n;
+  return [
+    SettingNavRow(icon: Icons.dns_outlined, title: l.myEndpoints, desc:'', value:'',
+      onTap:()=>openEndpointsPage(context)),
+    SettingStepperRow(icon:Icons.refresh,title:l.failRetries,desc:l.failRetriesDesc,value:s.retries.toDouble(),
+      min:0,max:AssistantSettings.retriesMax.toDouble(),step:1,format:(v)=>v.toInt().toString(),
+      onChanged:(v)=>n.patch((old)=>old.copyWith(retries:v.toInt()))),
+    SettingStepperRow(icon:Icons.replay,title:l.refusalRetries,desc:l.refusalRetriesDesc,value:s.rerolls.toDouble(),
+      min:0,max:AssistantSettings.retriesMax.toDouble(),step:1,format:(v)=>v.toInt().toString(),
+      onChanged:(v)=>n.patch((old)=>old.copyWith(rerolls:v.toInt()))),
+    SettingNavRow(icon:Icons.text_fields,title:l.refusalKeywords,desc:l.refusalKeywordsDesc,
+      value:s.refusalKeywords.length.toString(),
+      onTap:()=>Navigator.of(context).push(MaterialPageRoute<void>(builder:(_)=>const RefusalKeywordsPage()))),
+  ];
 }

@@ -1,3 +1,4 @@
+import '../../../l10n/l10n.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -63,13 +64,13 @@ class _KreaPromptCardState extends ConsumerState<KreaPromptCard> {
 
     return SectionCard(
       icon: Icons.format_align_left,
-      title: '自然语言',
+      title: l10nNow.desktopNaturalLanguage,
       reorderIndex: widget.reorderIndex,
       // 收起时也答得上「正向词是不是这张卡换过的」
       inline: [
         if (replaced)
           Text(
-            '已替换',
+            l10nNow.desktopReplaced,
             style: context.texts.labelMedium!.copyWith(color: scheme.primary),
           ),
       ],
@@ -107,7 +108,7 @@ class _KreaPromptCardState extends ConsumerState<KreaPromptCard> {
               isDense: true,
               filled: true,
               fillColor: scheme.surfaceContainerHigh.withValues(alpha: .5),
-              hintText: '补充要求(可选)· 例:改成黄昏的暖光',
+              hintText: l10nNow.desktopOptionalInstructionsEGUseWarmEveningLight,
               hintStyle: context.texts.bodySmall!.copyWith(
                 color: scheme.outline,
               ),
@@ -136,13 +137,13 @@ class _KreaPromptCardState extends ConsumerState<KreaPromptCard> {
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    'AI 正在整理…',
+                    l10nNow.desktopAIIsRevising,
                     style: context.texts.labelMedium!.copyWith(
                       color: scheme.onSurfaceVariant,
                     ),
                   ),
                 ),
-                TextButton(onPressed: notifier.cancel, child: const Text('取消')),
+                TextButton(onPressed: notifier.cancel, child: Text(l10nNow.cancel)),
               ],
             ),
           ],
@@ -166,7 +167,7 @@ class _KreaPromptCardState extends ConsumerState<KreaPromptCard> {
                   Icons.refresh,
                   size: 30,
                   iconSize: 17,
-                  tooltip: '重新整理一次',
+                  tooltip: l10nNow.desktopReviseAgain,
                   color: scheme.onSurfaceVariant,
                   onTap: busy || st.mode == null
                       ? null
@@ -177,7 +178,7 @@ class _KreaPromptCardState extends ConsumerState<KreaPromptCard> {
                   Icons.delete_outline,
                   size: 30,
                   iconSize: 17,
-                  tooltip: '清空结果(不动提示词框里的内容)',
+                  tooltip: l10nNow.desktopClearTheResultAndKeepTheTextIn,
                   color: scheme.onSurfaceVariant,
                   onTap: notifier.clearResult,
                 ),
@@ -212,7 +213,7 @@ class _KreaPromptCardState extends ConsumerState<KreaPromptCard> {
                 ? OutlinedButton.icon(
                     onPressed: notifier.restore,
                     icon: const Icon(Icons.undo, size: 18),
-                    label: const Text('还原成替换前'),
+                    label: Text(l10nNow.desktopRestorePreviousPrompt),
                     style: OutlinedButton.styleFrom(
                       minimumSize: const Size.fromHeight(42),
                     ),
@@ -220,7 +221,7 @@ class _KreaPromptCardState extends ConsumerState<KreaPromptCard> {
                 : FilledButton.tonalIcon(
                     onPressed: notifier.applyReplace,
                     icon: const Icon(Icons.check, size: 18),
-                    label: const Text('替换正向提示词'),
+                    label: Text(l10nNow.desktopReplacePositivePrompt),
                     style: FilledButton.styleFrom(
                       minimumSize: const Size.fromHeight(42),
                     ),

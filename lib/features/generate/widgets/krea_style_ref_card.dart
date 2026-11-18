@@ -1,3 +1,4 @@
+import '../../../l10n/l10n.dart';
 import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
@@ -109,7 +110,7 @@ class _KreaStyleRefCardState extends ConsumerState<KreaStyleRefCard> {
 
     final card = SectionCard(
       icon: Icons.palette_outlined,
-      title: '风格参考',
+      title: l10nNow.desktopStyleReference,
       reorderIndex: widget.reorderIndex,
       badge: refs.isEmpty
           ? null
@@ -148,7 +149,7 @@ class _KreaStyleRefCardState extends ConsumerState<KreaStyleRefCard> {
                   style: TextButton.styleFrom(
                     visualDensity: VisualDensity.compact,
                   ),
-                  child: const Text('切到 Turbo'),
+                  child: Text(l10nNow.desktopSwitchToTurbo),
                 ),
               ],
             ),
@@ -182,7 +183,7 @@ class _KreaStyleRefCardState extends ConsumerState<KreaStyleRefCard> {
           const SizedBox(height: 14),
           // 强度是全局一份(所有参考图共用),所以不放进每张的详情里
           LiveParamSlider(
-            label: 'Strength 参考强度',
+            label: l10nNow.referenceStrength,
             help: Help.kreaStyleRefStrength,
             value: state.kreaStyleRefWeight,
             max: kKreaStyleRefWeightMax,
@@ -220,7 +221,7 @@ class _KreaStyleRefCardState extends ConsumerState<KreaStyleRefCard> {
             key: ValueKey(
               ref.watch(canvasWorkspaceProvider.select((w) => w.activeId)),
             ),
-            label: '加入风格参考',
+            label: l10nNow.desktopAddStyleReference,
             multiple: true,
             acceptPaste: true,
             onDrop: (images, _) =>

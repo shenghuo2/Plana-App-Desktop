@@ -1,3 +1,4 @@
+import '../../l10n/l10n.dart';
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
@@ -128,7 +129,7 @@ class _DesktopMetadataProcessorState
             item.bytes ?? await ref.read(galleryImageProvider(item.id).future);
         if (!mounted) return;
         if (bytes == null) {
-          hintSnack(context, '无法读取这张历史图片，文件可能已被移动或删除');
+          hintSnack(context, l10nNow.desktopCouldNotLoadTheImageItsFileMay);
           return;
         }
         final file = gallery.imageFileForPreview(item.id);
@@ -221,7 +222,7 @@ class _DesktopMetadataProcessorState
           ? _bytes!
           : await File(_imagePath!).readAsBytes();
       await _readImage(bytes, _imageName, _imagePath);
-      if (mounted) hintSnack(context, '已重新读取图片中的参数');
+      if (mounted) hintSnack(context, l10nNow.desktopImageSettingsReloaded);
     } catch (error) {
       if (mounted) hintSnack(context, '读取失败：$error');
     } finally {
@@ -304,7 +305,7 @@ class _DesktopMetadataProcessorState
     }
     if (_errors.isNotEmpty) {
       setState(() => _tab = 0);
-      hintSnack(context, '请检查标出的生成参数');
+      hintSnack(context, l10nNow.desktopCheckTheHighlightedGenerationSettings);
       return null;
     }
     return updateMetadataComment(_original, values);
@@ -421,22 +422,22 @@ class _DesktopMetadataProcessorState
         LayoutBuilder(
           builder: (context, constraints) {
             final description = Text(
-              '读取与编辑生成参数，导出处理后的图片',
+              l10nNow.desktopReadAndEditGenerationSettingsThenExportThe,
               style: context.texts.bodySmall!.copyWith(
                 color: context.scheme.onSurfaceVariant,
               ),
             );
             final modes = SegmentedButton<int>(
-              segments: const [
+              segments: [
                 ButtonSegment(
                   value: 0,
                   icon: Icon(Icons.image_outlined, size: 18),
-                  label: Text('单张处理'),
+                  label: Text(l10nNow.desktopSingleImage),
                 ),
                 ButtonSegment(
                   value: 1,
                   icon: Icon(Icons.photo_library_outlined, size: 18),
-                  label: Text('批量处理'),
+                  label: Text(l10nNow.desktopBatchProcessing),
                 ),
               ],
               selected: {_tab},
@@ -523,18 +524,18 @@ class _DesktopMetadataProcessorState
                     Icons.add_photo_alternate_outlined,
                     size: 18,
                   ),
-                  label: const Text('选择图片'),
+                  label: Text(l10nNow.selectImage),
                 ),
                 OutlinedButton.icon(
                   key: const ValueKey('metadata-history-single'),
                   onPressed: _busy ? null : () => _pickHistory(multiple: false),
                   icon: const Icon(Icons.history, size: 18),
-                  label: const Text('从历史选择'),
+                  label: Text(l10nNow.desktopChooseFromHistory),
                 ),
                 OutlinedButton.icon(
                   onPressed: _busy || _bytes == null ? null : _reread,
                   icon: const Icon(Icons.refresh, size: 18),
-                  label: const Text('重新读取元数据'),
+                  label: Text(l10nNow.desktopReloadMetadata),
                 ),
                 if (_meta != null)
                   TextButton(
@@ -550,7 +551,7 @@ class _DesktopMetadataProcessorState
                               ),
                             ),
                           ),
-                    child: const Text('完整信息与导入'),
+                    child: Text(l10nNow.desktopViewDetailsAndImport),
                   ),
               ],
             ),
@@ -579,7 +580,7 @@ class _DesktopMetadataProcessorState
                               fit: BoxFit.contain,
                               cacheWidth: 700,
                               errorBuilder: (_, _, _) =>
-                                  const Center(child: Text('图片无法解码')),
+                                  Center(child: Text(l10nNow.desktopCouldNotDecodeImage)),
                             ),
                     ),
                   ),
@@ -617,7 +618,7 @@ class _DesktopMetadataProcessorState
           children: [
             _directoryField(input: false),
             const SizedBox(height: 10),
-            const Text('导出 PNG 副本，原图片保留。'),
+            Text(l10nNow.desktopExportAPNGCopyAndKeepTheOriginal),
             const SizedBox(height: 12),
             Wrap(
               alignment: WrapAlignment.end,
@@ -630,7 +631,7 @@ class _DesktopMetadataProcessorState
                       ? null
                       : () => _saveSingle(strip: true),
                   icon: const Icon(Icons.cleaning_services_outlined, size: 18),
-                  label: const Text('清除元数据并导出'),
+                  label: Text(l10nNow.desktopRemoveMetadataAndExport),
                 ),
                 FilledButton.icon(
                   key: const ValueKey('metadata-write-single'),
@@ -638,7 +639,7 @@ class _DesktopMetadataProcessorState
                       ? null
                       : () => _saveSingle(strip: false),
                   icon: const Icon(Icons.save_alt, size: 18),
-                  label: const Text('写入元数据并导出'),
+                  label: Text(l10nNow.desktopWriteMetadataAndExport),
                 ),
               ],
             ),
@@ -716,7 +717,7 @@ class _DesktopMetadataProcessorState
       ExpansionTile(
         key: const PageStorageKey('metadata-advanced-parameters'),
         tilePadding: EdgeInsets.zero,
-        title: const Text('更多参数'),
+        title: Text(l10nNow.desktopMoreSettings),
         childrenPadding: const EdgeInsets.only(top: 8, bottom: 8),
         children: [
           for (final entry in const {
@@ -775,7 +776,7 @@ class _DesktopMetadataProcessorState
       ),
       if (input)
         IconButton(
-          tooltip: '刷新图片列表',
+          tooltip: l10nNow.desktopRefreshImages,
           onPressed: _busy ? null : _scan,
           icon: const Icon(Icons.refresh),
         ),
@@ -798,7 +799,7 @@ class _DesktopMetadataProcessorState
                 key: const ValueKey('metadata-history-batch'),
                 onPressed: _busy ? null : () => _pickHistory(multiple: true),
                 icon: const Icon(Icons.history, size: 18),
-                label: const Text('从历史选择'),
+                label: Text(l10nNow.desktopChooseFromHistory),
               ),
             ),
             const SizedBox(height: 12),
@@ -817,7 +818,7 @@ class _DesktopMetadataProcessorState
               controlAffinity: ListTileControlAffinity.leading,
               value: _subfolder,
               onChanged: _busy ? null : (v) => setState(() => _subfolder = v!),
-              title: const Text('创建结果子文件夹（推荐）'),
+              title: Text(l10nNow.desktopCreateAResultsSubfolderRecommended),
             ),
             SelectableText(
               '实际输出：${_destination ?? '请先选择文件夹'}',
@@ -834,7 +835,7 @@ class _DesktopMetadataProcessorState
           children: [
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
-              title: const Text('仅清除元数据'),
+              title: Text(l10nNow.desktopClearMetadataOnly),
               subtitle: Text(_strip ? '清除生成参数和隐藏元数据' : '将「单张处理」中当前编辑的参数写入所选图片'),
               value: _strip,
               onChanged: _busy ? null : (v) => setState(() => _strip = v),
@@ -845,11 +846,11 @@ class _DesktopMetadataProcessorState
                 child: TextButton.icon(
                   onPressed: _busy ? null : () => setState(() => _tab = 0),
                   icon: const Icon(Icons.edit_outlined, size: 18),
-                  label: const Text('查看与编辑写入参数'),
+                  label: Text(l10nNow.desktopViewAndEditMetadata),
                 ),
               ),
             const SizedBox(height: 8),
-            const Text('导出 PNG 副本，重名文件自动编号。'),
+            Text(l10nNow.desktopExportPNGCopiesDuplicateFilenamesAreNumberedAutomatically),
           ],
         ),
       ),
@@ -910,7 +911,7 @@ class _DesktopMetadataProcessorState
             ),
           if (_files.isNotEmpty) ...[
             IconButton(
-              tooltip: '上一张（←）',
+              tooltip: l10nNow.desktopPreviousImageLabelLabel,
               onPressed: () {
                 _previewFocus.requestFocus();
                 _movePreview(-1);
@@ -918,7 +919,7 @@ class _DesktopMetadataProcessorState
               icon: const Icon(Icons.chevron_left),
             ),
             IconButton(
-              tooltip: '下一张（→）',
+              tooltip: l10nNow.desktopNextImageLabelLabel,
               onPressed: () {
                 _previewFocus.requestFocus();
                 _movePreview(1);
@@ -1152,7 +1153,7 @@ class _DesktopMetadataProcessorState
                 _job?.cancel();
                 setState(() => _status = '正在完成当前图片，随后取消…');
               },
-              child: const Text('取消处理'),
+              child: Text(l10nNow.desktopCancelProcessing),
             ),
           ),
         if (_result case final result?) ...[
@@ -1167,13 +1168,13 @@ class _DesktopMetadataProcessorState
               child: TextButton.icon(
                 onPressed: _openOutput,
                 icon: const Icon(Icons.folder_open, size: 18),
-                label: const Text('打开输出文件夹'),
+                label: Text(l10nNow.desktopOpenOutputFolder),
               ),
             ),
             ExpansionTile(
               key: const PageStorageKey('metadata-exported-files'),
               tilePadding: EdgeInsets.zero,
-              title: const Text('已导出的文件'),
+              title: Text(l10nNow.desktopExportedFiles),
               children: [
                 SelectableText(
                   result.outputs.join('\n'),

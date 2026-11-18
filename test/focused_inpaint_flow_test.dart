@@ -299,6 +299,61 @@ void main() {
   );
 
   test(
+    'legacy cropped preview uses its own original size and the complete submitted crop',
+    () async {
+      final stores = AppStores.ephemeral();
+      final client = _Frames();
+      final container = ProviderContainer(
+        overrides: [
+          appStoresProvider.overrideWithValue(stores),
+          desktopModeProvider.overrideWithValue(true),
+          authModeProvider.overrideWith(_Auth.new),
+          naiKeysStoreProvider.overrideWith(_Keys.new),
+          naiClientProvider.overrideWith((ref, base) => client),
+        ],
+      );
+      addTearDown(() {
+        container.dispose();
+        stores.flushNow();
+      });
+      await container.read(authModeProvider.future);
+      await container.read(naiKeysStoreProvider.future);
+      final original = _solid(512, 768, 0, 0, 0);
+      final cropped = _solid(256, 384, 255, 255, 255);
+      final job = InpaintJob(
+        image: cropped,
+        mask: cropped,
+        strength: .7,
+        paste: InpaintPaste(
+          original: original,
+          outW: 512,
+          outH: 768,
+          sendX: 64,
+          sendY: 96,
+          tightX: 112,
+          tightY: 160,
+          tightW: 64,
+          tightH: 80,
+        ),
+      );
+      final editor = container.read(generateProvider.notifier);
+      editor.setInpaint(job, width: 512, height: 768);
+      final controller = container.read(generationProvider.notifier);
+      final run = controller.generate();
+      await client.started.future.timeout(const Duration(seconds: 10));
+      final live = container.read(genStatusProvider);
+      final sent = client.request!['parameters'] as Map;
+      expect((sent['width'], sent['height']), (256, 384));
+      expect(live.pasteUnder, same(original));
+      expect(live.pasteSize, (w: 512, h: 768));
+      expect(live.pasteAt, (x: 64, y: 96, w: 256, h: 384));
+      controller.cancel();
+      await client.frames.close();
+      await run;
+    },
+  );
+
+  test(
     'focused stream and final use source coordinates and persisted old comparison uses only the effective mask',
     () async {
       final root = await Directory.systemTemp.createTemp('plana_focus_flow_');
