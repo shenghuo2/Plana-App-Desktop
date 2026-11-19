@@ -16,6 +16,7 @@ $releaseRoot = Join-Path $projectRoot 'build/windows/x64/runner/Release'
 $appPath = Join-Path $releaseRoot 'plana_app_for_windows.exe'
 $stateRoot = Join-Path $projectRoot 'build/launcher'
 $stampPath = Join-Path $stateRoot 'build.json'
+$driveClientFile = Join-Path $projectRoot 'tool/local/google-drive-desktop.json'
 $logRoot = Join-Path $workspaceRoot 'logs'
 $runId = '{0}-{1}' -f (Get-Date -Format 'yyyyMMdd-HHmmss-fff'), $PID
 $sessionLog = Join-Path $logRoot "$runId-launcher.log"
@@ -41,6 +42,7 @@ function Get-InputsHash([switch]$DependenciesOnly) {
             if (Test-Path -LiteralPath $path -PathType Leaf) { Get-Item -LiteralPath $path }
         }
         if (!$DependenciesOnly) {
+            if (Test-Path -LiteralPath $driveClientFile -PathType Leaf) { Get-Item -LiteralPath $driveClientFile }
             foreach ($name in @('lib', 'assets', 'examples/inspiration-previews', 'windows/runner')) {
                 $path = Join-Path $projectRoot $name
                 if (Test-Path -LiteralPath $path) { Get-ChildItem -LiteralPath $path -File -Recurse }
@@ -198,8 +200,23 @@ function Start-Plana {
             }
             Ensure-PluginLinks
             $sourceHash = Get-InputsHash
-            if ((Invoke-Flutter -Arguments @('build', 'windows', '--release', '--no-pub')) -ne 0) {
-                throw "Build failed. See $buildLog"
+            $arguments = @('build', 'windows', '--release', '--no-pub')
+            $defines = Join-Path $stateRoot 'google-drive-build-defines.json'
+            try {
+                if (Test-Path -LiteralPath $driveClientFile -PathType Leaf) {
+                    $installed = (Get-Content -LiteralPath $driveClientFile -Raw -Encoding UTF8 | ConvertFrom-Json).installed
+                    if (!$installed -or $installed.client_id -cnotmatch '^[A-Za-z0-9._-]+\.apps\.googleusercontent\.com$') {
+                        throw 'Expected a Google Desktop app client in tool/local/google-drive-desktop.json.'
+                    }
+                    $fields = @{ PLANA_GOOGLE_DESKTOP_CLIENT_ID = [string]$installed.client_id }
+                    if ($installed.client_secret) { $fields.PLANA_GOOGLE_DESKTOP_CLIENT_SECRET = [string]$installed.client_secret }
+                    [IO.Directory]::CreateDirectory($stateRoot) | Out-Null
+                    [IO.File]::WriteAllText($defines, ($fields | ConvertTo-Json -Compress), [Text.UTF8Encoding]::new($false))
+                    $arguments += "--dart-define-from-file=$defines"
+                }
+                if ((Invoke-Flutter -Arguments $arguments) -ne 0) { throw "Build failed. See $buildLog" }
+            } finally {
+                if (Test-Path -LiteralPath $defines -PathType Leaf) { Remove-Item -LiteralPath $defines }
             }
             foreach ($required in @('plana_app_for_windows.exe', 'flutter_windows.dll', 'data/app.so', 'data/icudtl.dat')) {
                 if (!(Test-Path -LiteralPath (Join-Path $releaseRoot $required) -PathType Leaf)) {

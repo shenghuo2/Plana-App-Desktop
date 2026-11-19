@@ -5357,7 +5357,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get chatMode => '对话模式';
 
   @override
-  String get planaBackend => 'Plana Bot';
+  String get planaBackend => 'Plana 后端';
 
   @override
   String get freeModels => '免费模型';
@@ -7629,4 +7629,14 @@ class AppLocalizationsZh extends AppLocalizations {
   String backupDaysAgo(int n) {
     return '$n 天前';
   }
+
+  @override
+  String get signInGoogleDrive => '使用 Google 账号登录';
+
+  @override
+  String get driveClientNotConfigured =>
+      '本版本尚未配置 Google 登录。你可以在高级设置中导入自己的桌面客户端配置。';
+
+  @override
+  String get useBundledDriveClient => '使用应用内置的 Google 客户端';
 }

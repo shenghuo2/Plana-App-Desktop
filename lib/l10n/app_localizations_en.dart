@@ -5810,7 +5810,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get chatMode => 'Chat Mode';
 
   @override
-  String get planaBackend => 'Plana Bot';
+  String get planaBackend => 'Plana backend';
 
   @override
   String get freeModels => 'Free Models';
@@ -8209,4 +8209,14 @@ class AppLocalizationsEn extends AppLocalizations {
   String backupDaysAgo(int n) {
     return '$n d ago';
   }
+
+  @override
+  String get signInGoogleDrive => 'Sign in with Google';
+
+  @override
+  String get driveClientNotConfigured =>
+      'This build has no Google sign-in client. You can import your own desktop client in Advanced Settings.';
+
+  @override
+  String get useBundledDriveClient => 'Use the built-in Google client';
 }

@@ -1,3 +1,8 @@
+import 'dart:convert';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:plana_app/core/store/app_stores.dart';
+import 'package:plana_app/core/util/webp_to_png.dart';
+import 'package:plana_app/features/gallery/phone_image_date.dart';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -11,6 +16,87 @@ import 'package:plana_app/features/import/image_metadata.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  test(
+    'legacy WebP retention migrates once while an explicit JPG choice wins',
+    () async {
+      final stores = AppStores.ephemeral();
+      final c = ProviderContainer(
+        overrides: [appStoresProvider.overrideWithValue(stores)],
+      );
+      addTearDown(c.dispose);
+      await stores.prefs.write(key: 'gen_settings', value: '{"keepWebp":true}');
+      expect(
+        (await c.read(saveSettingsProvider.future)).format,
+        SaveFormat.webp,
+      );
+      await c
+          .read(saveSettingsProvider.notifier)
+          .patch(
+            (old) =>
+                old.copyWith(format: SaveFormat.png, meta: SaveMeta.custom),
+          );
+      c.invalidate(saveSettingsProvider);
+      expect(
+        (await c.read(saveSettingsProvider.future)).format,
+        SaveFormat.png,
+      );
+      await stores.prefs.write(
+        key: 'save_settings',
+        value: '{"format":"jpg","quality":0.6}',
+      );
+      c.invalidate(saveSettingsProvider);
+      expect((await c.read(saveSettingsProvider.future)).quality, .6);
+      expect(c.read(saveSettingsProvider).requireValue.format, SaveFormat.jpg);
+    },
+  );
+
+  test(
+    'WebP saves carry the selected metadata and round trip through image import',
+    () async {
+      final rgba = Uint8List(192 * 192 * 4);
+      for (var i = 3; i < rgba.length; i += 4) {
+        rgba[i] = 255;
+      }
+      final png = withPngITxt(
+        await encodePngFromRgba(rgba, 192, 192),
+        'Comment',
+        jsonEncode({
+          'prompt': '猫, original',
+          'width': 192,
+          'height': 192,
+          'steps': 28,
+          'seed': 123,
+        }),
+      );
+      final src = withPngITxt(png, 'plana:sections', '分区内容');
+      const settings = SaveSettings(format: SaveFormat.webp);
+      final result = await processForSave(src, settings);
+      expect(isWebp(result), isTrue);
+      expect(readWebpText(result)['plana:sections'], '分区内容');
+      expect((await extractImageMetadata(result))?.prompt, '猫, original');
+      expect(await processForSave(result, settings), same(result));
+      final dated = withPhoneCaptureDate(
+        result,
+        1700000000000,
+        SaveFormat.webp,
+      );
+      expect(readWebpText(dated)['plana:sections'], '分区内容');
+      final clean = await processForSave(
+        result,
+        settings.copyWith(meta: SaveMeta.clean),
+      );
+      expect(isWebp(clean), isTrue);
+      expect(readWebpText(clean), isEmpty);
+      expect(await extractImageMetadata(clean), isNull);
+      final custom = await processForSave(
+        result,
+        settings.copyWith(meta: SaveMeta.custom, customPrompt: 'only this'),
+      );
+      expect(isWebp(custom), isTrue);
+      expect((await extractImageMetadata(custom))?.prompt, 'only this');
+    },
+  );
 
   test('保存设置 json 回环 + 脏数据回退', () {
     const s = SaveSettings(
@@ -45,6 +131,8 @@ void main() {
     final decoded = img.decodeJpg(jpg);
     expect(decoded, isNotNull);
     expect(decoded!.width, 64);
+    final pngFromJpg = await processForSave(jpg, const SaveSettings());
+    expect(img.decodePng(pngFromJpg)?.width, 64);
   });
 
   test('保存管线:PNG+覆写可被读取端解析,PNG+清除读不出', () async {

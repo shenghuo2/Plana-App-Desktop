@@ -5,6 +5,7 @@ import '../desktop/desktop_library_state.dart';
 import 'dart:convert';
 import 'dart:math';
 import 'dart:typed_data';
+import '../gallery/save_settings.dart';
 import '../gallery/albums/album_models.dart';
 import '../gallery/albums/album_state.dart';
 
@@ -758,7 +759,7 @@ class GenerationNotifier extends Notifier<GenPool> {
           presetId: preset.presetId,
           qualityToggle: preset.qualityToggle,
           straightAlpha: _straightAlpha,
-          imageFormat: _keepWebp ? 'webp' : 'png',
+          imageFormat: await _keepWebp ? 'webp' : 'png',
           thirdParty: run.base.isNotEmpty,
           vibes: [
             for (final v in prepared)
@@ -907,8 +908,8 @@ class GenerationNotifier extends Notifier<GenPool> {
   /// 直连走不走流式端点(见 [GenSettings.streamGen])。bot 线不看这个。
   bool get _streamGen => ref.read(genSettingsProvider).value?.streamGen ?? true;
 
-  /// 成图保持 WebP(见 [GenSettings.keepWebp]):直连按它填 image_format,bot 线据此决定还原不还原。
-  bool get _keepWebp => ref.read(genSettingsProvider).value?.keepWebp ?? false;
+  Future<bool> get _keepWebp async =>
+      (await ref.read(saveSettingsProvider.future)).format == SaveFormat.webp;
 
   /// 这一单**实际**按多大的图计价。Max ✨ 放大重绘的输出尺寸是**服务端**定的,
   /// params 里还留着原图尺寸 —— 按原尺寸估会系统性少算(边长 ×2 = 四倍像素),
@@ -1244,7 +1245,7 @@ class GenerationNotifier extends Notifier<GenPool> {
           sessionId: session.sessionId,
           taskId: sub.taskId!,
           client: client,
-          keepWebp: _keepWebp,
+          keepWebp: await _keepWebp,
           onProgress: (step, tot, preview, text) {
             final focused = s.inpaint?.paste?.focus != null;
             // 采样前那段服务端报 total=0,照抄的话会把建任务时按档位算好的

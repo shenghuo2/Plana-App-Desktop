@@ -37,7 +37,7 @@ Future<({File? file, int packed, int failed})> packImagesZip(
   String? password,
   bool Function(int done)? onEach,
 }) async {
-  final ext = settings.format == SaveFormat.jpg ? 'jpg' : 'png';
+  final ext = settings.format.name;
   var packed = 0, failed = 0;
   _EntryPool? pool;
   RandomAccessFile? raf;

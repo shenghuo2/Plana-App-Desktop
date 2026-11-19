@@ -325,33 +325,41 @@ class _DesktopGalleryBrowserState extends ConsumerState<DesktopGalleryBrowser>
                                 if (context.mounted) hintSnack(context, '$e');
                               }
                             },
-                            builder: (context, targets, _) =>
-                                Draggable<_AlbumDrag>(
-                                  data: _AlbumDrag(id),
-                                  feedback: Material(
-                                    color: Colors.transparent,
-                                    child: Chip(label: Text(entry.name)),
-                                  ),
-                                  childWhenDragging: Opacity(
-                                    opacity: .5,
-                                    child: tile,
-                                  ),
-                                  child: DecoratedBox(
-                                    position: DecorationPosition.foreground,
-                                    decoration: BoxDecoration(
-                                      border: targets.isEmpty
-                                          ? null
-                                          : Border.all(
-                                              color: Theme.of(
-                                                context,
-                                              ).colorScheme.primary,
-                                              width: 2,
-                                            ),
-                                      borderRadius: BorderRadius.circular(12),
+                            builder: (context, targets, _) => LayoutBuilder(
+                              builder: (context, constraints) =>
+                                  Draggable<_AlbumDrag>(
+                                    data: _AlbumDrag(id),
+                                    feedback: Material(
+                                      color: Colors.transparent,
+                                      child: SizedBox.fromSize(
+                                        key: const ValueKey(
+                                          "album-drag-preview",
+                                        ),
+                                        size: constraints.biggest,
+                                        child: tile,
+                                      ),
                                     ),
-                                    child: tile,
+                                    childWhenDragging: Opacity(
+                                      opacity: .5,
+                                      child: tile,
+                                    ),
+                                    child: DecoratedBox(
+                                      position: DecorationPosition.foreground,
+                                      decoration: BoxDecoration(
+                                        border: targets.isEmpty
+                                            ? null
+                                            : Border.all(
+                                                color: Theme.of(
+                                                  context,
+                                                ).colorScheme.primary,
+                                                width: 2,
+                                              ),
+                                        borderRadius: BorderRadius.circular(12),
+                                      ),
+                                      child: tile,
+                                    ),
                                   ),
-                                ),
+                            ),
                           );
                         },
                       ),

@@ -142,7 +142,8 @@ class AppearancePage extends ConsumerWidget {
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       Text(
-                        l10nNow.desktopSetTheHorizontalAlignmentOfTheProfileContent,
+                        l10nNow
+                            .desktopSetTheHorizontalAlignmentOfTheProfileContent,
                         style: context.texts.bodySmall!.copyWith(
                           color: context.scheme.onSurfaceVariant,
                         ),
@@ -189,7 +190,8 @@ class AppearancePage extends ConsumerWidget {
                 _SwitchRow(
                   icon: Icons.handyman_outlined,
                   title: l10nNow.desktopShowToolbox,
-                  subtitle: l10nNow.desktopShowToolboxInTheTopNavigationOrAccess,
+                  subtitle:
+                      l10nNow.desktopShowToolboxInTheTopNavigationOrAccess,
                   value: ts.showTools,
                   onChanged: (v) =>
                       notifier.patch((x) => x.copyWith(showTools: v)),
@@ -272,25 +274,40 @@ class _LanguageRow extends StatelessWidget {
       'ja': '日本語',
       '': context.l10n.followSystem,
     };
-    return PopupMenuButton<String>(
+    return SettingsRow(
       key: const ValueKey('appearance-language'),
-      tooltip: context.l10n.creationLanguage,
-      position: PopupMenuPosition.under,
-      onSelected: onChanged,
-      itemBuilder: (_) => [
-        for (final entry in options.entries)
-          CheckedPopupMenuItem(
-            value: entry.key,
-            checked: value == entry.key,
-            child: Text(entry.value),
-          ),
-      ],
-      child: SettingsRow(
-        icon: Icons.translate,
-        title: context.l10n.creationLanguage,
-        value: options[value],
-        dropdown: true,
-      ),
+      icon: Icons.translate,
+      title: context.l10n.creationLanguage,
+      value: options[value],
+      dropdown: true,
+      onTap: () async {
+        final row = context.findRenderObject()! as RenderBox;
+        final overlay =
+            Navigator.of(context).overlay!.context.findRenderObject()!
+                as RenderBox;
+        final picked = await showMenu<String>(
+          context: context,
+          positionBuilder: (_, _) {
+            final edge = row.localToGlobal(
+              row.size.bottomRight(Offset.zero),
+              ancestor: overlay,
+            );
+            return RelativeRect.fromRect(
+              Rect.fromLTWH(edge.dx - 1, edge.dy, 1, 0),
+              Offset.zero & overlay.size,
+            );
+          },
+          items: [
+            for (final item in options.entries)
+              CheckedPopupMenuItem<String>(
+                value: item.key,
+                checked: item.key == value,
+                child: Text(item.value),
+              ),
+          ],
+        );
+        if (context.mounted && picked != null) onChanged(picked);
+      },
     );
   }
 }

@@ -11,6 +11,23 @@ const desktop = DriveDesktopClient(
   'local-test',
 );
 void main() {
+  test(
+    'a build can supply a Google desktop client without a per-user import',
+    () {
+      expect(DriveDesktopClient.fromBuild(id: '', secret: ''), isNull);
+      final client = DriveDesktopClient.fromBuild(
+        id: desktop.id,
+        secret: 'desktop-value',
+      )!;
+      expect(client.id, desktop.id);
+      expect(client.secret, 'desktop-value');
+      expect(
+        () => DriveDesktopClient.fromBuild(id: 'not-a-google-client'),
+        throwsFormatException,
+      );
+    },
+  );
+
   test('desktop configuration round trips and rejects a web client', () {
     final value = DriveDesktopClient.parse(desktop.encode());
     expect(value.id, desktop.id);

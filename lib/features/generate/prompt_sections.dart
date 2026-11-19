@@ -12,7 +12,8 @@ import '../editor/editor_models.dart'
         stripFolds,
         topLevelUnits,
         validPromptFoldLinks;
-import '../inspiration/tag_models.dart' show TagCategory, TagEntry;
+import '../inspiration/tag_models.dart'
+    show TagCategory, TagEntry, foldTagEntry;
 import 'models.dart';
 
 /// 主提示词分区的纯函数:拼接、计数口径、列表整理。状态写入在 GenerateNotifier
@@ -659,15 +660,18 @@ List<PromptSection> withEntrySections(
   for (final e in entries) {
     final rawPos = e.positive.trim(), rawNeg = e.negative.trim();
     if (rawPos.isEmpty && rawNeg.isEmpty) continue;
-    final pos = outputOf(rawPos), neg = outputOf(rawNeg);
+    final folded = foldTagEntry(e);
+    final pos = outputOf(folded.positiveDraft),
+        neg = outputOf(folded.negativeDraft);
     final name = e.name.trim();
     final sec = PromptSection(
       id: newId(),
       name: name.isEmpty ? nextSectionName(out) : name,
       positive: pos,
-      positiveRaw: draftOf(rawPos, pos),
+      positiveRaw: draftOf(folded.positiveDraft, pos),
       negative: neg,
-      negativeRaw: draftOf(rawNeg, neg),
+      negativeRaw: draftOf(folded.negativeDraft, neg),
+      foldLinks: folded.links,
       artist: e.category == TagCategory.artist,
       sources: [e.id],
     );

@@ -129,6 +129,20 @@ void main() {
     },
   );
 
+  testWidgets('positive and negative cards share one prompt import control', (
+    tester,
+  ) async {
+    await mount(tester);
+    expect(key('image-prompt-import-mode'), findsOneWidget);
+    await tester.tap(find.text('正向提示词').first);
+    await tester.pumpAndSettle();
+    expect(find.text('完全覆盖'), findsOneWidget);
+    await tester.tap(find.text('负向提示词').first);
+    await tester.pumpAndSettle();
+    expect(find.text('完全覆盖'), findsOneWidget);
+    await finish(tester);
+  });
+
   for (final mode in ImagePromptImportMode.values) {
     testWidgets(
       'image prompt import ${mode.name} keeps its promised section behavior and can undo',

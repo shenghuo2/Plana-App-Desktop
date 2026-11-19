@@ -180,11 +180,40 @@ void main() {
   }
 
   testWidgets(
+    'wide language menu lines up with the trailing language control',
+    (tester) async {
+      await mount(tester, const AppearancePage(), const Size(1250, 900));
+      final control = find.byKey(const ValueKey('appearance-language'));
+      final row = tester.getRect(control);
+      await tester.tap(control);
+      await tester.pumpAndSettle();
+      final option = tester.getRect(
+        find.widgetWithText(CheckedPopupMenuItem<String>, 'English'),
+      );
+      expect(option.left, greaterThan(row.center.dx));
+      expect(option.right, closeTo(row.right, 1));
+      await tester.tap(find.text('English').last);
+      await tester.pumpAndSettle();
+      await finish(tester);
+    },
+  );
+
+  testWidgets(
     'appearance language and palette selectors work in a narrow desktop pane',
     (tester) async {
       await mount(tester, const AppearancePage(), const Size(420, 1000));
       await tester.tap(find.byKey(const ValueKey('appearance-language')));
       await tester.pumpAndSettle();
+      final row = tester.getRect(
+        find.byKey(const ValueKey('appearance-language')),
+      );
+      final english = tester.getRect(
+        find.ancestor(
+          of: find.text('English').last,
+          matching: find.byType(CheckedPopupMenuItem<String>),
+        ),
+      );
+      expect(english.right, closeTo(row.right, 1));
       await tester.tap(
         find.ancestor(
           of: find.text('English').last,

@@ -100,28 +100,6 @@ class GenSettingsPage extends ConsumerWidget {
             ],
           ),
           const SizedBox(height: 16),
-          SettingsLabel(context.l10n.keepImageFormat),
-          SettingsCard(
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
-                child: SizedBox(
-                  width: double.infinity,
-                  child: SegmentedButton<bool>(
-                    segments: const [
-                      ButtonSegment(value: false, label: Text('PNG')),
-                      ButtonSegment(value: true, label: Text('WebP')),
-                    ],
-                    selected: {s.keepWebp},
-                    onSelectionChanged: (v) =>
-                        patch((x) => x.copyWith(keepWebp: v.first)),
-                    showSelectedIcon: false,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
           const _ModulesSection(),
           const SizedBox(height: 16),
           SettingsLabel(context.l10n.galleryDefaultSave),
@@ -328,6 +306,7 @@ class _SaveDefaultsCard extends ConsumerWidget {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               SegmentedButton<SaveFormat>(
+                expandedInsets: EdgeInsets.zero,
                 segments: [
                   ButtonSegment(
                     value: SaveFormat.png,
@@ -337,13 +316,17 @@ class _SaveDefaultsCard extends ConsumerWidget {
                     value: SaveFormat.jpg,
                     label: Text(context.l10n.jpgLossy),
                   ),
+                  const ButtonSegment(
+                    value: SaveFormat.webp,
+                    label: Text('WebP'),
+                  ),
                 ],
                 selected: {s.format},
                 onSelectionChanged: (v) =>
                     patch((x) => x.copyWith(format: v.first)),
                 showSelectedIcon: false,
               ),
-              if (s.format == SaveFormat.png) ...[
+              if (s.format != SaveFormat.jpg) ...[
                 const SizedBox(height: 8),
                 SegmentedButton<SaveMeta>(
                   segments: [
@@ -360,6 +343,7 @@ class _SaveDefaultsCard extends ConsumerWidget {
                       label: Text(context.l10n.sizeCustom),
                     ),
                   ],
+                  expandedInsets: EdgeInsets.zero,
                   selected: {s.meta},
                   onSelectionChanged: (v) =>
                       patch((x) => x.copyWith(meta: v.first)),
@@ -370,7 +354,10 @@ class _SaveDefaultsCard extends ConsumerWidget {
                 ),
               ],
               const SizedBox(height: 8),
-              Text(l10nNow.desktopSavingCopyingAndDraggingImagesToOtherApps, style: context.texts.bodySmall),
+              Text(
+                l10nNow.desktopSavingCopyingAndDraggingImagesToOtherApps,
+                style: context.texts.bodySmall,
+              ),
             ],
           ),
         ),
@@ -385,7 +372,7 @@ class _SaveDefaultsCard extends ConsumerWidget {
             max: 100,
             onChanged: (v) => patch((x) => x.copyWith(quality: v / 100)),
           ),
-        if (s.format == SaveFormat.png && s.meta == SaveMeta.custom)
+        if (s.format != SaveFormat.jpg && s.meta == SaveMeta.custom)
           _PromptRow(
             prompt: s.customPrompt,
             onChanged: (v) => patch((x) => x.copyWith(customPrompt: v)),

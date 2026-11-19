@@ -9427,7 +9427,7 @@ abstract class AppLocalizations {
   /// No description provided for @planaBackend.
   ///
   /// In zh, this message translates to:
-  /// **'Plana Bot'**
+  /// **'Plana 后端'**
   String get planaBackend;
 
   /// No description provided for @freeModels.
@@ -13701,6 +13701,24 @@ abstract class AppLocalizations {
   /// In zh, this message translates to:
   /// **'{n} 天前'**
   String backupDaysAgo(int n);
+
+  /// No description provided for @signInGoogleDrive.
+  ///
+  /// In zh, this message translates to:
+  /// **'使用 Google 账号登录'**
+  String get signInGoogleDrive;
+
+  /// No description provided for @driveClientNotConfigured.
+  ///
+  /// In zh, this message translates to:
+  /// **'本版本尚未配置 Google 登录。你可以在高级设置中导入自己的桌面客户端配置。'**
+  String get driveClientNotConfigured;
+
+  /// No description provided for @useBundledDriveClient.
+  ///
+  /// In zh, this message translates to:
+  /// **'使用应用内置的 Google 客户端'**
+  String get useBundledDriveClient;
 }
 
 class _AppLocalizationsDelegate

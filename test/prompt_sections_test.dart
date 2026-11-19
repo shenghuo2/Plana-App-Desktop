@@ -119,7 +119,7 @@ void main() {
     expect(snap.prompt, '1girl, solo, artist:wlop, artist:ask');
     expect(snap.negativePrompt, 'bad anatomy, lowres, blurry');
     // 主体里原有的折叠还在,导回创作页时还是一个整体
-    expect(parseFolds(snap.promptRaw).single.name, '人物');
+    expect(parseFolds(snap.promptRaw).map((fold) => fold.name), ['人物', 'A12']);
     expect(pickEditorText(snap.promptRaw, snap.prompt), snap.promptRaw);
     // 没分区的快照原样过
     final plain = GenerateState.initial().copyWith(prompt: 'x');
@@ -150,7 +150,8 @@ void main() {
     );
     expect(list[1].artist, isTrue);
     expect(list[1].positive, 'artist:wlop, artist:ask');
-    expect(list[1].positiveRaw, isEmpty); // 原样放进去,不折叠
+    expect(parseFolds(list[1].positiveRaw).single.name, 'A12');
+    expect(list[1].foldLinks.single.negativeName, 'A12·排除');
     expect(list.last.negative, 'sunny');
     // 再来一个画风:不往上插,照样接在最后
     list = withEntrySections(list, '1girl', [_watercolor], newId: _nextId);
@@ -225,9 +226,21 @@ void main() {
       expect(original.sections, hasLength(3));
       for (final section in original.sections.skip(1)) {
         expect(section.positive, outputOf(raw));
-        expect(section.positiveRaw, raw);
+        final posFold = parseFolds(section.positiveRaw).single;
+        expect(
+          section.positiveRaw
+              .substring(posFold.bodyStart, posFold.bodyEnd)
+              .trim(),
+          stripFolds(raw),
+        );
         expect(section.negative, outputOf(rawNegative));
-        expect(section.negativeRaw, rawNegative);
+        final negFold = parseFolds(section.negativeRaw).single;
+        expect(
+          section.negativeRaw
+              .substring(negFold.bodyStart, negFold.bodyEnd)
+              .trim(),
+          stripFolds(rawNegative),
+        );
       }
       final sent = composeSections(original);
       expect(
@@ -240,9 +253,9 @@ void main() {
         (await encodeGenerateState(original, stores.blobs)).json,
         stores.blobs,
       );
-      expect(back.sections[1].positiveRaw, raw);
-      expect(back.sections[2].positiveRaw, raw);
-      expect(back.sections[1].negativeRaw, rawNegative);
+      expect(back.sections[1].positiveRaw, original.sections[1].positiveRaw);
+      expect(back.sections[2].positiveRaw, original.sections[2].positiveRaw);
+      expect(back.sections[1].negativeRaw, original.sections[1].negativeRaw);
       final firstId = back.sections[1].id;
       gen.updateSection(firstId, enabled: false);
       expect(
@@ -402,7 +415,7 @@ void main() {
     editor.flushWriteBack();
     final after = st().sections.firstWhere((s) => s.artist);
     expect(after.positive, 'artist:wlop, artist:ask, sketch');
-    expect(parseFolds(after.positiveRaw), isEmpty);
+    expect(parseFolds(after.positiveRaw).single.name, 'A12');
     expect(st().prompt, '1girl');
   });
 

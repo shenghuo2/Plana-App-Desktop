@@ -7,6 +7,7 @@ import 'dart:io';
 import 'package:archive/archive.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:image/image.dart' as img;
 
 import 'package:plana_app/core/store/blob_store.dart';
 import 'package:plana_app/core/store/cache_sweep.dart' show kShareCacheDir;
@@ -47,7 +48,9 @@ void main() {
         height: 8,
         seed: 100 + i,
         createdAt: DateTime(2026, 3, 4, 5, 6).millisecondsSinceEpoch,
-        bytes: Uint8List.fromList(List.generate(300, (b) => (b + i) & 0xff)),
+        bytes: img.encodePng(
+          img.Image(width: 8, height: 8)..setPixelRgb(0, 0, i, 40, 80),
+        ),
       ),
   ];
 

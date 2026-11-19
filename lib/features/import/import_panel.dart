@@ -175,7 +175,6 @@ class _ImportImagePanelState extends ConsumerState<ImportImagePanel> {
   /// 二十来个词,常驻着会把下面的角色/Vibe/参数全顶出屏幕。点头部展开。
   bool _presetExpanded = false;
 
-  bool _promptAppend = false; // false=完全覆盖,true=新建分区
 
   // 正向按分区逐行列出(图里存的分区拼出来对得上时;否则只有一行主体)
   List<PromptSection>? _layout;
@@ -241,7 +240,6 @@ class _ImportImagePanelState extends ConsumerState<ImportImagePanel> {
       _loading = false;
       _target ??= categoryOfModel(ref.read(generateProvider).params.model);
       // 反推页也用,没有元数据也要还原
-      _promptAppend = _prefs.promptAppend;
       if (m != null) _initSelections(m);
     });
     if (m != null && m.loras.isNotEmpty) unawaited(_resolveLoras(m));
@@ -884,7 +882,6 @@ class _ImportImagePanelState extends ConsumerState<ImportImagePanel> {
               loraImport: m.loras.isEmpty
                   ? _prefs.loraImport
                   : _loraChecked.isNotEmpty,
-              promptAppend: _promptAppend,
               charAppend: _charAppend,
               vibeAppend: _vibeAppend,
               loraAppend: _loraAppend,
@@ -951,6 +948,12 @@ class _ImportImagePanelState extends ConsumerState<ImportImagePanel> {
           msgs.add('剥掉 ${hit.preset.name}');
         }
       }
+    }
+
+    if (secRows != null && pos != null && _prefs.promptMode == ImagePromptImportMode.replaceMain &&
+        _posOn.length != _posRows.length) {
+      final selected = [for (final i in _posOn) _posRows[i]];
+      pos = joinSections(selected, selected.where((r) => r.isMain).firstOrNull?.positive ?? '', positive: true);
     }
 
     if (secRows != null && pos != null && _prefs.promptMode != ImagePromptImportMode.replaceMain) {
@@ -1485,21 +1488,12 @@ class _ImportImagePanelState extends ConsumerState<ImportImagePanel> {
           preview: tags,
           checked: _useReverse,
           onTap: () => setState(() => _useReverse = !_useReverse),
-          footer: _promptModeSeg(scheme),
         ),
         const SizedBox(height: 9),
         _promptImportMode(scheme, enabled: _useReverse),
       ],
     );
   }
-
-  /// 主提示词的导入方式,正负向共用一个(放在正向卡里,图里没正向时放负向卡)。
-  Widget _promptModeSeg(ColorScheme scheme) => _overrideSeg(
-    scheme,
-    _promptAppend,
-    (v) => setState(() => _promptAppend = v),
-    options: [context.l10n.importReplace, context.l10n.importNewSection],
-  );
 
   // ---- 无元数据:顶部信息 + 提示,四个「用作」按钮居中(不再吊在底部留大空档) ----
   Widget _noMetaBody(ColorScheme scheme) {
@@ -1587,7 +1581,15 @@ class _ImportImagePanelState extends ConsumerState<ImportImagePanel> {
         const SizedBox(height: 11),
         // 正向:同角色区,图里存了分区就逐格列出,没有就一行主体
         if (m.prompt.isNotEmpty) ...[
-          _sectionsSection(scheme, _posRows),
+          if (_secRows == null || (_posRows.length == 1 && _posRows.single.isMain))
+            _fixedRow(scheme, icon: Icons.notes, title: context.l10n.positivePrompt,
+              preview: m.prompt, checked: _positiveOn,
+              onTap: () => setState(() {
+                if (_positiveOn) { _secOff.add(0); } else { _secOff.remove(0); }
+              }),
+            )
+          else
+            _sectionsSection(scheme, _posRows),
           const SizedBox(height: 9),
         ],
         // 负向
@@ -1600,7 +1602,6 @@ class _ImportImagePanelState extends ConsumerState<ImportImagePanel> {
             checked: _useNegative,
             onTap: () => setState(() => _useNegative = !_useNegative),
             danger: true,
-            footer: m.prompt.isEmpty ? _promptModeSeg(scheme) : null,
           ),
           const SizedBox(height: 9),
         ],
@@ -2438,8 +2439,6 @@ class _ImportImagePanelState extends ConsumerState<ImportImagePanel> {
       ),
       child: Column(
         children: [
-          _promptModeSeg(scheme),
-          const SizedBox(height: 9),
           for (var i = 0; i < total; i++) ...[
             _itemRow(
               scheme,

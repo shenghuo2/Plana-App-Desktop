@@ -1603,7 +1603,7 @@
   "startUsingAssistant": "Get Started with the AI Assistant",
   "previous": "Back",
   "chatMode": "Chat Mode",
-  "planaBackend": "Plana Bot",
+  "planaBackend": "Plana backend",
   "freeModels": "Free Models",
   "incompleteTapToFix": "Incomplete; tap to finish",
   "writtenToCreate": "Written to the Create page",
@@ -2329,5 +2329,8 @@
   "backupFavoritesAdded": "Added {n}",
   "backupMinutesAgo": "{n} min ago",
   "backupHoursAgo": "{n} h ago",
-  "backupDaysAgo": "{n} d ago"
+  "backupDaysAgo": "{n} d ago",
+  "signInGoogleDrive": "Sign in with Google",
+  "driveClientNotConfigured": "This build has no Google sign-in client. You can import your own desktop client in Advanced Settings.",
+  "useBundledDriveClient": "Use the built-in Google client"
 }

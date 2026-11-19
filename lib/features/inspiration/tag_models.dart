@@ -681,6 +681,7 @@ appendTagPromptsFolded({
   required String negativeDraft,
   required Iterable<TagEntry> entries,
   Iterable<PromptFoldLink> links = const [],
+  bool deduplicate = true,
 }) {
   var positive = positiveDraft.trim(), negative = negativeDraft.trim();
   final paired = [...validPromptFoldLinks(positive, negative, links)];
@@ -702,6 +703,7 @@ appendTagPromptsFolded({
 
   String newBody(String prompt, Set<String> have) {
     var body = stripFolds(prompt).trim();
+    if (!deduplicate) return body;
     // Reparse after deletion: the editor's deleteTok repairs shared numeric
     // and bracket weights, so offsets from the previous parse are not reused.
     while (true) {
@@ -757,6 +759,15 @@ appendTagPromptsFolded({
   }
   return (positiveDraft: positive, negativeDraft: negative, links: paired);
 }
+
+/// A new character or section owns the complete entry, including repeated words.
+({String positiveDraft, String negativeDraft, List<PromptFoldLink> links})
+foldTagEntry(TagEntry entry) => appendTagPromptsFolded(
+  positiveDraft: '',
+  negativeDraft: '',
+  entries: [entry],
+  deduplicate: false,
+);
 
 final _foldImportRandom = Random.secure();
 

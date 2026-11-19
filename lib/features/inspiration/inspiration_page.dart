@@ -412,11 +412,7 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
     );
     final drafts = [
       for (final e in entries)
-        appendTagPromptsFolded(
-          positiveDraft: '',
-          negativeDraft: '',
-          entries: [e],
-        ),
+        foldTagEntry(e),
     ];
     final notifier = ref.read(generateProvider.notifier);
     final oldCount = ref.read(generateProvider).characters.length;

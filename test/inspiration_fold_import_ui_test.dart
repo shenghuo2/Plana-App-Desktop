@@ -332,7 +332,9 @@ void main() {
               of: key('sec${section.id}'),
               matching: find.text(used[i].name),
             ),
-            findsOneWidget,
+            findsNWidgets(
+              2,
+            ), // Section heading and the editable fold in the body.
           );
         }
         expect(

@@ -10,6 +10,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:plana_app/core/platform/desktop.dart';
 import 'package:plana_app/core/store/app_stores.dart';
 import 'package:plana_app/core/theme/app_theme.dart';
+import 'package:plana_app/features/assistant/image_gen/image_models.dart';
 import 'package:plana_app/features/assistant/agent_model.dart';
 import 'package:plana_app/features/assistant/assistant_mode.dart';
 import 'package:plana_app/features/assistant/assistant_page.dart';
@@ -98,6 +99,7 @@ void main() {
     WidgetTester tester, {
     Size size = const Size(1100, 780),
     bool realAssistant = false,
+    bool embedded = true,
   }) async {
     tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1;
@@ -119,7 +121,7 @@ void main() {
             ),
             home: Scaffold(
               body: realAssistant
-                  ? const AssistantPage(embedded: true)
+                  ? AssistantPage(embedded: embedded)
                   : Align(
                       alignment: Alignment.topRight,
                       child: SizedBox(
@@ -172,6 +174,82 @@ void main() {
   Future<void> finish(WidgetTester tester) async {
     await tester.pumpWidget(const SizedBox());
     await tester.pump(const Duration(seconds: 1));
+  }
+
+  for (final embedded in [false, true]) {
+    testWidgets(
+      'image model is hosted and its three option menus open above their own chips (embedded=$embedded)',
+      (tester) async {
+        c.dispose();
+        c = ProviderContainer(
+          overrides: [
+            appStoresProvider.overrideWithValue(stores),
+            desktopModeProvider.overrideWithValue(true),
+            assistantBotAuthorizedProvider.overrideWithValue(true),
+            agentModelsProvider.overrideWith(
+              (ref) async => const AgentModelList(),
+            ),
+            planaImageChannelsProvider.overrideWith(
+              (ref) async => (
+                channels: [
+                  (
+                    key: 'sample',
+                    name: 'Hosted image',
+                    sizes: ['2K', '4K'],
+                    aspects: ['1:1', '3:2'],
+                  ),
+                ],
+                authorized: true,
+              ),
+            ),
+          ],
+        );
+        await mount(tester);
+        await tester.tap(find.byKey(const ValueKey('assistant-model-button')));
+        await tester.pumpAndSettle();
+        final image = find.byKey(
+          const ValueKey('assistant-model-image:plana:sample'),
+        );
+        expect(
+          tester.getCenter(find.text('Plana 后端')).dy,
+          lessThan(tester.getCenter(image).dy),
+        );
+        expect(
+          tester.getCenter(image).dy,
+          lessThan(tester.getCenter(find.text('我的接口')).dy),
+        );
+        await tester.tap(image);
+        await tester.pumpAndSettle();
+        await mount(tester, realAssistant: true, embedded: embedded);
+        for (final option in [
+          (Icons.photo_size_select_large_outlined, '2K'),
+          (Icons.aspect_ratio, '3:2'),
+          (Icons.burst_mode_outlined, '2 张'),
+        ]) {
+          final chip = find.widgetWithIcon(FilterChip, option.$1);
+          final anchor = tester.getRect(chip);
+          await tester.tap(chip);
+          await tester.pumpAndSettle();
+          final menu = find.byKey(const ValueKey('desktop-popover'));
+          expect(tester.getRect(menu).bottom, lessThanOrEqualTo(anchor.top));
+          expect(
+            find.descendant(of: menu, matching: find.byIcon(Icons.check)),
+            findsOneWidget,
+          );
+          await tester.tap(
+            find.descendant(of: menu, matching: find.text(option.$2)),
+          );
+          await tester.pumpAndSettle();
+          expect(menu, findsNothing);
+        }
+        final settings = c.read(assistantSettingsProvider).requireValue;
+        expect(
+          (settings.imageSize, settings.imageAspect, settings.imageCount),
+          ('2K', '3:2', 2),
+        );
+        await finish(tester);
+      },
+    );
   }
 
   testWidgets(

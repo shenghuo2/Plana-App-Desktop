@@ -84,6 +84,50 @@ bool webpHasAlpha(Uint8List b) {
   return w > 0 && h > 0 ? (w, h) : null;
 }
 
+/// Update EXIF without changing the WebP bitstream or dropping other RIFF chunks.
+Uint8List editWebpExif(Uint8List bytes, void Function(img.ExifData) edit) {
+  final size = webpSizeOf(bytes);
+  if (size == null) throw const FormatException('无效的 WebP 图片');
+  final chunks = BytesBuilder(copy: false);
+  void chunk(String tag, Uint8List body) {
+    chunks.add(ascii.encode(tag));
+    chunks.add((ByteData(4)..setUint32(0, body.length, Endian.little)).buffer.asUint8List());
+    chunks.add(body);
+    if (body.length.isOdd) chunks.addByte(0);
+  }
+  if (String.fromCharCodes(bytes, 12, 16) != 'VP8X') {
+    final header = Uint8List(10);
+    header[0] = 0x08 | (webpHasAlpha(bytes) ? 0x10 : 0);
+    for (var n = 0; n < 3; n++) {
+      header[4+n] = (size.$1 - 1) >> (8*n);
+      header[7+n] = (size.$2 - 1) >> (8*n);
+    }
+    chunk('VP8X', header);
+  }
+  var exif = img.ExifData();
+  for (final (id, offset, length) in _riffChunks(bytes)) {
+    final body = Uint8List.sublistView(bytes, offset, offset + length);
+    if (id == 'EXIF') {
+      final start = body.length >= 6 && ascii.decode(body.sublist(0,4),allowInvalid:true) == 'Exif' ? 6 : 0;
+      exif = img.ExifData.fromInputBuffer(img.InputBuffer(body,offset:start));
+    } else if (id == 'VP8X') {
+      final header = Uint8List.fromList(body);
+      header[0] |= 0x08;
+      chunk(id, header);
+    } else {
+      chunk(id, body);
+    }
+  }
+  edit(exif);
+  final encoded = img.OutputBuffer();
+  exif.write(encoded);
+  chunk('EXIF', encoded.getBytes());
+  final out = BytesBuilder(copy: false)..add(Uint8List.sublistView(bytes,0,12))..add(chunks.takeBytes());
+  final result = out.takeBytes();
+  ByteData.sublistView(result).setUint32(4,result.length-8,Endian.little);
+  return result;
+}
+
 /// 本 app 自己的文字块(RIFF 块 `PLTX`,内容 `关键字\0UTF-8 文本`):WebP 没有 PNG 那种
 /// 文字块,主提示词分区(`plana:sections`)这类我们自己写的东西放这里。解码器按规范
 /// 跳过不认识的块;还原成 PNG 时随 [readWebpText] 一起写回文字块。

@@ -16,8 +16,13 @@ export 'google_drive_oauth.dart'
     show DriveException, DriveDesktopClient, kDriveScope;
 
 const _clientKey = 'desktop_google_drive_client';
+const _activeClientKey = 'desktop_google_drive_authorized_client';
 const _refreshKey = 'desktop_google_drive_refresh';
 const _emailKey = 'google_drive_email';
+
+final bundledDriveClientProvider = Provider<DriveDesktopClient?>(
+  (ref) => DriveDesktopClient.fromBuild(),
+);
 
 final googleDriveAuthProvider = NotifierProvider<GoogleDriveAuth, String?>(
   GoogleDriveAuth.new,
@@ -37,6 +42,7 @@ class GoogleDriveAuth extends Notifier<String?> {
   }
 
   Future<bool> hasClient() async =>
+      ref.read(bundledDriveClientProvider) != null ||
       await ref.read(secureStorageProvider).read(key: _clientKey) != null;
 
   Future<void> configure(String json) {
@@ -47,20 +53,34 @@ class GoogleDriveAuth extends Notifier<String?> {
         .write(key: _clientKey, value: client.encode());
   }
 
-  Future<DriveDesktopClient> _client() async {
-    final json = await ref.read(secureStorageProvider).read(key: _clientKey);
-    if (json == null) throw const DriveException('请先导入 Google 桌面客户端配置');
-    return DriveDesktopClient.parse(json);
+  Future<void> useBundledClient() async {
+    if (state != null) throw const DriveException('更换客户端配置前请先断开 Google 账号');
+    await ref.read(secureStorageProvider).delete(key: _clientKey);
+  }
+
+  Future<DriveDesktopClient> _client({bool forRefresh = false}) async {
+    final storage = ref.read(secureStorageProvider);
+    final active = forRefresh
+        ? await storage.read(key: _activeClientKey)
+        : null;
+    final json = active ?? await storage.read(key: _clientKey);
+    if (json != null) return DriveDesktopClient.parse(json);
+    return ref.read(bundledDriveClientProvider) ??
+        (throw const DriveException('本版本尚未配置 Google 登录。可在高级设置中导入桌面客户端配置。'));
   }
 
   Future<bool> connect() async {
-    final grant = await _oauth.authorize(await _client());
+    final client = await _client();
+    final grant = await _oauth.authorize(client);
     if (grant == null) return false;
     final refresh = grant.refresh;
     if (refresh == null || refresh.isEmpty) {
       throw const DriveException('未获得离线授权，请重新连接');
     }
     final email = await _oauth.accountLabel(grant.access);
+    await ref
+        .read(secureStorageProvider)
+        .write(key: _activeClientKey, value: client.encode());
     await ref
         .read(secureStorageProvider)
         .write(key: _refreshKey, value: refresh);
@@ -74,6 +94,7 @@ class GoogleDriveAuth extends Notifier<String?> {
     final storage = ref.read(secureStorageProvider);
     final refresh = await storage.read(key: _refreshKey);
     await storage.delete(key: _refreshKey);
+    await storage.delete(key: _activeClientKey);
     await ref.read(prefsStoreProvider).delete(key: _emailKey);
     _access = null;
     state = null;
@@ -105,7 +126,7 @@ class GoogleDriveAuth extends Notifier<String?> {
     final storage = ref.read(secureStorageProvider);
     final refresh = await storage.read(key: _refreshKey);
     if (refresh == null) throw const DriveException('Google 授权已过期，请重新连接');
-    final grant = await _oauth.exchange(await _client(), {
+    final grant = await _oauth.exchange(await _client(forRefresh: true), {
       'grant_type': 'refresh_token',
       'refresh_token': refresh,
     });

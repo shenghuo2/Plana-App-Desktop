@@ -61,6 +61,11 @@ const _a12 = TagEntry(
   positive: 'artist:wlop, artist:ask, year 2024',
 );
 
+// A folded preview can show the same name as its single-line section title.
+Finder _sectionTitle(String name) => find.byWidgetPredicate(
+  (w) => w is Text && w.data == name && w.maxLines == 1,
+);
+
 /// [id] 那一行里的 [icon] 按钮。
 Finder _inRow(String id, IconData icon) => find.descendant(
   of: find.byKey(ValueKey('sec$id')),
@@ -118,7 +123,7 @@ void main() {
   testWidgets('窄屏一格一行不溢出;画风条目自成一格,主体也有开关和删除', (tester) async {
     await _pumpCard(tester);
     expect(tester.takeException(), isNull);
-    expect(find.text('画风'), findsOneWidget);
+    expect(_sectionTitle('画风'), findsOneWidget);
     expect(find.text('主体'), findsOneWidget);
     expect(find.text('分区 1'), findsOneWidget);
     expect(find.byIcon(Icons.delete_outline), findsNWidgets(3));
@@ -146,7 +151,14 @@ void main() {
     expect(gen.state.sections[1].enabled, isFalse);
     // 停用的那行预览带删除线
     TextDecoration? deco() => tester
-        .widget<Text>(find.textContaining('artist:wlop'))
+        .widget<Text>(
+          find.descendant(
+            of: find.byKey(ValueKey('sec$art')),
+            matching: find.byWidgetPredicate(
+              (w) => w is Text && w.textSpan != null,
+            ),
+          ),
+        )
         .style
         ?.decoration;
     expect(deco(), TextDecoration.lineThrough);
@@ -259,7 +271,7 @@ void main() {
     final gen = await _pumpCard(tester);
     final art = gen.state.sections[1];
     final extra = gen.state.sections[2];
-    await hold(tester, find.text('画风'));
+    await hold(tester, _sectionTitle('画风'));
     expect(find.text('已选 1'), findsOneWidget);
     expect(find.text('重命名'), findsNothing);
     expect(_inRow(art.id, Icons.check), findsOneWidget);
@@ -295,7 +307,7 @@ void main() {
     final gen = await _pumpCard(tester);
     final art = gen.state.sections[1];
     final extra = gen.state.sections[2];
-    await hold(tester, find.text('画风'));
+    await hold(tester, _sectionTitle('画风'));
     // 多选态:卡头不放按钮,行尾换成勾选圈
     expect(find.byTooltip('灵感库'), findsNothing);
     expect(find.byIcon(Icons.delete_outline), findsOneWidget); // 只剩卡头那颗
@@ -328,7 +340,7 @@ void main() {
   testWidgets('多选:批量停用 / 删除连主体一起;删了主体,撤销连正向放回', (tester) async {
     final gen = await _pumpCard(tester);
     await hold(tester, find.text('主体'));
-    await tester.tap(find.text('画风'));
+    await tester.tap(_sectionTitle('画风'));
     await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('停用'));
     await tester.pumpAndSettle();
@@ -352,7 +364,7 @@ void main() {
 
   testWidgets('多选:点卡头的退出,平时的卡头按钮回来', (tester) async {
     await _pumpCard(tester);
-    await hold(tester, find.text('画风'));
+    await hold(tester, _sectionTitle('画风'));
     expect(find.text('已选 1'), findsOneWidget);
     await tester.tap(find.byTooltip('退出多选'));
     await tester.pumpAndSettle();
@@ -364,9 +376,9 @@ void main() {
 
   /// 长按 [names] 第一行进多选、再勾上其余几行,点「存到灵感库」。
   Future<void> openSave(WidgetTester tester, List<String> names) async {
-    await hold(tester, find.text(names.first));
+    await hold(tester, _sectionTitle(names.first));
     for (final n in names.skip(1)) {
-      await tester.tap(find.text(n));
+      await tester.tap(_sectionTitle(n));
     }
     await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('存到灵感库'));
@@ -432,7 +444,7 @@ void main() {
     final btn = find.widgetWithIcon(RoundIconBtn, Icons.save_outlined);
     VoidCallback? onTap() => tester.widget<RoundIconBtn>(btn).onTap;
     expect(onTap(), isNull); // 只勾了空的
-    await tester.tap(find.text('画风'));
+    await tester.tap(_sectionTitle('画风'));
     await tester.tap(find.text('分区 1'));
     await tester.pumpAndSettle();
     expect(onTap(), isNotNull);

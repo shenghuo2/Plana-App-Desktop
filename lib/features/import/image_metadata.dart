@@ -1,3 +1,4 @@
+import '../../core/util/png_meta.dart' show readPngText;
 import '../../core/util/webp_to_png.dart' show isWebp, readWebpText;
 
 import 'dart:convert';
@@ -206,84 +207,16 @@ class _PngTextChunks {
 /// 字段与 PNG 一一对应,后面按同一条路解析。
 _PngTextChunks _extractPngTextChunks(Uint8List bytes) {
   final result = _PngTextChunks();
-  if (isWebp(bytes)) {
-    for (final MapEntry(:key, :value) in readWebpText(bytes).entries) {
-      switch (key.toLowerCase()) {
-        case 'parameters':
-          result.parameters = value;
-        case 'comment':
-          result.comment = value;
-        case 'source':
-          result.source = value;
-        case 'prompt':
-          result.prompt = value;
-        case 'workflow':
-          result.workflow = value;
-        case 'plana:sections':
-          result.sections = value;
-      }
+  final fields = isWebp(bytes) ? readWebpText(bytes) : readPngText(bytes);
+  for (final e in fields.entries) {
+    switch (e.key.toLowerCase()) {
+      case 'parameters': result.parameters = e.value;
+      case 'comment': result.comment = e.value;
+      case 'source': result.source = e.value;
+      case 'prompt': result.prompt = e.value;
+      case 'workflow': result.workflow = e.value;
+      case 'plana:sections': result.sections = e.value;
     }
-    return result;
-  }
-  if (bytes.length < 8) return result;
-  const sig = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
-  for (var i = 0; i < 8; i++) {
-    if (bytes[i] != sig[i]) return result;
-  }
-  final bd = ByteData.sublistView(bytes);
-  var offset = 8;
-  while (offset + 8 <= bytes.length) {
-    final length = bd.getUint32(offset, Endian.big);
-    final type = String.fromCharCodes(bytes, offset + 4, offset + 8);
-    final dataStart = offset + 8;
-    if ((type == 'tEXt' || type == 'iTXt') &&
-        dataStart + length <= bytes.length) {
-      final text = utf8.decode(
-        bytes.sublist(dataStart, dataStart + length),
-        allowMalformed: true,
-      );
-      final nullIndex = text.indexOf('\u0000');
-      if (nullIndex > 0) {
-        final key = text.substring(0, nullIndex).toLowerCase();
-        // iTXt 布局:keyword\0 压缩标志 压缩方法 语言标签\0 翻译关键字\0 文本。
-        // 只按第一个 \0 切会把「标志+方法+两个空串终止符」留在正文头上 ——
-        // parameters 是正则扫描无所谓,但 prompt 要 jsonDecode:**含中文的图
-        // (PIL 遇非 latin-1 就写 iTXt)会整块解析失败**。按规范逐段跳过。
-        String value;
-        if (type == 'iTXt') {
-          var p = nullIndex + 1;
-          final compressed = p < text.length && text.codeUnitAt(p) != 0;
-          p += 2; // 压缩标志 + 压缩方法
-          for (var seg = 0; seg < 2 && p < text.length; seg++) {
-            final end = text.indexOf('\u0000', p);
-            if (end < 0) {
-              p = text.length;
-              break;
-            }
-            p = end + 1;
-          }
-          // 压缩的 iTXt 极罕见(我们和 ComfyUI 都不写),解不了就当没有
-          value = compressed ? '' : text.substring(p.clamp(0, text.length));
-        } else {
-          value = text.substring(nullIndex + 1);
-        }
-        switch (key) {
-          case 'parameters':
-            result.parameters = value;
-          case 'comment':
-            result.comment = value;
-          case 'source':
-            result.source = value;
-          case 'prompt':
-            result.prompt = value;
-          case 'workflow':
-            result.workflow = value;
-          case 'plana:sections':
-            result.sections = value;
-        }
-      }
-    }
-    offset += 12 + length; // length(4)+type(4)+data+CRC(4)
   }
   return result;
 }

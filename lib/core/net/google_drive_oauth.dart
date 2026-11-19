@@ -21,6 +21,18 @@ class DriveDesktopClient {
   final String id;
   final String? secret;
 
+  static DriveDesktopClient? fromBuild({
+    String id = const String.fromEnvironment('PLANA_GOOGLE_DESKTOP_CLIENT_ID'),
+    String secret = const String.fromEnvironment(
+      'PLANA_GOOGLE_DESKTOP_CLIENT_SECRET',
+    ),
+  }) {
+    if (id.trim().isEmpty) return null;
+    return DriveDesktopClient.parse(
+      DriveDesktopClient(id.trim(), secret.isEmpty ? null : secret).encode(),
+    );
+  }
+
   factory DriveDesktopClient.parse(String source) {
     final json = jsonDecode(source);
     final installed = json is Map ? json['installed'] : null;

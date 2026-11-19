@@ -370,7 +370,8 @@ class _BackupPageState extends ConsumerState<BackupPage> {
     try {
       final auth = ref.read(googleDriveAuthProvider.notifier);
       if (!await auth.hasClient()) {
-        if (!mounted || !await _importDriveClient() || !mounted) return false;
+        if (mounted) hintSnack(context, context.l10n.driveClientNotConfigured, icon: Icons.info_outline);
+        return false;
       }
       ok = await auth.connect();
       if (!ok && mounted) {
@@ -1010,22 +1011,22 @@ class _BackupPageState extends ConsumerState<BackupPage> {
           SettingsLabel(l10nNow.backupDriveName),
           SettingsCard(
             children: [
-              SettingsRow(
-                icon: Icons.file_open_outlined,
-                title: context.l10n.desktopDriveImportConfig,
-                value: driveEmail == null
-                    ? null
-                    : context.l10n.desktopDriveDisconnectFirst,
-                onTap: idle && driveEmail == null ? _importDriveClient : null,
-              ),
-              SettingsRow(
-                icon: Icons.account_circle_outlined,
-                title: l10nNow.desktopAccount,
-                value: _busy == 'drive-connect'
-                    ? l10nNow.backupConnecting
-                    : (driveEmail ?? l10nNow.backupNotConnected),
-                onTap: idle ? _driveAccount : null,
-              ),
+              if (driveEmail == null)
+                Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: SizedBox(width: double.infinity, child: FilledButton.icon(
+                    icon: const Icon(Icons.login),
+                    label: Text(_busy == 'drive-connect' ? context.l10n.backupConnecting : context.l10n.signInGoogleDrive),
+                    onPressed: idle ? _ensureDrive : null,
+                  )),
+                )
+              else
+                SettingsRow(
+                  icon: Icons.account_circle_outlined,
+                  title: l10nNow.desktopAccount,
+                  value: driveEmail,
+                  onTap: idle ? _driveAccount : null,
+                ),
               if (driveEmail != null) ...[
                 SettingsRow(
                   icon: Icons.lightbulb_outline,
@@ -1049,6 +1050,26 @@ class _BackupPageState extends ConsumerState<BackupPage> {
                 title: l10nNow.desktopRestoreFromGoogleDrive,
                 value: _jobValue(job, 'drive-restore'),
                 onTap: idle ? _driveRestore : null,
+              ),
+              ExpansionTile(
+                title: Text(context.l10n.advancedSettings),
+                children: [
+                  SettingsRow(
+                    icon: Icons.file_open_outlined,
+                    title: context.l10n.desktopDriveImportConfig,
+                    value: driveEmail == null ? null : context.l10n.desktopDriveDisconnectFirst,
+                    onTap: idle && driveEmail == null ? _importDriveClient : null,
+                  ),
+                  if (ref.watch(bundledDriveClientProvider) != null && driveEmail == null)
+                    SettingsRow(
+                      icon: Icons.restore,
+                      title: context.l10n.useBundledDriveClient,
+                      onTap: !idle ? null : () async {
+                        await ref.read(googleDriveAuthProvider.notifier).useBundledClient();
+                        if (context.mounted) hintSnack(context, context.l10n.desktopDriveConfigSaved);
+                      },
+                    ),
+                ],
               ),
             ],
           ),

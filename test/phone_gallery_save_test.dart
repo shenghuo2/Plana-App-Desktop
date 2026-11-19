@@ -49,9 +49,11 @@ void main() {
   Future<void> Function(int)? onWrite;
   Uint8List pixels(SaveFormat format) {
     final image = img.Image(width: 4, height: 4);
-    return format == SaveFormat.png
-        ? img.encodePng(image)
-        : img.encodeJpg(image);
+    return switch (format) {
+      SaveFormat.png => img.encodePng(image),
+      SaveFormat.jpg => img.encodeJpg(image),
+      SaveFormat.webp => img.encodeWebP(image, lossless: true),
+    };
   }
 
   setUp(() {

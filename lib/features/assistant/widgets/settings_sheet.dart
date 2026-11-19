@@ -7,7 +7,6 @@
 library;
 
 import '../refusal_keywords_page.dart';
-import '../endpoints_page.dart';
 import '../../../l10n/l10n.dart';
 
 import 'dart:convert';
@@ -726,8 +725,6 @@ String _rulesValue(WidgetRef ref) {
 List<Widget> _retrySettings(BuildContext context, AssistantSettings s, AssistantSettingsNotifier n) {
   final l = context.l10n;
   return [
-    SettingNavRow(icon: Icons.dns_outlined, title: l.myEndpoints, desc:'', value:'',
-      onTap:()=>openEndpointsPage(context)),
     SettingStepperRow(icon:Icons.refresh,title:l.failRetries,desc:l.failRetriesDesc,value:s.retries.toDouble(),
       min:0,max:AssistantSettings.retriesMax.toDouble(),step:1,format:(v)=>v.toInt().toString(),
       onChanged:(v)=>n.patch((old)=>old.copyWith(retries:v.toInt()))),

@@ -1140,9 +1140,9 @@ class _AssistantPageState extends ConsumerState<AssistantPage> {
               ),
               on: size.isNotEmpty,
               enabled: m.sizes.isNotEmpty,
-              onTap: () async {
-                final v = await showImageOptionSheet(
-                  context,
+              onTap: (anchor) async {
+                final v = await showImageOptionMenu(
+                  anchor,
                   title: context.l10n.resolution,
                   options: m.sizes,
                   current: size,
@@ -1158,9 +1158,9 @@ class _AssistantPageState extends ConsumerState<AssistantPage> {
               ),
               on: aspect.isNotEmpty,
               enabled: m.aspects.isNotEmpty,
-              onTap: () async {
-                final v = await showImageOptionSheet(
-                  context,
+              onTap: (anchor) async {
+                final v = await showImageOptionMenu(
+                  anchor,
                   title: context.l10n.aspectLabel,
                   options: m.aspects,
                   current: aspect,
@@ -1174,9 +1174,9 @@ class _AssistantPageState extends ConsumerState<AssistantPage> {
               label: context.l10n.imagesN(s.imageCount),
               on: s.imageCount > 1,
               enabled: true,
-              onTap: () async {
-                final v = await showImageOptionSheet(
-                  context,
+              onTap: (anchor) async {
+                final v = await showImageOptionMenu(
+                  anchor,
                   title: context.l10n.imageCount,
                   options: [for (var i = 1; i <= kMaxImageCount; i++) '$i'],
                   current: '${s.imageCount}',
@@ -1204,10 +1204,10 @@ class _AssistantPageState extends ConsumerState<AssistantPage> {
     required String label,
     required bool on,
     required bool enabled,
-    required VoidCallback onTap,
+    required ValueChanged<BuildContext> onTap,
   }) {
     final muted = context.scheme.outline;
-    return FilterChip(
+    return Builder(builder: (anchor) => FilterChip(
       selected: on,
       showCheckmark: false,
       visualDensity: VisualDensity.compact,
@@ -1221,9 +1221,9 @@ class _AssistantPageState extends ConsumerState<AssistantPage> {
       ),
       label: Text(label, style: enabled ? null : TextStyle(color: muted)),
       onSelected: (_) => enabled
-          ? onTap()
+          ? onTap(anchor)
           : hintSnack(context, context.l10n.modelUnsupported, icon: icon),
-    );
+    ));
   }
 
   Widget _temporaryButton(AssistantState st, {bool compact = false}) {

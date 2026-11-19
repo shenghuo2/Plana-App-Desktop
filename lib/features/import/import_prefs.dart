@@ -26,7 +26,6 @@ class ImportPrefs {
     this.charImport = true,
     this.vibeImport = true,
     this.loraImport = true,
-    this.promptAppend = false,
     this.charAppend = false,
     this.vibeAppend = false,
     this.loraAppend = false,
@@ -59,7 +58,6 @@ class ImportPrefs {
   final bool loraImport;
 
   /// 主提示词:false=完全覆盖,true=新建分区。
-  final bool promptAppend;
 
   /// 角色 / Vibe / LoRA:false=完全覆盖,true=额外添加。
   final bool charAppend;
@@ -87,7 +85,6 @@ class ImportPrefs {
     bool? charImport,
     bool? vibeImport,
     bool? loraImport,
-    bool? promptAppend,
     bool? charAppend,
     bool? vibeAppend,
     bool? loraAppend,
@@ -105,7 +102,6 @@ class ImportPrefs {
     charImport: charImport ?? this.charImport,
     vibeImport: vibeImport ?? this.vibeImport,
     loraImport: loraImport ?? this.loraImport,
-    promptAppend: promptAppend ?? this.promptAppend,
     charAppend: charAppend ?? this.charAppend,
     vibeAppend: vibeAppend ?? this.vibeAppend,
     loraAppend: loraAppend ?? this.loraAppend,
@@ -125,7 +121,6 @@ class ImportPrefs {
     'charImport': charImport,
     'vibeImport': vibeImport,
     'loraImport': loraImport,
-    'promptAppend': promptAppend,
     'charAppend': charAppend,
     'vibeAppend': vibeAppend,
     'loraAppend': loraAppend,
@@ -147,13 +142,14 @@ class ImportPrefs {
           ImagePromptImportMode.values
               .where((mode) => mode.name == j['promptMode'])
               .firstOrNull ??
-          ImagePromptImportMode.replaceMain,
+          (b('promptAppend', false)
+              ? ImagePromptImportMode.addSection
+              : ImagePromptImportMode.replaceMain),
       presetImport: b('presetImport', true),
       presetExpanded: b('presetExpanded', false),
       charImport: b('charImport', true),
       vibeImport: b('vibeImport', true),
       loraImport: b('loraImport', true),
-      promptAppend: b('promptAppend', false),
       charAppend: b('charAppend', false),
       vibeAppend: b('vibeAppend', false),
       loraAppend: b('loraAppend', false),

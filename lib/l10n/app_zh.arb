@@ -4110,7 +4110,7 @@
   "startUsingAssistant": "开始使用 AI 助手",
   "previous": "上一步",
   "chatMode": "对话模式",
-  "planaBackend": "Plana Bot",
+  "planaBackend": "Plana 后端",
   "freeModels": "免费模型",
   "incompleteTapToFix": "还没填全,点一下去补",
   "writtenToCreate": "已写入创作页",
@@ -4972,5 +4972,8 @@
         "type": "int"
       }
     }
-  }
+  },
+  "signInGoogleDrive": "使用 Google 账号登录",
+  "driveClientNotConfigured": "本版本尚未配置 Google 登录。你可以在高级设置中导入自己的桌面客户端配置。",
+  "useBundledDriveClient": "使用应用内置的 Google 客户端"
 }

@@ -27,7 +27,7 @@ Future<({List<XFile> files, int failed})> prepareShareFiles(
   required SaveSettings settings,
   bool Function(int done)? onEach,
 }) async {
-  final jpg = settings.format == SaveFormat.jpg;
+  final format = settings.format;
   final files = <XFile>[];
   var failed = 0;
   try {
@@ -43,9 +43,16 @@ Future<({List<XFile> files, int failed})> prepareShareFiles(
           failed++;
         } else {
           final out = await processForSave(bytes, settings);
-          final f = File('${dir.path}/plana_${r.seed}.${jpg ? 'jpg' : 'png'}');
+          final f = File('${dir.path}/plana_${r.seed}.${format.name}');
           await f.writeAsBytes(out, flush: true);
-          files.add(XFile(f.path, mimeType: jpg ? 'image/jpeg' : 'image/png'));
+          files.add(
+            XFile(
+              f.path,
+              mimeType: format == SaveFormat.jpg
+                  ? 'image/jpeg'
+                  : 'image/${format.name}',
+            ),
+          );
         }
       } catch (_) {
         failed++;

@@ -117,6 +117,40 @@ void main() {
     await tester.pump(const Duration(seconds: 1));
   }
 
+  testWidgets('drag feedback shows the full album card in its original size', (
+    tester,
+  ) async {
+    await mount(tester);
+    final tile = key('desktop-library-card-$album');
+    final bounds = tester.getRect(tile);
+    final drag = await tester.startGesture(
+      bounds.center,
+      kind: PointerDeviceKind.mouse,
+    );
+    await drag.moveBy(const Offset(28, 8));
+    await tester.pump();
+    final overlay = key('album-drag-preview');
+    expect(tester.getSize(overlay).width, closeTo(bounds.width, .01));
+    expect(tester.getSize(overlay).height, closeTo(bounds.height, .01));
+    expect(
+      find.descendant(of: overlay, matching: find.text('保存目标')),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: overlay,
+        matching: find.byWidgetPredicate(
+          (w) => w is Text && (w.data?.contains('张作品') ?? false),
+        ),
+      ),
+      findsOneWidget,
+    );
+    await drag.up();
+    await tester.pumpAndSettle();
+    expect(overlay, findsNothing);
+    await finish(tester);
+  });
+
   testWidgets(
     'fixed favorites and trash remain visible and browsing leaves save target and filmstrip unchanged',
     (tester) async {

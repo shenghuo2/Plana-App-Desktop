@@ -50,6 +50,7 @@ class _AssistantModelDropdownState
     final endpoints = endpointState.value ?? const [];
     final images = ref.watch(imageModelChoicesProvider);
     final authorized = ref.watch(assistantBotAuthorizedProvider);
+    final hostedImages = images.where((m) => m.endpoint == null && m.available);
     void edit([CustomEndpoint? endpoint]) {
       menu.close();
       openEndpointsPage(context, editId: endpoint?.id);
@@ -113,13 +114,16 @@ class _AssistantModelDropdownState
         ),
       ),
       menuChildren: [
-        if (authorized || (models.value?.free.isNotEmpty ?? false)) ...[
-          settingSection(context, authorized ? 'Plana 后端' : '免费模型'),
+        if (authorized ||
+            (models.value?.free.isNotEmpty ?? false) ||
+            hostedImages.isNotEmpty) ...[
+          settingSection(context, context.l10n.planaBackend),
           ...switch (models) {
             AsyncData(:final value) when value.choices.isNotEmpty => [
               for (final c in authorized ? value.choices : value.free)
                 choice(c.key, c.name, recommended: c.recommended),
             ],
+            AsyncData() when hostedImages.isNotEmpty => <Widget>[],
             AsyncLoading() => [
               const Padding(
                 padding: EdgeInsets.all(20),
@@ -140,6 +144,12 @@ class _AssistantModelDropdownState
               ),
             ],
           },
+          for (final image in hostedImages)
+            choice(
+              '$kImageKeyPrefix${image.key}',
+              image.name,
+              subtitle: context.l10n.imageModelField,
+            ),
           const Divider(height: 12),
         ],
         settingSection(context, l10nNow.myEndpoints),
@@ -154,27 +164,30 @@ class _AssistantModelDropdownState
             padding: EdgeInsets.all(20),
             child: Text(l10nNow.desktopLoadingEndpoints),
           ),
-        for (final e in endpoints)
+        for (final e in endpoints) ...[
           if (e.usable)
             for (final model in e.allModels)
               choice(
                 customModelKey(e.id, model),
                 model,
                 subtitle: e.displayName,
-              )
-          else
+              ),
+          if (!e.usable && !e.canDraw)
             MenuItemButton(
               onPressed: () => edit(e),
               leadingIcon: const Icon(Icons.edit_outlined, size: 17),
               child: Text('${e.displayName} · 待完善'),
             ),
-        for (final image in images.where((image) => image.available))
-          choice(
-            '$kImageKeyPrefix${image.key}',
-            image.name,
-            subtitle: context.l10n.imageModelField,
-          ),
-        if (endpoints.any((e) => e.usable))
+          for (final image in images.where(
+            (m) => m.endpoint?.id == e.id && m.available,
+          ))
+            choice(
+              '$kImageKeyPrefix${image.key}',
+              image.name,
+              subtitle: e.displayName,
+            ),
+        ],
+        if (endpoints.any((e) => e.usable || e.canDraw))
           SubmenuButton(
             leadingIcon: const Icon(Icons.tune, size: 17),
             menuChildren: [
@@ -271,10 +284,7 @@ class _ModelSheet extends ConsumerWidget {
       title: context.l10n.selectModel,
       children: [
         if (!hidden) ...[
-          settingSection(
-            context,
-            authorized ? context.l10n.planaBackend : context.l10n.freeModels,
-          ),
+          settingSection(context, context.l10n.planaBackend),
           switch (async) {
             AsyncData(:final value) when shown(value).isNotEmpty => Column(
               mainAxisSize: MainAxisSize.min,
