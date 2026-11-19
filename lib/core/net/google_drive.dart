@@ -65,8 +65,11 @@ class GoogleDriveAuth extends Notifier<String?> {
         : null;
     final json = active ?? await storage.read(key: _clientKey);
     if (json != null) return DriveDesktopClient.parse(json);
-    return ref.read(bundledDriveClientProvider) ??
-        (throw const DriveException('本版本尚未配置 Google 登录。可在高级设置中导入桌面客户端配置。'));
+    final bundled = ref.read(bundledDriveClientProvider);
+    if (bundled == null) {
+      throw const DriveException('本版本尚未配置 Google 登录。可在高级设置中导入桌面客户端配置。');
+    }
+    return bundled;
   }
 
   Future<bool> connect() async {

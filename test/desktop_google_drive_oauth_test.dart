@@ -2,6 +2,11 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:plana_app/core/net/google_drive.dart'
+    show bundledDriveClientProvider, googleDriveAuthProvider;
+import 'package:plana_app/core/store/app_stores.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:plana_app/core/net/google_drive_oauth.dart';
@@ -24,6 +29,32 @@ void main() {
       expect(
         () => DriveDesktopClient.fromBuild(id: 'not-a-google-client'),
         throwsFormatException,
+      );
+    },
+  );
+
+  test(
+    'an empty account store reports the missing desktop registration',
+    () async {
+      FlutterSecureStorage.setMockInitialValues({});
+      final app = ProviderContainer(
+        overrides: [
+          appStoresProvider.overrideWithValue(AppStores.ephemeral()),
+          bundledDriveClientProvider.overrideWithValue(null),
+        ],
+      );
+      addTearDown(app.dispose);
+      final auth = app.read(googleDriveAuthProvider.notifier);
+      expect(await auth.hasClient(), isFalse);
+      await expectLater(
+        auth.connect(),
+        throwsA(
+          isA<DriveException>().having(
+            (e) => e.message,
+            'configuration notice',
+            contains('尚未配置 Google 登录'),
+          ),
+        ),
       );
     },
   );
