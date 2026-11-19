@@ -1,7 +1,8 @@
 param(
     [switch]$BuildOnly,
     [switch]$Rebuild,
-    [switch]$Offline
+    [switch]$Offline,
+    [switch]$WithoutLocalDriveClient
 )
 
 $ErrorActionPreference = 'Stop'
@@ -42,7 +43,9 @@ function Get-InputsHash([switch]$DependenciesOnly) {
             if (Test-Path -LiteralPath $path -PathType Leaf) { Get-Item -LiteralPath $path }
         }
         if (!$DependenciesOnly) {
-            if (Test-Path -LiteralPath $driveClientFile -PathType Leaf) { Get-Item -LiteralPath $driveClientFile }
+            if (!$WithoutLocalDriveClient -and (Test-Path -LiteralPath $driveClientFile -PathType Leaf)) {
+                Get-Item -LiteralPath $driveClientFile
+            }
             foreach ($name in @('lib', 'assets', 'examples/inspiration-previews', 'windows/runner')) {
                 $path = Join-Path $projectRoot $name
                 if (Test-Path -LiteralPath $path) { Get-ChildItem -LiteralPath $path -File -Recurse }
@@ -203,7 +206,7 @@ function Start-Plana {
             $arguments = @('build', 'windows', '--release', '--no-pub')
             $defines = Join-Path $stateRoot 'google-drive-build-defines.json'
             try {
-                if (Test-Path -LiteralPath $driveClientFile -PathType Leaf) {
+                if (!$WithoutLocalDriveClient -and (Test-Path -LiteralPath $driveClientFile -PathType Leaf)) {
                     $installed = (Get-Content -LiteralPath $driveClientFile -Raw -Encoding UTF8 | ConvertFrom-Json).installed
                     if (!$installed -or $installed.client_id -cnotmatch '^[A-Za-z0-9._-]+\.apps\.googleusercontent\.com$') {
                         throw 'Expected a Google Desktop app client in tool/local/google-drive-desktop.json.'

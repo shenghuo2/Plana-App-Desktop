@@ -1052,6 +1052,8 @@ class _BackupPageState extends ConsumerState<BackupPage> {
                 onTap: idle ? _driveRestore : null,
               ),
               ExpansionTile(
+                shape: const Border(),
+                collapsedShape: const Border(),
                 title: Text(context.l10n.advancedSettings),
                 children: [
                   SettingsRow(
