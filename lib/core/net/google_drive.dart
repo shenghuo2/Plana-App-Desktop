@@ -19,88 +19,173 @@ const _clientKey = 'desktop_google_drive_client';
 const _activeClientKey = 'desktop_google_drive_authorized_client';
 const _refreshKey = 'desktop_google_drive_refresh';
 const _emailKey = 'google_drive_email';
+const _personalClientIdKey = 'desktop_google_drive_selected_personal_client';
+const _accountClientIdKey = 'desktop_google_drive_account_client_id';
 
 final bundledDriveClientProvider = Provider<DriveDesktopClient?>(
   (ref) => DriveDesktopClient.fromBuild(),
 );
+
+final desktopDriveOAuthProvider = Provider<DesktopDriveOAuth>((ref) {
+  final httpClient = http.Client();
+  ref.onDispose(httpClient.close);
+  return DesktopDriveOAuth(httpClient);
+});
 
 final googleDriveAuthProvider = NotifierProvider<GoogleDriveAuth, String?>(
   GoogleDriveAuth.new,
 );
 
 class GoogleDriveAuth extends Notifier<String?> {
-  late DesktopDriveOAuth _oauth;
   DriveGrant? _access;
   Future<DriveGrant>? _refreshing;
+  Future<DriveGrant>? _consent;
+  int _sessionRevision = 0;
+  Future<void> _sessionWrites = Future.value();
+
+  Future<T> _writeSession<T>(Future<T> Function() change) {
+    final next = _sessionWrites.then((_) => change());
+    _sessionWrites = next.then<void>(
+      (_) {},
+      onError: (Object _, StackTrace _) {},
+    );
+    return next;
+  }
+
+  void _checkRevision(int revision) {
+    if (revision != _sessionRevision) {
+      throw const DriveException('Google 账号已切换，请重试');
+    }
+  }
+
+  DesktopDriveOAuth get _oauth => ref.read(desktopDriveOAuthProvider);
 
   @override
   String? build() {
-    final httpClient = http.Client();
-    ref.onDispose(httpClient.close);
-    _oauth = DesktopDriveOAuth(httpClient);
-    return ref.read(prefsStoreProvider).get(_emailKey);
+    final prefs = ref.read(prefsStoreProvider);
+    final selected =
+        prefs.get(_personalClientIdKey) ??
+        ref.watch(bundledDriveClientProvider)?.id;
+    // Older builds stored an email without identifying its Google project.
+    if (selected != null && prefs.get(_accountClientIdKey) != selected) {
+      return null;
+    }
+    return prefs.get(_emailKey);
   }
 
-  Future<bool> hasClient() async =>
-      ref.read(bundledDriveClientProvider) != null ||
-      await ref.read(secureStorageProvider).read(key: _clientKey) != null;
+  Future<DriveDesktopClient?> _selectedClient() async {
+    final personalId = ref.read(prefsStoreProvider).get(_personalClientIdKey);
+    final bundled = ref.read(bundledDriveClientProvider);
+    if (personalId == null && bundled != null) return bundled;
+    final raw = await ref.read(secureStorageProvider).read(key: _clientKey);
+    if (raw == null) return null;
+    final personal = DriveDesktopClient.parse(raw);
+    return personalId == null || personal.id == personalId ? personal : null;
+  }
 
-  Future<void> configure(String json) {
+  Future<bool> hasClient() async => await _selectedClient() != null;
+
+  Future<void> configure(String json) async {
     if (state != null) throw const DriveException('更换客户端配置前请先断开 Google 账号');
     final client = DriveDesktopClient.parse(json);
-    return ref
-        .read(secureStorageProvider)
-        .write(key: _clientKey, value: client.encode());
+    _sessionRevision++;
+    await _writeSession(() async {
+      await ref
+          .read(secureStorageProvider)
+          .write(key: _clientKey, value: client.encode());
+      await ref
+          .read(prefsStoreProvider)
+          .write(key: _personalClientIdKey, value: client.id);
+    });
   }
 
   Future<void> useBundledClient() async {
     if (state != null) throw const DriveException('更换客户端配置前请先断开 Google 账号');
-    await ref.read(secureStorageProvider).delete(key: _clientKey);
+    _sessionRevision++;
+    await _writeSession(() async {
+      await ref.read(prefsStoreProvider).delete(key: _personalClientIdKey);
+      await ref.read(secureStorageProvider).delete(key: _clientKey);
+    });
   }
 
-  Future<DriveDesktopClient> _client({bool forRefresh = false}) async {
-    final storage = ref.read(secureStorageProvider);
-    final active = forRefresh
-        ? await storage.read(key: _activeClientKey)
-        : null;
-    final json = active ?? await storage.read(key: _clientKey);
-    if (json != null) return DriveDesktopClient.parse(json);
-    final bundled = ref.read(bundledDriveClientProvider);
-    if (bundled == null) {
-      throw const DriveException('本版本尚未配置 Google 登录。可在高级设置中导入桌面客户端配置。');
+  Future<DriveDesktopClient> _activeClient() async {
+    final selected = await _selectedClient();
+    final raw = await ref
+        .read(secureStorageProvider)
+        .read(key: _activeClientKey);
+    if (raw != null) {
+      final active = DriveDesktopClient.parse(raw);
+      final owner = ref.read(prefsStoreProvider).get(_accountClientIdKey);
+      if ((owner != null && active.id != owner) ||
+          (selected != null && active.id != selected.id)) {
+        throw const DriveException('Google 客户端已更换，请重新登录');
+      }
+      return active;
     }
-    return bundled;
+    if (selected != null) return selected;
+    throw const DriveException('请重新连接 Google 账号');
   }
 
   Future<bool> connect() async {
-    final client = await _client();
-    final grant = await _oauth.authorize(client);
-    if (grant == null) return false;
+    final revision = ++_sessionRevision;
+    await _sessionWrites;
+    final client = await _selectedClient();
+    if (client == null) {
+      throw const DriveException('本版本尚未配置 Google 登录。可在高级设置中导入桌面客户端配置。');
+    }
+    _checkRevision(revision);
+    return await _authorize(client, revision) != null;
+  }
+
+  Future<DriveGrant?> _authorize(
+    DriveDesktopClient client,
+    int revision, {
+    String? account,
+  }) async {
+    final grant = await _oauth.authorize(client, loginHint: account);
+    if (grant == null) return null;
     final refresh = grant.refresh;
     if (refresh == null || refresh.isEmpty) {
       throw const DriveException('未获得离线授权，请重新连接');
     }
     final email = await _oauth.accountLabel(grant.access);
-    await ref
-        .read(secureStorageProvider)
-        .write(key: _activeClientKey, value: client.encode());
-    await ref
-        .read(secureStorageProvider)
-        .write(key: _refreshKey, value: refresh);
-    await ref.read(prefsStoreProvider).write(key: _emailKey, value: email);
-    _access = grant;
-    state = email;
-    return true;
+    if (account != null && email.toLowerCase() != account.toLowerCase()) {
+      throw const DriveException('请选择原先连接的 Google 账号后重试');
+    }
+    await _writeSession(() async {
+      _checkRevision(revision);
+      final storage = ref.read(secureStorageProvider);
+      final prefs = ref.read(prefsStoreProvider);
+      // An interruption while changing projects must leave a signed-out session.
+      if (prefs.get(_emailKey) != null) {
+        await prefs.delete(key: _emailKey);
+        await prefs.idle;
+      }
+      await storage.write(key: _refreshKey, value: refresh);
+      await storage.write(key: _activeClientKey, value: client.encode());
+      await prefs.write(key: _accountClientIdKey, value: client.id);
+      await prefs.write(key: _emailKey, value: email);
+      await prefs.idle;
+      _checkRevision(revision);
+      _access = grant;
+      state = email;
+    });
+    return grant;
   }
 
   Future<void> disconnect() async {
-    final storage = ref.read(secureStorageProvider);
-    final refresh = await storage.read(key: _refreshKey);
-    await storage.delete(key: _refreshKey);
-    await storage.delete(key: _activeClientKey);
-    await ref.read(prefsStoreProvider).delete(key: _emailKey);
+    _sessionRevision++;
     _access = null;
     state = null;
+    final refresh = await _writeSession(() async {
+      final storage = ref.read(secureStorageProvider);
+      final token = await storage.read(key: _refreshKey);
+      await storage.delete(key: _refreshKey);
+      await storage.delete(key: _activeClientKey);
+      await ref.read(prefsStoreProvider).delete(key: _emailKey);
+      await ref.read(prefsStoreProvider).delete(key: _accountClientIdKey);
+      return token;
+    });
     if (refresh != null) {
       try {
         await _oauth.revoke(refresh);
@@ -109,7 +194,9 @@ class GoogleDriveAuth extends Notifier<String?> {
   }
 
   Future<String> token({bool interactive = false}) async {
-    if (state == null) throw const DriveException('请连接 Google 账号');
+    final account = state;
+    if (account == null) throw const DriveException('请连接 Google 账号');
+    final revision = _sessionRevision;
     final access = _access;
     if (access != null &&
         access.expires.isAfter(
@@ -117,29 +204,52 @@ class GoogleDriveAuth extends Notifier<String?> {
         )) {
       return access.access;
     }
-    final pending = _refreshing ??= _refresh();
+    final pending = _refreshing ??= _refresh(revision);
     try {
       return (await pending).access;
+    } on DriveConsentRequired {
+      if (!interactive ||
+          revision != _sessionRevision ||
+          !account.contains('@')) {
+        rethrow;
+      }
+      final consent = _consent ??= _renewConsent(account, revision);
+      try {
+        return (await consent).access;
+      } finally {
+        if (identical(_consent, consent)) _consent = null;
+      }
     } finally {
       if (identical(pending, _refreshing)) _refreshing = null;
     }
   }
 
-  Future<DriveGrant> _refresh() async {
+  Future<DriveGrant> _renewConsent(String account, int revision) async {
+    final client = await _activeClient();
+    _checkRevision(revision);
+    final grant = await _authorize(client, revision, account: account);
+    if (grant == null) throw const DriveException('已取消 Google 授权');
+    return grant;
+  }
+
+  Future<DriveGrant> _refresh(int revision) async {
     final storage = ref.read(secureStorageProvider);
     final refresh = await storage.read(key: _refreshKey);
-    if (refresh == null) throw const DriveException('Google 授权已过期，请重新连接');
-    final grant = await _oauth.exchange(await _client(forRefresh: true), {
+    if (refresh == null) throw const DriveConsentRequired();
+    final grant = await _oauth.exchange(await _activeClient(), {
       'grant_type': 'refresh_token',
       'refresh_token': refresh,
     });
-    if (state == null || await storage.read(key: _refreshKey) != refresh) {
-      throw const DriveException('Google 账号已切换，请重试');
-    }
-    if (grant.refresh != null && grant.refresh != refresh) {
-      await storage.write(key: _refreshKey, value: grant.refresh);
-    }
-    _access = grant;
+    await _writeSession(() async {
+      _checkRevision(revision);
+      if (await storage.read(key: _refreshKey) != refresh) {
+        throw const DriveException('Google 账号已切换，请重试');
+      }
+      if (grant.refresh != null && grant.refresh != refresh) {
+        await storage.write(key: _refreshKey, value: grant.refresh);
+      }
+      _access = grant;
+    });
     return grant;
   }
 

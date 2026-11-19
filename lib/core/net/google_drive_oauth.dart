@@ -15,6 +15,10 @@ class DriveException implements Exception {
   String toString() => message;
 }
 
+class DriveConsentRequired extends DriveException {
+  const DriveConsentRequired() : super('Google 授权已失效，请重新连接');
+}
+
 /// Credentials from the "Desktop app" JSON downloaded from Google Cloud.
 class DriveDesktopClient {
   const DriveDesktopClient(this.id, this.secret);
@@ -75,7 +79,10 @@ class DesktopDriveOAuth {
     return _b64(List.generate(32, (_) => random.nextInt(256)));
   }
 
-  Future<DriveGrant?> authorize(DriveDesktopClient client) async {
+  Future<DriveGrant?> authorize(
+    DriveDesktopClient client, {
+    String? loginHint,
+  }) async {
     final verifier = _nonce();
     final state = _nonce();
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
@@ -131,7 +138,8 @@ class DesktopDriveOAuth {
         'code_challenge': _b64(sha256.convert(ascii.encode(verifier)).bytes),
         'code_challenge_method': 'S256',
         'access_type': 'offline',
-        'prompt': 'select_account consent',
+        'prompt': loginHint == null ? 'select_account consent' : 'consent',
+        'login_hint': ?loginHint,
       });
       if (!await openBrowser(uri)) throw const DriveException('无法打开系统浏览器');
       final code = await result.future.timeout(
@@ -166,6 +174,16 @@ class DesktopDriveOAuth {
         )
         .timeout(const Duration(seconds: 30));
     if (response.statusCode != 200) {
+      if (response.statusCode == 400 &&
+          values['grant_type'] == 'refresh_token') {
+        try {
+          if (jsonDecode(response.body) case {'error': 'invalid_grant'}) {
+            throw const DriveConsentRequired();
+          }
+        } on FormatException {
+          // A proxy or temporary server error can return a non-JSON response.
+        }
+      }
       throw DriveException(
         'Google 授权失败，请检查桌面客户端配置或重新连接',
         status: response.statusCode,

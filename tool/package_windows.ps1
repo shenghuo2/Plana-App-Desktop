@@ -166,10 +166,15 @@ source-code.zip 包含本版本 Windows 构建源码，测试使用时无需解�
     # Include matching source without local build caches, logs, personal data or SDK paths.
     $sourceStage = Join-Path $work 'source/plana-app-windows'
     New-Item -ItemType Directory -Path $sourceStage -Force | Out-Null
+    $localToolConfig = (Join-Path $projectRoot 'tool/local') + [IO.Path]::DirectorySeparatorChar
     foreach ($directory in @('lib', 'assets', 'examples', 'icons', 'installer', 'test', 'tool', 'tools', 'windows')) {
         $sourceDirectory = Join-Path $projectRoot $directory
         Get-ChildItem -LiteralPath $sourceDirectory -File -Recurse -Force |
-            Where-Object { $_.FullName -notmatch '[\\/](ephemeral|__pycache__)[\\/]' -and $_.Extension -notin @('.log', '.pyc') } |
+            Where-Object {
+                !$_.FullName.StartsWith($localToolConfig, [StringComparison]::OrdinalIgnoreCase) -and
+                    $_.FullName -notmatch '[\\/](ephemeral|__pycache__)[\\/]' -and
+                    $_.Extension -notin @('.log', '.pyc')
+            } |
             ForEach-Object {
                 $relative = $_.FullName.Substring($projectRoot.Length + 1)
                 $destination = Join-Path $sourceStage $relative
@@ -187,7 +192,8 @@ source-code.zip 包含本版本 Windows 构建源码，测试使用时无需解�
 Windows source for Plana $version
 Install Flutter and Visual Studio with Desktop development with C++.
 From plana-app-windows, run: flutter pub get
-Then run: flutter build windows --release
+Then run: powershell -ExecutionPolicy Bypass -File tool/start_windows.ps1 -BuildOnly
+For the default Google sign-in client, see WINDOWS-README.md.
 The release workflow uses Flutter 3.44.2 / Dart 3.12.2.
 To package the Chinese installer and portable ZIP, install Inno Setup 6.5+
 and 7-Zip, then run tool/package_windows.ps1 (see WINDOWS-README.md).

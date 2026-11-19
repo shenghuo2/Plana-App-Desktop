@@ -32,7 +32,7 @@ try {
     & flutter test --no-pub
     if ($LASTEXITCODE -ne 0) { throw 'Tests failed.' }
   }
-  & flutter build windows --release --no-pub
+  & (Join-Path $PSScriptRoot 'start_windows.ps1') -BuildOnly -Rebuild -Offline:$Offline
   if ($LASTEXITCODE -ne 0) { throw 'Windows build failed.' }
   Write-Output 'Ready: build/windows/x64/runner/Release/plana_app_for_windows.exe'
 }
