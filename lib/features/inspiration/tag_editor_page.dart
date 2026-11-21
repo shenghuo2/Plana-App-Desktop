@@ -1776,7 +1776,7 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
         builder: (context, constraints) {
           final width = math.min(
             constraints.maxWidth,
-            math.max(180, constraints.maxHeight - (_locked ? 0 : 92)) *
+            math.max(180, constraints.maxHeight - (_locked ? 0 : 108)) *
                 _def.previewAspect,
           );
           return Align(
@@ -1798,13 +1798,18 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
     };
     final single = _slotCount == 1;
     final content = Column(
+      mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         if (desktop && single)
-          AspectRatio(
-            key: const ValueKey('tag-editor-portrait'),
-            aspectRatio: _def.previewAspect,
-            child: _slotView(0, fit: BoxFit.contain),
+          Flexible(
+            child: Center(
+              child: AspectRatio(
+                key: const ValueKey('tag-editor-portrait'),
+                aspectRatio: _def.previewAspect,
+                child: _slotView(0, fit: BoxFit.contain),
+              ),
+            ),
           )
         else if (desktop)
           Expanded(

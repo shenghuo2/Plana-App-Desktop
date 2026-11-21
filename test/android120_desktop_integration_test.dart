@@ -451,6 +451,11 @@ void main() {
         final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
         addTearDown(() => server.close(force: true));
         server.listen((request) async {
+          if (request.uri.path == '/api/agent/channel') {
+            request.response.statusCode = HttpStatus.notFound;
+            await request.response.close();
+            return;
+          }
           await utf8.decoder.bind(request).join();
           received.complete();
           await release.future;

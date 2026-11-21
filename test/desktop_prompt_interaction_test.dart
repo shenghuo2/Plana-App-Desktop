@@ -115,9 +115,9 @@ void main() {
       _ => 'desktop-character-c3',
     };
     final heading = switch (target) {
-      'main' => 'prompt-section-header-main',
-      'section' => 'prompt-section-header-s1',
-      _ => 'character-header-c3',
+      'main' => 'prompt-section-collapse-main',
+      'section' => 'prompt-section-collapse-s1',
+      _ => 'character-avatar-c3',
     };
     testWidgets(
       '$target mode switch reveals its own heading without text animation',
