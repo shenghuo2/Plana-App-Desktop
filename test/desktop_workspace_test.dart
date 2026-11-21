@@ -25,6 +25,7 @@ import 'package:plana_app/features/assistant/custom_endpoint.dart';
 import 'package:plana_app/features/gallery/albums/album_state.dart';
 import 'package:plana_app/features/gallery/albums/album_models.dart';
 import 'package:plana_app/features/gallery/gallery_state.dart';
+import 'package:plana_app/features/generate/canvas_models.dart' show CanvasOrigin;
 import 'package:plana_app/features/generate/generate_state.dart';
 import 'package:plana_app/features/generate/gen_jobs.dart';
 import 'package:plana_app/features/generate/gen_queue.dart';
@@ -84,6 +85,7 @@ class _ShortcutGeneration extends GenerationNotifier {
     GenerateState? using,
     bool stay = false,
     void Function(String jobId)? onJob,
+    CanvasOrigin? origin,
   }) async {
     calls++;
     return GenOutcome.notCharged;

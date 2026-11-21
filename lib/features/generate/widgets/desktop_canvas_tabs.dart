@@ -97,7 +97,7 @@ class _DesktopCanvasTabsState extends ConsumerState<DesktopCanvasTabs> {
           context: context,
           builder: (_) => _CanvasNameDialog(name: target.name),
         );
-        if (name != null && context.mounted) {
+        if (name != null && mounted) {
           canvases.rename(target.id, name);
         }
       case 'remove':
@@ -108,7 +108,7 @@ class _DesktopCanvasTabsState extends ConsumerState<DesktopCanvasTabs> {
           message: '移除这张画布的提示词和参数，已生成的图片会保留。',
           confirmLabel: '删除',
         );
-        if (!ok || !context.mounted) return;
+        if (!ok || !mounted) return;
         final removed = canvases.remove(target.id);
         if (removed == null) return;
         hintSnack(

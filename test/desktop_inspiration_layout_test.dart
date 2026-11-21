@@ -188,7 +188,7 @@ void main() {
       jsonEncode({
         'entries': [
           ...entries.map((entry) => entry.toJson()),
-          for (final category in TagCategory.values)
+          for (final category in TagCategory.builtins)
             TagEntry(
               id: 'tail-${category.name}',
               category: category,
@@ -198,7 +198,7 @@ void main() {
             ).toJson(),
         ],
         'pools': {
-          for (final category in TagCategory.values)
+          for (final category in TagCategory.builtins)
             tagCategoryDef(category).webId: [
               for (var i = 0; i < 40; i++)
                 'tag-${i.toString().padLeft(2, '0')}',
@@ -214,7 +214,7 @@ void main() {
     (tester) async {
       seedTagPools();
       await mount(tester);
-      for (final category in TagCategory.values) {
+      for (final category in TagCategory.builtins) {
         await tester.tap(key('inspiration-category-${category.name}'));
         await tester.pumpAndSettle();
         final scope = tagCategoryDef(category).hasPublic
@@ -765,7 +765,7 @@ void main() {
     (tester) async {
       seedTagPools();
       await mount(tester);
-      for (final cat in TagCategory.values) {
+      for (final cat in TagCategory.builtins) {
         await tester.tap(key('inspiration-category-${cat.name}'));
         await tester.pumpAndSettle();
         final before = container.read(tagLibraryProvider).value!.knownTags(cat);
