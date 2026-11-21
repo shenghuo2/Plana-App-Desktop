@@ -4,7 +4,8 @@
     [string]$RuntimeCab,
     [string]$RuntimeDirectory,
     [string]$IsccPath,
-    [switch]$SkipBuild
+    [switch]$SkipBuild,
+    [string]$GoogleDriveDesktopClientFile
 )
 
 $ErrorActionPreference = 'Stop'
@@ -44,8 +45,20 @@ foreach ($target in @($bundle, $zipPath, $setupPath, $checksumPath, ($zipPath + 
     if (Test-Path -LiteralPath $target) { throw "Output already exists; choose a new output directory: $target" }
 }
 
+$driveArguments = @('-WithoutLocalDriveClient')
+$driveInstructions = '使用 Google 云盘备份前，在「我的 → 备份与导入 → 高级设置」导入自己的桌面 OAuth 配置，再点击「使用 Google 账号登录」。'
+if ($GoogleDriveDesktopClientFile) {
+    $registration = (Get-Item -LiteralPath $GoogleDriveDesktopClientFile -ErrorAction Stop).FullName
+    $localTools = (Join-Path $projectRoot 'tool/local') + '\'
+    if ($registration.StartsWith($projectRoot + '\', [StringComparison]::OrdinalIgnoreCase) -and
+        !$registration.StartsWith($localTools, [StringComparison]::OrdinalIgnoreCase)) {
+        throw 'Keep the release registration outside the source tree or in tool/local.'
+    }
+    $driveArguments = @('-GoogleDriveDesktopClientFile', $registration)
+    $driveInstructions = '在「我的 → 备份与导入 → Google 云端硬盘」点击「使用 Google 账号登录」，在系统浏览器中完成授权。需要使用其他桌面客户端时，可在「高级设置」导入配置。'
+}
 if (!$SkipBuild) {
-    & "$env:SystemRoot/System32/WindowsPowerShell/v1.0/powershell.exe" -NoLogo -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'start_windows.ps1') -BuildOnly -Offline -WithoutLocalDriveClient
+    & "$env:SystemRoot/System32/WindowsPowerShell/v1.0/powershell.exe" -NoLogo -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'start_windows.ps1') -BuildOnly -Offline @driveArguments
     if ($LASTEXITCODE -ne 0) { throw 'Release build validation failed' }
 }
 $release = Join-Path $projectRoot 'build/windows/x64/runner/Release'
@@ -134,7 +147,7 @@ Plana App Desktop Windows 测试版 $version
    默认安装到当前用户的应用目录，无需管理员权限；也可选择 D 盘等可写入的专用文件夹。
 2. 便携 ZIP：解压整个压缩包，打开 $packageName 文件夹，双击 plana_app_for_windows.exe。
 3. 首次使用，在「我的 → 账号与接入」配置自己的绘图服务；AI 助手按页面提示配置。
-4. 使用 Google 云盘备份前，在「我的 → 备份与导入 → 高级设置」导入自己的桌面 OAuth 配置，再点击「使用 Google 账号登录」。
+4. $driveInstructions
 
 程序所需 DLL、资源和 Visual C++ 运行库已随包提供，无需安装 Flutter 或 Visual Studio。
 请保留整个程序文件夹，发送给朋友时发送 ZIP 或 -setup.exe 安装包。

@@ -2,7 +2,8 @@ param(
     [switch]$BuildOnly,
     [switch]$Rebuild,
     [switch]$Offline,
-    [switch]$WithoutLocalDriveClient
+    [switch]$WithoutLocalDriveClient,
+    [string]$GoogleDriveDesktopClientFile
 )
 
 $ErrorActionPreference = 'Stop'
@@ -18,6 +19,11 @@ $appPath = Join-Path $releaseRoot 'plana_app_for_windows.exe'
 $stateRoot = Join-Path $projectRoot 'build/launcher'
 $stampPath = Join-Path $stateRoot 'build.json'
 $driveClientFile = Join-Path $projectRoot 'tool/local/google-drive-desktop.json'
+if ($GoogleDriveDesktopClientFile) {
+    if ($WithoutLocalDriveClient) { throw 'Choose either an explicit Google Desktop client or a build without a client.' }
+    $driveClientFile = (Get-Item -LiteralPath $GoogleDriveDesktopClientFile -ErrorAction Stop).FullName
+    if (!(Test-Path -LiteralPath $driveClientFile -PathType Leaf)) { throw 'Expected a Google Desktop client file.' }
+}
 $logRoot = Join-Path $workspaceRoot 'logs'
 $runId = '{0}-{1}' -f (Get-Date -Format 'yyyyMMdd-HHmmss-fff'), $PID
 $sessionLog = Join-Path $logRoot "$runId-launcher.log"
@@ -43,9 +49,6 @@ function Get-InputsHash([switch]$DependenciesOnly) {
             if (Test-Path -LiteralPath $path -PathType Leaf) { Get-Item -LiteralPath $path }
         }
         if (!$DependenciesOnly) {
-            if (!$WithoutLocalDriveClient -and (Test-Path -LiteralPath $driveClientFile -PathType Leaf)) {
-                Get-Item -LiteralPath $driveClientFile
-            }
             foreach ($name in @('lib', 'assets', 'examples/inspiration-previews', 'windows/runner')) {
                 $path = Join-Path $projectRoot $name
                 if (Test-Path -LiteralPath $path) { Get-ChildItem -LiteralPath $path -File -Recurse }
@@ -59,6 +62,10 @@ function Get-InputsHash([switch]$DependenciesOnly) {
     $lines = foreach ($file in ($files | Sort-Object FullName)) {
         $relative = $file.FullName.Substring($projectRoot.Length).Replace('\', '/')
         '{0}={1}' -f $relative, (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash
+    }
+    if (!$DependenciesOnly -and !$WithoutLocalDriveClient -and (Test-Path -LiteralPath $driveClientFile -PathType Leaf)) {
+        $sourceKind = if ($GoogleDriveDesktopClientFile) { 'explicit' } else { 'local' }
+        $lines += "google-drive-$sourceKind=" + (Get-FileHash -LiteralPath $driveClientFile -Algorithm SHA256).Hash
     }
     return Get-TextHash ($lines -join [Environment]::NewLine)
 }
@@ -206,10 +213,12 @@ function Start-Plana {
             $arguments = @('build', 'windows', '--release', '--no-pub')
             $defines = Join-Path $stateRoot 'google-drive-build-defines.json'
             try {
-                if (!$WithoutLocalDriveClient -and (Test-Path -LiteralPath $driveClientFile -PathType Leaf)) {
-                    $installed = (Get-Content -LiteralPath $driveClientFile -Raw -Encoding UTF8 | ConvertFrom-Json).installed
-                    if (!$installed -or $installed.client_id -cnotmatch '^[A-Za-z0-9._-]+\.apps\.googleusercontent\.com$') {
-                        throw 'Expected a Google Desktop app client in tool/local/google-drive-desktop.json.'
+                if (!$WithoutLocalDriveClient -and ($GoogleDriveDesktopClientFile -or (Test-Path -LiteralPath $driveClientFile -PathType Leaf))) {
+                    try { $installed = (Get-Content -LiteralPath $driveClientFile -Raw -Encoding UTF8 -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop).installed }
+                    catch { throw 'Unable to read the Google Desktop client configuration.' }
+                    if (!$installed -or $installed.client_id -cnotmatch '^[A-Za-z0-9._-]+\.apps\.googleusercontent\.com$' -or
+                        ($GoogleDriveDesktopClientFile -and [string]::IsNullOrWhiteSpace($installed.client_secret))) {
+                        throw 'Expected a Google Desktop app client with the required installed-client fields.'
                     }
                     $fields = @{ PLANA_GOOGLE_DESKTOP_CLIENT_ID = [string]$installed.client_id }
                     if ($installed.client_secret) { $fields.PLANA_GOOGLE_DESKTOP_CLIENT_SECRET = [string]$installed.client_secret }
