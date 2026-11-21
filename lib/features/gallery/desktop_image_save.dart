@@ -28,7 +28,9 @@ class DesktopSaveDirectory extends Notifier<String?> {
 
 String desktopImageName(ResultImage image) {
   final id = image.id.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_');
-  return 'plana_${id}_${image.seed}';
+  return image.operation != null
+      ? 'plana_director_$id'
+      : 'plana_${id}_${image.seed}';
 }
 
 /// Manual export is separate from automatic gallery archiving. Reserve a new

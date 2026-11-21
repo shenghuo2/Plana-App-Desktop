@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../store/app_stores.dart';
 import '../store/prefs_store.dart';
+import 'app_theme.dart';
 
 /// 主题色档位。
 class ThemeSeed {
@@ -34,6 +35,29 @@ const themeSeeds = <ThemeSeed>[
 /// 默认主题色(未选过时的档位)。
 const kDefaultSeedKey = 'sky';
 
+const kFloatThemeKey = 'float';
+
+String floatThemeKey(FloatAccent accent) =>
+    accent == kFloatBlue ? kFloatThemeKey : '$kFloatThemeKey:${accent.key}';
+
+FloatAccent? _floatAccentOf(String key) {
+  for (final accent in floatAccents) {
+    if (floatThemeKey(accent) == key) return accent;
+  }
+  return null;
+}
+
+String _seedKeyOf(Object? value) =>
+    value is String &&
+        (_floatAccentOf(value) != null || themeSeeds.any((s) => s.key == value))
+    ? value
+    : kDefaultSeedKey;
+
+String _languageOf(Object? value) =>
+    value is String && const ['', 'zh', 'en', 'ja'].contains(value)
+    ? value
+    : 'zh';
+
 const kMinAppTextScale = .8;
 const kMaxAppTextScale = 1.4;
 
@@ -56,10 +80,19 @@ class ThemeSettings {
     this.textScale = 1.0,
     this.compactCharCards = false,
     this.collapsiblePromptCards = true,
+    this.codexHoverPreview = true,
+    this.language = 'zh',
   });
 
   final ThemeMode mode;
   final String seedKey;
+
+  /// Keep existing desktop installations in Chinese until explicitly changed.
+  /// An empty value follows the system language.
+  final String language;
+  Locale? get locale => language.isEmpty ? null : Locale(language);
+  FloatAccent? get floatAccent => _floatAccentOf(seedKey);
+  bool get float => floatAccent != null;
 
   /// 关掉后 app 内所有振动静默(实际拦在 [Haptics])。
   final bool haptics;
@@ -83,6 +116,7 @@ class ThemeSettings {
 
   /// 桌面主体、分区和角色提示词卡允许手动折叠，默认开启。
   final bool collapsiblePromptCards;
+  final bool codexHoverPreview;
 
   ThemeSeed get seed => themeSeeds.firstWhere(
     (s) => s.key == seedKey,
@@ -99,9 +133,12 @@ class ThemeSettings {
     double? textScale,
     bool? compactCharCards,
     bool? collapsiblePromptCards,
+    bool? codexHoverPreview,
+    String? language,
   }) => ThemeSettings(
     mode: mode ?? this.mode,
     seedKey: seedKey ?? this.seedKey,
+    language: language == null ? this.language : _languageOf(language),
     haptics: haptics ?? this.haptics,
     showAssistant: showAssistant ?? this.showAssistant,
     showTools: showTools ?? this.showTools,
@@ -110,14 +147,14 @@ class ThemeSettings {
     compactCharCards: compactCharCards ?? this.compactCharCards,
     collapsiblePromptCards:
         collapsiblePromptCards ?? this.collapsiblePromptCards,
+    codexHoverPreview: codexHoverPreview ?? this.codexHoverPreview,
   );
 
   /// 脏数据(旧版本/已下架的档位,如早先那档深蓝)回退默认。
   factory ThemeSettings.fromJson(Map<String, dynamic> j) => ThemeSettings(
     mode: ThemeMode.values.asNameMap()[j['mode']] ?? ThemeMode.light,
-    seedKey: themeSeeds.any((s) => s.key == j['seed'])
-        ? j['seed'] as String
-        : kDefaultSeedKey,
+    seedKey: _seedKeyOf(j['seed']),
+    language: _languageOf(j['language']),
     haptics: j['haptics'] != false,
     showAssistant: j['showAssistant'] != false,
     showTools: j['showTools'] != false,
@@ -127,11 +164,13 @@ class ThemeSettings {
     textScale: _textScale(j['textScale']),
     compactCharCards: j['compactCharCards'] == true,
     collapsiblePromptCards: j['collapsiblePromptCards'] != false,
+    codexHoverPreview: j['codexHoverPreview'] != false,
   );
 
   Map<String, dynamic> toJson() => {
     'mode': mode.name,
     'seed': seedKey,
+    'language': language,
     'haptics': haptics,
     'showAssistant': showAssistant,
     'showTools': showTools,
@@ -139,6 +178,7 @@ class ThemeSettings {
     'textScale': textScale,
     'compactCharCards': compactCharCards,
     'collapsiblePromptCards': collapsiblePromptCards,
+    'codexHoverPreview': codexHoverPreview,
   };
 
   @override
@@ -146,18 +186,21 @@ class ThemeSettings {
       other is ThemeSettings &&
       other.mode == mode &&
       other.seedKey == seedKey &&
+      other.language == language &&
       other.haptics == haptics &&
       other.showAssistant == showAssistant &&
       other.showTools == showTools &&
       other.pageAlignment == pageAlignment &&
       other.textScale == textScale &&
       other.compactCharCards == compactCharCards &&
-      other.collapsiblePromptCards == collapsiblePromptCards;
+      other.collapsiblePromptCards == collapsiblePromptCards &&
+      other.codexHoverPreview == codexHoverPreview;
 
   @override
   int get hashCode => Object.hash(
     mode,
     seedKey,
+    language,
     haptics,
     showAssistant,
     showTools,
@@ -165,6 +208,7 @@ class ThemeSettings {
     textScale,
     compactCharCards,
     collapsiblePromptCards,
+    codexHoverPreview,
   );
 }
 

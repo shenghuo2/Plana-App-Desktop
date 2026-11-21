@@ -1,3 +1,4 @@
+import '../../l10n/l10n.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -84,7 +85,7 @@ class DesktopImportLayout extends StatelessWidget {
                                   ),
                                   IconButton(
                                     key: const ValueKey('desktop-import-close'),
-                                    tooltip: '关闭导入',
+                                    tooltip: l10nNow.closeImport,
                                     onPressed: onClose,
                                     icon: const Icon(Icons.close),
                                   ),
@@ -166,7 +167,7 @@ class DesktopImportLayout extends StatelessWidget {
                                 children: [
                                   TextButton(
                                     onPressed: onClose,
-                                    child: const Text('取消'),
+                                    child: Text(l10nNow.cancel),
                                   ),
                                   if (confirm != null) ...[
                                     const SizedBox(width: 12),
@@ -223,7 +224,7 @@ class DesktopImportLayout extends StatelessWidget {
           key: const ValueKey('desktop-import-metadata'),
           onPressed: onMetadata,
           icon: const Icon(Icons.data_object, size: 16),
-          label: const Text('完整元数据'),
+          label: Text(l10nNow.fullMetadata),
         ),
     ],
   );

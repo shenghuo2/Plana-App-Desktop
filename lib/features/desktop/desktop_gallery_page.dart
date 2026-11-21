@@ -1,3 +1,4 @@
+import '../../l10n/l10n.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -33,7 +34,7 @@ Future<void> showDesktopLibraryPicker(
   WidgetRef ref,
 ) async {
   if (ref.read(inpaintSessionProvider) != null) {
-    hintSnack(context, '结束重绘后可切换图库');
+    hintSnack(context, l10nNow.desktopFinishInpaintingToSwitchGalleries);
     return;
   }
   await showDialog<void>(
@@ -74,7 +75,7 @@ class DesktopLibraryButton extends ConsumerWidget {
               size: 16,
             ),
             label: Text(
-              '切换图库',
+              l10nNow.desktopSwitchGallery,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: context.texts.labelMedium!.copyWith(
@@ -159,9 +160,9 @@ class _DesktopLibraryPickerState extends ConsumerState<_DesktopLibraryPicker> {
             children: [
               Row(
                 children: [
-                  const Expanded(
+                  Expanded(
                     child: Text(
-                      '选择图库',
+                      l10nNow.desktopChooseGallery,
                       style: TextStyle(
                         fontSize: 20,
                         fontWeight: FontWeight.w700,
@@ -177,19 +178,19 @@ class _DesktopLibraryPickerState extends ConsumerState<_DesktopLibraryPicker> {
                       }
                     },
                     icon: const Icon(Icons.add, size: 17),
-                    label: const Text('新建图库'),
+                    label: Text(l10nNow.desktopNewGallery),
                   ),
                   IconButton(
-                    tooltip: '关闭',
+                    tooltip: l10nNow.close,
                     onPressed: () => Navigator.pop(context),
                     icon: const Icon(Icons.close),
                   ),
                 ],
               ),
               const SizedBox(height: 8),
-              const Align(
+              Align(
                 alignment: Alignment.centerLeft,
-                child: Text('当前图库同时用于浏览和保存新图。', style: TextStyle(fontSize: 12)),
+                child: Text(l10nNow.desktopNewImagesAreSavedToTheGalleryYou, style: TextStyle(fontSize: 12)),
               ),
               const SizedBox(height: 18),
               Expanded(

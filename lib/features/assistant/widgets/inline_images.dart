@@ -13,6 +13,7 @@
 /// 图**始终在图库里**,库里删掉的直接不画,不留一格破图 —— 最新那张删了就往前找一张。
 library;
 
+import '../../../l10n/l10n.dart';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
@@ -30,6 +31,7 @@ import '../../generate/gen_jobs.dart' show GenJob;
 import '../../generate/generation_controller.dart' show generationProvider;
 import '../../generate/widgets/common.dart' show StripeThumb;
 import '../../shell/shell_state.dart';
+import '../../import/desktop_image_drop.dart';
 import '../assistant_models.dart';
 import '../assistant_state.dart';
 
@@ -61,6 +63,31 @@ class InlineImages extends ConsumerWidget {
         latest = all.where((r) => r.id == id).firstOrNull;
         if (latest != null) break;
       }
+    }
+    if (msg.imageGen != null) {
+      final all = ref.watch(galleryProvider).results;
+      final batch = msg.imageIds.reversed.take(msg.imageBatch).toSet();
+      final results = {
+        for (final r in all)
+          if (batch.contains(r.id)) r.id: r,
+      };
+      return LayoutBuilder(
+        builder: (context, box) => Column(
+          children: [
+            for (final id in msg.imageIds.where(batch.contains))
+              if (results[id] case final result?)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: _Done(
+                    key: ValueKey(id),
+                    msgId: msg.id,
+                    result: result,
+                    maxW: box.maxWidth,
+                  ),
+                ),
+          ],
+        ),
+      );
     }
     final running = job;
 
@@ -162,31 +189,35 @@ class _DoneState extends ConsumerState<_Done> {
     final size = _box(result.width, result.height, widget.maxW);
     final bytes = _bytesOf(ref, result);
     final desktop = ref.watch(desktopModeProvider);
-    return GestureDetector(
-      key: ValueKey('assistant-inline-image-${result.id}'),
-      // 桌面端:点开就是这张图本身(桌面看图浮层,放大 / 复制 / 保存 / 超分
-      // 都在里面)。**不再切去图库** —— 切过去的只是图库页,连图都不给你选中,
-      // 想在对话里核对一眼还得自己找回去。
-      //
-      // 移动端照旧:那边看图、存盘、超分全在图库,浮层是桌面才有的东西。
-      onTap: _openImage,
-      // 右键:不打开也能直接复制走。桌面端专有 —— 触屏没有右键这一下。
-      onSecondaryTapUp: desktop
-          ? (details) => _menu(context, ref, details.globalPosition)
-          : null,
-      child: _frame(context, size, [
-        if (bytes != null)
-          _Bitmap(bytes: bytes, size: size)
-        else
-          StripeThumb(width: size.width, height: size.height, radius: 0),
-        // 跑着的时候框里换成了进度,这颗跟着一起不在 —— 同一条消息连投两单,
-        // 进度条只跟得住一单。
-        Positioned(
-          right: 10,
-          bottom: 10,
-          child: _AgainButton(msgId: widget.msgId),
-        ),
-      ]),
+    return GalleryImageDrag(
+      result: result,
+      enabled: desktop,
+      child: GestureDetector(
+        key: ValueKey('assistant-inline-image-${result.id}'),
+        // 桌面端:点开就是这张图本身(桌面看图浮层,放大 / 复制 / 保存 / 超分
+        // 都在里面)。**不再切去图库** —— 切过去的只是图库页,连图都不给你选中,
+        // 想在对话里核对一眼还得自己找回去。
+        //
+        // 移动端照旧:那边看图、存盘、超分全在图库,浮层是桌面才有的东西。
+        onTap: _openImage,
+        // 右键:不打开也能直接复制走。桌面端专有 —— 触屏没有右键这一下。
+        onSecondaryTapUp: desktop
+            ? (details) => _menu(context, ref, details.globalPosition)
+            : null,
+        child: _frame(context, size, [
+          if (bytes != null)
+            _Bitmap(bytes: bytes, size: size)
+          else
+            StripeThumb(width: size.width, height: size.height, radius: 0),
+          // 跑着的时候框里换成了进度,这颗跟着一起不在 —— 同一条消息连投两单,
+          // 进度条只跟得住一单。
+          Positioned(
+            right: 10,
+            bottom: 10,
+            child: _AgainButton(msgId: widget.msgId),
+          ),
+        ]),
+      ),
     );
   }
 
@@ -354,7 +385,7 @@ class _AgainButton extends ConsumerWidget {
         // 这颗要吃掉自己的点击，避免同时触发图片查看。
         onTap: () => ref.read(assistantProvider.notifier).generateFrom(msgId),
         child: Tooltip(
-          message: '重新生成',
+          message: l10nNow.regenerate,
           child: Padding(
             padding: const EdgeInsets.all(12),
             child: Icon(Icons.refresh, size: 24, color: scheme.primary),

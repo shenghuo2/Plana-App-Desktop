@@ -1,3 +1,4 @@
+import '../../../l10n/l10n.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -27,7 +28,7 @@ class HiresCard extends ConsumerWidget {
 
     return SectionCard(
       icon: Icons.bolt_outlined,
-      title: '重绘放大',
+      title: l10nNow.redrawUpscale,
       reorderIndex: reorderIndex,
       // 开着才报目标尺寸:收起状态下这一行就是「这次会出多大」的答案
       inline: [
@@ -51,7 +52,7 @@ class HiresCard extends ConsumerWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           LiveParamSlider(
-            label: '放大倍率 Scale',
+            label: l10nNow.desktopUpscaleFactor,
             help: Help.hiresScale,
             value: h.scale,
             min: 1.1,
@@ -62,12 +63,12 @@ class HiresCard extends ConsumerWidget {
           ),
           const SizedBox(height: 10),
           _Field(
-            label: '放大方式',
+            label: l10nNow.desktopUpscalingMethod,
             help: Help.hiresUpscaler,
             child: SegmentedButton<bool>(
-              segments: const [
-                ButtonSegment(value: true, label: Text('先超分后重绘')),
-                ButtonSegment(value: false, label: Text('直接重绘')),
+              segments: [
+                ButtonSegment(value: true, label: Text(l10nNow.desktopUpscaleThenInpaint)),
+                ButtonSegment(value: false, label: Text(l10nNow.desktopInpaintDirectly)),
               ],
               selected: {h.useModel},
               onSelectionChanged: (s) =>
@@ -82,7 +83,7 @@ class HiresCard extends ConsumerWidget {
             child: Padding(
               padding: const EdgeInsets.only(top: 10),
               child: _Field(
-                label: '超分模型',
+                label: l10nNow.desktopUpscaleModel,
                 help: Help.hiresModel,
                 child: SegmentedButton<HiresUpscaler>(
                   segments: [
@@ -100,7 +101,7 @@ class HiresCard extends ConsumerWidget {
           ),
           const SizedBox(height: 10),
           LiveParamSlider(
-            label: '重绘强度 Denoise',
+            label: l10nNow.desktopDenoisingStrength,
             help: Help.hiresDenoise,
             value: h.denoise,
             min: 0.2,
@@ -110,7 +111,7 @@ class HiresCard extends ConsumerWidget {
           ),
           const SizedBox(height: 6),
           LiveParamSlider(
-            label: '二段步数 Hires Steps',
+            label: l10nNow.desktopHiresSteps,
             snapInputToDivisions: true,
             help: Help.hiresSteps,
             value: h.steps.toDouble(),

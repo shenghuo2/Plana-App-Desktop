@@ -186,6 +186,21 @@ void main() {
       final toolArea = tester.getRect(key('canvas-primary-tools'));
       expect(toolArea.center.dx, closeTo(180, .01));
       expect(key('canvas-use-base'), findsOneWidget);
+      expect(key('canvas-director-tools'), findsOneWidget);
+      expect(
+        find.descendant(
+          of: key('canvas-top-actions'),
+          matching: key('canvas-copy-image'),
+        ),
+        findsNothing,
+      );
+      expect(
+        find.descendant(
+          of: key('canvas-bottom-actions'),
+          matching: key('canvas-copy-image'),
+        ),
+        findsOneWidget,
+      );
       expect(key('canvas-use-base').hitTestable(), findsOneWidget);
       expect(
         tester.getRect(key('canvas-top-actions')).bottom,
@@ -345,7 +360,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(clipboardWrites, [result.bytes]);
-    expect(find.text('图片已复制到剪贴板'), findsOneWidget);
+    expect(find.text('图片已按图库默认保存设置复制'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -356,7 +371,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(clipboardWrites, [result.bytes]);
-    expect(find.text('图片已复制到剪贴板'), findsNothing);
+    expect(find.text('图片已按图库默认保存设置复制'), findsNothing);
     expect(find.textContaining('复制失败'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });

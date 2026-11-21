@@ -4,6 +4,17 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:plana_app/core/theme/theme_settings.dart';
 
 void main() {
+  test('法典预览默认开启，关闭后随外观设置持久化', () {
+    expect(ThemeSettings.fromJson({}).codexHoverPreview, isTrue);
+    final off = const ThemeSettings().copyWith(codexHoverPreview: false);
+    expect(off, isNot(const ThemeSettings()));
+    expect(
+      ThemeSettings.fromJson(
+        off.copyWith(textScale: 1.2).toJson(),
+      ).codexHoverPreview,
+      isFalse,
+    );
+  });
   test('外观设置 json 回环', () {
     const s = ThemeSettings(
       mode: ThemeMode.dark,

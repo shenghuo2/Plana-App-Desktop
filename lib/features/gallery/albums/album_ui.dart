@@ -20,6 +20,7 @@ import '../widgets/result_thumb.dart';
 import 'album_models.dart';
 import 'album_cover_dialog.dart';
 import 'album_state.dart';
+import '../../../l10n/l10n.dart';
 
 void albumError(BuildContext context, Object error) => hintSnack(
   context,
@@ -82,7 +83,7 @@ class GalleryContextBar extends ConsumerWidget {
           children: [
             Flexible(
               child: _GalleryContextPill(
-                label: '浏览',
+                label: l10nNow.desktopBrowse,
                 albumName: albums.name(scope),
                 semanticLabel: '浏览图库：${albums.name(scope)}',
                 icon: Icons.photo_library_outlined,
@@ -92,7 +93,7 @@ class GalleryContextBar extends ConsumerWidget {
             const SizedBox(width: 8),
             Flexible(
               child: _GalleryContextPill(
-                label: '新图',
+                label: l10nNow.desktopNewImages,
                 albumName: albums.name(target.albumId),
                 semanticLabel: '新图保存到：${albums.name(target.albumId)}',
                 icon: Icons.drive_file_move_outline,
@@ -224,17 +225,17 @@ class _AlbumNameDialogState extends ConsumerState<_AlbumNameDialog> {
       autofocus: true,
       maxLength: 40,
       enabled: !_busy,
-      decoration: InputDecoration(labelText: '图库名称', errorText: _error),
+      decoration: InputDecoration(labelText: l10nNow.desktopGalleryName, errorText: _error),
       onSubmitted: (_) => _save(),
     ),
     actions: [
       TextButton(
         onPressed: _busy ? null : () => Navigator.pop(context),
-        child: const Text('取消'),
+        child: Text(context.l10n.cancel),
       ),
       FilledButton(
         onPressed: _busy ? null : _save,
-        child: Text(_busy ? '保存中…' : '保存'),
+        child: Text(_busy ? context.l10n.savingEllipsis : context.l10n.save),
       ),
     ],
   );
@@ -250,6 +251,23 @@ class AlbumCoverImage extends ConsumerWidget {
   final BoxFit fallbackFit;
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    if (isFixedGallery(albumId)) {
+      return Container(
+        decoration: BoxDecoration(
+          color: context.scheme.surfaceContainerHigh,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Center(
+          child: Icon(
+            albumId == favoritesId
+                ? Icons.favorite_border
+                : Icons.delete_outline,
+            size: 48,
+            color: context.scheme.primary,
+          ),
+        ),
+      );
+    }
     final summary = ref.watch(
       albumSummariesProvider.select((summaries) => summaries[albumId]),
     );
@@ -333,15 +351,15 @@ class _AlbumLibraryState extends ConsumerState<_AlbumLibrary> {
       context: context,
       builder: (context) => AlertDialog(
         title: Text('删除「${data.name(id)}」？'),
-        content: const Text('只删除这个图库，图片仍保存在全部作品和其他所属图库中。'),
+        content: Text(l10nNow.desktopImagesRemainInAllImagesAndAnyOther),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: const Text('取消'),
+            child: Text(l10nNow.cancel),
           ),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('删除图库'),
+            child: Text(l10nNow.desktopDeleteGallery),
           ),
         ],
       ),
@@ -375,21 +393,21 @@ class _AlbumLibraryState extends ConsumerState<_AlbumLibrary> {
           mainAxisSize: MainAxisSize.min,
           children: [
             ListTile(
-              title: const Text('从本图库选择'),
-              subtitle: hasImages ? null : const Text('图库还没有图片'),
+              title: Text(l10nNow.desktopChooseFromThisGalleryLabel),
+              subtitle: hasImages ? null : Text(l10nNow.galleryNoImages),
               enabled: hasImages,
               onTap: () => Navigator.pop(context, 'current'),
             ),
             ListTile(
-              title: const Text('从全部作品选择'),
+              title: Text(l10nNow.desktopChooseFromAllImages),
               onTap: () => Navigator.pop(context, 'all'),
             ),
             ListTile(
-              title: const Text('从手机相册选择'),
+              title: Text(l10nNow.desktopChooseFromDevicePhotos),
               onTap: () => Navigator.pop(context, 'device'),
             ),
             ListTile(
-              title: const Text('恢复自动封面'),
+              title: Text(l10nNow.desktopRestoreAutomaticCover),
               onTap: () => Navigator.pop(context, 'auto'),
             ),
           ],
@@ -448,7 +466,7 @@ class _AlbumLibraryState extends ConsumerState<_AlbumLibrary> {
     if (!ref.watch(desktopModeProvider)) return child;
     return ImageDropRegion(
       key: ValueKey('album-library-cover-drop-${id ?? 'all'}'),
-      label: '设为图库封面',
+      label: l10nNow.desktopSetAsGalleryCover,
       enabled: !ref.read(appStoresProvider).albums.readOnly,
       onDrop: (images, payload) => showAlbumCoverDialog(
         context,
@@ -503,7 +521,7 @@ class _AlbumLibraryState extends ConsumerState<_AlbumLibrary> {
                 TextButton.icon(
                   onPressed: store.readOnly ? null : _create,
                   icon: const Icon(Icons.add),
-                  label: const Text('新建'),
+                  label: Text(l10nNow.newLabel),
                 ),
               ],
             ),
@@ -545,7 +563,7 @@ class _AlbumLibraryState extends ConsumerState<_AlbumLibrary> {
                                       }
                                     }
                                   },
-                                  child: const Text('从全部作品添加'),
+                                  child: Text(l10nNow.desktopAddFromAllImages),
                                 ),
                             ],
                           ),
@@ -627,18 +645,18 @@ class _AlbumLibraryState extends ConsumerState<_AlbumLibrary> {
                                     enabled: !store.readOnly,
                                     onSelected: (a) => _menu(id, a),
                                     itemBuilder: (_) => [
-                                      const PopupMenuItem(
+                                      PopupMenuItem(
                                         value: 'cover',
-                                        child: Text('更换封面'),
+                                        child: Text(l10nNow.desktopChangeCover),
                                       ),
                                       if (id != null) ...[
-                                        const PopupMenuItem(
+                                        PopupMenuItem(
                                           value: 'name',
-                                          child: Text('重命名'),
+                                          child: Text(l10nNow.rename),
                                         ),
-                                        const PopupMenuItem(
+                                        PopupMenuItem(
                                           value: 'delete',
-                                          child: Text('删除图库'),
+                                          child: Text(l10nNow.desktopDeleteGallery),
                                         ),
                                       ],
                                     ],
@@ -672,12 +690,12 @@ class _AlbumLibraryState extends ConsumerState<_AlbumLibrary> {
                         contentPadding: EdgeInsets.zero,
                         dense: true,
                         controlAffinity: ListTileControlAffinity.leading,
-                        title: const Text('新图也保存到这里'),
+                        title: Text(l10nNow.desktopAlsoSaveNewImagesHere),
                         value: _alsoSave,
                         onChanged: (v) =>
                             setState(() => _alsoSave = v ?? false),
                       ),
-                    if (editing && !widget.saveOnly) const Text('结束编辑后可切换图库'),
+                    if (editing && !widget.saveOnly) Text(l10nNow.desktopFinishEditingToSwitchGalleries),
                     SizedBox(
                       width: double.infinity,
                       height: 48,
@@ -745,8 +763,8 @@ class _AlbumPhotoPickerState extends ConsumerState<_AlbumPhotoPicker> {
               children: [
                 Expanded(
                   child: TextField(
-                    decoration: const InputDecoration(
-                      hintText: '搜索提示词',
+                    decoration: InputDecoration(
+                      hintText: l10nNow.desktopSearchPrompts,
                       prefixIcon: Icon(Icons.search),
                     ),
                     onChanged: (v) => setState(() => _query = v),
@@ -766,7 +784,7 @@ class _AlbumPhotoPickerState extends ConsumerState<_AlbumPhotoPicker> {
           const SizedBox(height: 12),
           Expanded(
             child: photos.isEmpty
-                ? const Center(child: Text('没有符合条件的照片'))
+                ? Center(child: Text(l10nNow.desktopNoPhotosMatchTheseFilters))
                 : GridView.builder(
                     padding: const EdgeInsets.all(12),
                     itemCount: photos.length,
@@ -809,12 +827,12 @@ class _AlbumPhotoPreview extends ConsumerWidget {
         : null;
     final bytes = photo.bytes ?? loaded?.value;
     return Scaffold(
-      appBar: AppBar(title: const Text('图片预览')),
+      appBar: AppBar(title: Text(l10nNow.desktopImagePreview)),
       body: Center(
         child: bytes == null
             ? loaded?.isLoading == true
                   ? const CircularProgressIndicator()
-                  : const Text('这张图片暂时无法读取')
+                  : Text(l10nNow.desktopThisImageIsTemporarilyUnavailable)
             : InteractiveViewer(maxScale: 8, child: Image.memory(bytes)),
       ),
     );
@@ -833,7 +851,7 @@ class _CoverCropState extends State<_CoverCrop> {
   bool _busy = false;
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('调整封面')),
+    appBar: AppBar(title: Text(l10nNow.desktopAdjustCover)),
     body: SafeArea(
       child: ListView(
         padding: const EdgeInsets.all(20),
@@ -850,14 +868,14 @@ class _CoverCropState extends State<_CoverCrop> {
             ),
           ),
           const SizedBox(height: 16),
-          const Text('水平位置'),
+          Text(l10nNow.desktopHorizontalPosition),
           Slider(
             value: _x,
             min: -1,
             max: 1,
             onChanged: _busy ? null : (v) => setState(() => _x = v),
           ),
-          const Text('垂直位置'),
+          Text(l10nNow.desktopVerticalPosition),
           Slider(
             value: _y,
             min: -1,

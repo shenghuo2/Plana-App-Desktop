@@ -1,3 +1,4 @@
+import '../../l10n/l10n.dart';
 import '../../core/ui/settings_scaffold.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -101,7 +102,7 @@ class _WebBackupPageState extends ConsumerState<WebBackupPage> {
     final scheme = context.scheme;
     final b = _backup;
     return SettingsScaffold(
-      appBar: AppBar(title: const Text('导入 web 备份')),
+      appBar: AppBar(title: Text(l10nNow.desktopImportWebBackup)),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 28),
         children: [
@@ -177,7 +178,7 @@ class _WebBackupPageState extends ConsumerState<WebBackupPage> {
               Padding(
                 padding: const EdgeInsets.only(top: 8),
                 child: Text(
-                  '这份备份里没有 app 能接收的数据。',
+                  l10nNow.desktopThisBackupContainsNoDataTheAppCan,
                   style: context.texts.bodySmall!.copyWith(
                     color: scheme.outline,
                   ),
@@ -186,7 +187,7 @@ class _WebBackupPageState extends ConsumerState<WebBackupPage> {
           ],
           if (_result case final List<(String, String)> rows) ...[
             const SizedBox(height: 18),
-            _Card(title: '导入结果', rows: rows),
+            _Card(title: l10nNow.importResult, rows: rows),
           ],
         ],
       ),

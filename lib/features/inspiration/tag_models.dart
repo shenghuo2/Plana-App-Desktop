@@ -1,3 +1,4 @@
+import '../../l10n/l10n.dart';
 import 'dart:math';
 
 import 'package:flutter/material.dart' show IconData, Icons;
@@ -6,9 +7,83 @@ import '../../core/util/prompt_tokens.dart';
 import '../editor/editor_models.dart';
 
 /// 灵感页(Tag 管理器)数据模型,对齐 web tag-manager 的注册表与条目结构。
-/// 分类 id 沿用 web(character/artist-style/scene/other),云备份四类键
-/// 与 web 完全互通;自定义分类 web 端未开放,app 不实现。
-enum TagCategory { character, artist, scene, other }
+/// 内置四类的 id 沿用 web(character/artist-style/scene/other),云备份四类键
+/// 与 web 完全互通;用户自建的类别 id 以 `c_` 开头,云备份里单走 `custom`。
+final class TagCategory {
+  const TagCategory._(this.name);
+
+  /// 内置四类是原来的枚举名;自定义类别就是它的 id(`c_…`,同 webId)。
+  final String name;
+
+  static const character = TagCategory._('character');
+  static const artist = TagCategory._('artist');
+  static const scene = TagCategory._('scene');
+  static const other = TagCategory._('other');
+
+  static const builtins = [character, artist, scene, other];
+
+  static const customPrefix = 'c_';
+
+  /// 自定义类别。
+  factory TagCategory.custom(String id) => TagCategory._(id);
+
+  bool get isCustom => name.startsWith(customPrefix);
+
+  @override
+  bool operator ==(Object other) => other is TagCategory && other.name == name;
+
+  @override
+  int get hashCode => name.hashCode;
+
+  @override
+  String toString() => 'TagCategory($name)';
+}
+
+/// 预览图形状(自定义类别可选;内置四类各自固定)。
+enum TagCardLayout { portrait, landscape, square, none }
+
+extension TagCardLayoutX on TagCardLayout {
+  String get label => switch (this) {
+    TagCardLayout.portrait => l10nNow.layoutPortrait,
+    TagCardLayout.landscape => l10nNow.layoutLandscape,
+    TagCardLayout.square => l10nNow.layoutSquare,
+    TagCardLayout.none => l10nNow.layoutNoImage,
+  };
+
+  double get aspect => switch (this) {
+    TagCardLayout.portrait => 832 / 1216,
+    TagCardLayout.landscape => 1216 / 832,
+    _ => 1,
+  };
+}
+
+/// 自定义类别可选的图标。键名同 web 注册表的 lucide 图标名(`Shirt` 是 app 加的)。
+const kTagCategoryIcons = <String, IconData>{
+  'Shirt': Icons.checkroom_outlined,
+  'Sparkles': Icons.auto_awesome_outlined,
+  'Sun': Icons.wb_sunny_outlined,
+  'Moon': Icons.dark_mode_outlined,
+  'Heart': Icons.favorite_border,
+  'Star': Icons.star_outline,
+  'Camera': Icons.photo_camera_outlined,
+  'Flame': Icons.local_fire_department_outlined,
+  'Leaf': Icons.eco_outlined,
+  'Flower': Icons.local_florist_outlined,
+  'Crown': Icons.workspace_premium_outlined,
+  'Gem': Icons.diamond_outlined,
+  'Hand': Icons.back_hand_outlined,
+  'Eye': Icons.visibility_outlined,
+  'Smile': Icons.sentiment_satisfied_outlined,
+  'PersonStanding': Icons.accessibility_new,
+  'Music': Icons.music_note_outlined,
+  'Brush': Icons.brush_outlined,
+  'Wand': Icons.auto_fix_high_outlined,
+  'Zap': Icons.bolt_outlined,
+  'Cloud': Icons.cloud_outlined,
+  'Snowflake': Icons.ac_unit,
+  'Droplet': Icons.water_drop_outlined,
+  'Tag': Icons.sell_outlined,
+};
 
 class TagCategoryDef {
   const TagCategoryDef(
@@ -19,19 +94,41 @@ class TagCategoryDef {
     required this.searchHint,
     required this.maxSelectable,
     required this.previewAspect,
+    this.hasPreview = true,
     this.hasPublic = false,
     this.alphabetRail = false,
+    this.iconName,
+    this.layout,
   });
+
+  /// 自定义类别。
+  factory TagCategoryDef.custom({
+    required String id,
+    required String label,
+    required String iconName,
+    required TagCardLayout layout,
+  }) => TagCategoryDef(
+    TagCategory.custom(id),
+    id,
+    label,
+    kTagCategoryIcons[iconName] ?? Icons.sell_outlined,
+    searchHint: l10nNow.searchNamePromptHint,
+    maxSelectable: 20,
+    previewAspect: layout.aspect,
+    hasPreview: layout != TagCardLayout.none,
+    iconName: iconName,
+    layout: layout,
+  );
 
   final TagCategory key;
 
-  /// web 端 subtypeId,同时是云备份 categories 的键。
+  /// web 端 subtypeId,同时是云备份 categories 的键(自定义类别 = 它的 id)。
   final String webId;
   final String label;
   final IconData icon;
   final String searchHint;
 
-  /// 单次可选上限(角色 6 = 角色卡槽位;画风 99;场景/其他 20,对齐 web)。
+  /// 单次可选上限(角色 6 = 角色卡槽位;画风 99;场景/其他/自定义 20,对齐 web)。
   /// 角色分类在灵感页会被按模型覆盖(NAI 5 槽位 20,见 maxCharactersOf),
   /// 这里的 6 只是 const 表放不下模型参数的兜底。
   final int maxSelectable;
@@ -43,8 +140,61 @@ class TagCategoryDef {
   /// 卡片按此比例排版,BoxFit.cover 下预览图恰好完整铺满不裁切。
   final double previewAspect;
 
+  /// 条目有没有预览图(其他、无图的自定义类别没有)。
+  final bool hasPreview;
+
   /// 右缘字母导航(仅画风,条目名以 A1..Z99 编号为主)。
   final bool alphabetRail;
+
+  /// 自定义类别才有:图标键名、预览图形状。
+  final String? iconName;
+  final TagCardLayout? layout;
+
+  /// 换个名字(内置类别改名用),其余不变。
+  TagCategoryDef withLabel(String label, {String? searchHint}) =>
+      TagCategoryDef(
+        key,
+        webId,
+        label,
+        icon,
+        searchHint: searchHint ?? this.searchHint,
+        maxSelectable: maxSelectable,
+        previewAspect: previewAspect,
+        hasPreview: hasPreview,
+        hasPublic: hasPublic,
+        alphabetRail: alphabetRail,
+        iconName: iconName,
+        layout: layout,
+      );
+
+  Map<String, dynamic> toJson() => {
+    'id': webId,
+    'label': label,
+    'iconName': iconName,
+    'cardLayout': layout?.name,
+  };
+
+  /// 自定义类别定义;不合规返回 null。
+  static TagCategoryDef? fromJson(Object? j) {
+    if (j is! Map) return null;
+    final id = j['id'];
+    final label = j['label'];
+    if (id is! String ||
+        !id.startsWith(TagCategory.customPrefix) ||
+        id.length <= TagCategory.customPrefix.length ||
+        label is! String ||
+        label.trim().isEmpty) {
+      return null;
+    }
+    return TagCategoryDef.custom(
+      id: id,
+      label: label,
+      iconName: j['iconName'] is String ? j['iconName'] as String : 'Tag',
+      layout:
+          TagCardLayout.values.asNameMap()[j['cardLayout']] ??
+          TagCardLayout.square,
+    );
+  }
 }
 
 const kTagCategoryDefs = <TagCategoryDef>[
@@ -86,11 +236,62 @@ const kTagCategoryDefs = <TagCategoryDef>[
     searchHint: '搜索名称 / 提示词…',
     maxSelectable: 20,
     previewAspect: 1,
+    hasPreview: false,
   ),
 ];
 
-TagCategoryDef tagCategoryDef(TagCategory c) =>
-    kTagCategoryDefs.firstWhere((d) => d.key == c);
+/// 当前的自定义类别(由 [TagLibrary] 在载入 / 改动时同步)。放在这里而不是
+/// 只放 provider 里,是为了让 [tagCategoryDef] 这类同步查表在哪都能用。
+var _customDefs = <String, TagCategoryDef>{};
+
+/// 内置类别(含法典,键 `codex`)改过的名字。
+var _labels = <String, String>{};
+
+void syncCustomTagCategories(
+  Iterable<TagCategoryDef> defs, {
+  Map<String, String> labels = const {},
+}) {
+  _customDefs = {for (final d in defs) d.webId: d};
+  _labels = labels;
+}
+
+/// 法典页签的名字(可改名)。
+String codexTabLabel() => _labels['codex'] ?? builtinCategoryLabel('codex');
+
+/// 内置类别(含法典)没改过名时的名字,按界面语言取。
+String builtinCategoryLabel(String webId) => switch (webId) {
+  'character' => l10nNow.catCharacter,
+  'artist-style' => l10nNow.catStyle,
+  'scene' => l10nNow.catScene,
+  'other' => l10nNow.catOther,
+  'codex' => l10nNow.sectionCodex,
+  _ => webId,
+};
+
+String _builtinSearchHint(String webId) => switch (webId) {
+  'character' => l10nNow.searchCharHint,
+  'artist-style' => l10nNow.searchStyleHint,
+  'scene' => l10nNow.searchSceneHint,
+  _ => l10nNow.searchNamePromptHint,
+};
+
+TagCategoryDef tagCategoryDef(TagCategory c) {
+  for (final d in kTagCategoryDefs) {
+    if (d.key == c) {
+      return d.withLabel(
+        _labels[d.webId] ?? builtinCategoryLabel(d.webId),
+        searchHint: _builtinSearchHint(d.webId),
+      );
+    }
+  }
+  return _customDefs[c.name] ??
+      TagCategoryDef.custom(
+        id: c.name,
+        label: l10nNow.untitled,
+        iconName: 'Tag',
+        layout: TagCardLayout.square,
+      );
+}
 
 /// 灵感页网格的排序档。
 ///   [number] 按名字自然序(A1<A2<A10)—— 只有画风有,它的名字本来就是编号;
@@ -100,9 +301,9 @@ enum TagSort { number, time, author }
 
 extension TagSortX on TagSort {
   String get label => switch (this) {
-    TagSort.number => '编号',
-    TagSort.time => '最新',
-    TagSort.author => '作者',
+    TagSort.number => l10nNow.sortNumber,
+    TagSort.time => l10nNow.sortLatest,
+    TagSort.author => l10nNow.sortAuthor,
   };
 }
 
@@ -115,9 +316,13 @@ List<TagSort> tagSortOptions(TagCategory c) => c == TagCategory.artist
     ? const [TagSort.number, TagSort.time, TagSort.author]
     : const [TagSort.time, TagSort.author];
 
+/// 按 webId 认分类:内置四类按表,`c_` 开头的是自定义类别。
 TagCategory? tagCategoryByWebId(String webId) {
   for (final d in kTagCategoryDefs) {
     if (d.webId == webId) return d.key;
+  }
+  if (webId.startsWith(TagCategory.customPrefix)) {
+    return TagCategory.custom(webId);
   }
   return null;
 }
@@ -129,8 +334,8 @@ enum TagOrigin { local, favorited, created }
 
 /// 统一条目模型(web TagFile / ArtistData / OCData / CustomTagData 的归一)。
 /// [extra] 透传 web 备份里 app 不认识的字段(恢复时收下、上传时原样带回),
-/// 避免 app 恢复→再上传的整体覆盖冲掉 web 端数据;体积大的 base64 预览
-/// 除外(解码时即丢弃,上传确认时向用户说明)。
+/// 避免 app 恢复→再上传的整体覆盖冲掉 web 端数据;base64 预览不进 extra
+/// (恢复时由 [TagLibrary.mergeBackup] 落成本机文件)。
 class TagEntry {
   const TagEntry({
     required this.id,
@@ -369,6 +574,7 @@ Map<String, dynamic> buildBackupFile(
   'identifier': kBackupFileIdentifier,
   'version': kBackupFileVersion,
   'category': tagCategoryDef(cat).webId,
+  if (cat.isCustom) 'categoryDefinition': tagCategoryDef(cat).toJson(),
   'exportedAt': exportedAt,
   'count': items.length,
   'items': items,
@@ -379,12 +585,12 @@ Map<String, dynamic> buildBackupFile(
   Map<String, dynamic> j,
 ) {
   if (j['identifier'] != kBackupFileIdentifier) {
-    throw const FormatException('不是 Tag 管理器的备份文件');
+    throw FormatException(l10nNow.notTagBackup);
   }
   final cat = j['category'] is String
       ? tagCategoryByWebId(j['category'] as String)
       : null;
-  if (cat == null) throw const FormatException('备份文件的分类无法识别');
+  if (cat == null) throw FormatException(l10nNow.backupCatUnknown);
   return (
     cat: cat,
     items: [
@@ -394,10 +600,28 @@ Map<String, dynamic> buildBackupFile(
   );
 }
 
-/// 备份/发布只带可跨端使用的 http(s) 预览,本机文件路径不外发。
-List<String> portablePreviews(List<String> previews) => [
+/// 云备份里的预览图引用 `/api/user-tag-previews/<sha256>`:相对后端地址,web 同域可直接当图片地址。
+const kPreviewRefPrefix = '/api/user-tag-previews/';
+final _previewRefRe = RegExp(r'/api/user-tag-previews/([0-9a-f]{64})');
+
+/// 预览串里的云端预览哈希(相对引用、补全了后端地址的都认);不是返回 null。
+String? previewRefSha(String p) => _previewRefRe.firstMatch(p)?.group(1);
+
+String previewRef(String sha) => '$kPreviewRefPrefix$sha';
+
+/// 备份带的预览:云端预览一律写成相对引用,其余 http(s) 原样;本机文件按 [refs]
+/// (本机路径 → 引用)换成已上传的,没上传的本机路径不外发。
+List<String> portablePreviews(
+  List<String> previews, [
+  Map<String, String> refs = const {},
+]) => [
   for (final p in previews)
-    if (p.startsWith('http')) p,
+    if (previewRefSha(p) case final String sha)
+      previewRef(sha)
+    else if (p.startsWith('http'))
+      p
+    else if (refs[p] case final String r)
+      r,
 ];
 
 List<String> _strList(Object? v) => v is List
@@ -428,9 +652,14 @@ String appendTagPositivesFolded(String draft, Iterable<TagEntry> entries) {
 }
 
 /// 追加负面:逗号拆词、与现有去重后逐词追加(对齐 web appendArtistNegatives)。
-String appendTagNegatives(String negative, Iterable<TagEntry> entries) {
+/// 给了 [present] 就按它判重,不给按 [negative] 自己。
+String appendTagNegatives(
+  String negative,
+  Iterable<TagEntry> entries, {
+  String? present,
+}) {
   var out = negative.trim();
-  final have = tokenizeSet(out);
+  final have = tokenizeSet(present ?? out);
   for (final e in entries) {
     for (final piece in e.negative.split(RegExp(r'[，,]'))) {
       final raw = piece.trim();
@@ -452,6 +681,7 @@ appendTagPromptsFolded({
   required String negativeDraft,
   required Iterable<TagEntry> entries,
   Iterable<PromptFoldLink> links = const [],
+  bool deduplicate = true,
 }) {
   var positive = positiveDraft.trim(), negative = negativeDraft.trim();
   final paired = [...validPromptFoldLinks(positive, negative, links)];
@@ -473,6 +703,7 @@ appendTagPromptsFolded({
 
   String newBody(String prompt, Set<String> have) {
     var body = stripFolds(prompt).trim();
+    if (!deduplicate) return body;
     // Reparse after deletion: the editor's deleteTok repairs shared numeric
     // and bracket weights, so offsets from the previous parse are not reused.
     while (true) {
@@ -529,6 +760,15 @@ appendTagPromptsFolded({
   return (positiveDraft: positive, negativeDraft: negative, links: paired);
 }
 
+/// A new character or section owns the complete entry, including repeated words.
+({String positiveDraft, String negativeDraft, List<PromptFoldLink> links})
+foldTagEntry(TagEntry entry) => appendTagPromptsFolded(
+  positiveDraft: '',
+  negativeDraft: '',
+  entries: [entry],
+  deduplicate: false,
+);
+
 final _foldImportRandom = Random.secure();
 
 /// 编号自然序(A1 < A2 < A10,画风列表用):文本段不分大小写比较,
@@ -573,7 +813,11 @@ String letterOfName(String name) {
 
 /// 云备份条目编码:按 web 各分类的本地存储 shape 生成(画师串用 `prompt`,
 /// 角色/场景/其他用 `positive`),extra 打底、本字段覆盖,web 恢复可直读。
-Map<String, dynamic> encodeBackupEntry(TagEntry e) {
+/// [refs] 见 [portablePreviews]。
+Map<String, dynamic> encodeBackupEntry(
+  TagEntry e, {
+  Map<String, String> refs = const {},
+}) {
   final base = Map<String, dynamic>.from(e.extra);
   base['id'] = e.id;
   base['name'] = e.name;
@@ -583,10 +827,12 @@ Map<String, dynamic> encodeBackupEntry(TagEntry e) {
   base['origin'] = e.origin.name;
   if (e.publicId != null) base['publicId'] = e.publicId;
   if (e.tags.isNotEmpty) base['tags'] = e.tags;
+  final previews = portablePreviews(e.previews, refs);
   switch (e.category) {
     case TagCategory.artist:
       base['prompt'] = e.positive;
-      base['previews'] ??= portablePreviews(e.previews);
+      base['previews'] ??= previews;
+      if (e.createdBy != null) base['addedBy'] = e.createdBy;
       // 适用模型、推荐参数以字段为准:有就写,清空了就不带这个键(通用 / 没记)
       if (e.models.isNotEmpty) {
         base['models'] = e.models;
@@ -598,18 +844,29 @@ Map<String, dynamic> encodeBackupEntry(TagEntry e) {
       } else {
         base.remove('recipe');
       }
+    // web 角色 / 场景 / 其他只认单张 `preview`;全部预览另放 `previews`
     case TagCategory.character:
       base['positive'] = e.positive;
       base['aliases'] = e.aliases;
-      base['preview'] ??= portablePreviews(e.previews).firstOrNull ?? '';
+      base['preview'] ??= previews.firstOrNull ?? '';
+      base['previews'] ??= previews;
+      if (e.createdBy != null) base['user'] = e.createdBy;
     case TagCategory.scene || TagCategory.other:
       base['positive'] = e.positive;
       base['subtypeId'] = tagCategoryDef(e.category).webId;
+      if (previews.isNotEmpty) base['preview'] ??= previews.first;
+      base['previews'] ??= previews;
+      if (e.createdBy != null) base['createdBy'] = e.createdBy;
+    default:
+      base['positive'] = e.positive;
+      base['subtypeId'] = e.category.name;
+      base['previews'] ??= previews;
+      if (e.createdBy != null) base['createdBy'] = e.createdBy;
   }
   return base;
 }
 
-/// 云备份条目解码(容错:web 三种 shape 双读;base64 预览体积过大不落地)。
+/// 云备份条目解码(容错:web 三种 shape 双读；内嵌预览由 mergeBackup 单独落盘)。
 TagEntry? decodeBackupEntry(TagCategory cat, Map<String, dynamic> j) {
   final id = j['id'];
   if (id is! String || id.isEmpty) return null;
@@ -618,7 +875,10 @@ TagEntry? decodeBackupEntry(TagCategory cat, Map<String, dynamic> j) {
 
   final previews = <String>[];
   void addPreview(Object? v) {
-    if (v is String && v.isNotEmpty && !v.startsWith('data:')) {
+    if (v is String &&
+        v.isNotEmpty &&
+        !v.startsWith('data:') &&
+        !previews.contains(v)) {
       previews.add(v);
     }
   }
@@ -652,6 +912,9 @@ TagEntry? decodeBackupEntry(TagCategory cat, Map<String, dynamic> j) {
         'subtypeId',
         'preview',
         'previews',
+        'user',
+        'addedBy',
+        'createdBy',
       }.contains(en.key))
         en.key: en.value,
   };
@@ -676,7 +939,7 @@ TagEntry? decodeBackupEntry(TagCategory cat, Map<String, dynamic> j) {
     },
     previews: previews,
     createdAt: (j['createdAt'] as num?)?.toInt() ?? 0,
-    createdBy: switch (j['user'] ?? j['addedBy']) {
+    createdBy: switch (j['user'] ?? j['addedBy'] ?? j['createdBy']) {
       final String s => s,
       final num n => '$n',
       _ => null,

@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:archive/archive.dart' show getCrc32;
 import 'package:image/image.dart' as img;
 
+import '../../core/util/webp_to_png.dart' show editWebpExif;
 import 'save_settings.dart';
 
 /// 系统扫描相册会从文件重新读取拍摄时间，单写 MediaStore.DATE_TAKEN
@@ -14,6 +15,9 @@ Uint8List withPhoneCaptureDate(
   SaveFormat format,
 ) {
   if (createdAt <= 0) return bytes;
+  if (format == SaveFormat.webp) {
+    return editWebpExif(bytes, (exif) => _setDate(exif, createdAt));
+  }
   if (format == SaveFormat.jpg) {
     final exif = img.decodeJpgExif(bytes) ?? img.ExifData();
     _setDate(exif, createdAt);

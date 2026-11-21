@@ -4,6 +4,8 @@
 /// 只存 blob 键 —— 与工作台存档同一条路子。
 library;
 
+import 'domain/image_gen.dart';
+
 import 'dart:convert';
 
 import '../../core/net/backend_client.dart' show AgentCharacter;
@@ -480,6 +482,9 @@ class AssistantMsg {
     this.mode = AssistantMode.normal,
     this.noDraw = false,
     this.imageIds = const [],
+    this.imageBatch = 1,
+    this.imageGen,
+    this.imageModel,
     this.resources = const {},
     this.tools = const [],
     this.draw,
@@ -518,6 +523,9 @@ class AssistantMsg {
   /// 对话里再挂一份是重复。图本身**始终**入库,这里存的只是个引用;库里删了
   /// 就查不到,界面按「没有」处理,不留破图。
   final List<String> imageIds;
+  final int imageBatch;
+  final ImageGenSpec? imageGen;
+  final String? imageModel;
 
   /// 这一轮结束时的**沿用资源账本**(画师串 / OC)。仅 [MsgRole.ai]。
   ///
@@ -574,6 +582,7 @@ class AssistantMsg {
     List<ToolTrace>? tools,
     AssistantChange? change,
     List<String>? imageIds,
+    int? imageBatch,
   }) => AssistantMsg(
     id: id,
     role: role,
@@ -584,6 +593,9 @@ class AssistantMsg {
     mode: mode,
     noDraw: noDraw,
     imageIds: imageIds ?? this.imageIds,
+    imageBatch: imageBatch ?? this.imageBatch,
+    imageGen: imageGen,
+    imageModel: imageModel,
     resources: resources,
     tools: tools ?? this.tools,
     draw: draw,
@@ -602,6 +614,9 @@ class AssistantMsg {
     if (mode != AssistantMode.normal) 'mode': mode.name,
     if (noDraw) 'noDraw': true,
     if (imageIds.isNotEmpty) 'imageIds': imageIds,
+    if (imageBatch > 1) 'imageBatch': imageBatch,
+    if (imageGen != null) 'imageGen': imageGen!.toJson(),
+    if (imageModel != null) 'imageModel': imageModel,
     if (resources.isNotEmpty) 'resources': resources,
     if (tools.isNotEmpty) 'tools': [for (final t in tools) t.toJson()],
     if (draw != null) 'draw': draw!.toJson(),
@@ -624,6 +639,9 @@ class AssistantMsg {
     mode: AssistantMode.values.asNameMap()[j['mode']] ?? AssistantMode.normal,
     // 「纯文本格式」早先是模式之一,那时存下的消息写的是 mode: noDraw
     noDraw: j['noDraw'] == true || j['mode'] == 'noDraw',
+    imageGen: ImageGenSpec.fromJson(j['imageGen']),
+    imageModel: j['imageModel'] as String?,
+    imageBatch: (j['imageBatch'] as num?)?.toInt() ?? 1,
     imageIds: [for (final e in (j['imageIds'] as List? ?? const [])) '$e'],
     resources: decodeResources(j['resources']),
     tools: [
@@ -640,23 +658,92 @@ class AssistantMsg {
   );
 }
 
+/// Current and archived conversations share stable identity and ordering metadata.
+class ConversationMeta {
+  const ConversationMeta({
+    required this.id,
+    required this.at,
+    this.customTitle = '',
+    this.pinnedAt = 0,
+  });
+
+  final int id;
+
+  /// Last accepted user turn. Reading, renaming and image completion do not bump it.
+  final int at;
+  final String customTitle;
+  final int pinnedAt;
+  bool get pinned => pinnedAt > 0;
+  int get orderAt => pinnedAt > at ? pinnedAt : at;
+
+  ConversationMeta copyWith({int? at, String? customTitle, int? pinnedAt}) =>
+      ConversationMeta(
+        id: id,
+        at: at ?? this.at,
+        customTitle: customTitle ?? this.customTitle,
+        pinnedAt: pinnedAt ?? this.pinnedAt,
+      );
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'at': at,
+    if (customTitle.isNotEmpty) 'customTitle': customTitle,
+    if (pinned) 'pinnedAt': pinnedAt,
+  };
+
+  factory ConversationMeta.fromJson(Map<String, dynamic> j) => ConversationMeta(
+    id: (j['id'] as num?)?.toInt() ?? 0,
+    at: (j['at'] as num?)?.toInt() ?? 0,
+    customTitle: (j['customTitle'] as String?) ?? '',
+    pinnedAt: (j['pinnedAt'] as num?)?.toInt() ?? 0,
+  );
+
+  ArchivedSession withMessages(List<AssistantMsg> msgs) => ArchivedSession(
+    id: id,
+    at: at,
+    msgs: msgs,
+    customTitle: customTitle,
+    pinnedAt: pinnedAt,
+  );
+}
+
+/// A single history ordering, including the currently open conversation.
+List<ArchivedSession> sortedConversations(Iterable<ArchivedSession> sessions) =>
+    sessions.toList()..sort((a, b) {
+      final pin = (b.meta.pinned ? 1 : 0).compareTo(a.meta.pinned ? 1 : 0);
+      if (pin != 0) return pin;
+      final time = b.meta.orderAt.compareTo(a.meta.orderAt);
+      return time != 0 ? time : b.id.compareTo(a.id);
+    });
+
 /// 一段归档的对话。
 class ArchivedSession {
   const ArchivedSession({
     required this.id,
     required this.msgs,
     required this.at,
+    this.customTitle = '',
+    this.pinnedAt = 0,
   });
 
-  /// = 归档时刻的 UNIX 毫秒,同时作为列表键。
+  /// Fixed when the first user turn is accepted; preserved across switching.
   final int id;
   final List<AssistantMsg> msgs;
 
-  /// 最后一条消息的时间(列表按它排)。
+  /// Last user activity (legacy records keep their saved timestamp).
   final int at;
+  final String customTitle;
+  final int pinnedAt;
+  ConversationMeta get meta => ConversationMeta(
+    id: id,
+    at: at,
+    customTitle: customTitle,
+    pinnedAt: pinnedAt,
+  );
 
   /// 标题取第一句用户输入。
   String get title {
+    if (customTitle.trim().isNotEmpty) return customTitle;
     for (final m in msgs) {
       if (m.role == MsgRole.user && m.text.trim().isNotEmpty) {
         return m.text.trim();
@@ -701,8 +788,7 @@ class ArchivedSession {
   }
 
   Map<String, dynamic> toJson() => {
-    'id': id,
-    'at': at,
+    ...meta.toJson(),
     'msgs': [for (final m in msgs) m.toJson()],
   };
 
@@ -715,6 +801,8 @@ class ArchivedSession {
       id: (j['id'] as num?)?.toInt() ?? 0,
       msgs: msgs,
       at: (j['at'] as num?)?.toInt() ?? (msgs.isEmpty ? 0 : msgs.last.at),
+      customTitle: (j['customTitle'] as String?) ?? '',
+      pinnedAt: (j['pinnedAt'] as num?)?.toInt() ?? 0,
     );
   }
 }

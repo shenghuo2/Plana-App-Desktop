@@ -1,3 +1,5 @@
+import '../../../l10n/l10n.dart';
+import 'canvas_history_sheet.dart';
 import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
@@ -9,7 +11,8 @@ import 'common.dart';
 
 /// A compact canvas switcher above the desktop prompt controls.
 class DesktopCanvasTabs extends ConsumerStatefulWidget {
-  const DesktopCanvasTabs({super.key});
+  const DesktopCanvasTabs({super.key, this.trailing});
+  final Widget? trailing;
 
   @override
   ConsumerState<DesktopCanvasTabs> createState() => _DesktopCanvasTabsState();
@@ -76,6 +79,116 @@ class _DesktopCanvasTabsState extends ConsumerState<DesktopCanvasTabs> {
       event,
       (_) => _scroll.jumpTo(target),
     );
+  }
+
+  Future<void> _handleAction(
+    String action,
+    CanvasDraft target,
+    CanvasWorkspace workspace,
+    CanvasWorkspaceNotifier canvases,
+  ) async {
+    FocusManager.instance.primaryFocus?.unfocus();
+    switch (action) {
+      case 'new':
+        canvases.create();
+      case 'duplicate':
+        canvases.create(duplicate: true);
+      case 'rename':
+        if (target.id == workspace.defaultId) return;
+        final name = await showDialog<String>(
+          context: context,
+          builder: (_) => _CanvasNameDialog(name: target.name),
+        );
+        if (name != null && mounted) {
+          canvases.rename(target.id, name);
+        }
+      case 'remove':
+        if (target.id == workspace.defaultId) return;
+        final ok = await confirmDialog(
+          context,
+          title: '删除「${target.name}」？',
+          message: l10nNow.desktopRemoveThisCanvasAndItsSettingsGeneratedImages,
+          confirmLabel: '删除',
+        );
+        if (!ok || !mounted) return;
+        final removed = canvases.remove(target.id);
+        if (removed == null) return;
+        hintSnack(
+          context,
+          l10nNow.desktopCanvasDeleted,
+          actionLabel: '撤销',
+          onAction: () => canvases.restore(
+            removed.canvas,
+            removed.index,
+            activate: removed.wasActive,
+          ),
+        );
+      case 'history':
+        await showCanvasHistory(context, target);
+      case 'shared':
+        await showDialog<void>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: Text(l10nNow.desktopCanvasesAndReferences),
+            content: Text(
+              l10nNow.desktopEachCanvasKeepsItsOwnPromptsCharactersPresets,
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: Text(l10nNow.desktopGotIt),
+              ),
+            ],
+          ),
+        );
+    }
+  }
+
+  List<PopupMenuEntry<String>> _menuItems(
+    CanvasWorkspace workspace,
+    CanvasDraft target,
+  ) => [
+    PopupMenuItem(value: 'new', child: Text(l10nNow.newCanvas)),
+    PopupMenuItem(
+      value: 'duplicate',
+      child: Text(l10nNow.desktopDuplicateCurrentCanvas),
+    ),
+    PopupMenuItem(
+      value: 'rename',
+      enabled: target.id != workspace.defaultId,
+      child: Text(l10nNow.rename),
+    ),
+    PopupMenuItem(
+      value: 'remove',
+      enabled: target.id != workspace.defaultId,
+      child: Text(l10nNow.desktopDeleteCurrentCanvas),
+    ),
+    const PopupMenuDivider(),
+    PopupMenuItem(value: 'history', child: Text(l10nNow.desktopCanvasHistory)),
+    PopupMenuItem(
+      value: 'shared',
+      child: Text(l10nNow.desktopCanvasesAndReferences),
+    ),
+  ];
+
+  Future<void> _showContextMenu(
+    Offset globalPosition,
+    CanvasDraft target,
+    CanvasWorkspace workspace,
+    CanvasWorkspaceNotifier canvases,
+  ) async {
+    final overlay = Overlay.of(context).context.findRenderObject() as RenderBox;
+    final action = await showMenu<String>(
+      context: context,
+      position: RelativeRect.fromRect(
+        Rect.fromLTWH(globalPosition.dx, globalPosition.dy, 0, 0),
+        Offset.zero & overlay.size,
+      ),
+      items: _menuItems(workspace, target),
+    );
+    if (action != null && mounted) {
+      await _handleAction(action, target, workspace, canvases);
+    }
   }
 
   @override
@@ -163,6 +276,12 @@ class _DesktopCanvasTabsState extends ConsumerState<DesktopCanvasTabs> {
                           index: index,
                           labelStyle: labelStyle,
                           onSelect: () => _select(canvas.id),
+                          onSecondaryTap: (pos) => _showContextMenu(
+                            pos,
+                            canvas,
+                            workspace,
+                            canvases,
+                          ),
                         );
                       },
                     ),
@@ -176,7 +295,7 @@ class _DesktopCanvasTabsState extends ConsumerState<DesktopCanvasTabs> {
               width: 36,
               child: PopupMenuButton<String>(
                 key: const ValueKey('desktop-canvas-picker'),
-                tooltip: '切换画布',
+                tooltip: l10nNow.switchCanvas,
                 padding: EdgeInsets.zero,
                 icon: const Icon(Icons.expand_more, size: 20),
                 initialValue: workspace.activeId,
@@ -202,78 +321,12 @@ class _DesktopCanvasTabsState extends ConsumerState<DesktopCanvasTabs> {
               tooltip: '画布操作',
               padding: EdgeInsets.zero,
               icon: const Icon(Icons.add, size: 20),
-              onSelected: (action) async {
-                FocusManager.instance.primaryFocus?.unfocus();
-                final active = workspace.active;
-                switch (action) {
-                  case 'new':
-                    canvases.create();
-                  case 'duplicate':
-                    canvases.create(duplicate: true);
-                  case 'rename':
-                    final name = await showDialog<String>(
-                      context: context,
-                      builder: (_) => _CanvasNameDialog(name: active.name),
-                    );
-                    if (name != null && context.mounted) {
-                      canvases.rename(active.id, name);
-                    }
-                  case 'remove':
-                    final ok = await confirmDialog(
-                      context,
-                      title: '删除「${active.name}」？',
-                      message: '移除这张画布的提示词和参数，已生成的图片会保留。',
-                      confirmLabel: '删除',
-                    );
-                    if (!ok || !context.mounted) return;
-                    final removed = canvases.remove(active.id);
-                    if (removed == null) return;
-                    hintSnack(
-                      context,
-                      '已删除画布',
-                      actionLabel: '撤销',
-                      onAction: () => canvases.restore(
-                        removed.canvas,
-                        removed.index,
-                        activate: removed.wasActive,
-                      ),
-                    );
-                  case 'shared':
-                    await showDialog<void>(
-                      context: context,
-                      builder: (context) => AlertDialog(
-                        title: const Text('画布与参考图'),
-                        content: const Text(
-                          '每张画布分别保存提示词、角色、预设和采样参数。\n\nVibe、角色参考、图生图、重绘和 LoRA 在画布之间共享。',
-                        ),
-                        actions: [
-                          TextButton(
-                            onPressed: () => Navigator.pop(context),
-                            child: const Text('知道了'),
-                          ),
-                        ],
-                      ),
-                    );
-                }
-              },
-              itemBuilder: (_) => [
-                const PopupMenuItem(value: 'new', child: Text('新建画布')),
-                const PopupMenuItem(value: 'duplicate', child: Text('复制当前画布')),
-                PopupMenuItem(
-                  value: 'rename',
-                  enabled: workspace.activeId != workspace.defaultId,
-                  child: const Text('重命名'),
-                ),
-                PopupMenuItem(
-                  value: 'remove',
-                  enabled: workspace.activeId != workspace.defaultId,
-                  child: const Text('删除当前画布'),
-                ),
-                const PopupMenuDivider(),
-                const PopupMenuItem(value: 'shared', child: Text('画布与参考图')),
-              ],
+              onSelected: (action) =>
+                  _handleAction(action, workspace.active, workspace, canvases),
+              itemBuilder: (_) => _menuItems(workspace, workspace.active),
             ),
           ),
+          if (widget.trailing != null) widget.trailing!,
         ],
       ),
     );
@@ -288,6 +341,7 @@ class _CanvasTab extends StatelessWidget {
     required this.index,
     required this.labelStyle,
     required this.onSelect,
+    this.onSecondaryTap,
     this.preview = false,
   });
 
@@ -296,6 +350,7 @@ class _CanvasTab extends StatelessWidget {
   final int index;
   final TextStyle labelStyle;
   final VoidCallback onSelect;
+  final ValueChanged<Offset>? onSecondaryTap;
   final bool preview;
 
   @override
@@ -324,30 +379,36 @@ class _CanvasTab extends StatelessWidget {
     );
     return Padding(
       padding: const EdgeInsets.only(right: 4, top: 4, bottom: 4),
-      child: Material(
-        color: selected
-            ? context.scheme.primaryContainer
-            : context.scheme.surfaceContainerLow,
-        borderRadius: BorderRadius.circular(8),
-        child: Row(
-          children: [
-            Expanded(
-              child: preview ? label : Tooltip(message: name, child: label),
-            ),
-            if (index != 0)
-              preview
-                  ? handle
-                  : ReorderableDragStartListener(
-                      index: index,
-                      child: Tooltip(
-                        message: '拖动画布排序',
-                        child: MouseRegion(
-                          cursor: SystemMouseCursors.grab,
-                          child: handle,
+      child: GestureDetector(
+        behavior: HitTestBehavior.translucent,
+        onSecondaryTapDown: onSecondaryTap == null
+            ? null
+            : (details) => onSecondaryTap!(details.globalPosition),
+        child: Material(
+          color: selected
+              ? context.scheme.primaryContainer
+              : context.scheme.surfaceContainerLow,
+          borderRadius: BorderRadius.circular(8),
+          child: Row(
+            children: [
+              Expanded(
+                child: preview ? label : Tooltip(message: name, child: label),
+              ),
+              if (index != 0)
+                preview
+                    ? handle
+                    : ReorderableDragStartListener(
+                        index: index,
+                        child: Tooltip(
+                          message: '拖动画布排序',
+                          child: MouseRegion(
+                            cursor: SystemMouseCursors.grab,
+                            child: handle,
+                          ),
                         ),
                       ),
-                    ),
-          ],
+            ],
+          ),
         ),
       ),
     );

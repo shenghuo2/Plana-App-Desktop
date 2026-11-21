@@ -10,6 +10,8 @@ import '../../gallery/gallery_state.dart';
 import '../char_position.dart';
 import '../generate_state.dart';
 import '../models.dart';
+import '../../../l10n/l10n.dart';
+import '../display_names.dart';
 
 /// 角色定位弹窗(对齐 web `CharacterPositionModal`)。
 ///
@@ -230,7 +232,7 @@ class _PositionDialogState extends ConsumerState<_PositionDialog> {
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        '设置角色位置',
+                        context.l10n.position,
                         style: context.texts.titleMedium!.copyWith(
                           fontWeight: FontWeight.w700,
                         ),
@@ -314,7 +316,7 @@ class _PositionDialogState extends ConsumerState<_PositionDialog> {
                           const SizedBox(width: 10),
                           Expanded(
                             child: Text(
-                              '全部自动 (AUTO)',
+                              context.l10n.aiChoiceAll,
                               style: context.texts.bodyMedium!.copyWith(
                                 fontWeight: FontWeight.w600,
                                 color: isAuto
@@ -349,7 +351,7 @@ class _PositionDialogState extends ConsumerState<_PositionDialog> {
                             borderRadius: BorderRadius.circular(23),
                           ),
                         ),
-                        child: const Text('取消'),
+                        child: Text(context.l10n.cancel),
                       ),
                     ),
                     const SizedBox(width: 10),
@@ -364,8 +366,8 @@ class _PositionDialogState extends ConsumerState<_PositionDialog> {
                             borderRadius: BorderRadius.circular(23),
                           ),
                         ),
-                        child: const Text(
-                          '确认保存',
+                        child: Text(
+                          context.l10n.savePosition,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                         ),
@@ -422,7 +424,7 @@ class _PositionDialogState extends ConsumerState<_PositionDialog> {
               ),
               const SizedBox(width: 6),
               Text(
-                c.name,
+                characterDisplayName(context.l10n, c.name),
                 style: context.texts.labelMedium!.copyWith(
                   fontWeight: FontWeight.w600,
                   color: active
@@ -564,7 +566,7 @@ class _PositionDialogState extends ConsumerState<_PositionDialog> {
             Text(
               _dragging
                   ? positionChipLabel(_draft[_selectedId])
-                  : '${params.width}×${params.height} · 点按或拖动放置角色',
+                  : context.l10n.positionHint(params.width, params.height),
               style: context.texts.labelSmall!.copyWith(
                 fontFeatures: const [FontFeature.tabularFigures()],
                 color: scheme.onSurfaceVariant,

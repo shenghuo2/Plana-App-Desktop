@@ -2,6 +2,7 @@ import 'dart:io';
 import '../../core/ui/fade_in_once.dart';
 import 'dart:async';
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -15,7 +16,7 @@ import '../../core/theme/app_theme.dart';
 import '../../core/ui/pinch_columns.dart';
 import '../../core/ui/scroll_memory.dart';
 import '../../core/ui/selection_bar.dart';
-import '../editor/editor_models.dart' show draftOf, outputOf, pickEditorText;
+import '../editor/editor_models.dart' show draftOf, outputOf;
 import '../generate/canvas_state.dart';
 import '../generate/gen_modules.dart';
 import '../generate/generate_state.dart';
@@ -28,6 +29,8 @@ import 'artist_models.dart';
 import 'public_tags.dart';
 import 'tag_editor_page.dart';
 import 'tag_library.dart';
+import 'widgets/category_sheets.dart';
+import 'widgets/tag_card.dart' show TagTextPreview, TagCardArtwork;
 import 'tag_models.dart';
 import 'widgets/desktop_tag_filter_bar.dart';
 import 'widgets/scope_seg_tabs.dart';
@@ -35,6 +38,7 @@ import 'widgets/tag_filter_chips.dart';
 import 'widgets/tag_filter_sheet.dart';
 import 'widgets/tag_sheets.dart';
 import '../../core/util/haptics.dart';
+import '../../l10n/l10n.dart';
 
 /// 顶部各行统一的左右边距;行尾若是 IconButton,用 [_kIconEdge]
 /// (减去按钮 8px 内衬)让图标视觉边与其他行对齐。
@@ -86,6 +90,8 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
   late final _pubScroll = MemoScrollController.keyed(
     () => _scrollKey(_cat, true),
   );
+  final _embeddedCategoryScroll = ScrollController();
+  final _embeddedCategoryKeys = <TagCategory, GlobalKey>{};
 
   /// 每分类已选 id(我的/公共库两 scope 共用一套,对齐 web selectionMap)。
   final Map<TagCategory, Set<String>> _selected = {};
@@ -144,6 +150,7 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
     _tab.dispose();
     _mineScroll.dispose();
     _pubScroll.dispose();
+    _embeddedCategoryScroll.dispose();
     super.dispose();
   }
 
@@ -166,7 +173,11 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
       } else if (_sel.length < cap) {
         _sel.add(e.id);
       } else {
-        hintSnack(context, '最多选 $cap 个', icon: Icons.block_outlined);
+        hintSnack(
+          context,
+          context.l10n.maxSelectN(cap),
+          icon: Icons.block_outlined,
+        );
       }
     });
   }
@@ -190,6 +201,24 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
     });
     // 换完 _cat 再换:上限跟着新分类的卡片形状走
     jumpGridColumns(_savedCols(c));
+    _revealEmbeddedCategory(c);
+  }
+
+  void _revealEmbeddedCategory(TagCategory category) {
+    if (!widget.embedded) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_embeddedCategoryScroll.hasClients) return;
+      final target = _embeddedCategoryKeys[category]?.currentContext
+          ?.findRenderObject();
+      if (target == null) return;
+      _embeddedCategoryScroll.position.ensureVisible(
+        target,
+        alignment: 0.5,
+        duration: Motion.fast,
+        curve: Curves.easeOut,
+      );
+    });
+    WidgetsBinding.instance.ensureVisualUpdate();
   }
 
   // ---- 双指捏合改列数(见 PinchColumnsMixin) ----
@@ -383,11 +412,7 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
     );
     final drafts = [
       for (final e in entries)
-        appendTagPromptsFolded(
-          positiveDraft: '',
-          negativeDraft: '',
-          entries: [e],
-        ),
+        foldTagEntry(e),
     ];
     final notifier = ref.read(generateProvider.notifier);
     final oldCount = ref.read(generateProvider).characters.length;
@@ -398,10 +423,15 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
           positive: outputOf(drafts[i].positiveDraft),
           negative: outputOf(drafts[i].negativeDraft),
           avatar: tagPreviewOf(entries[i], pubPreview),
+          source: entries[i].id,
         ),
     ]);
     if (added == 0) {
-      hintSnack(context, '角色已满 $cap 个', icon: Icons.block_outlined);
+      hintSnack(
+        context,
+        context.l10n.charsFullN(cap),
+        icon: Icons.block_outlined,
+      );
       return;
     }
     final addedCharacters = ref
@@ -420,42 +450,19 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
     }
     await _afterConfirm(
       entries,
-      added < entries.length ? '已加入 $added 个角色(超出 $cap 个截断)' : '已加入 $added 个角色',
+      added < entries.length
+          ? context.l10n.addedCharsTruncated(added, cap)
+          : context.l10n.addedChars(added),
     );
   }
 
-  /// 角色「主提示词」/ 画风/场景/其他「确认选择」:正负向拼进主提示词。
-  /// 主提示词分过区时,每个条目自成一格、不折叠(同提示词卡头的「灵感库」)。
+  /// 角色「主提示词」/ 画风/场景/其他「确认选择」:先为每个条目新建命名分区,
+  /// 再完整写入正负向(同提示词卡头的「灵感库」)。
   Future<void> _confirmToPrompt(TagLibraryState lib) async {
     final entries = _resolveSelected(lib);
     if (entries.isEmpty) return;
-    final gen = ref.read(generateProvider);
-    if (gen.sections.isNotEmpty) {
-      ref.read(generateProvider.notifier).addEntrySections(entries);
-      await _afterConfirm(entries, '已加入提示词');
-      return;
-    }
-    // 追加到编辑器原文草稿(带回既有的禁用/折叠),每个条目自成一个折叠组;
-    // 定稿由 outputOf 从草稿导出 —— 两者必须同时写,只写定稿的话草稿会被
-    // 判过期作废,这次加进去的折叠(以及用户原有的禁用词)就一起没了。
-    final draft = appendTagPromptsFolded(
-      positiveDraft: pickEditorText(gen.promptRaw, gen.prompt),
-      negativeDraft: pickEditorText(gen.negativePromptRaw, gen.negativePrompt),
-      entries: entries,
-      links: gen.promptFoldLinks,
-    );
-    final positive = outputOf(draft.positiveDraft);
-    final negative = outputOf(draft.negativeDraft);
-    ref
-        .read(generateProvider.notifier)
-        .setPrompts(
-          positive: positive,
-          negative: negative,
-          positiveRaw: draftOf(draft.positiveDraft, positive),
-          negativeRaw: draftOf(draft.negativeDraft, negative),
-          promptFoldLinks: draft.links,
-        );
-    await _afterConfirm(entries, '已加入提示词');
+    ref.read(generateProvider.notifier).addEntrySections(entries);
+    await _afterConfirm(entries, '已加入 ${entries.length} 个提示词分区');
   }
 
   // ---- build ----
@@ -465,6 +472,14 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
     super.build(context);
     final scheme = context.scheme;
     final lib = ref.watch(tagLibraryProvider).value ?? const TagLibraryState();
+    if (!_codex && !lib.visibleTabKeys.contains(tagCategoryDef(_cat).webId)) {
+      _cat = TagCategory.character;
+      _tab.index = 0;
+      _selected.clear();
+      _searchController.clear();
+      _search = '';
+      _revealEmbeddedCategory(_cat);
+    }
     final def = _def;
     _authorNames = ref.watch(tagAuthorNamesProvider).value ?? const {};
     if (ref.watch(desktopModeProvider) && !widget.embedded) {
@@ -596,7 +611,9 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
       });
       hintSnack(context, added == 0 ? '预览示例已在库中' : '已添加 $added 个预览示例');
     } catch (_) {
-      if (mounted) hintSnack(context, '预览示例保存失败，请重试');
+      if (mounted) {
+        hintSnack(context, l10nNow.desktopCouldNotSaveThePreviewSampleTryAgain);
+      }
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -627,7 +644,7 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
                       onChanged: (value) => setState(() => _search = value),
                       style: context.texts.bodyMedium,
                       decoration: InputDecoration(
-                        hintText: '搜索名称 / 标签 / 提示词…',
+                        hintText: l10nNow.desktopSearchNamesTagsOrPrompts,
                         prefixIcon: const Icon(Icons.search, size: 20),
                         prefixIconConstraints: const BoxConstraints(
                           minWidth: 36,
@@ -678,10 +695,12 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
                                         Icons.photo_library_outlined,
                                         size: 18,
                                       ),
-                                      label: const Text('添加预览示例'),
+                                      label: Text(
+                                        l10nNow.desktopAddPreviewSample,
+                                      ),
                                     ),
                                   IconButton(
-                                    tooltip: '数据备份',
+                                    tooltip: l10nNow.desktopDataBackup,
                                     onPressed: () =>
                                         showTagBackupSheet(context, ref),
                                     icon: const Icon(
@@ -691,8 +710,11 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
                                   ),
                                   FilledButton.icon(
                                     key: const ValueKey('inspiration-new'),
-                                    onPressed: () =>
-                                        showTagEditor(context, cat: _cat),
+                                    onPressed: () => showTagEditor(
+                                      context,
+                                      cat: _cat,
+                                      categories: _categories(lib),
+                                    ),
                                     icon: const Icon(Icons.add, size: 18),
                                     label: Text(
                                       '新建${_cat == TagCategory.other ? '提示词' : _def.label}',
@@ -763,7 +785,7 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
                           visualDensity: VisualDensity.compact,
                           materialTapTargetSize:
                               MaterialTapTargetSize.shrinkWrap,
-                          label: const Text('公共库'),
+                          label: Text(l10nNow.publicLibrary),
                           selected: public,
                           showCheckmark: false,
                           onSelected: (_) => _tab.animateTo(1),
@@ -790,7 +812,7 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
                       ],
                       if (public)
                         IconButton(
-                          tooltip: '刷新公共库',
+                          tooltip: l10nNow.desktopRefreshPublicLibrary,
                           onPressed: _reloadPublic,
                           icon: const Icon(Icons.refresh, size: 20),
                         ),
@@ -824,71 +846,55 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
     );
   }
 
-  Widget _desktopCategories(ColorScheme scheme) => LayoutBuilder(
-    builder: (context, constraints) {
-      final library = DecoratedBox(
-        decoration: BoxDecoration(
-          color: scheme.surfaceContainer,
-          borderRadius: BorderRadius.circular(14),
-        ),
-        child: Padding(
-          padding: const EdgeInsets.all(4),
-          child: Wrap(
-            spacing: 4,
-            runSpacing: 4,
-            children: [
-              for (final category in TagCategory.values)
-                _desktopCategory(
-                  category,
-                  category == TagCategory.other
-                      ? '提示词'
-                      : tagCategoryDef(category).label,
-                  !_codex && category == _cat,
-                ),
-            ],
-          ),
-        ),
-      );
-      final codex = Tooltip(
-        message: '在线法典图鉴',
-        child: _desktopCategory(_kCodexSel, '法典', _codex),
-      );
-      final textScale = MediaQuery.textScalerOf(context).scale(15) / 15;
-      if (constraints.maxWidth < 620 * textScale) {
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            library,
-            const SizedBox(height: 10),
-            Divider(
-              key: const ValueKey('inspiration-codex-divider'),
-              height: 1,
-              color: scheme.outlineVariant,
-            ),
-            const SizedBox(height: 10),
-            codex,
-          ],
-        );
-      }
-      return Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          library,
-          const SizedBox(width: 14),
-          SizedBox(
-            height: 32,
-            child: VerticalDivider(
-              key: const ValueKey('inspiration-codex-divider'),
-              width: 1,
-              color: scheme.outlineVariant,
-            ),
-          ),
-          const SizedBox(width: 14),
-          codex,
-        ],
-      );
-    },
+  List<TagCategory> _categories(TagLibraryState lib) => [
+    for (final key in lib.visibleTabKeys) ?tagCategoryByWebId(key),
+  ];
+
+  String _categoryLabel(TagCategory c) {
+    final label = tagCategoryDef(c).label;
+    return c == TagCategory.other && label == '其他' ? '提示词' : label;
+  }
+
+  Widget _categoryManager() => IconButton(
+    tooltip: l10nNow.desktopManageCategories,
+    icon: const Icon(Icons.dashboard_customize_outlined, size: 20),
+    onPressed: _manageCategories,
   );
+
+  Future<void> _manageCategories() async {
+    final before = _categories(
+      ref.read(tagLibraryProvider).value ?? const TagLibraryState(),
+    ).toSet();
+    await showCategoryManagerSheet(context);
+    if (!mounted || !widget.embedded) return;
+    final categories = _categories(
+      ref.read(tagLibraryProvider).value ?? const TagLibraryState(),
+    );
+    final added = categories.where((c) => !before.contains(c));
+    // 新类别在横栏末尾,关闭管理器后露出来,不打断原分类的浏览。
+    _revealEmbeddedCategory(added.isEmpty ? _cat : added.last);
+  }
+
+  Widget _desktopCategories(ColorScheme scheme) {
+    final lib = ref.watch(tagLibraryProvider).value ?? const TagLibraryState();
+    return Wrap(
+      spacing: 4,
+      runSpacing: 6,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        for (final key in lib.visibleTabKeys)
+          if (key == kCodexTabKey)
+            _desktopCategory(_kCodexSel, codexTabLabel(), _codex)
+          else if (tagCategoryByWebId(key) case final category?)
+            _desktopCategory(
+              category,
+              _categoryLabel(category),
+              !_codex && category == _cat,
+            ),
+        _categoryManager(),
+      ],
+    );
+  }
 
   Widget _desktopCategory(Object category, String label, bool selected) {
     final scheme = context.scheme;
@@ -938,8 +944,8 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
                   color: foreground.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(5),
                 ),
-                child: const Text(
-                  '在线',
+                child: Text(
+                  l10nNow.desktopOnline,
                   style: TextStyle(fontSize: 11, fontWeight: FontWeight.w500),
                 ),
               ),
@@ -952,62 +958,98 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
 
   Widget _topBar(ColorScheme scheme, TagLibraryState lib) {
     if (widget.embedded) {
+      final categories = _categories(lib);
+      _embeddedCategoryKeys.removeWhere((c, _) => !categories.contains(c));
       return Padding(
         padding: const EdgeInsets.fromLTRB(12, 10, 8, 0),
         child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Row(
-              children: [
-                for (final category in TagCategory.values)
-                  Expanded(
-                    child: Padding(
-                      padding: const EdgeInsets.only(right: 5),
-                      child: TextButton(
-                        key: ValueKey('desktop-inspiration-${category.name}'),
-                        onPressed: () => _switchCategory(category),
-                        style: TextButton.styleFrom(
-                          padding: EdgeInsets.zero,
-                          backgroundColor: _cat == category
-                              ? scheme.primary
-                              : scheme.surfaceContainer,
-                          foregroundColor: _cat == category
-                              ? scheme.onPrimary
-                              : scheme.onSurface,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(9),
+            ScrollConfiguration(
+              behavior: ScrollConfiguration.of(context).copyWith(
+                dragDevices: {
+                  ...ScrollConfiguration.of(context).dragDevices,
+                  PointerDeviceKind.mouse,
+                },
+                scrollbars: false,
+              ),
+              child: Scrollbar(
+                controller: _embeddedCategoryScroll,
+                thumbVisibility: true,
+                interactive: true,
+                thickness: 4,
+                scrollbarOrientation: ScrollbarOrientation.bottom,
+                child: SingleChildScrollView(
+                  controller: _embeddedCategoryScroll,
+                  primary: false,
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Row(
+                    children: [
+                      for (final category in categories)
+                        SizedBox(
+                          key: _embeddedCategoryKeys.putIfAbsent(
+                            category,
+                            () => GlobalKey(),
+                          ),
+                          width: 90,
+                          child: Padding(
+                            padding: const EdgeInsets.only(right: 5),
+                            child: TextButton(
+                              key: ValueKey(
+                                'desktop-inspiration-${category.name}',
+                              ),
+                              onPressed: () => _switchCategory(category),
+                              style: TextButton.styleFrom(
+                                padding: EdgeInsets.zero,
+                                backgroundColor: _cat == category
+                                    ? scheme.primary
+                                    : scheme.surfaceContainer,
+                                foregroundColor: _cat == category
+                                    ? scheme.onPrimary
+                                    : scheme.onSurface,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(9),
+                                ),
+                              ),
+                              child: Text(
+                                _categoryLabel(category),
+                                style: const TextStyle(fontSize: 12),
+                              ),
+                            ),
                           ),
                         ),
-                        child: Text(
-                          category == TagCategory.other
-                              ? '提示词'
-                              : tagCategoryDef(category).label,
-                          style: const TextStyle(fontSize: 12),
-                        ),
-                      ),
-                    ),
+                    ],
                   ),
-              ],
+                ),
+              ),
             ),
             Row(
               children: [
-                Text(
-                  '${lib.of(_cat).length} 个本地条目',
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: scheme.onSurfaceVariant,
+                Expanded(
+                  child: Text(
+                    '${lib.of(_cat).length} 个本地条目',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: scheme.onSurfaceVariant,
+                    ),
                   ),
                 ),
-                const Spacer(),
+                _categoryManager(),
                 if (_def.hasPublic) _sortButton(scheme),
                 IconButton(
-                  tooltip: '数据备份',
+                  tooltip: l10nNow.desktopDataBackup,
                   icon: const Icon(Icons.cloud_outlined, size: 18),
                   onPressed: () => showTagBackupSheet(context, ref),
                 ),
                 IconButton(
-                  tooltip: '新建',
+                  tooltip: l10nNow.newLabel,
                   icon: const Icon(Icons.add, size: 18),
-                  onPressed: () => showTagEditor(context, cat: _cat),
+                  onPressed: () => showTagEditor(
+                    context,
+                    cat: _cat,
+                    categories: _categories(lib),
+                  ),
                 ),
               ],
             ),
@@ -1025,14 +1067,15 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
           // 排序只给有公共库的两类:场景/其他的条目全是自己的,没有作者可分组
           if (_def.hasPublic) _sortButton(scheme),
           IconButton(
-            tooltip: '数据备份',
+            tooltip: l10nNow.desktopDataBackup,
             icon: const Icon(Icons.cloud_outlined),
             onPressed: () => showTagBackupSheet(context, ref),
           ),
           IconButton(
-            tooltip: '新建',
+            tooltip: l10nNow.newLabel,
             icon: const Icon(Icons.add),
-            onPressed: () => showTagEditor(context, cat: _cat),
+            onPressed: () =>
+                showTagEditor(context, cat: _cat, categories: _categories(lib)),
           ),
         ],
       ),
@@ -1107,12 +1150,14 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
   /// 分类切换:整块 filled 胶囊(图标+名称+计数+▾),点开下拉选分类。
   Widget _categoryPill(ColorScheme scheme, TagLibraryState lib) {
     return PopupMenuButton<Object>(
-      tooltip: '切换分类',
+      tooltip: l10nNow.desktopSwitchCategory,
       offset: const Offset(0, 50),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-      onSelected: _onPickCat,
+      onSelected: (v) => v == 'manage-categories'
+          ? showCategoryManagerSheet(context)
+          : _onPickCat(v),
       itemBuilder: (_) => [
-        for (final d in kTagCategoryDefs)
+        for (final d in _categories(lib).map(tagCategoryDef))
           PopupMenuItem(
             value: d.key,
             child: _catMenuRow(
@@ -1125,7 +1170,17 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
         const PopupMenuDivider(),
         PopupMenuItem(
           value: _kCodexSel,
-          child: _catMenuRow(scheme, Icons.menu_book_outlined, '法典', _codex),
+          child: _catMenuRow(
+            scheme,
+            Icons.menu_book_outlined,
+            codexTabLabel(),
+            _codex,
+          ),
+        ),
+        const PopupMenuDivider(),
+        PopupMenuItem(
+          value: 'manage-categories',
+          child: Text(l10nNow.desktopManageCategories),
         ),
       ],
       child: Container(
@@ -1142,7 +1197,7 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
                   Icon(Icons.menu_book, size: 19, color: scheme.primary),
                   const SizedBox(width: 8),
                   Text(
-                    '法典',
+                    l10nNow.sectionCodex,
                     style: context.texts.titleMedium!.copyWith(
                       fontWeight: FontWeight.w800,
                     ),
@@ -1248,7 +1303,7 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
     final label = _filterPillLabel;
     if (label == null) {
       return IconButton(
-        tooltip: '筛选',
+        tooltip: l10nNow.filter,
         visualDensity: VisualDensity.compact,
         icon: Icon(
           Icons.filter_alt_outlined,
@@ -1420,7 +1475,7 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
           ),
           Builder(
             builder: (anchor) => IconButton(
-              tooltip: '标签池管理',
+              tooltip: l10nNow.manageTagPool,
               icon: Icon(
                 Icons.settings_outlined,
                 size: 20,
@@ -1696,7 +1751,7 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
       ((width - _desktopEdge * 2 + _desktopGap) / 230).floor().clamp(1, 10);
 
   /// 卡片 = 预览图比例:cover 下整图完整铺满、不裁切。
-  double get _cardAspect => _def.previewAspect;
+  double get _cardAspect => _def.hasPreview ? _def.previewAspect : 1.5;
 
   Widget _grid(List<_Group> groups, ScrollController ctrl, bool isPublic) {
     final pubPreview = publicPreviewsOf(
@@ -1736,7 +1791,9 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
                             crossAxisCount: cols,
                             mainAxisSpacing: gap,
                             crossAxisSpacing: gap,
-                            mainAxisExtent: library ? _desktopCardHeight : null,
+                            mainAxisExtent: library
+                                ? (_def.hasPreview ? _desktopCardHeight : 250)
+                                : null,
                             childAspectRatio: _cardAspect,
                           )
                         : zoomGridDelegate(
@@ -2015,7 +2072,7 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
         unawaited(showTagEditor(context, cat: _cat, edit: e));
       case 'copy':
         await Clipboard.setData(ClipboardData(text: e.positive));
-        if (mounted) hintSnack(context, '已复制提示词', icon: Icons.copy);
+        if (mounted) hintSnack(context, l10nNow.promptCopied, icon: Icons.copy);
       case 'delete':
         await _deleteEntries([e]);
     }
@@ -2133,26 +2190,26 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
                 key: const ValueKey('inspiration-selection-prompt'),
                 onPressed: _busy ? null : () => _confirmToPrompt(lib),
                 icon: const Icon(Icons.bolt_outlined, size: 18),
-                label: const Text('主提示词'),
+                label: Text(l10nNow.desktopMainPrompt),
               ),
               if (_cat == TagCategory.character && _charModuleOn)
                 FilledButton.tonalIcon(
                   onPressed: _busy ? null : () => _confirmAsCharacters(lib),
                   icon: const Icon(Icons.person_add_alt, size: 18),
-                  label: const Text('加入角色'),
+                  label: Text(l10nNow.desktopAddCharacter),
                 ),
               PopupMenuButton<String>(
                 key: const ValueKey('inspiration-selection-menu'),
-                tooltip: '批量操作（也可右键卡片）',
+                tooltip: l10nNow.desktopBatchActionsOrRightClickACard,
                 enabled: !_busy,
                 onSelected: _desktopSelectionAction,
                 itemBuilder: (_) => _desktopSelectionItems(),
-                child: const Padding(
+                child: Padding(
                   padding: EdgeInsets.symmetric(horizontal: 8, vertical: 10),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Text('更多操作'),
+                      Text(l10nNow.desktopMoreActions),
                       SizedBox(width: 4),
                       Icon(Icons.expand_more, size: 18),
                     ],
@@ -2160,7 +2217,7 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
                 ),
               ),
               IconButton(
-                tooltip: '取消选择',
+                tooltip: l10nNow.clearSelection,
                 onPressed: _busy ? null : () => setState(() => _sel.clear()),
                 icon: const Icon(Icons.close, size: 20),
               ),
@@ -2220,14 +2277,14 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
             seg(
               flex: 5,
               icon: Icons.bolt_outlined,
-              label: '主提示词',
+              label: l10nNow.desktopMainPrompt,
               onTap: () => _confirmToPrompt(lib),
             ),
             Container(width: 1.5, color: scheme.surfaceContainer),
             seg(
               flex: 6,
               icon: Icons.person_add_alt,
-              label: '加入角色',
+              label: l10nNow.desktopAddCharacter,
               onTap: () => _confirmAsCharacters(lib),
             ),
           ],
@@ -2257,13 +2314,13 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
         if (publicScope)
           SelectionPill(
             icon: Icons.favorite_border,
-            label: '收藏',
+            label: l10nNow.favorites,
             onTap: _busy ? null : () => _batchCollect(lib),
           )
         else
           SelectionPill(
             icon: Icons.sell_outlined,
-            label: '标签',
+            label: l10nNow.tagLabel,
             onTap: _busy ? null : () => _batchTag(lib),
           ),
       ],
@@ -2271,7 +2328,7 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
           ? null
           : SelectionPill(
               icon: Icons.delete_outline,
-              label: '删除',
+              label: l10nNow.delete,
               color: scheme.error,
               onTap: _busy ? null : () => _batchDelete(lib),
             ),
@@ -2362,13 +2419,11 @@ class _CardPreview extends StatelessWidget {
     required this.url,
     required this.name,
     this.decodeWidth,
-    this.fit = BoxFit.cover,
     this.mosaic = false,
   });
 
   final String? url;
   final String name;
-  final BoxFit fit;
   final bool mosaic;
 
   /// 远端图的解码宽(逻辑像素);null = 按布局宽。
@@ -2385,7 +2440,7 @@ class _CardPreview extends StatelessWidget {
       builder: (_, frame) => u.startsWith('http')
           ? RemoteImage(
               u,
-              fit: fit,
+              fit: BoxFit.cover,
               decodeWidth: mosaic
                   ? 12 / MediaQuery.devicePixelRatioOf(context)
                   : decodeWidth,
@@ -2398,7 +2453,7 @@ class _CardPreview extends StatelessWidget {
               File(u),
               cacheWidth: mosaic ? 12 : null,
               filterQuality: mosaic ? FilterQuality.none : FilterQuality.medium,
-              fit: fit,
+              fit: BoxFit.cover,
               gaplessPlayback: true,
               frameBuilder: frame,
               errorBuilder: _stripes,
@@ -2457,7 +2512,7 @@ class _TagCard extends StatelessWidget {
 
   Widget _mosaicHint(BuildContext context) => Center(
     child: Tooltip(
-      message: '点击显示原图',
+      message: l10nNow.desktopClickToShowOriginal,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         decoration: BoxDecoration(
@@ -2468,7 +2523,10 @@ class _TagCard extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             const Icon(Icons.visibility_off_outlined, size: 20),
-            if (desktop) ...[const SizedBox(width: 6), const Text('点击显示原图')],
+            if (desktop) ...[
+              const SizedBox(width: 6),
+              Text(l10nNow.desktopClickToShowOriginal),
+            ],
           ],
         ),
       ),
@@ -2477,7 +2535,6 @@ class _TagCard extends StatelessWidget {
 
   Widget _desktopCard(BuildContext context) {
     final scheme = context.scheme;
-    final modelGroups = artistModelGroups(entry.models);
     return Material(
       key: ValueKey('inspiration-card-${entry.id}'),
       clipBehavior: Clip.antiAlias,
@@ -2502,42 +2559,14 @@ class _TagCard extends StatelessWidget {
                 child: Stack(
                   fit: StackFit.expand,
                   children: [
-                    _CardPreview(
+                    TagCardArtwork(
+                      entry: entry,
                       url: previewUrl,
-                      name: entry.name,
                       decodeWidth: decodeWidth,
-                      fit: BoxFit.contain,
+                      selected: selected,
                       mosaic: mosaic,
                     ),
                     if (mosaic) _mosaicHint(context),
-                    if (modelGroups.isNotEmpty)
-                      Positioned(
-                        left: 10,
-                        right: 10,
-                        bottom: 10,
-                        child: Wrap(
-                          spacing: 4,
-                          runSpacing: 4,
-                          children: [
-                            for (final group in modelGroups)
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 6,
-                                  vertical: 3,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: scheme.surfaceContainerLowest
-                                      .withValues(alpha: .94),
-                                  borderRadius: BorderRadius.circular(5),
-                                ),
-                                child: Text(
-                                  group.label,
-                                  style: context.texts.labelSmall,
-                                ),
-                              ),
-                          ],
-                        ),
-                      ),
                     Positioned(
                       left: 8,
                       top: 8,
@@ -2577,7 +2606,7 @@ class _TagCard extends StatelessWidget {
                                 ),
                               )
                             : PopupMenuButton<String>(
-                                tooltip: '更多操作',
+                                tooltip: l10nNow.desktopMoreActions,
                                 onSelected: onMenu,
                                 icon: const Icon(Icons.more_horiz, size: 21),
                                 itemBuilder: (_) => const [
@@ -2611,15 +2640,6 @@ class _TagCard extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   Text(
-                    entry.name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: context.texts.titleSmall!.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  const SizedBox(height: 5),
-                  Text(
                     entry.positive.replaceAll(RegExp(r'\s+'), ' '),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
@@ -2651,9 +2671,9 @@ class _TagCard extends StatelessWidget {
                         return null;
                       }),
                     ),
-                child: const Row(
+                child: Row(
                   children: [
-                    Text('查看详情'),
+                    Text(l10nNow.desktopViewDetails),
                     Spacer(),
                     Icon(Icons.arrow_forward, size: 18),
                   ],
@@ -2691,12 +2711,15 @@ class _TagCard extends StatelessWidget {
           child: Stack(
             fit: StackFit.expand,
             children: [
-              _CardPreview(
-                url: previewUrl,
-                name: entry.name,
-                decodeWidth: decodeWidth,
-                mosaic: mosaic,
-              ),
+              if (!tagCategoryDef(entry.category).hasPreview)
+                TagTextPreview(text: entry.positive)
+              else
+                _CardPreview(
+                  url: previewUrl,
+                  name: entry.name,
+                  decodeWidth: decodeWidth,
+                  mosaic: mosaic,
+                ),
               if (mosaic) _mosaicHint(context),
               Positioned(
                 left: 0,

@@ -1,3 +1,4 @@
+import '../../../l10n/l10n.dart';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -10,37 +11,44 @@ import '../../../core/util/image_ops.dart';
 import '../../../core/util/image_pick.dart';
 import '../../inpaint/inpaint_overlay.dart';
 import '../../shell/shell_state.dart';
+import '../canvas_state.dart';
 import '../generate_state.dart';
 import '../models.dart';
 import 'common.dart';
+import 'base_image_thumbnail.dart';
 import 'section_card.dart';
 
 /// 选图设为图生图底图:解码尺寸 → 64 对齐/像素封顶改写生成分辨率 →
 /// 写入状态并展开图生图面板;分辨率有变时提示一声。
 /// 图生图卡「选择底图」与操作栏「底图」按钮共用。
 Future<void> pickImg2ImgImage(BuildContext context, WidgetRef ref) async {
+  final canvasId = ref.read(canvasWorkspaceProvider).activeId;
   final file = await pickImageFile(context);
   if (file == null || !context.mounted) return;
-  await setImg2ImgFromImage(context, ref, file.bytes);
+  await setImg2ImgFromImage(context, ref, file.bytes, canvasId: canvasId);
 }
 
 Future<void> setImg2ImgFromImage(
   BuildContext context,
   WidgetRef ref,
-  Uint8List bytes,
-) async {
-  final (rw, rh) = await decodeImageSize(bytes); // 解码原始尺寸
-  if (!context.mounted) return;
-  final res = img2imgResolution(rw, rh); // 64 对齐 / 像素封顶
+  Uint8List bytes, {
+  String? canvasId,
+}) async {
+  final target = canvasId ?? ref.read(canvasWorkspaceProvider).activeId;
+  final base = await prepareImg2ImgBase(bytes);
+  if (!context.mounted ||
+      ref.read(canvasWorkspaceProvider).activeId != target) {
+    return;
+  }
   final before = ref.read(generateProvider).params;
   ref
       .read(generateProvider.notifier)
-      .setImg2ImgImage(image: bytes, width: res.w, height: res.h);
+      .setImg2ImgImage(image: base.image, width: base.w, height: base.h);
   // 底图会改写生成分辨率;和原来不同就提示一声,免得用户莫名其妙。
-  if (before.width != res.w || before.height != res.h) {
+  if (before.width != base.w || before.height != base.h) {
     hintSnack(
       context,
-      '分辨率已按底图调整为 ${res.w}×${res.h}',
+      '分辨率已按底图调整为 ${base.w}×${base.h}',
       icon: Icons.aspect_ratio,
     );
   }
@@ -61,17 +69,34 @@ class Img2ImgCard extends ConsumerStatefulWidget {
 }
 
 class _Img2ImgCardState extends ConsumerState<Img2ImgCard> {
+  bool _openingEditor = false;
   Future<void> _onPick() => pickImg2ImgImage(context, ref);
 
   /// 拿这张底图去涂遮罩(点缩略图进来)。
   ///
   /// 走的是和图库「重绘」同一个编辑器,只是没有图库归属([InpaintSession.sourceId]
   /// 为 null)—— 所以它的产物没有「按住对比」可看,那要有源图在库里才谈得上。
-  void _inpaintExternal(Uint8List bytes) {
-    ref.read(inpaintSessionProvider.notifier).open(imageBytes: bytes);
-    ref
-        .read(shellIndexProvider.notifier)
-        .select(ref.read(desktopModeProvider) ? kTabCreate : kTabGallery);
+  Future<void> _inpaintExternal(Uint8List bytes) async {
+    if (_openingEditor) return;
+    _openingEditor = true;
+    final canvasId = ref.read(canvasWorkspaceProvider).activeId;
+    try {
+      // 同时兼容旧存档中仅调整参数、尚未缩放实际像素的底图。
+      final base = await prepareImg2ImgBase(bytes);
+      if (!mounted ||
+          ref.read(canvasWorkspaceProvider).activeId != canvasId ||
+          !identical(ref.read(generateProvider).img2img?.image, bytes)) {
+        return;
+      }
+      ref.read(inpaintSessionProvider.notifier).open(imageBytes: base.image);
+      ref
+          .read(shellIndexProvider.notifier)
+          .select(ref.read(desktopModeProvider) ? kTabCreate : kTabGallery);
+    } catch (error) {
+      if (mounted) hintSnack(context, '重绘底图载入失败：$error');
+    } finally {
+      _openingEditor = false;
+    }
   }
 
   /// 回编辑器接着涂。编辑器嵌在图库页里,所以要先切过去。
@@ -105,20 +130,22 @@ class _Img2ImgCardState extends ConsumerState<Img2ImgCard> {
 
     final card = SectionCard(
       icon: Icons.image_outlined,
-      title: '图生图',
+      title: context.l10n.img2img,
       reorderIndex: widget.reorderIndex,
       badge: hasImage ? const CountBadge('1') : null,
       actions: [
         if (hasImage)
           RoundIconBtn(
             Icons.delete_outline,
-            tooltip: '移除底图',
+            tooltip: context.l10n.removeBaseImage,
             color: context.scheme.error,
             onTap: notifier.disableImg2Img,
           ),
         RoundIconBtn(
           Icons.add,
-          tooltip: hasImage ? '更换底图' : '选择底图',
+          tooltip: hasImage
+              ? context.l10n.changeBaseImage
+              : context.l10n.selectBaseImage,
           color: context.scheme.primary,
           onTap: _onPick,
         ),
@@ -135,57 +162,17 @@ class _Img2ImgCardState extends ConsumerState<Img2ImgCard> {
                   children: [
                     // 缩略图整块可点 = 拿这张底图去涂遮罩,和重绘那一态同款,
                     // 省得为「换个玩法」专门去顶上找那颗画笔。
-                    SizedBox(
-                      width: 90,
-                      height: 118,
-                      child: Stack(
-                        fit: StackFit.expand,
-                        children: [
-                          StripeThumb(
-                            width: 90,
-                            height: 118,
-                            radius: 12,
-                            image: cfg!.image,
-                          ),
-                          Material(
-                            color: Colors.transparent,
-                            borderRadius: BorderRadius.circular(12),
-                            clipBehavior: Clip.antiAlias,
-                            child: InkWell(
-                              onTap: () => _inpaintExternal(cfg.image!),
-                              child: Align(
-                                alignment: Alignment.bottomRight,
-                                child: Container(
-                                  margin: const EdgeInsets.all(6),
-                                  padding: const EdgeInsets.all(5),
-                                  decoration: BoxDecoration(
-                                    color: context.scheme.primary,
-                                    shape: BoxShape.circle,
-                                    boxShadow: const [
-                                      BoxShadow(
-                                        color: Colors.black26,
-                                        blurRadius: 3,
-                                      ),
-                                    ],
-                                  ),
-                                  child: Icon(
-                                    Icons.brush,
-                                    size: 15,
-                                    color: context.scheme.onPrimary,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
+                    BaseImageThumbnail(
+                      key: const ValueKey('img2img-base-thumbnail'),
+                      image: cfg!.image!,
+                      onTap: () => _inpaintExternal(cfg.image!),
                     ),
                     const SizedBox(width: 12),
                     Expanded(
                       child: Column(
                         children: [
                           ParamSlider(
-                            label: '强度 Strength',
+                            label: context.l10n.paramStrength,
                             help: Help.img2imgStrength,
                             value: cfg.strength,
                             min: 0.01, // 对齐 web:0 对 img2img 无效
@@ -196,7 +183,7 @@ class _Img2ImgCardState extends ConsumerState<Img2ImgCard> {
                           ),
                           const SizedBox(height: 6),
                           ParamSlider(
-                            label: '噪声 Noise',
+                            label: context.l10n.paramNoise,
                             help: Help.img2imgNoise,
                             value: cfg.noise,
                             max: 0.99, // 对齐 web(min 0 可)
@@ -208,14 +195,15 @@ class _Img2ImgCardState extends ConsumerState<Img2ImgCard> {
                     ),
                   ],
                 ),
-                const SizedBox(height: 8),
-                const InfoNote('底图按当前分辨率裁剪填充;强度越低越接近原图。点缩略图可涂遮罩改成重绘。'),
               ],
             ),
     );
     return ref.watch(desktopModeProvider)
         ? ImageDropRegion(
-            label: '用作图生图底图',
+            key: ValueKey(
+              ref.watch(canvasWorkspaceProvider.select((w) => w.activeId)),
+            ),
+            label: l10nNow.desktopUseAsImageToImageInput,
             acceptPaste: true,
             onDrop: (images, _) =>
                 setImg2ImgFromImage(context, ref, images.single.bytes),
@@ -237,13 +225,15 @@ class _Img2ImgCardState extends ConsumerState<Img2ImgCard> {
     final scheme = context.scheme;
     return SectionCard(
       icon: Icons.brush_outlined,
-      title: '重绘',
+      title: context.l10n.inpaint,
       reorderIndex: widget.reorderIndex,
-      badge: CountBadge('${state.params.width}×${state.params.height}'),
+      badge: CountBadge(
+        '${job.outputSize?.$1 ?? state.params.width}×${job.outputSize?.$2 ?? state.params.height}',
+      ),
       actions: [
         RoundIconBtn(
           Icons.delete_outline,
-          tooltip: '移除遮罩',
+          tooltip: context.l10n.removeMask,
           color: scheme.error,
           onTap: notifier.clearInpaint,
         ),
@@ -258,63 +248,16 @@ class _Img2ImgCardState extends ConsumerState<Img2ImgCard> {
             children: [
               // 底图上叠遮罩:遮罩 PNG 是黑底白区,半透明压上去白区正好提亮,
               // 一眼看得出这次要重画的是哪块。整块可点 = 回编辑器接着涂。
-              SizedBox(
-                width: 90,
-                height: 118,
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    StripeThumb(
-                      width: 90,
-                      height: 118,
-                      radius: 12,
-                      image: job.image,
-                    ),
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(12),
-                      child: Opacity(
-                        opacity: .55,
-                        child: Image.memory(
-                          job.mask,
-                          fit: BoxFit.cover,
-                          gaplessPlayback: true,
-                        ),
-                      ),
-                    ),
-                    Material(
-                      color: Colors.transparent,
-                      borderRadius: BorderRadius.circular(12),
-                      clipBehavior: Clip.antiAlias,
-                      child: InkWell(
-                        onTap: () => _reenter(job),
-                        child: Align(
-                          alignment: Alignment.bottomRight,
-                          child: Container(
-                            margin: const EdgeInsets.all(6),
-                            padding: const EdgeInsets.all(5),
-                            decoration: BoxDecoration(
-                              color: scheme.primary,
-                              shape: BoxShape.circle,
-                              boxShadow: const [
-                                BoxShadow(color: Colors.black26, blurRadius: 3),
-                              ],
-                            ),
-                            child: Icon(
-                              Icons.brush,
-                              size: 15,
-                              color: scheme.onPrimary,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
+              BaseImageThumbnail(
+                key: const ValueKey('inpaint-base-thumbnail'),
+                image: job.image,
+                mask: job.mask,
+                onTap: () => _reenter(job),
               ),
               const SizedBox(width: 12),
               Expanded(
                 child: ParamSlider(
-                  label: '强度 Strength',
+                  label: context.l10n.paramStrength,
                   help: Help.img2imgStrength,
                   value: job.strength,
                   min: 0.01,
@@ -325,8 +268,6 @@ class _Img2ImgCardState extends ConsumerState<Img2ImgCard> {
               ),
             ],
           ),
-          const SizedBox(height: 8),
-          const InfoNote('遮罩已存好,点下方「生成」开始重绘;点缩略图回编辑器改涂抹范围。'),
         ],
       ),
     );

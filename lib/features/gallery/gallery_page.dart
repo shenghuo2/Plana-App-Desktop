@@ -20,11 +20,15 @@ import '../inpaint/inpaint_overlay.dart';
 import 'gallery_state.dart';
 import 'mobile_gallery_page.dart';
 import 'models.dart';
+import 'result_clipboard.dart';
 import 'save_settings.dart';
 import 'share_pipeline.dart';
 import 'widgets/film_strip.dart';
+import 'widgets/gallery_trash_actions.dart';
+import 'widgets/gallery_trash_content.dart';
 import 'widgets/desktop_canvas_gutters.dart';
 import 'widgets/result_canvas.dart';
+import '../../l10n/l10n.dart';
 
 /// 图库页:上方结果画布(大图 + 操作轨 + seed)、下方历史胶片条。
 /// 生成链路产出的结果落在这里查看与二次操作。
@@ -61,6 +65,11 @@ const _kGalleryHints = <({String key, String text, IconData icon})>[
   ),
 ];
 
+String _hintText(AppLocalizations l, String key) => switch (key) {
+  'hint_save_longpress' => l.hintSaveLongPress,
+  _ => l.hintStripSwipe,
+};
+
 class _GalleryPageState extends ConsumerState<GalleryPage>
     with AutomaticKeepAliveClientMixin {
   bool _keep = false;
@@ -69,10 +78,18 @@ class _GalleryPageState extends ConsumerState<GalleryPage>
   final _historyFocus = FocusNode(debugLabel: 'Canvas and history');
   bool _importingHistory = false;
 
-  /// 最近一次成功显示的原图字节。切到尚未读盘的老图时先继续画它,
-  /// 避免空窗期露占位;新图解码完由 gaplessPlayback 无缝换掉。
-  Uint8List? _lastShown;
+  /// 读到 PNG 字节不代表已能显示。跨越邻页预取范围时，持有上一张已解码
+  /// 画面直到新页首帧就绪，不能让新建的空 Image 遮住它。
+  ImageInfo? _shownFrame;
+  Uint8List? _decodedBytes;
+  Uint8List? _requestedBytes;
+  String? _requestedImageId;
+  ImageStream? _selectedStream;
+  ImageStreamListener? _selectedListener;
+  int _decodeRequest = 0;
+  bool _decodeFailed = false;
   String? _viewKey;
+  String? _viewSelectedId;
 
   /// 冷启动直接停在上次选中的那一页(索引查不到就落到最新一张)。
   late final int _initialPage = () {
@@ -114,9 +131,68 @@ class _GalleryPageState extends ConsumerState<GalleryPage>
 
   @override
   void dispose() {
+    _clearSelectedFrame();
     _pv.dispose();
     _historyFocus.dispose();
     super.dispose();
+  }
+
+  void _stopSelectedDecode() {
+    _decodeRequest++;
+    final listener = _selectedListener;
+    if (listener != null) _selectedStream?.removeListener(listener);
+    _selectedStream = null;
+    _selectedListener = null;
+  }
+
+  void _clearSelectedFrame() {
+    _stopSelectedDecode();
+    _shownFrame?.dispose();
+    _shownFrame = null;
+    _decodedBytes = null;
+    _requestedBytes = null;
+    _requestedImageId = null;
+    _decodeFailed = false;
+  }
+
+  void _prepareSelectedFrame(String? id, Uint8List? bytes) {
+    if (_requestedImageId == id && identical(_requestedBytes, bytes)) return;
+    _stopSelectedDecode();
+    _requestedImageId = id;
+    _requestedBytes = bytes;
+    _decodedBytes = null;
+    _decodeFailed = false;
+    if (bytes == null) return;
+    final request = _decodeRequest;
+    var resolving = true;
+    final stream = MemoryImage(
+      bytes,
+    ).resolve(createLocalImageConfiguration(context));
+    _selectedStream = stream;
+    _selectedListener = ImageStreamListener(
+      (frame, synchronous) {
+        if (!mounted || request != _decodeRequest) {
+          frame.dispose();
+          return;
+        }
+        final previous = _shownFrame;
+        _shownFrame = frame;
+        _decodedBytes = bytes;
+        // 本帧 RawImage 仍可能持有旧句柄，帧结束后再释放。
+        WidgetsBinding.instance.addPostFrameCallback(
+          (_) => previous?.dispose(),
+        );
+        if (!resolving) setState(() {});
+      },
+      onError: (Object error, StackTrace? stack) {
+        if (!mounted || request != _decodeRequest) return;
+        _decodeFailed = true;
+        if (!resolving) setState(() {});
+      },
+    );
+    // 保持监听直到改选，让跳页后的 Image 命中同一份已解码帧，即使缓存正回收。
+    stream.addListener(_selectedListener!);
+    resolving = false;
   }
 
   @override
@@ -151,12 +227,10 @@ class _GalleryPageState extends ConsumerState<GalleryPage>
   KeyEventResult _onHistoryKey(FocusNode node, KeyEvent event) {
     if (!widget.desktop ||
         event is KeyUpEvent ||
-        HardwareKeyboard.instance.isControlPressed ||
         HardwareKeyboard.instance.isAltPressed ||
         HardwareKeyboard.instance.isShiftPressed ||
         HardwareKeyboard.instance.isMetaPressed ||
-        ref.read(inpaintSessionProvider) != null ||
-        ref.read(galleryZoomedProvider)) {
+        ref.read(inpaintSessionProvider) != null) {
       return KeyEventResult.ignored;
     }
     final focused = FocusManager.instance.primaryFocus?.context;
@@ -164,6 +238,21 @@ class _GalleryPageState extends ConsumerState<GalleryPage>
         focused?.findAncestorStateOfType<EditableTextState>() != null) {
       return KeyEventResult.ignored;
     }
+    if (HardwareKeyboard.instance.isControlPressed) {
+      if (event is KeyDownEvent &&
+          event.logicalKey == LogicalKeyboardKey.keyC) {
+        final history = ref.read(galleryViewProvider);
+        final result = history.results
+            .where((r) => r.id == history.selectedId)
+            .firstOrNull;
+        if (result != null) {
+          copyResultToClipboard(context, ref, result);
+          return KeyEventResult.handled;
+        }
+      }
+      return KeyEventResult.ignored;
+    }
+    if (ref.read(galleryZoomedProvider)) return KeyEventResult.ignored;
     final delta = event.logicalKey == LogicalKeyboardKey.arrowLeft
         ? -1
         : event.logicalKey == LogicalKeyboardKey.arrowRight
@@ -183,27 +272,34 @@ class _GalleryPageState extends ConsumerState<GalleryPage>
     return KeyEventResult.handled;
   }
 
-  Widget _historyHeader(int count) => Padding(
-    padding: const EdgeInsets.fromLTRB(12, 6, 12, 0),
-    child: Row(
-      children: [
-        IconButton(
-          tooltip: _historyOpen ? '收起历史' : '展开历史',
-          onPressed: () => setState(() => _historyOpen = !_historyOpen),
-          icon: Icon(
-            _historyOpen ? Icons.expand_more : Icons.expand_less,
-            size: 18,
-          ),
-        ),
-        Text('历史记录 · $count', style: context.texts.bodySmall),
-        if (widget.libraryControl != null)
-          Expanded(
-            child: Align(
-              alignment: Alignment.centerRight,
-              child: widget.libraryControl!,
+  Widget _historyHeader(int count) => Material(
+    type: MaterialType.transparency,
+    child: InkWell(
+      key: const ValueKey('desktop-history-header'),
+      onTap: _historyOpen ? null : () => setState(() => _historyOpen = true),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 6, 12, 0),
+        child: Row(
+          children: [
+            IconButton(
+              tooltip: _historyOpen ? '收起历史' : '展开历史',
+              onPressed: () => setState(() => _historyOpen = !_historyOpen),
+              icon: Icon(
+                _historyOpen ? Icons.expand_more : Icons.expand_less,
+                size: 18,
+              ),
             ),
-          ),
-      ],
+            Text('历史记录 · $count', style: context.texts.bodySmall),
+            if (widget.libraryControl != null)
+              Expanded(
+                child: Align(
+                  alignment: Alignment.centerRight,
+                  child: widget.libraryControl!,
+                ),
+              ),
+          ],
+        ),
+      ),
     ),
   );
 
@@ -275,7 +371,11 @@ class _GalleryPageState extends ConsumerState<GalleryPage>
     );
     if (!mounted) return;
     if (prep.files.isEmpty) {
-      hintSnack(context, '没有可分享的图片', icon: Icons.error_outline);
+      hintSnack(
+        context,
+        context.l10n.nothingToShare,
+        icon: Icons.error_outline,
+      );
       return;
     }
     await SharePlus.instance.share(ShareParams(files: prep.files));
@@ -293,7 +393,9 @@ class _GalleryPageState extends ConsumerState<GalleryPage>
       prefs.write(key: h.key, value: '1');
       // build 里不能直接弹 overlay,推到帧后
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) hintSnack(context, h.text, icon: h.icon);
+        if (mounted) {
+          hintSnack(context, _hintText(context.l10n, h.key), icon: h.icon);
+        }
       });
       return; // 一次一条
     }
@@ -320,12 +422,14 @@ class _GalleryPageState extends ConsumerState<GalleryPage>
     final changedScope = _viewKey != viewKey;
     if (changedScope) {
       _viewKey = viewKey;
-      _lastShown = null;
+      _clearSelectedFrame();
     }
     final pool = ref.watch(generationProvider);
     final gen = ref.watch(genStatusProvider);
     final inpaint = ref.watch(inpaintSessionProvider);
     final selected = state.selected;
+    final changedSelection = _viewSelectedId != selected?.id;
+    _viewSelectedId = selected?.id;
 
     // 重绘会话开/关时更新 keep-alive(仅编辑期间常驻,平时随 PageView 回收)
     final keep = inpaint != null;
@@ -352,6 +456,13 @@ class _GalleryPageState extends ConsumerState<GalleryPage>
               canvasBar: CanvasActionBar.bottom,
             ),
           if (!widget.desktop) const GalleryContextBar(),
+          if (ref.watch(galleryProvider).trash.isNotEmpty)
+            TextButton.icon(
+              key: const ValueKey('empty-gallery-trash'),
+              onPressed: () => showGalleryTrash(context),
+              icon: const Icon(Icons.delete_outline),
+              label: Text(l10nNow.trashName),
+            ),
           if (widget.desktop) _historyHeader(0),
         ],
       );
@@ -364,14 +475,15 @@ class _GalleryPageState extends ConsumerState<GalleryPage>
 
     // 选中图字节不在内存(重启水合/RAM 减负)时按需从盘读。
     var selBytes = selected?.bytes;
+    var readFailed = false;
     if (selBytes == null && selected != null) {
-      selBytes = ref.watch(galleryImageProvider(selected.id)).value;
+      final image = ref.watch(galleryImageProvider(selected.id));
+      selBytes = image.value;
+      readFailed = image.hasError || (image.hasValue && selBytes == null);
     }
-    // 老图重启后 bytes 不在内存,要异步读原图;这段空窗以前掉回斜纹网格,
-    // 就是「老图切换闪一下」的来源。**不能垫缩略图** —— 缩略图是 cover 方形
-    // 裁切(256²),拉到全画布会变形又变回去,比斜纹更晃眼(实测反馈)。
-    // 改为留住上一张已显示的原图,直到新图解码完成,视觉上完全无缝。
-    if (selBytes != null) _lastShown = selBytes;
+    _prepareSelectedFrame(selected?.id, selBytes);
+    final decoded = selBytes != null && identical(selBytes, _decodedBytes);
+    final unavailable = readFailed || _decodeFailed;
     final showChrome = !showGen && selected != null;
 
     final results = state.results;
@@ -391,16 +503,21 @@ class _GalleryPageState extends ConsumerState<GalleryPage>
 
     // 选中项被外面改了(点胶片条/网格跳选、新图前插、删图平移)→ 排一次跳页。
     final desynced = selIdx >= 0 && selIdx != _pageAt;
-    if (desynced || changedScope) _requestPage(selIdx < 0 ? 0 : selIdx);
+    // 相册首图生成后，新旧选中项都可能位于第 0 页。操作栏随图片换 key 时，
+    // PageView 可能重建并回到控制器的 initialPage，而 _pageAt 仍是 0。
+    // 图片身份变化也要在布局完成后核对实际页码，不能只比较旧的页码记录。
+    if (desynced || changedScope || (changedSelection && !_userDrag)) {
+      _requestPage(selIdx < 0 ? 0 : selIdx);
+    }
 
-    // 顶图层:页码还没跟上的那一两帧、或老图字节还没读上来时,拿一张盖在
-    // 分页画布上顶住 —— 优先当前选中的真身,退而求其次是上一张已显示的。
+    // 只拿已经解码的帧桥接分页，不用刚读到、还不能显示的 PNG 字节。
     //
     // **手拖期间一律不盖**:拖到过半就发 onPageChanged,此刻若入场页的字节碰巧
     // 还在读盘,盖上去的是上一张,等于把跟手的半页画面糊死,比露一格空画框糟得多。
     // 拖动时露空画框也几乎见不着 —— 邻页在上面预取过了。
-    final bridge = !showGen && !_userDrag && (desynced || selBytes == null)
-        ? (selBytes ?? _lastShown)
+    final bridge =
+        !showGen && !_userDrag && !unavailable && (desynced || !decoded)
+        ? _shownFrame
         : null;
 
     // 缩放态把翻页物理整个撤掉,横向拖动让回 InteractiveViewer 做平移。
@@ -454,10 +571,14 @@ class _GalleryPageState extends ConsumerState<GalleryPage>
                         // 顶图层:跳页空窗 / 老图还没读上来时顶住,不露空画框
                         if (bridge != null)
                           IgnorePointer(
-                            child: GalleryImageLayer(
-                              bytes: bridge,
-                              width: selected?.width ?? 0,
-                              height: selected?.height ?? 0,
+                            child: ColoredBox(
+                              color: context.scheme.surfaceContainerHigh,
+                              child: Center(
+                                child: RawImage(
+                                  image: bridge.image,
+                                  fit: BoxFit.contain,
+                                ),
+                              ),
                             ),
                           ),
                         // 生成视角:预览层盖住分页画布。预览没有邻居语义,不参与翻页;
@@ -471,12 +592,8 @@ class _GalleryPageState extends ConsumerState<GalleryPage>
                           // 整图。整图生成时 pasteUnder 为空,走原来那条。
                           _ZoomableImage(
                             bytes: gen.pasteUnder ?? gen.preview ?? selBytes,
-                            width: gen.pasteUnder != null
-                                ? (selected?.width ?? gen.width)
-                                : gen.width,
-                            height: gen.pasteUnder != null
-                                ? (selected?.height ?? gen.height)
-                                : gen.height,
+                            width: gen.pasteSize?.w ?? gen.width,
+                            height: gen.pasteSize?.h ?? gen.height,
                             overlay: gen.pasteUnder == null
                                 ? null
                                 : gen.preview,
@@ -578,7 +695,7 @@ class _GalleryPageState extends ConsumerState<GalleryPage>
                     child: Row(
                       children: [
                         IconButton(
-                          tooltip: '返回历史',
+                          tooltip: l10nNow.backToHistory,
                           onPressed: () => ref
                               .read(galleryResultPreviewProvider.notifier)
                               .clear(),
@@ -601,7 +718,7 @@ class _GalleryPageState extends ConsumerState<GalleryPage>
                                     ? preview.target.albumId
                                     : null,
                               ),
-                          child: const Text('浏览图库'),
+                          child: Text(l10nNow.desktopBrowseGallery),
                         ),
                       ],
                     ),
@@ -619,8 +736,7 @@ class _GalleryPageState extends ConsumerState<GalleryPage>
                         : null,
                     onSelect: _selectHistory,
                     onShare: _shareOne,
-                    onDelete: (id) =>
-                        ref.read(galleryProvider.notifier).deleteResults([id]),
+                    onDelete: (id) => moveGalleryImagesToTrash(context, [id]),
                     jobs: pool.newestFirst,
                     selectedJobId: pool.selectedId,
                     onSelectJob: (id) {
@@ -965,13 +1081,13 @@ class _DesktopEmptyCanvas extends ConsumerWidget {
                   color: context.scheme.primary,
                 ),
                 const SizedBox(height: 20),
-                const Text(
-                  '等待灵感落笔',
+                Text(
+                  l10nNow.desktopReadyToCreate,
                   style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
                 ),
                 const SizedBox(height: 10),
                 Text(
-                  '写下提示词，开始第一张创作',
+                  l10nNow.desktopEnterAPromptToCreateYourFirstImage,
                   style: TextStyle(
                     fontSize: 12,
                     color: context.scheme.onSurfaceVariant,
@@ -1014,7 +1130,7 @@ class _EmptyGallery extends ConsumerWidget {
           const SizedBox(height: 6),
           TextButton(
             onPressed: () => showAlbumLibrary(context),
-            child: const Text('选择 / 创建图库'),
+            child: Text(l10nNow.desktopChooseOrCreateAGallery),
           ),
           if (ref.watch(galleryBrowseAlbumProvider) != null) ...[
             TextButton(
@@ -1030,17 +1146,17 @@ class _EmptyGallery extends ConsumerWidget {
                   if (context.mounted) albumError(context, e);
                 }
               },
-              child: const Text('从全部作品添加'),
+              child: Text(l10nNow.desktopAddFromAllImages),
             ),
             TextButton(
               onPressed: () => ref
                   .read(albumsProvider.notifier)
                   .setSave(ref.read(galleryBrowseAlbumProvider)),
-              child: const Text('将新图保存到这里'),
+              child: Text(l10nNow.desktopSaveNewImagesHere),
             ),
           ],
           Text(
-            '去「创作」生成第一张',
+            context.l10n.goCreateFirst,
             style: context.texts.bodySmall!.copyWith(color: scheme.outline),
           ),
         ],

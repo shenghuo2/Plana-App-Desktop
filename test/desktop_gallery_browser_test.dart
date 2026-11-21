@@ -35,9 +35,27 @@ class _Search extends GallerySearchNotifier {
   @override
   GallerySearchState build() => const GallerySearchState(
     byId: {
-      'sample0': (model: 'NAI 4.5 Full', text: 'cat, outdoors'),
-      'sample1': (model: 'NAI 4 Curated', text: 'cat, indoors'),
-      'sample2': (model: 'NAI 4.5 Full', text: 'landscape, outdoors'),
+      'sample0': (
+        model: 'NAI 4.5 Full',
+        text: 'cat, outdoors',
+        ids: [],
+        cards: [],
+        folds: [],
+      ),
+      'sample1': (
+        model: 'NAI 4 Curated',
+        text: 'cat, indoors',
+        ids: [],
+        cards: [],
+        folds: [],
+      ),
+      'sample2': (
+        model: 'NAI 4.5 Full',
+        text: 'landscape, outdoors',
+        ids: [],
+        cards: [],
+        folds: [],
+      ),
     },
   );
 }
@@ -322,6 +340,10 @@ void main() {
     (tester) async {
       await mount(tester);
       await openAll(tester);
+      // Portrait rows are taller now; session scroll restoration may leave the
+      // first tile above the viewport after the preceding independent test.
+      await tester.ensureVisible(key('desktop-image-sample0'));
+      await tester.pumpAndSettle();
       final press = await tester.startGesture(
         tester.getCenter(key('desktop-image-sample0')),
         kind: PointerDeviceKind.mouse,
@@ -399,14 +421,17 @@ void main() {
         ],
       );
       await mount(tester);
-      expect(find.text('0 张作品'), findsNWidgets(6));
+      expect(
+        find.text('0 张作品'),
+        findsNWidgets(8),
+      ); // Six albums and two fixed entries.
       expect(find.text('128 张作品'), findsOneWidget);
       expect(data.membershipChecks, 0);
       expect(data.membershipLookups, images.length);
 
       await tester.enterText(key('desktop-gallery-search'), 'Empty');
       await tester.pumpAndSettle();
-      expect(find.text('0 张作品'), findsNWidgets(6));
+      expect(find.text('0 张作品'), findsNWidgets(8));
       expect(data.membershipChecks, 0);
       expect(
         data.membershipLookups,

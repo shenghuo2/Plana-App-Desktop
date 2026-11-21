@@ -1,3 +1,4 @@
+import '../../../l10n/l10n.dart';
 import 'package:flutter/material.dart';
 
 import '../gallery_date_filter.dart';
@@ -114,10 +115,11 @@ Future<bool> confirmGalleryBatchDelete(BuildContext context, int count) async {
         context: context,
         builder: (dialogContext) => AlertDialog(
           title: Text('删除 $count 张作品?'),
+          content: Text(l10nNow.desktopItemsMovedToTrashCanBeRestoredFor),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(dialogContext).pop(false),
-              child: const Text('取消'),
+              child: Text(l10nNow.cancel),
             ),
             FilledButton(
               style: FilledButton.styleFrom(
@@ -125,7 +127,7 @@ Future<bool> confirmGalleryBatchDelete(BuildContext context, int count) async {
                 foregroundColor: scheme.onError,
               ),
               onPressed: () => Navigator.of(dialogContext).pop(true),
-              child: const Text('删除'),
+              child: Text(l10nNow.delete),
             ),
           ],
         ),

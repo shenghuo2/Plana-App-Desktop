@@ -1,4 +1,6 @@
+import '../../core/ui/theme_swatches.dart';
 import '../../core/ui/settings_scaffold.dart';
+import '../../l10n/l10n.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -21,7 +23,17 @@ class AppearancePage extends ConsumerWidget {
         padding: const EdgeInsets.fromLTRB(14, 8, 14, 24),
         children: [
           const SettingsPageHeader(),
-          const SettingsLabel('深浅模式'),
+          SettingsCard(
+            children: [
+              _LanguageRow(
+                value: ts.language,
+                onChanged: (value) =>
+                    notifier.patch((x) => x.copyWith(language: value)),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          SettingsLabel(context.l10n.themeMode),
           SettingsCard(
             children: [
               Padding(
@@ -29,13 +41,19 @@ class AppearancePage extends ConsumerWidget {
                 child: SizedBox(
                   width: double.infinity,
                   child: SegmentedButton<ThemeMode>(
-                    segments: const [
+                    segments: [
                       ButtonSegment(
                         value: ThemeMode.system,
-                        label: Text('跟随系统'),
+                        label: Text(context.l10n.followSystem),
                       ),
-                      ButtonSegment(value: ThemeMode.light, label: Text('浅色')),
-                      ButtonSegment(value: ThemeMode.dark, label: Text('深色')),
+                      ButtonSegment(
+                        value: ThemeMode.light,
+                        label: Text(context.l10n.themeLight),
+                      ),
+                      ButtonSegment(
+                        value: ThemeMode.dark,
+                        label: Text(context.l10n.themeDark),
+                      ),
                     ],
                     selected: {ts.mode},
                     onSelectionChanged: (s) =>
@@ -47,25 +65,10 @@ class AppearancePage extends ConsumerWidget {
             ],
           ),
           const SizedBox(height: 16),
-          const SettingsLabel('主题色'),
-          SettingsCard(
+          SettingsLabel(context.l10n.themeColor),
+          const SettingsCard(
             children: [
-              Padding(
-                padding: const EdgeInsets.all(16),
-                child: Wrap(
-                  spacing: 12,
-                  runSpacing: 12,
-                  children: [
-                    for (final s in themeSeeds)
-                      _Swatch(
-                        seed: s,
-                        selected: s.key == ts.seed.key,
-                        onTap: () =>
-                            notifier.patch((x) => x.copyWith(seedKey: s.key)),
-                      ),
-                  ],
-                ),
-              ),
+              Padding(padding: EdgeInsets.all(16), child: ThemeSwatches()),
             ],
           ),
           const SizedBox(height: 16),
@@ -94,7 +97,7 @@ class AppearancePage extends ConsumerWidget {
                                 : () => notifier.patch(
                                     (x) => x.copyWith(textScale: 1),
                                   ),
-                            child: const Text('恢复默认'),
+                            child: Text(l10nNow.resetSettings),
                           ),
                         ],
                       ),
@@ -139,22 +142,23 @@ class AppearancePage extends ConsumerWidget {
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       Text(
-                        '调整「我的」页面右侧内容区域的水平位置',
+                        l10nNow
+                            .desktopSetTheHorizontalAlignmentOfTheProfileContent,
                         style: context.texts.bodySmall!.copyWith(
                           color: context.scheme.onSurfaceVariant,
                         ),
                       ),
                       const SizedBox(height: 12),
                       SegmentedButton<PageAlignment>(
-                        segments: const [
+                        segments: [
                           ButtonSegment(
                             value: PageAlignment.center,
-                            label: Text('居中'),
+                            label: Text(l10nNow.desktopCenter),
                             icon: Icon(Icons.align_horizontal_center),
                           ),
                           ButtonSegment(
                             value: PageAlignment.left,
-                            label: Text('居左'),
+                            label: Text(l10nNow.desktopLeft),
                             icon: Icon(Icons.align_horizontal_left),
                           ),
                         ],
@@ -176,7 +180,7 @@ class AppearancePage extends ConsumerWidget {
             children: [
               _SwitchRow(
                 icon: Icons.auto_awesome,
-                title: '显示 AI 助手',
+                title: l10nNow.showAssistant,
                 subtitle: desktop ? '关掉后顶部导航不再显示 AI 入口' : '关掉后底栏不再显示 AI 入口',
                 value: ts.showAssistant,
                 onChanged: (v) =>
@@ -185,8 +189,9 @@ class AppearancePage extends ConsumerWidget {
               if (desktop)
                 _SwitchRow(
                   icon: Icons.handyman_outlined,
-                  title: '显示工具箱',
-                  subtitle: '开启时在顶部导航显示，关闭后移回「我的」',
+                  title: l10nNow.desktopShowToolbox,
+                  subtitle:
+                      l10nNow.desktopShowToolboxInTheTopNavigationOrAccess,
                   value: ts.showTools,
                   onChanged: (v) =>
                       notifier.patch((x) => x.copyWith(showTools: v)),
@@ -194,7 +199,7 @@ class AppearancePage extends ConsumerWidget {
             ],
           ),
           const SizedBox(height: 16),
-          const SettingsLabel('创作页'),
+          SettingsLabel(context.l10n.createPage),
           SettingsCard(
             children: [
               _SwitchRow(
@@ -215,6 +220,24 @@ class AppearancePage extends ConsumerWidget {
               ),
             ],
           ),
+          if (desktop) ...[
+            const SizedBox(height: 16),
+            const SettingsLabel('灵感'),
+            SettingsCard(
+              children: [
+                _SwitchRow(
+                  key: const ValueKey('appearance-codex-hover-preview'),
+                  icon: Icons.preview_outlined,
+                  title: l10nNow.desktopCodexHoverPreview,
+                  subtitle: l10nNow.desktopHoverForAbout15SecondsToPreview,
+                  value: ts.codexHoverPreview,
+                  onChanged: (value) => notifier.patch(
+                    (settings) => settings.copyWith(codexHoverPreview: value),
+                  ),
+                ),
+              ],
+            ),
+          ],
           if (!desktop) ...[
             const SizedBox(height: 16),
             const SettingsLabel('触感'),
@@ -222,7 +245,7 @@ class AppearancePage extends ConsumerWidget {
               children: [
                 _SwitchRow(
                   icon: Icons.vibration,
-                  title: '振动反馈',
+                  title: l10nNow.hapticFeedback,
                   value: ts.haptics,
                   onChanged: (v) =>
                       notifier.patch((x) => x.copyWith(haptics: v)),
@@ -237,6 +260,58 @@ class AppearancePage extends ConsumerWidget {
 }
 
 /// 卡片里的一行开关。整行可点。
+class _LanguageRow extends StatelessWidget {
+  const _LanguageRow({required this.value, required this.onChanged});
+
+  final String value;
+  final ValueChanged<String> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final options = {
+      'zh': '中文',
+      'en': 'English',
+      'ja': '日本語',
+      '': context.l10n.followSystem,
+    };
+    return SettingsRow(
+      key: const ValueKey('appearance-language'),
+      icon: Icons.translate,
+      title: context.l10n.creationLanguage,
+      value: options[value],
+      dropdown: true,
+      onTap: () async {
+        final row = context.findRenderObject()! as RenderBox;
+        final overlay =
+            Navigator.of(context).overlay!.context.findRenderObject()!
+                as RenderBox;
+        final picked = await showMenu<String>(
+          context: context,
+          positionBuilder: (_, _) {
+            final edge = row.localToGlobal(
+              row.size.bottomRight(Offset.zero),
+              ancestor: overlay,
+            );
+            return RelativeRect.fromRect(
+              Rect.fromLTWH(edge.dx - 1, edge.dy, 1, 0),
+              Offset.zero & overlay.size,
+            );
+          },
+          items: [
+            for (final item in options.entries)
+              CheckedPopupMenuItem<String>(
+                value: item.key,
+                checked: item.key == value,
+                child: Text(item.value),
+              ),
+          ],
+        );
+        if (context.mounted && picked != null) onChanged(picked);
+      },
+    );
+  }
+}
+
 class _SwitchRow extends StatelessWidget {
   const _SwitchRow({
     super.key,
@@ -291,56 +366,6 @@ class _SwitchRow extends StatelessWidget {
             const SizedBox(width: 8),
             Switch(value: value, onChanged: onChanged),
           ],
-        ),
-      ),
-    );
-  }
-}
-
-class _Swatch extends StatelessWidget {
-  const _Swatch({
-    required this.seed,
-    required this.selected,
-    required this.onTap,
-  });
-
-  final ThemeSeed seed;
-  final bool selected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = context.scheme;
-    final onColor =
-        ThemeData.estimateBrightnessForColor(seed.color) == Brightness.dark
-        ? Colors.white
-        : Colors.black87;
-    return Tooltip(
-      message: seed.label,
-      child: InkWell(
-        onTap: onTap,
-        customBorder: const CircleBorder(),
-        child: AnimatedContainer(
-          duration: Motion.fast,
-          width: 44,
-          height: 44,
-          padding: const EdgeInsets.all(3),
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            border: Border.all(
-              width: 2,
-              color: selected ? scheme.onSurface : Colors.transparent,
-            ),
-          ),
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              color: seed.color,
-              shape: BoxShape.circle,
-            ),
-            child: selected
-                ? Icon(Icons.check, size: 18, color: onColor)
-                : null,
-          ),
         ),
       ),
     );

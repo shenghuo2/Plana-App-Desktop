@@ -7,6 +7,7 @@
 /// 忽略,但也有中转会因此报错 —— 事先说清楚比事后查错便宜。
 library;
 
+import '../../../l10n/l10n.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -50,12 +51,12 @@ class _ThinkSheet extends ConsumerWidget {
     }
 
     return SettingSheet(
-      title: '调整模型思考深度',
+      title: l10nNow.adjustThinkDepth,
       children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(20, 0, 20, 18),
           child: Text(
-            '并非所有模型都支持深度调整,请参考模型和提供商的文档。',
+            l10nNow.thinkDepthNote,
             style: context.texts.bodySmall!.copyWith(
               color: scheme.onSurfaceVariant,
               height: 1.6,

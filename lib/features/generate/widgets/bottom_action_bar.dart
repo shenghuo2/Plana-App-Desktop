@@ -1,8 +1,10 @@
+import '../../../l10n/l10n.dart';
 import '../../gallery/albums/album_ui.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/net/anlas_provider.dart';
+import '../../../core/auth/auth_mode.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/ui/param_input.dart';
 import '../../../core/util/haptics.dart';
@@ -18,7 +20,8 @@ import '../models.dart'
         stepsRangeOf,
         isAnimaModel,
         isKreaModel,
-        isNai5MediumModel;
+        isNai5MediumModel,
+        isNai5Model;
 import '../vibe_encoder.dart';
 import '../../import/import_panel.dart';
 import 'advanced_sheet.dart';
@@ -168,21 +171,20 @@ class _BottomActionBarState extends ConsumerState<BottomActionBar> {
                 child: Row(
                   children: [
                     for (final item in [
-                      if (!isNai5MediumModel(p.model))
-                        (
-                          GenerationSettingTarget.steps,
-                          '步数',
-                          '${p.activeSteps}',
-                        ),
+                      (
+                        GenerationSettingTarget.steps,
+                        context.l10n.steps,
+                        '${p.activeSteps}',
+                      ),
                       (
                         GenerationSettingTarget.guidance,
-                        '引导',
+                        context.l10n.guidanceShort,
                         cfg.toStringAsFixed(1),
                       ),
                       (
                         GenerationSettingTarget.seed,
-                        '种子',
-                        p.seed.isEmpty ? '随机' : p.seed,
+                        context.l10n.desktopSeed,
+                        p.seed.isEmpty ? context.l10n.randomShort : p.seed,
                       ),
                     ])
                       Expanded(
@@ -191,10 +193,24 @@ class _BottomActionBarState extends ConsumerState<BottomActionBar> {
                           key: ValueKey('desktop-summary-${item.$1.name}'),
                           label: item.$2,
                           value: item.$3,
-                          tooltip: item.$1 == GenerationSettingTarget.seed
+                          muted:
+                              p.isNaiMedium &&
+                              item.$1 == GenerationSettingTarget.steps,
+                          tooltip:
+                              p.isNaiMedium &&
+                                  item.$1 == GenerationSettingTarget.steps
+                              ? 'Medium 步数固定为 ${p.activeSteps}'
+                              : item.$1 == GenerationSettingTarget.seed
                               ? '清空种子，改为每次随机'
                               : null,
-                          onTap: item.$1 == GenerationSettingTarget.seed
+                          onTap:
+                              p.isNaiMedium &&
+                                  item.$1 == GenerationSettingTarget.steps
+                              ? () => hintSnack(
+                                  context,
+                                  'Medium 步数固定为 ${p.activeSteps}',
+                                )
+                              : item.$1 == GenerationSettingTarget.seed
                               ? () => ref
                                     .read(generateProvider.notifier)
                                     .applyParams(
@@ -213,7 +229,7 @@ class _BottomActionBarState extends ConsumerState<BottomActionBar> {
                       child: Builder(
                         builder: (anchor) => _DesktopReadout(
                           key: const ValueKey('desktop-summary-resolution'),
-                          label: '比例',
+                          label: context.l10n.ratioShort,
                           value: '${p.width}×${p.height}',
                           onTap: () => showResolutionSheet(anchor),
                         ),
@@ -268,7 +284,7 @@ class _BottomActionBarState extends ConsumerState<BottomActionBar> {
                   : MainAxisAlignment.start,
               children: [
                 _ReadoutChip(
-                  caption: '尺寸',
+                  caption: context.l10n.size,
                   value: '${p.width}×${p.height}',
                   onTap: () => showResolutionSheet(context),
                 ),
@@ -283,7 +299,7 @@ class _BottomActionBarState extends ConsumerState<BottomActionBar> {
                 if (batchable) const _BatchChip() else const Spacer(),
                 _ReadoutChip(
                   icon: Icons.tune,
-                  value: '高级',
+                  value: context.l10n.advanced,
                   valueMuted: true,
                   onTap: () => showAdvancedSheet(context),
                 ),
@@ -294,7 +310,7 @@ class _BottomActionBarState extends ConsumerState<BottomActionBar> {
               children: [
                 // 导入图片:选相册图 → 解析元数据/用作参考的全屏导入面板
                 Tooltip(
-                  message: '导入图片',
+                  message: context.l10n.importImage,
                   child: AnimatedContainer(
                     duration: Motion.fast,
                     width: 52,
@@ -326,7 +342,7 @@ class _BottomActionBarState extends ConsumerState<BottomActionBar> {
                 const SizedBox(width: 9),
                 // 循环伴钮:进循环面板(选张数并开始);运行中高亮,面板里可停
                 Tooltip(
-                  message: '循环生成',
+                  message: l10nNow.loopGenerate,
                   child: AnimatedContainer(
                     duration: Motion.fast,
                     width: 52,
@@ -402,8 +418,10 @@ class _DesktopReadout extends StatelessWidget {
     required this.value,
     required this.onTap,
     this.tooltip,
+    this.muted = false,
   });
   final String label, value;
+  final bool muted;
   final VoidCallback? onTap;
   final String? tooltip;
 
@@ -431,6 +449,7 @@ class _DesktopReadout extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
               style: context.texts.labelLarge!.copyWith(
                 fontSize: 13,
+                color: muted ? context.scheme.outline : null,
                 fontWeight: FontWeight.w700,
               ),
             ),
@@ -448,7 +467,7 @@ void _hintDisabledVibes(BuildContext context, WidgetRef ref) {
   if (n > 0) {
     hintSnack(
       context,
-      '$n 个 Vibe 缺当前模型编码,已停用',
+      context.l10n.vibesDisabledNoEncoding(n),
       icon: Icons.visibility_off_outlined,
     );
   }
@@ -516,7 +535,7 @@ class _GenerateButton extends StatelessWidget {
                     const SizedBox(width: 8),
                     Flexible(
                       child: Text(
-                        '生成',
+                        context.l10n.generate,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: context.texts.titleMedium!.copyWith(
@@ -536,7 +555,10 @@ class _GenerateButton extends StatelessWidget {
                         curve: Motion.standard,
                         child: AnimatedSwitcher(
                           duration: Motion.fast,
-                          child: CostPill(key: ValueKey(cost), cost: cost),
+                          child: GenerationCostPill(
+                            key: ValueKey(cost),
+                            cost: cost,
+                          ),
                         ),
                       ),
                     ),
@@ -556,8 +578,8 @@ class _GenerateButton extends StatelessWidget {
               ),
               Tooltip(
                 message: runningCount > 1
-                    ? '取消当前跟随的这条($runningCount 条在跑)'
-                    : '取消生成',
+                    ? context.l10n.cancelTrackedJob(runningCount)
+                    : context.l10n.cancelGeneration,
                 child: InkWell(
                   onTap: onStop,
                   child: SizedBox(
@@ -636,10 +658,37 @@ class _GenerateButton extends StatelessWidget {
 /// **公开只为可测**:这颗胶囊的不变量(免费与两位数等宽、两档等高、不撑满
 /// 按钮)全是布局层面的,analyze 一条都查不出来,历史上连着栽过三次。
 /// 直接 pump 它比经由整页去凑一个免费/收费状态可靠得多,见 widget_test。
+class GenerationCostPill extends ConsumerWidget {
+  const GenerationCostPill({super.key, required this.cost});
+  final int cost;
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final bot = ref.watch(authModeProvider).asData?.value == AuthMode.bot;
+    final model = ref.watch(generateProvider.select((s) => s.params.model));
+    final quota = bot && model.startsWith('NAI ')
+        ? ref.watch(naiQuotaProvider).asData?.value
+        : null;
+    if (quota == null || !quota.relayOnly) return CostPill(cost: cost);
+    final price = isNai5Model(model)
+        ? quota.relayPrice
+        : quota.relayPriceLegacy;
+    final label = !quota.relayAvailable
+        ? '中转不可用'
+        : !quota.relayEnabled
+        ? '中转未启用'
+        : '¥${price.toStringAsFixed(2)}/张';
+    return Tooltip(
+      message: l10nNow.desktopTheRelayChargesPerImageCheckWalletTransactions,
+      child: CostPill(cost: cost, relayLabel: label),
+    );
+  }
+}
+
 class CostPill extends StatelessWidget {
-  const CostPill({super.key, required this.cost});
+  const CostPill({super.key, required this.cost, this.relayLabel});
 
   final int cost;
+  final String? relayLabel;
 
   static const _icon = 12.0;
   static const _gap = 3.0;
@@ -685,7 +734,7 @@ class CostPill extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = context.scheme;
-    final paid = cost > 0;
+    final paid = cost > 0 || relayLabel != null;
     // 底色换了,字色得跟着换到配套的那支 —— onPrimary 是给按钮底色配的,
     // 压在浅粉上会在浅色主题下变成浅字压浅底。
     final fg = paid ? scheme.onTertiaryContainer : scheme.onPrimary;
@@ -722,8 +771,19 @@ class CostPill extends StatelessWidget {
             Row(
               mainAxisSize: MainAxisSize.min,
               mainAxisAlignment: MainAxisAlignment.center,
-              children: !paid
-                  ? [Text('免费', maxLines: 1, softWrap: false, style: style)]
+              children: relayLabel != null
+                  ? [
+                      Flexible(
+                        child: Text(
+                          relayLabel!,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: style,
+                        ),
+                      ),
+                    ]
+                  : !paid
+                  ? [Text(l10nNow.free, maxLines: 1, softWrap: false, style: style)]
                   : [
                       Icon(Icons.toll, size: _icon, color: fg),
                       const SizedBox(width: _gap),
@@ -757,15 +817,22 @@ class _StepsChip extends ConsumerWidget {
       generateProvider.select((s) => s.params.activeSteps),
     );
     final pill = ref.watch(floatingPillProvider);
-    final open = pill.isOpen(FloatingPill.steps);
+    final fixed = ref.watch(
+      generateProvider.select((s) => s.params.isNaiMedium),
+    );
+    final open = !fixed && pill.isOpen(FloatingPill.steps);
     return _ReadoutChip(
-      caption: '步数',
+      caption: context.l10n.steps,
+      valueMuted: fixed,
       value: '${(open ? pill.draft?.round() : null) ?? committed}',
       active: open,
       // 拖动时逐帧换数,再叠淡入淡出只会糊成一团
       animateValue: !open,
-      onTap: () =>
-          ref.read(floatingPillProvider.notifier).toggle(FloatingPill.steps),
+      onTap: fixed
+          ? () => hintSnack(context, 'Medium 步数固定为 $committed')
+          : () => ref
+                .read(floatingPillProvider.notifier)
+                .toggle(FloatingPill.steps),
     );
   }
 }
@@ -790,7 +857,7 @@ class _BatchChip extends ConsumerWidget {
     // 选 4 出 1 张且没有任何提示,那种不一致最难查。
     final locked = p.effectiveBatch != p.batchCount;
     return _ReadoutChip(
-      caption: '张数',
+      caption: context.l10n.imageCount,
       value: '${p.effectiveBatch}',
       // 锁着时把读数压灰(和「高级」那颗同一种「这不是可调的数」的说法),
       // 不加锁形图标:那会让这一格忽宽忽窄,整行跟着抖。为什么是 1,点一下才说。
@@ -800,8 +867,7 @@ class _BatchChip extends ConsumerWidget {
         if (locked) {
           hintSnack(
             context,
-            '重绘放大开着时只能出 1 张:二段采样要按放大后的尺寸再跑一遍,'
-            '显存吃不下一批。',
+            context.l10n.batchLockedHires,
             icon: Icons.info_outline,
           );
           return;
@@ -920,7 +986,7 @@ class _BatchPickerPill extends ConsumerWidget {
     final scheme = context.scheme;
     final cur = ref.watch(sentParamsProvider).batchCount.clamp(1, kBatchMax);
     return _PillShell(
-      label: '张数',
+      label: context.l10n.imageCount,
       child: Padding(
         padding: const EdgeInsets.only(left: 12),
         child: Container(
@@ -1023,7 +1089,7 @@ class _StepsSliderPill extends ConsumerWidget {
                 committed)
             .clamp(min, max);
     return _PillShell(
-      label: '步数',
+      label: context.l10n.steps,
       child: Row(
         children: [
           Expanded(
@@ -1063,7 +1129,7 @@ class _StepsSliderPill extends ConsumerWidget {
               final p = ref.read(generateProvider).params;
               final v = await showParamInput(
                 context,
-                title: '步数 Steps',
+                title: context.l10n.paramSteps,
                 snapToDivisions: true,
                 value: steps.toDouble(),
                 min: min.toDouble(),
@@ -1104,15 +1170,23 @@ class _ReadoutChip extends StatelessWidget {
   final bool animateValue;
   final VoidCallback onTap;
 
+  static const _captionSize = 10.0;
+
+  static TextStyle _valueStyle(BuildContext context, bool muted) => muted
+      ? context.texts.bodyMedium!.copyWith(
+          color: context.scheme.onSurfaceVariant,
+        )
+      : mono(context, size: 13);
+
+
+
   @override
   Widget build(BuildContext context) {
     final scheme = context.scheme;
     final text = Text(
       value,
       key: ValueKey(value),
-      style: valueMuted
-          ? context.texts.bodyMedium!.copyWith(color: scheme.onSurfaceVariant)
-          : mono(context, size: 13),
+      style: _valueStyle(context, valueMuted),
     );
     return Material(
       color: scheme.surfaceContainerHighest,
@@ -1138,16 +1212,21 @@ class _ReadoutChip extends StatelessWidget {
             children: [
               if (icon != null) ...[
                 Icon(icon, size: 17, color: scheme.onSurfaceVariant),
-                const SizedBox(width: 5),
+                if (value.isNotEmpty) const SizedBox(width: 5),
               ],
               if (caption != null) ...[
                 Text(
                   caption!,
-                  style: TextStyle(fontSize: 10, color: scheme.outline),
+                  style: TextStyle(
+                    fontSize: _captionSize,
+                    color: scheme.outline,
+                  ),
                 ),
                 const SizedBox(width: 5),
               ],
-              if (animateValue)
+              if (value.isEmpty)
+                const SizedBox.shrink()
+              else if (animateValue)
                 AnimatedSwitcher(duration: Motion.fast, child: text)
               else
                 text,

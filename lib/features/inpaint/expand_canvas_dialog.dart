@@ -1,3 +1,4 @@
+import '../../l10n/l10n.dart';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
@@ -195,7 +196,7 @@ class _ExpandCanvasDialogState extends State<ExpandCanvasDialog> {
     return AlertDialog(
       key: const ValueKey('expand-canvas-dialog'),
       insetPadding: const EdgeInsets.all(20),
-      title: const Text('扩图尺寸'),
+      title: Text(l10nNow.expandSize),
       content: SizedBox(
         width: 620,
         child: ConstrainedBox(
@@ -210,7 +211,7 @@ class _ExpandCanvasDialogState extends State<ExpandCanvasDialog> {
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    const Text('向当前画布四周添加像素'),
+                    Text(l10nNow.desktopAddPixelsAroundTheCurrentCanvas),
                     const SizedBox(height: 18),
                     if (wide) ...[
                       Center(
@@ -282,14 +283,14 @@ class _ExpandCanvasDialogState extends State<ExpandCanvasDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(context),
-          child: const Text('取消'),
+          child: Text(l10nNow.cancel),
         ),
         FilledButton(
           key: const ValueKey('expand-apply'),
           onPressed: error != null || !changed
               ? null
               : () => Navigator.pop(context, margins),
-          child: const Text('扩展画布'),
+          child: Text(l10nNow.desktopExtendCanvas),
         ),
       ],
     );

@@ -1,3 +1,4 @@
+import '../../../l10n/l10n.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -61,78 +62,38 @@ class GenerateTopBar extends ConsumerWidget {
     if (!ref.watch(desktopModeProvider)) return _mobileBar(context, ref);
     final state = ref.watch(generateProvider);
     final rentalActive = ref.watch(gpuRentalProvider).active;
-    final scheme = context.scheme;
     return Padding(
       padding: const EdgeInsets.fromLTRB(14, 10, 14, 8),
       // 右边那枚胶囊撑到多宽由它自己说了算(NAI 5 时点数+额度两个数并排),
       // 所以让模型名这边先让步:spaceBetween 把右胶囊钉在右边,模型胶囊拿余量
       // 且只在真放不下时才打省略号 —— 换成 Spacer 会跟 Flexible 对半分余量。
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          // 模型选择
-          Flexible(
-            child: Padding(
-              padding: const EdgeInsets.only(right: 8),
-              child: ref.watch(desktopModeProvider)
-                  ? const _DesktopModelDropdown()
-                  : Material(
-                      color: scheme.surfaceContainerHigh,
-                      borderRadius: BorderRadius.circular(19),
-                      clipBehavior: Clip.antiAlias,
-                      child: InkWell(
-                        onTap: () => _pickModel(context, ref),
-                        child: Padding(
-                          padding: const EdgeInsets.only(left: 14, right: 8),
-                          child: SizedBox(
-                            height: 42,
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Flexible(
-                                  child: AnimatedSwitcher(
-                                    duration: Motion.fast,
-                                    child: Text(
-                                      state.params.model,
-                                      key: ValueKey(state.params.model),
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: context.texts.bodyMedium!.copyWith(
-                                        fontWeight: FontWeight.w600,
-                                        color: scheme.onSurface,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(width: 2),
-                                Icon(
-                                  Icons.expand_more,
-                                  size: 20,
-                                  color: scheme.outline,
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
+      child: LayoutBuilder(
+        builder: (context, constraints) => Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            // 模型选择
+            const Flexible(
+              child: Padding(
+                padding: EdgeInsets.only(right: 8),
+                child: _DesktopModelDropdown(),
+              ),
             ),
-          ),
-          // 右侧那个位置给谁,看当前模型花的是哪种钱:
-          //  - Anima / Krea 不扣 Anlas,余额摆在那儿是个永远不动的死数 ——
-          //    换成算力来源(免费共享 / 独享实例,运行中直接报计时与费用);
-          //  - NAI 但实例还活着:那台在烧 ¥4/时,比余额紧急,也让位;
-          //  - 其余交给余额胶囊 —— 它自己再按模型分:NAI 5 花的是按时间回充的
-          //    额度电池,报百分比;别的报 Anlas。
-          // 单独取出来再判:写成 `isModal || rental.active` 会因为短路
-          // 让 NAI 之外的路径**不订阅** gpuRentalProvider —— 那样冷启动时
-          // 没人把它建起来,也就不会去问「我上次那台还在不在跑」。
-          if (m.isModalModel(state.params.model) || rentalActive)
-            const RentalSourceChip(height: 42)
-          else
-            // 余额 / NAI 5 额度(点开是「点数与额度」弹层)
-            const AnlasChip(height: 42),
-        ],
+            // 右侧那个位置给谁,看当前模型花的是哪种钱:
+            //  - Anima / Krea 不扣 Anlas,余额摆在那儿是个永远不动的死数 ——
+            //    换成算力来源(免费共享 / 独享实例,运行中直接报计时与费用);
+            //  - NAI 但实例还活着:那台在烧 ¥4/时,比余额紧急,也让位;
+            //  - 其余交给余额胶囊 —— 它自己再按模型分:NAI 5 花的是按时间回充的
+            //    额度电池,报百分比;别的报 Anlas。
+            // 单独取出来再判:写成 `isModal || rental.active` 会因为短路
+            // 让 NAI 之外的路径**不订阅** gpuRentalProvider —— 那样冷启动时
+            // 没人把它建起来,也就不会去问「我上次那台还在不在跑」。
+            if (m.isModalModel(state.params.model) || rentalActive)
+              const RentalSourceChip(height: 42)
+            else
+              // 余额 / NAI 5 额度(点开是「点数与额度」弹层)
+              AnlasChip(height: 42, budget: constraints.maxWidth * .5),
+          ],
+        ),
       ),
     );
   }
@@ -210,7 +171,10 @@ class GenerateTopBar extends ConsumerWidget {
                 // 持续订阅实例状态，NAI 下也显示仍在计费的算力。
                 child: m.isModalModel(model) || rentalActive
                     ? const RentalSourceChip(compact: true)
-                    : const AnlasChip(),
+                    : AnlasChip(
+                        compact: true,
+                        budget: constraints.maxWidth * .38,
+                      ),
               ),
             ),
           ],
@@ -282,7 +246,7 @@ class _ModelSheetState extends State<_ModelSheet>
               child: Row(
                 children: [
                   Text(
-                    '模型',
+                    context.l10n.model,
                     style: context.texts.titleMedium!.copyWith(
                       fontWeight: FontWeight.w700,
                     ),
@@ -353,7 +317,7 @@ class _ModelSheetState extends State<_ModelSheet>
   );
 
   Widget _modelTile(String model) {
-    final desc = m.modelDescriptions[model];
+    final desc = _modelDescription(context.l10n, model);
     return ListTile(
       onTap: () => Navigator.pop(context, model),
       title: Text(model, style: context.texts.bodyMedium),
@@ -426,14 +390,14 @@ class _AuthModeChip extends ConsumerWidget {
       borderRadius: BorderRadius.circular(_height / 2),
       clipBehavior: Clip.antiAlias,
       child: PopupMenuButton<AuthMode>(
-        tooltip: '生成方式',
+        tooltip: l10nNow.genMethod,
         position: PopupMenuPosition.under,
         onSelected: (v) {
           if (v == mode) return;
           if (v == AuthMode.bot && !canSwitch) {
             hintSnack(
               context,
-              '尚未授权 Bot,去「我的 → 账号与接入」授权后可切',
+              l10nNow.desktopAuthorizeYourBotAccountInProfileUnderAccounts,
               icon: Icons.smart_toy_outlined,
             );
             return;
@@ -496,7 +460,7 @@ class _DesktopModelDropdown extends ConsumerWidget {
           child: Row(
             children: [
               Text(
-                '生成方式',
+                l10nNow.genMethod,
                 style: context.texts.labelMedium!.copyWith(
                   color: context.scheme.onSurfaceVariant,
                   fontWeight: FontWeight.w600,
@@ -590,3 +554,14 @@ class _DesktopModelDropdown extends ConsumerWidget {
     );
   }
 }
+
+String? _modelDescription(AppLocalizations l, String model) => switch (model) {
+  'NAI 5.0 Full' => l.descNai5Full,
+  'NAI 5.0 Full Medium' => l.descNai5Medium,
+  'NAI 5.0 Curated' => l.descNai5Curated,
+  'NAI 4.5 Full' => l.descNai45Full,
+  'NAI 4.5 Curated' => l.descNai45Curated,
+  'NAI 4.0 Full' => l.descNai4Full,
+  'NAI 4.0 Curated' => l.descNai4Curated,
+  _ => m.modelDescriptions[model],
+};

@@ -14,6 +14,7 @@
 /// ([OverflowBar]),不溢出、也不去压缩按钮。
 library;
 
+import '../../../l10n/l10n.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -49,7 +50,7 @@ class ProposalActions extends ConsumerWidget {
 
   void _import(BuildContext context, WidgetRef ref) {
     if (!ref.read(assistantProvider.notifier).applyProposal(msg.id)) return;
-    hintSnack(context, '已写入创作页', icon: Icons.check);
+    hintSnack(context, l10nNow.writtenToCreate, icon: Icons.check);
     onDone?.call();
   }
 
@@ -63,15 +64,15 @@ class ProposalActions extends ConsumerWidget {
     // 所以这里必须拦一下 —— 整套流程里唯一需要确认的地方。
     final ok = await confirmDialog(
       context,
-      title: '撤销这次导入?',
-      message: '你在导入之后又动过提示词。撤销会一并丢掉你那些改动,回到导入之前的样子。',
+      title: l10nNow.undoImportQ,
+      message: l10nNow.undoImportBody,
       confirmLabel: '仍要撤销',
     );
     // 对话框一关焦点会还给输入框、把键盘顶出来,而用户点的是卡上的按钮
     dropFocusSoon();
     if (!ok || !context.mounted) return;
     n.undo(msg.id, force: true);
-    hintSnack(context, '已撤销', icon: Icons.undo);
+    hintSnack(context, l10nNow.undone, icon: Icons.undo);
     onDone?.call();
   }
 
@@ -107,8 +108,10 @@ class ProposalActions extends ConsumerWidget {
       alignment: MainAxisAlignment.spaceBetween,
       spacing: 8,
       children: [
-        Row(
-          mainAxisSize: MainAxisSize.min,
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          crossAxisAlignment: WrapCrossAlignment.center,
           children: [
             // 导入过就停在「已导入」,不收起来:按钮一消失,分不清是导进去了还是没点上。
             // 开着自动导入时,提议一出来就已经导进去了,这里一直是「已导入」。
@@ -121,8 +124,7 @@ class ProposalActions extends ConsumerWidget {
                 padding: EdgeInsets.symmetric(horizontal: dense ? 12 : 14),
               ),
             ),
-            const SizedBox(width: 8),
-            // 不导入也能出这一版 —— 出的就是 AI 这份,与创作页当前是什么样无关。
+            // 不导入也能出这一版,和导入后再生成是同一张(见 proposalSendState)。
             FilledButton(
               onPressed: () => _generate(ref),
               style: FilledButton.styleFrom(
@@ -134,7 +136,7 @@ class ProposalActions extends ConsumerWidget {
                 children: [
                   const Icon(Icons.play_arrow, size: 17),
                   const SizedBox(width: 4),
-                  const Text('生成'),
+                  Text(l10nNow.generate),
                   const SizedBox(width: 7),
                   // 与吸底栏同一颗胶囊:点了要不要花钱、花多少,按之前就该知道。
                   CostPill(cost: _cost(ref)),
@@ -148,12 +150,12 @@ class ProposalActions extends ConsumerWidget {
               ? TextButton(
                   onPressed: () => _undo(context, ref),
                   style: undoStyle,
-                  child: const Text('撤销'),
+                  child: Text(l10nNow.undo),
                 )
               : TextButton.icon(
                   onPressed: () => _undo(context, ref),
                   icon: const Icon(Icons.undo, size: 16),
-                  label: const Text('撤销'),
+                  label: Text(l10nNow.undo),
                   style: undoStyle,
                 ),
       ],

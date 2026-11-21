@@ -13,6 +13,58 @@ import 'dart:ui' as ui;
 import 'package:archive/archive.dart';
 import 'transparency.dart';
 
+/// PNG text fields used by image import and by lossless WebP export.
+Map<String, String> readPngText(Uint8List bytes) {
+  if (bytes.length < 8) return {};
+  final data = ByteData.sublistView(bytes);
+  if (data.getUint32(0) != 0x89504e47 || data.getUint32(4) != 0x0d0a1a0a) {
+    return {};
+  }
+  final fields = <String, String>{};
+  for (var pos = 8; pos + 12 <= bytes.length;) {
+    final size = data.getUint32(pos);
+    if (pos + size + 12 > bytes.length) break;
+    final type = ascii.decode(
+      Uint8List.sublistView(bytes, pos + 4, pos + 8),
+      allowInvalid: true,
+    );
+    final body = Uint8List.sublistView(bytes, pos + 8, pos + 8 + size);
+    pos += size + 12;
+    if (type != 'tEXt' && type != 'iTXt' && type != 'zTXt') continue;
+    final split = body.indexOf(0);
+    if (split < 1 || split > 79) continue;
+    var start = split + 1;
+    var compressed = false;
+    if (type == 'iTXt') {
+      if (start + 2 > body.length || body[start] > 1 || body[start + 1] != 0) {
+        continue;
+      }
+      compressed = body[start] == 1;
+      final language = body.indexOf(0, start + 2);
+      final translated = language < 0 ? -1 : body.indexOf(0, language + 1);
+      if (translated < 0) continue;
+      start = translated + 1;
+    } else if (type == 'zTXt') {
+      if (start >= body.length || body[start++] != 0) continue;
+      compressed = true;
+    }
+    try {
+      final raw = Uint8List.sublistView(body, start);
+      final text = compressed ? ZLibDecoder().decodeBytes(raw) : raw;
+      String value;
+      try {
+        value = utf8.decode(text);
+      } on FormatException {
+        value = latin1.decode(text);
+      }
+      fields[latin1.decode(body.sublist(0, split))] = value;
+    } catch (_) {
+      // Keep reading the following fields when one text chunk is malformed.
+    }
+  }
+  return fields;
+}
+
 Future<(Uint8List, int, int)> _decodeRgba(Uint8List bytes) async {
   final codec = await ui.instantiateImageCodec(bytes);
   try {
@@ -209,4 +261,99 @@ Future<Uint8List> writeCustomMetadataPng(
     ..writeUint32(compressed.length * 8)
     ..writeBytes(compressed);
   return encodePngFromRgba(writer.data, w, h);
+}
+
+/// 在 PNG 里写一个未压缩的 iTXt 块(UTF-8),同名的先去掉;插在 IEND 前,
+/// 其余块与像素原样。不是 PNG / 数据不完整抛 [FormatException]。
+Uint8List withPngITxt(Uint8List png, String keyword, String text) {
+  const sig = [137, 80, 78, 71, 13, 10, 26, 10];
+  if (png.length < 8 ||
+      Iterable<int>.generate(8).any((i) => png[i] != sig[i])) {
+    throw const FormatException('不是 PNG');
+  }
+  final key = latin1.encode(keyword);
+  final payload = BytesBuilder(copy: false)
+    ..add(key)
+    ..add(const [0, 0, 0, 0, 0]) // 关键字结尾、不压缩、压缩方法、空语言标签、空译名
+    ..add(utf8.encode(text));
+  final body = payload.takeBytes();
+  final chunk = Uint8List(body.length + 12);
+  final cd = ByteData.sublistView(chunk);
+  cd.setUint32(0, body.length);
+  chunk.setRange(4, 8, 'iTXt'.codeUnits);
+  chunk.setRange(8, 8 + body.length, body);
+  cd.setUint32(
+    chunk.length - 4,
+    getCrc32(Uint8List.sublistView(chunk, 4, chunk.length - 4)),
+  );
+
+  final data = ByteData.sublistView(png);
+  final out = BytesBuilder(copy: false)..add(sig);
+  var offset = 8;
+  while (offset + 12 <= png.length) {
+    final size = data.getUint32(offset);
+    final end = offset + size + 12;
+    if (end > png.length) throw const FormatException('PNG 数据不完整');
+    final type = String.fromCharCodes(png, offset + 4, offset + 8);
+    final raw = Uint8List.sublistView(png, offset, end);
+    if (type == 'IEND') {
+      out
+        ..add(chunk)
+        ..add(raw);
+      if (end < png.length) out.add(Uint8List.sublistView(png, end));
+      return out.takeBytes();
+    }
+    final same =
+        type == 'iTXt' &&
+        size > key.length &&
+        png[offset + 8 + key.length] == 0 &&
+        Iterable<int>.generate(
+          key.length,
+        ).every((i) => png[offset + 8 + i] == key[i]);
+    if (!same) out.add(raw);
+    offset = end;
+  }
+  throw const FormatException('PNG 数据不完整');
+}
+
+/// Copy PNG text chunks from the generated patch into the composite.
+Uint8List withPngTextFrom(Uint8List to, Uint8List from) {
+  const textTypes = {'tEXt', 'iTXt', 'zTXt'};
+  final texts = <Uint8List>[];
+  Uint8List? head, tail; // [to] 在 IEND 前 / 从 IEND 起的两段
+  for (final (png, collect) in [(from, true), (to, false)]) {
+    const sig = [137, 80, 78, 71, 13, 10, 26, 10];
+    if (png.length < 8 ||
+        Iterable<int>.generate(8).any((i) => png[i] != sig[i])) {
+      return to;
+    }
+    final data = ByteData.sublistView(png);
+    var offset = 8;
+    var found = false;
+    while (offset + 12 <= png.length) {
+      final end = offset + data.getUint32(offset) + 12;
+      if (end > png.length) return to;
+      final type = String.fromCharCodes(png, offset + 4, offset + 8);
+      if (type == 'IEND') {
+        found = true;
+        if (!collect) {
+          head = Uint8List.sublistView(png, 0, offset);
+          tail = Uint8List.sublistView(png, offset);
+        }
+        break;
+      }
+      if (collect && textTypes.contains(type)) {
+        texts.add(Uint8List.sublistView(png, offset, end));
+      }
+      offset = end;
+    }
+    if (!found) return to;
+    if (collect && texts.isEmpty) return to;
+  }
+  final out = BytesBuilder(copy: false)..add(head!);
+  for (final t in texts) {
+    out.add(t);
+  }
+  out.add(tail!);
+  return out.takeBytes();
 }

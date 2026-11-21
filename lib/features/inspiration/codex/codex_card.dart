@@ -1,9 +1,11 @@
+import '../../../l10n/l10n.dart';
 import 'package:flutter/material.dart';
 
 import '../../../core/net/remote_image.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/ui/fade_in_once.dart';
 import 'codex_image_loading.dart';
+import 'codex_card_interactions.dart';
 import 'codex_models.dart';
 
 /// 法典的共用卡片与图片渐显。
@@ -72,114 +74,124 @@ class CodexCard extends StatelessWidget {
   Widget _desktopCard(BuildContext context) {
     final scheme = context.scheme;
     final url = codexImageUrl(codex, entry, media);
-    return Material(
-      color: scheme.surfaceContainerLowest,
-      clipBehavior: Clip.antiAlias,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(14),
-        side: BorderSide(color: scheme.outlineVariant),
-      ),
-      child: InkWell(
-        onTap: onTap,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Expanded(
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  ColoredBox(
-                    color: scheme.surfaceContainerLow,
-                    child: url == null
-                        ? _placeholder(context)
-                        : LayoutBuilder(
-                            builder: (context, bounds) =>
-                                _desktopPreview(context, url, bounds.maxHeight),
+    return CodexCardInteractions(
+      codex: codex,
+      entry: entry,
+      media: media,
+      onOpen: onTap,
+      builder: (context, actions, preview, open) => Material(
+        color: scheme.surfaceContainerLowest,
+        clipBehavior: Clip.antiAlias,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14),
+          side: BorderSide(color: scheme.outlineVariant),
+        ),
+        child: InkWell(
+          onTap: open,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    ColoredBox(
+                      color: scheme.surfaceContainerLow,
+                      child: url == null
+                          ? _placeholder(context)
+                          : LayoutBuilder(
+                              builder: (context, bounds) => _desktopPreview(
+                                context,
+                                url,
+                                bounds.maxHeight,
+                              ),
+                            ),
+                    ),
+                    if (entry.path.isNotEmpty || entry.isNew)
+                      Positioned(
+                        left: 10,
+                        top: 10,
+                        right: 54,
+                        child: Align(
+                          alignment: Alignment.topLeft,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: scheme.surface.withValues(alpha: .94),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text(
+                              entry.isNew ? 'NEW' : entry.path.last,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: context.texts.labelSmall,
+                            ),
                           ),
-                  ),
-                  if (entry.path.isNotEmpty || entry.isNew)
+                        ),
+                      ),
                     Positioned(
-                      left: 10,
-                      top: 10,
-                      right: 54,
-                      child: Align(
-                        alignment: Alignment.topLeft,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 4,
-                          ),
-                          decoration: BoxDecoration(
-                            color: scheme.surface.withValues(alpha: .94),
-                            borderRadius: BorderRadius.circular(6),
-                          ),
-                          child: Text(
-                            entry.isNew ? 'NEW' : entry.path.last,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: context.texts.labelSmall,
-                          ),
+                      right: 8,
+                      top: 8,
+                      child: IconButton.filledTonal(
+                        tooltip: favorite ? '取消收藏' : '收藏',
+                        onPressed: onFavorite,
+                        icon: Icon(
+                          favorite ? Icons.star_rounded : Icons.star_outline,
+                          size: 20,
                         ),
                       ),
                     ),
-                  Positioned(
-                    right: 8,
-                    top: 8,
-                    child: IconButton.filledTonal(
-                      tooltip: favorite ? '取消收藏' : '收藏',
-                      onPressed: onFavorite,
-                      icon: Icon(
-                        favorite ? Icons.star_rounded : Icons.star_outline,
-                        size: 20,
+                    Positioned.fill(
+                      left: 8,
+                      right: 8,
+                      top: 8,
+                      bottom: 8,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Expanded(
+                            child: Padding(
+                              padding: const EdgeInsets.fromLTRB(4, 48, 4, 4),
+                              child: Center(child: preview),
+                            ),
+                          ),
+                          actions,
+                        ],
                       ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Text(
-                    entry.title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: context.texts.titleSmall!.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  const SizedBox(height: 5),
-                  Text(
-                    entry.fullText.replaceAll(RegExp(r'\s+'), ' '),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: context.texts.bodySmall!.copyWith(
-                      color: scheme.onSurfaceVariant,
-                    ),
-                  ),
-                  const SizedBox(height: 9),
-                  Row(
-                    children: [
-                      Text(
-                        '查看提示词',
-                        style: context.texts.labelLarge!.copyWith(
-                          color: scheme.primary,
-                        ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(
+                      entry.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: context.texts.titleSmall!.copyWith(
+                        fontWeight: FontWeight.w700,
                       ),
-                      const Spacer(),
-                      Icon(
-                        Icons.arrow_forward,
-                        color: scheme.primary,
-                        size: 18,
+                    ),
+                    const SizedBox(height: 5),
+                    Text(
+                      entry.fullText.replaceAll(RegExp(r'\s+'), ' '),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: context.texts.bodySmall!.copyWith(
+                        color: scheme.onSurfaceVariant,
                       ),
-                    ],
-                  ),
-                ],
+                    ),
+                  ],
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -207,7 +219,7 @@ class CodexCard extends StatelessWidget {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    '预览加载中…',
+                    l10nNow.desktopLoadingPreview,
                     style: context.texts.bodySmall?.copyWith(
                       color: scheme.outline,
                     ),

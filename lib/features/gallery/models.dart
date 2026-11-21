@@ -2,23 +2,27 @@
 /// 后续接 NAI 生成链路时补 bytes / 本地缓存路径与生成参数快照。
 library;
 
+import '../../l10n/l10n.dart';
 import 'dart:typed_data';
 import 'dart:ui' show Color;
 
 import '../../core/theme/app_theme.dart' show FixedSemantic;
 import '../generate/models.dart' show GenerateState;
+import 'image_operation.dart';
+export 'image_operation.dart';
 
 /// 结果图的处理标记 —— 决定缩略图角标与画布顶部标签。
 // Keep `upscaled` for older 4× records; new fixed 2× results use their own tag.
-enum ResultBadge { none, upscaled, inpaint, censored, upscaled2x }
+enum ResultBadge { none, upscaled, inpaint, censored, upscaled2x, director }
 
 extension ResultBadgeX on ResultBadge {
   /// 角标短文案;none 无角标。
   String? get label => switch (this) {
     ResultBadge.upscaled => '4x',
     ResultBadge.upscaled2x => '2x',
-    ResultBadge.inpaint => '重绘',
+    ResultBadge.inpaint => l10nNow.inpaint,
     ResultBadge.censored => '打码',
+    ResultBadge.director => '导演',
     ResultBadge.none => null,
   };
 
@@ -28,8 +32,35 @@ extension ResultBadgeX on ResultBadge {
     ResultBadge.upscaled || ResultBadge.upscaled2x => FixedSemantic.ok,
     ResultBadge.inpaint => FixedSemantic.inpaint,
     ResultBadge.censored => FixedSemantic.censor,
+    ResultBadge.director => FixedSemantic.inpaint,
     ResultBadge.none => const Color(0x00000000),
   };
+}
+
+/// 回收站按本地自然日保留 30 天。
+const kTrashKeepDays = 30;
+
+/// 原文件和图库归属不变；相邻 ID 用于恢复独立副本的实际排列顺序。
+class TrashedImage {
+  const TrashedImage(
+    this.image,
+    this.deletedAt, {
+    this.position = 0,
+    this.beforeId,
+    this.afterId,
+  });
+  final ResultImage image;
+  final int deletedAt;
+  final int position;
+  final String? beforeId, afterId;
+
+  TrashedImage withImage(ResultImage value) => TrashedImage(
+    value,
+    deletedAt,
+    position: position,
+    beforeId: beforeId,
+    afterId: afterId,
+  );
 }
 
 /// 一张生成结果。bytes/input 只是**内存缓存**——重启水合或 RAM 减负后
@@ -46,6 +77,7 @@ class ResultImage {
     this.batchIndex = -1,
     this.bytes,
     this.input,
+    this.operation,
     this.inpaintFrom,
     this.inpaintHistoryCleared = false,
     this.favorite = false,
@@ -95,6 +127,7 @@ class ResultImage {
 
   /// 生成时的输入快照(prompt/角色/参考/参数);供「重新生成」按本图参数复现。
   final GenerateState? input;
+  final ImageOperation? operation;
 
   /// 本图有参数快照可用(内存或盘上)。
   final bool hasInput;
@@ -117,6 +150,7 @@ class ResultImage {
           favorite: favorite,
           saved: saved,
           hasInput: hasInput,
+          operation: operation,
         );
 
   /// 回填生成时刻的副本(索引迁移用,其余字段原样)。
@@ -127,6 +161,7 @@ class ResultImage {
     seed: seed,
     badge: badge,
     createdAt: t,
+    operation: operation,
     batchIndex: batchIndex,
     inpaintFrom: inpaintFrom,
     inpaintHistoryCleared: inpaintHistoryCleared,
@@ -147,6 +182,7 @@ class ResultImage {
     batchIndex: batchIndex,
     bytes: bytes,
     input: input?.copyWith(inpaint: null),
+    operation: operation,
     hasInput: hasInput,
     inpaintHistoryCleared: true,
     favorite: favorite,
@@ -168,6 +204,7 @@ class ResultImage {
     inpaintHistoryCleared: inpaintHistoryCleared,
     favorite: value,
     saved: saved,
+    operation: operation,
   );
 
   /// 标成已存进相册的副本(其余字段原样)。
@@ -188,5 +225,6 @@ class ResultImage {
           bytes: bytes,
           input: input,
           hasInput: hasInput,
+          operation: operation,
         );
 }

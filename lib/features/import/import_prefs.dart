@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/store/app_stores.dart';
 import '../../core/store/prefs_store.dart';
+import 'image_prompt_import.dart';
 
 /// 导入面板上一次用的**偏好**（持久化）。
 ///
@@ -19,6 +20,7 @@ import '../../core/store/prefs_store.dart';
 /// 即「勾上」，所以首次使用与改动前的行为完全一致。
 class ImportPrefs {
   const ImportPrefs({
+    this.promptMode = ImagePromptImportMode.replaceMain,
     this.presetImport = true,
     this.presetExpanded = false,
     this.charImport = true,
@@ -29,11 +31,15 @@ class ImportPrefs {
     this.loraAppend = false,
     this.useSeed = false,
     this.settings = const {},
+    this.sectionExpanded = true,
     this.charExpanded = true,
     this.vibeExpanded = true,
     this.settingsExpanded = true,
     this.loraExpanded = true,
   });
+
+  /// 默认保留分区；仅在实际导入后记住用户选择的覆盖方式。
+  final ImagePromptImportMode promptMode;
 
   /// 提示词预设:true=「导入」(顺带切档位),false=「剥离」(只删文本)。
   final bool presetImport;
@@ -51,6 +57,8 @@ class ImportPrefs {
   final bool vibeImport;
   final bool loraImport;
 
+  /// 主提示词:false=完全覆盖,true=新建分区。
+
   /// 角色 / Vibe / LoRA:false=完全覆盖,true=额外添加。
   final bool charAppend;
   final bool vibeAppend;
@@ -64,12 +72,14 @@ class ImportPrefs {
   final Map<String, bool> settings;
 
   /// 四个可折叠区的展开态。
+  final bool sectionExpanded;
   final bool charExpanded;
   final bool vibeExpanded;
   final bool settingsExpanded;
   final bool loraExpanded;
 
   ImportPrefs copyWith({
+    ImagePromptImportMode? promptMode,
     bool? presetImport,
     bool? presetExpanded,
     bool? charImport,
@@ -80,11 +90,13 @@ class ImportPrefs {
     bool? loraAppend,
     bool? useSeed,
     Map<String, bool>? settings,
+    bool? sectionExpanded,
     bool? charExpanded,
     bool? vibeExpanded,
     bool? settingsExpanded,
     bool? loraExpanded,
   }) => ImportPrefs(
+    promptMode: promptMode ?? this.promptMode,
     presetImport: presetImport ?? this.presetImport,
     presetExpanded: presetExpanded ?? this.presetExpanded,
     charImport: charImport ?? this.charImport,
@@ -95,6 +107,7 @@ class ImportPrefs {
     loraAppend: loraAppend ?? this.loraAppend,
     useSeed: useSeed ?? this.useSeed,
     settings: settings ?? this.settings,
+    sectionExpanded: sectionExpanded ?? this.sectionExpanded,
     charExpanded: charExpanded ?? this.charExpanded,
     vibeExpanded: vibeExpanded ?? this.vibeExpanded,
     settingsExpanded: settingsExpanded ?? this.settingsExpanded,
@@ -102,6 +115,7 @@ class ImportPrefs {
   );
 
   Map<String, dynamic> toJson() => {
+    'promptMode': promptMode.name,
     'presetImport': presetImport,
     'presetExpanded': presetExpanded,
     'charImport': charImport,
@@ -112,6 +126,7 @@ class ImportPrefs {
     'loraAppend': loraAppend,
     'useSeed': useSeed,
     'settings': settings,
+    'sectionExpanded': sectionExpanded,
     'charExpanded': charExpanded,
     'vibeExpanded': vibeExpanded,
     'settingsExpanded': settingsExpanded,
@@ -123,6 +138,13 @@ class ImportPrefs {
     bool b(String k, bool d) => j[k] is bool ? j[k] as bool : d;
     final raw = j['settings'];
     return ImportPrefs(
+      promptMode:
+          ImagePromptImportMode.values
+              .where((mode) => mode.name == j['promptMode'])
+              .firstOrNull ??
+          (b('promptAppend', false)
+              ? ImagePromptImportMode.addSection
+              : ImagePromptImportMode.replaceMain),
       presetImport: b('presetImport', true),
       presetExpanded: b('presetExpanded', false),
       charImport: b('charImport', true),
@@ -138,6 +160,7 @@ class ImportPrefs {
                 if (e.value is bool) '${e.key}': e.value as bool,
             }
           : const {},
+      sectionExpanded: b('sectionExpanded', true),
       charExpanded: b('charExpanded', true),
       vibeExpanded: b('vibeExpanded', true),
       settingsExpanded: b('settingsExpanded', true),

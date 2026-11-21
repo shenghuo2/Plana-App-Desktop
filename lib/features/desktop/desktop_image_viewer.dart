@@ -1,3 +1,4 @@
+import '../../l10n/l10n.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -12,6 +13,7 @@ import '../gallery/result_clipboard.dart';
 import '../gallery/widgets/result_canvas.dart';
 import '../generate/models.dart';
 import '../shell/shell_state.dart';
+import '../import/desktop_image_drop.dart';
 
 typedef _ViewerFrame = ({MemoryImage? image, GenerateState? input});
 
@@ -239,8 +241,8 @@ class _DesktopImageViewerState extends ConsumerState<_DesktopImageViewer> {
           ],
           if (input.negativePrompt.isNotEmpty) ...[
             const SizedBox(height: 20),
-            const Text(
-              '负面提示词',
+            Text(
+              l10nNow.negativePromptAlt,
               style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
             ),
             const SizedBox(height: 12),
@@ -256,8 +258,8 @@ class _DesktopImageViewerState extends ConsumerState<_DesktopImageViewer> {
       key: const ValueKey('desktop-image-info'),
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        const Text(
-          '作品信息',
+        Text(
+          l10nNow.desktopImageDetails,
           style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
         ),
         const SizedBox(height: 20),
@@ -295,19 +297,22 @@ class _DesktopImageViewerState extends ConsumerState<_DesktopImageViewer> {
                         ),
                       ),
                       IconButton(
-                        tooltip: '复制种子',
+                        tooltip: l10nNow.desktopCopySeed,
                         icon: const Icon(Icons.copy_outlined, size: 16),
                         onPressed: () => Clipboard.setData(
                           ClipboardData(text: '${result.seed}'),
                         ),
                       ),
                       // 图片复制与种子复制放在同一行，底部保留作品操作。
-                      IconButton(
-                        key: const ValueKey('desktop-image-copy-image'),
-                        tooltip: '复制图片到剪贴板',
-                        icon: const Icon(Icons.content_copy, size: 16),
-                        onPressed: () =>
-                            copyResultToClipboard(context, ref, result),
+                      GalleryImageDrag(
+                        result: result,
+                        child: IconButton(
+                          key: const ValueKey('desktop-image-copy-image'),
+                          tooltip: l10nNow.desktopClickToCopyOrDragToAnotherApp,
+                          icon: const Icon(Icons.content_copy, size: 16),
+                          onPressed: () =>
+                              copyResultToClipboard(context, ref, result),
+                        ),
                       ),
                     ],
                   ),
@@ -322,8 +327,8 @@ class _DesktopImageViewerState extends ConsumerState<_DesktopImageViewer> {
                     ),
                   ),
                   const SizedBox(height: 24),
-                  const Text(
-                    '正面提示词',
+                  Text(
+                    l10nNow.desktopPositivePrompt,
                     style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
                   ),
                   const SizedBox(height: 12),
@@ -354,7 +359,7 @@ class _DesktopImageViewerState extends ConsumerState<_DesktopImageViewer> {
                 ),
                 onPressed: _transferring ? null : () => _transfer(copy: false),
                 icon: const Icon(Icons.drive_file_move_outline, size: 18),
-                label: const Text('移动到'),
+                label: Text(l10nNow.moveTo),
               ),
             ),
             const SizedBox(width: 8),
@@ -369,7 +374,7 @@ class _DesktopImageViewerState extends ConsumerState<_DesktopImageViewer> {
                 ),
                 onPressed: _transferring ? null : () => _transfer(copy: true),
                 icon: const Icon(Icons.copy_outlined, size: 18),
-                label: const Text('复制到'),
+                label: Text(l10nNow.desktopCopyTo),
               ),
             ),
           ],
@@ -397,6 +402,24 @@ class _DesktopImageViewerState extends ConsumerState<_DesktopImageViewer> {
                 },
                 child: Focus(
                   autofocus: true,
+                  onKeyEvent: (_, event) {
+                    if (event is! KeyDownEvent ||
+                        event.logicalKey != LogicalKeyboardKey.keyC ||
+                        !HardwareKeyboard.instance.isControlPressed ||
+                        HardwareKeyboard.instance.isAltPressed ||
+                        HardwareKeyboard.instance.isShiftPressed ||
+                        HardwareKeyboard.instance.isMetaPressed) {
+                      return KeyEventResult.ignored;
+                    }
+                    final focused = FocusManager.instance.primaryFocus?.context;
+                    if (focused?.widget is EditableText ||
+                        focused?.findAncestorStateOfType<EditableTextState>() !=
+                            null) {
+                      return KeyEventResult.ignored;
+                    }
+                    unawaited(copyResultToClipboard(context, ref, result));
+                    return KeyEventResult.handled;
+                  },
                   child: Padding(
                     padding: const EdgeInsets.all(20),
                     child: Column(
@@ -421,7 +444,7 @@ class _DesktopImageViewerState extends ConsumerState<_DesktopImageViewer> {
                             const SizedBox(width: 14),
                             IconButton(
                               key: const ValueKey('desktop-image-close'),
-                              tooltip: '关闭 (Esc)',
+                              tooltip: l10nNow.desktopCloseEsc,
                               onPressed: _close,
                               icon: const Icon(Icons.close),
                             ),
@@ -447,8 +470,8 @@ class _DesktopImageViewerState extends ConsumerState<_DesktopImageViewer> {
                                                   ? Center(
                                                       child: _loading
                                                           ? const CircularProgressIndicator()
-                                                          : const Text(
-                                                              '无法读取这张图片',
+                                                          : Text(
+                                                              l10nNow.cantReadImage,
                                                             ),
                                                     )
                                                   : InteractiveViewer(
@@ -495,7 +518,7 @@ class _DesktopImageViewerState extends ConsumerState<_DesktopImageViewer> {
                                                 key: const ValueKey(
                                                   'desktop-image-previous',
                                                 ),
-                                                tooltip: '上一张 (←)',
+                                                tooltip: l10nNow.desktopPreviousImageLabel,
                                                 onPressed: _targetIndex > 0
                                                     ? () => _step(-1)
                                                     : null,
@@ -512,14 +535,14 @@ class _DesktopImageViewerState extends ConsumerState<_DesktopImageViewer> {
                                                   Icons.fit_screen,
                                                   size: 18,
                                                 ),
-                                                label: const Text('适应窗口'),
+                                                label: Text(l10nNow.desktopFitToWindow),
                                               ),
                                               const SizedBox(width: 12),
                                               IconButton(
                                                 key: const ValueKey(
                                                   'desktop-image-next',
                                                 ),
-                                                tooltip: '下一张 (→)',
+                                                tooltip: l10nNow.desktopNextImageLabel,
                                                 onPressed:
                                                     _targetIndex <
                                                         widget.images.length - 1

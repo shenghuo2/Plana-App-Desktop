@@ -1,8 +1,9 @@
-import 'dart:typed_data';
-
+import '../../../l10n/l10n.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 
 import '../../../core/theme/app_theme.dart';
+import '../../gallery/image_transfer_button.dart';
 
 /// Views the original reference bytes without changing generation parameters.
 Future<void> showReferenceImagePreview(
@@ -77,12 +78,15 @@ class _ReferenceImagePreviewState extends State<_ReferenceImagePreview> {
                   ),
                 ),
                 IconButton(
-                  tooltip: '适应窗口',
+                  tooltip: l10nNow.desktopFitToWindow,
                   onPressed: _reset,
                   icon: const Icon(Icons.fit_screen),
                 ),
+                if (defaultTargetPlatform == TargetPlatform.windows ||
+                    defaultTargetPlatform == TargetPlatform.macOS)
+                  ImageTransferButton(load: () async => widget.image),
                 IconButton(
-                  tooltip: '关闭预览',
+                  tooltip: l10nNow.desktopClosePreview,
                   onPressed: () => Navigator.pop(context),
                   icon: const Icon(Icons.close),
                 ),
@@ -109,6 +113,10 @@ class _ReferenceImagePreviewState extends State<_ReferenceImagePreview> {
                           key: const ValueKey('reference-preview-image'),
                           fit: BoxFit.contain,
                           filterQuality: FilterQuality.medium,
+                          frameBuilder: (_, child, frame, synchronous) =>
+                              synchronous || frame != null
+                              ? child
+                              : Center(child: Text(l10nNow.desktopLoadingImage)),
                           errorBuilder: (_, _, _) =>
                               const Center(child: Text('这张参考图暂时无法读取')),
                         ),
@@ -122,7 +130,7 @@ class _ReferenceImagePreviewState extends State<_ReferenceImagePreview> {
           Padding(
             padding: const EdgeInsets.all(12),
             child: Text(
-              '滚轮缩放 · 拖动查看 · 双击还原或放大 · Esc 关闭',
+              l10nNow.desktopScrollToZoomDragToPanDoubleClick,
               textAlign: TextAlign.center,
               style: context.texts.bodySmall!.copyWith(
                 color: context.scheme.onSurfaceVariant,

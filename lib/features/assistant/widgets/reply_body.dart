@@ -9,6 +9,7 @@
 /// 反引号不一样,它包着的恰恰是用户要拿走的那段。
 library;
 
+import '../../../l10n/l10n.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 
@@ -20,7 +21,7 @@ import '../assistant_models.dart' show DrawProposal, promptTextOf;
 Future<void> copyText(BuildContext context, String text) async {
   if (text.isEmpty) return;
   await Clipboard.setData(ClipboardData(text: text));
-  if (context.mounted) hintSnack(context, '已复制', icon: Icons.copy_outlined);
+  if (context.mounted) hintSnack(context, l10nNow.copied, icon: Icons.copy_outlined);
 }
 
 /// 开围栏:行首三个反引号,后面可以跟语言标注(`text`、`plaintext`……,不显示)。

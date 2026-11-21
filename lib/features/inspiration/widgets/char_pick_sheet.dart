@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/auth/bot_session_store.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/platform/desktop.dart';
+import '../../../core/store/ui_prefs.dart';
 import '../../../core/ui/selection_bar.dart';
 import '../../generate/widgets/common.dart' show hintSnack;
 import '../codex/codex_card.dart';
@@ -19,6 +20,7 @@ import '../tag_models.dart';
 import 'tag_card.dart';
 import 'tag_filter_chips.dart';
 import 'tag_sheets.dart';
+import '../../../l10n/l10n.dart';
 
 /// 选中的一个条目:条目 + 它该显示的预览(按 publicId 补过,见 [tagPreviewOf])。
 typedef PickedChar = ({TagEntry entry, String? preview});
@@ -29,12 +31,12 @@ typedef LibraryPick = ({PickedChar? tag, CodexFavorite? codex});
 /// 灵感库面板选中的全部,按勾选的先后(跨分类、跨标签库与法典)。
 typedef LibraryPicks = List<LibraryPick>;
 
-/// 创作页灵感库面板给哪几类标签库,顺序同灵感页(法典另算);「其他」不放。
-/// 「存到灵感库」也只给这几类,存进「其他」在面板里就选不到了。
-const kPanelTagCats = [
-  TagCategory.character,
-  TagCategory.artist,
-  TagCategory.scene,
+/// 创作页灵感库面板给哪几类标签库(法典另算):角色、画风、场景,再接没藏起来的
+/// 自定义类别(按灵感页页签的顺序);「其他」不放。「存到灵感库」也只给这几类,
+/// 存进「其他」在面板里就选不到了。
+List<TagCategory> panelTagCats(TagLibraryState lib) => [
+  for (final k in lib.visibleTabKeys)
+    if (k != kCodexTabKey && k != 'other') ?tagCategoryByWebId(k),
 ];
 
 /// 从灵感角色库选角色 —— 角色卡的头像、角色卡头的「角色库」共用。
@@ -98,11 +100,15 @@ class _PickSheet extends ConsumerStatefulWidget {
 class _PickSheetState extends ConsumerState<_PickSheet> {
   static const _pad = 12.0, _gap = 8.0;
 
-  /// 灵感库面板上次停在哪一类(进程内记着,下次打开接着看);null = 法典收藏。
-  static TagCategory? _lastCat = TagCategory.artist;
+  String get _prefKey => widget.library ? 'libraryPick' : 'charPick';
+  late TagCategory? _cat = _initialCategory();
 
-  /// 当前分类;null = 法典收藏(只有灵感库面板有)。
-  late TagCategory? _cat = widget.library ? _lastCat : TagCategory.character;
+  TagCategory? _initialCategory() {
+    final key = ref.read(uiPrefsProvider).lastPages[_prefKey];
+    if (key == kCodexTabKey && widget.library) return null;
+    return (key == null ? null : tagCategoryByWebId(key)) ??
+        (widget.library ? TagCategory.artist : TagCategory.character);
+  }
 
   final _searchCtrl = TextEditingController();
   String _search = '';
@@ -128,7 +134,12 @@ class _PickSheetState extends ConsumerState<_PickSheet> {
     if (cat == _cat) return;
     setState(() {
       _cat = cat;
-      _lastCat = cat;
+      ref
+          .read(uiPrefsProvider.notifier)
+          .setLastPage(
+            _prefKey,
+            cat == null ? kCodexTabKey : tagCategoryDef(cat).webId,
+          );
       _searchCtrl.clear();
       _search = '';
       _filter = null;
@@ -137,7 +148,11 @@ class _PickSheetState extends ConsumerState<_PickSheet> {
 
   bool _roomFull() {
     if (_count < widget.max) return false;
-    hintSnack(context, '最多选 ${widget.max} 个', icon: Icons.block_outlined);
+    hintSnack(
+      context,
+      context.l10n.maxSelectN(widget.max),
+      icon: Icons.block_outlined,
+    );
     return true;
   }
 
@@ -224,6 +239,9 @@ class _PickSheetState extends ConsumerState<_PickSheet> {
   Widget build(BuildContext context) {
     final scheme = context.scheme;
     final lib = ref.watch(tagLibraryProvider).value ?? const TagLibraryState();
+    if (_cat != null && !panelTagCats(lib).contains(_cat)) {
+      _cat = widget.library ? TagCategory.artist : TagCategory.character;
+    }
     final cat = _cat;
     return FractionallySizedBox(
       heightFactor: ref.watch(desktopModeProvider) ? 1 : .85,
@@ -246,7 +264,7 @@ class _PickSheetState extends ConsumerState<_PickSheet> {
                       ),
                     ),
                     IconButton(
-                      tooltip: '关闭',
+                      tooltip: l10nNow.close,
                       onPressed: () => Navigator.pop(context),
                       icon: const Icon(Icons.close),
                     ),
@@ -257,12 +275,7 @@ class _PickSheetState extends ConsumerState<_PickSheet> {
               padding: widget.library
                   ? const EdgeInsets.fromLTRB(_pad, 0, _pad, 10)
                   : const EdgeInsets.fromLTRB(20, 4, 20, 10),
-              child: widget.library
-                  ? _catTabs()
-                  : Align(
-                      alignment: Alignment.centerLeft,
-                      child: Text('选择角色', style: context.texts.titleLarge),
-                    ),
+              child: _catTabs(lib),
             ),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: _pad),
@@ -309,7 +322,9 @@ class _PickSheetState extends ConsumerState<_PickSheet> {
                     size: 18,
                   ),
                   label: Text(
-                    widget.library ? '加入 ($_count)' : '加入角色 ($_count)',
+                    widget.library
+                        ? context.l10n.addLibN(_count)
+                        : context.l10n.addCharsN(_count),
                   ),
                 ),
               ),
@@ -321,16 +336,19 @@ class _PickSheetState extends ConsumerState<_PickSheet> {
 
   /// 分类横排:角色、画风、场景 + 法典(只列收藏),某类勾了几个跟在名字后面。
   /// 「其他」不放进来。
-  Widget _catTabs() {
-    final cats = kPanelTagCats;
+  Widget _catTabs(TagLibraryState lib) {
+    final cats = panelTagCats(lib);
     int pickedIn(TagCategory c) =>
         _picks.values.where((p) => p.tag?.entry.category == c).length;
     final cat = _cat;
     return _CatSegTabs(
-      labels: [for (final c in cats) tagCategoryDef(c).label, '法典'],
+      labels: [
+        for (final c in cats) tagCategoryDef(c).label,
+        if (widget.library) codexTabLabel(),
+      ],
       counts: [
         for (final c in cats) pickedIn(c),
-        _picks.values.where((p) => p.codex != null).length,
+        if (widget.library) _picks.values.where((p) => p.codex != null).length,
       ],
       index: cat == null ? cats.length : cats.indexOf(cat),
       onTap: (i) => _switch(i < cats.length ? cats[i] : null),
@@ -373,7 +391,6 @@ class _PickSheetState extends ConsumerState<_PickSheet> {
               previewUrl: preview,
               decodeWidth: cellW,
               selected: _picks.containsKey(_tagKey(e)),
-              isPublic: false,
               showCheck: _multi,
               onTap: () => _toggle(e, preview),
               onLongPress: () => showTagDetailSheet(context, e),
@@ -403,7 +420,9 @@ class _PickSheetState extends ConsumerState<_PickSheet> {
     if (list.isEmpty) {
       return _empty(
         Icons.menu_book_outlined,
-        favs.isEmpty ? '还没有收藏' : '没有匹配的词条',
+        favs.isEmpty
+            ? context.l10n.noFavoritesYet
+            : context.l10n.noMatchingEntries,
       );
     }
     // 收藏里存的是词条快照,图 URL 还得靠 meta;索引里找不到就给个占位,
@@ -551,77 +570,86 @@ class _CatSegTabs extends StatelessWidget {
         ),
         child: LayoutBuilder(
           builder: (context, c) {
-            final segW = c.maxWidth / labels.length;
-            return Stack(
-              children: [
-                AnimatedPositioned(
-                  duration: Motion.medium,
-                  curve: Motion.emphasized,
-                  top: 3,
-                  bottom: 3,
-                  left: 3 + index * segW,
-                  width: segW - 6,
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      color: scheme.surface,
-                      borderRadius: BorderRadius.circular(9),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: .06),
-                          blurRadius: 4,
-                          offset: const Offset(0, 1),
-                        ),
-                      ],
+            // 段多了(自定义类别)每段至少 64 宽,整条横滑
+            final segW = (c.maxWidth / labels.length).clamp(64.0, c.maxWidth);
+            final bar = SizedBox(
+              width: segW * labels.length,
+              child: Stack(
+                children: [
+                  AnimatedPositioned(
+                    duration: Motion.medium,
+                    curve: Motion.emphasized,
+                    top: 3,
+                    bottom: 3,
+                    left: 3 + index * segW,
+                    width: segW - 6,
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: scheme.surface,
+                        borderRadius: BorderRadius.circular(9),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: .06),
+                            blurRadius: 4,
+                            offset: const Offset(0, 1),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
-                ),
-                // 铺满整条:不 fill 的话这排只有字那么高、贴在顶上,点分段下半截
-                // 也切不过去
-                Positioned.fill(
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      for (var i = 0; i < labels.length; i++)
-                        Expanded(
-                          child: Semantics(
-                            button: true,
-                            selected: i == index,
-                            child: GestureDetector(
-                              behavior: HitTestBehavior.opaque,
-                              onTap: () => onTap(i),
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  AnimatedDefaultTextStyle(
-                                    duration: Motion.fast,
-                                    style: context.texts.labelLarge!.copyWith(
-                                      fontWeight: FontWeight.w700,
-                                      color: i == index
-                                          ? scheme.primary
-                                          : scheme.onSurfaceVariant,
+                  // 铺满整条:不 fill 的话这排只有字那么高、贴在顶上,点分段下半截
+                  // 也切不过去
+                  Positioned.fill(
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        for (var i = 0; i < labels.length; i++)
+                          Expanded(
+                            child: Semantics(
+                              button: true,
+                              selected: i == index,
+                              child: GestureDetector(
+                                behavior: HitTestBehavior.opaque,
+                                onTap: () => onTap(i),
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    AnimatedDefaultTextStyle(
+                                      duration: Motion.fast,
+                                      style: context.texts.labelLarge!.copyWith(
+                                        fontWeight: FontWeight.w700,
+                                        color: i == index
+                                            ? scheme.primary
+                                            : scheme.onSurfaceVariant,
+                                      ),
+                                      child: Text(labels[i]),
                                     ),
-                                    child: Text(labels[i]),
-                                  ),
-                                  if (counts[i] > 0) ...[
-                                    const SizedBox(width: 4),
-                                    Text(
-                                      '${counts[i]}',
-                                      style: mono(
-                                        context,
-                                        size: 11,
-                                        weight: FontWeight.w700,
-                                      ).copyWith(color: scheme.primary),
-                                    ),
+                                    if (counts[i] > 0) ...[
+                                      const SizedBox(width: 4),
+                                      Text(
+                                        '${counts[i]}',
+                                        style: mono(
+                                          context,
+                                          size: 11,
+                                          weight: FontWeight.w700,
+                                        ).copyWith(color: scheme.primary),
+                                      ),
+                                    ],
                                   ],
-                                ],
+                                ),
                               ),
                             ),
                           ),
-                        ),
-                    ],
+                      ],
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
+            );
+            if (segW * labels.length <= c.maxWidth) return bar;
+            return SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: bar,
             );
           },
         ),

@@ -2,6 +2,7 @@
 /// 这段对话最终攒出多少 tag —— 那是用户回头找它的真正理由。
 library;
 
+import '../../../l10n/l10n.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -54,7 +55,7 @@ class _AssistantHistoryPanelState extends ConsumerState<AssistantHistoryPanel> {
   Future<void> _clear(int count) async {
     final ok = await confirmDialog(
       context,
-      title: '清空历史会话?',
+      title: l10nNow.clearHistoryQ,
       message: '$count 段对话都会删掉,当前对话和创作页不受影响。',
       confirmLabel: '清空',
     );
@@ -70,29 +71,17 @@ class _AssistantHistoryPanelState extends ConsumerState<AssistantHistoryPanel> {
     bool matches(ArchivedSession s) =>
         query.isEmpty ||
         '${s.title}\n${s.preview}'.toLowerCase().contains(query);
-    final sessions = state.sessions.where(matches).toList();
-    final current = ArchivedSession(
-      id: 0,
-      msgs: state.msgs,
-      at: state.msgs.isEmpty ? 0 : state.msgs.last.at,
-    );
+    final sessions = state.history.where(matches).toList();
+    final currentId = state.currentSession?.id;
     final list = ListView(
       shrinkWrap: !widget.sidebar,
       padding: const EdgeInsets.fromLTRB(10, 0, 10, 12),
       children: [
-        if (widget.sidebar && (state.isEmpty || matches(current))) ...[
-          _DesktopSessionRow(
-            session: current,
-            current: true,
-            empty: state.isEmpty,
-          ),
-          const SizedBox(height: 12),
-        ],
         if (widget.sidebar && sessions.isNotEmpty)
           Padding(
             padding: const EdgeInsets.fromLTRB(10, 6, 10, 8),
             child: Text(
-              '历史会话',
+              l10nNow.chatHistory,
               style: context.texts.labelSmall!.copyWith(color: scheme.outline),
             ),
           ),
@@ -100,6 +89,7 @@ class _AssistantHistoryPanelState extends ConsumerState<AssistantHistoryPanel> {
           _DesktopSessionRow(
             key: ValueKey('assistant-session-${session.id}'),
             session: session,
+            current: currentId == session.id,
             onOpen: state.running
                 ? null
                 : () {
@@ -107,12 +97,14 @@ class _AssistantHistoryPanelState extends ConsumerState<AssistantHistoryPanel> {
                     if (!widget.sidebar) Navigator.pop(context);
                   },
             onDelete: () => notifier.deleteSession(session.id),
+            onPin: () => notifier.toggleSessionPin(session.id),
+            onRename: (title) => notifier.renameSession(session.id, title),
           ),
         if (sessions.isEmpty)
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 24),
             child: Text(
-              query.isNotEmpty ? '没有匹配的会话' : '还没有历史会话\n新建对话后,这段聊天会保存在这里。',
+              query.isNotEmpty ? '没有匹配的会话' : '还没有历史会话\n普通聊天开始后会显示在这里。',
               style: context.texts.bodySmall!.copyWith(
                 color: scheme.onSurfaceVariant,
                 height: 1.7,
@@ -124,7 +116,7 @@ class _AssistantHistoryPanelState extends ConsumerState<AssistantHistoryPanel> {
     final clearHistoryButton = state.sessions.isEmpty
         ? null
         : IconButton(
-            tooltip: '清空历史会话',
+            tooltip: l10nNow.desktopClearConversationHistory,
             visualDensity: VisualDensity.compact,
             onPressed: () => _clear(state.sessions.length),
             icon: const Icon(Icons.delete_sweep_outlined, size: 18),
@@ -142,7 +134,7 @@ class _AssistantHistoryPanelState extends ConsumerState<AssistantHistoryPanel> {
                 children: [
                   Expanded(
                     child: Text(
-                      '历史会话',
+                      l10nNow.chatHistory,
                       style: context.texts.titleSmall!.copyWith(
                         fontWeight: FontWeight.w700,
                       ),
@@ -150,7 +142,7 @@ class _AssistantHistoryPanelState extends ConsumerState<AssistantHistoryPanel> {
                   ),
                   ?clearHistoryButton,
                   IconButton(
-                    tooltip: '关闭',
+                    tooltip: l10nNow.close,
                     visualDensity: VisualDensity.compact,
                     onPressed: () => Navigator.pop(context),
                     icon: const Icon(Icons.close, size: 18),
@@ -167,7 +159,7 @@ class _AssistantHistoryPanelState extends ConsumerState<AssistantHistoryPanel> {
                     child: FilledButton.tonalIcon(
                       onPressed: state.running ? null : widget.onNewChat,
                       icon: const Icon(Icons.edit_square, size: 18),
-                      label: const Text('新对话'),
+                      label: Text(l10nNow.newChat),
                     ),
                   ),
                   if (clearHistoryButton != null) ...[
@@ -177,7 +169,7 @@ class _AssistantHistoryPanelState extends ConsumerState<AssistantHistoryPanel> {
                 ],
               ),
             ),
-          if (widget.sidebar || state.sessions.length >= 6 || _query.isNotEmpty)
+          if (widget.sidebar || state.history.length >= 6 || _query.isNotEmpty)
             Padding(
               padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
               child: TextField(
@@ -185,7 +177,7 @@ class _AssistantHistoryPanelState extends ConsumerState<AssistantHistoryPanel> {
                 onChanged: (value) => setState(() => _query = value),
                 style: context.texts.bodySmall,
                 decoration: InputDecoration(
-                  hintText: '搜索会话',
+                  hintText: l10nNow.desktopSearchConversations,
                   prefixIcon: const Icon(Icons.search, size: 18),
                   isDense: true,
                   filled: true,
@@ -213,15 +205,59 @@ class _DesktopSessionRow extends StatelessWidget {
     super.key,
     required this.session,
     this.current = false,
-    this.empty = false,
     this.onOpen,
-    this.onDelete,
+    required this.onDelete,
+    required this.onPin,
+    required this.onRename,
   });
   final ArchivedSession session;
   final bool current;
-  final bool empty;
   final VoidCallback? onOpen;
-  final VoidCallback? onDelete;
+  final VoidCallback onDelete;
+  final VoidCallback onPin;
+  final ValueChanged<String> onRename;
+
+  Future<void> _menu(BuildContext anchor) async {
+    final action = await showDesktopPopover<String>(
+      anchor,
+      width: 200,
+      maxHeight: 160,
+      builder: (context) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              key: const ValueKey('assistant-session-rename'),
+              leading: const Icon(Icons.drive_file_rename_outline, size: 20),
+              title: Text(l10nNow.rename),
+              onTap: () => Navigator.pop(context, 'rename'),
+            ),
+            ListTile(
+              key: const ValueKey('assistant-session-delete'),
+              leading: Icon(
+                Icons.delete_outline,
+                size: 20,
+                color: context.scheme.error,
+              ),
+              title: Text(l10nNow.delete, style: TextStyle(color: context.scheme.error)),
+              onTap: () => Navigator.pop(context, 'delete'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (!anchor.mounted) return;
+    if (action == 'delete') {
+      onDelete();
+    } else if (action == 'rename') {
+      final name = await showDialog<String>(
+        context: anchor,
+        builder: (_) => _RenameConversation(title: session.title),
+      );
+      if (name != null && anchor.mounted) onRename(name);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -245,7 +281,7 @@ class _DesktopSessionRow extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          empty ? '新对话' : session.title,
+                          session.title,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: context.texts.bodySmall!.copyWith(
@@ -254,14 +290,12 @@ class _DesktopSessionRow extends StatelessWidget {
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          current
-                              ? '当前对话'
-                              : '${_when(session.at)} · ${session.turns} 轮',
+                          '${_when(session.at)} · ${session.turns} 轮',
                           style: context.texts.labelSmall!.copyWith(
                             color: scheme.onSurfaceVariant,
                           ),
                         ),
-                        if (!current && session.preview.isNotEmpty) ...[
+                        if (session.preview.isNotEmpty) ...[
                           const SizedBox(height: 3),
                           Text(
                             session.preview,
@@ -275,19 +309,40 @@ class _DesktopSessionRow extends StatelessWidget {
                       ],
                     ),
                   ),
-                  if (onDelete != null)
-                    IconButton(
-                      tooltip: '删除会话',
+                  IconButton(
+                    key: ValueKey('assistant-session-pin-${session.id}'),
+                    tooltip: session.meta.pinned ? '取消置顶' : '置顶',
+                    visualDensity: VisualDensity.compact,
+                    constraints: const BoxConstraints.tightFor(
+                      width: 32,
+                      height: 36,
+                    ),
+                    padding: EdgeInsets.zero,
+                    onPressed: onPin,
+                    icon: Icon(
+                      session.meta.pinned
+                          ? Icons.push_pin
+                          : Icons.push_pin_outlined,
+                      size: 17,
+                      color: session.meta.pinned
+                          ? scheme.primary
+                          : scheme.outline,
+                    ),
+                  ),
+                  Builder(
+                    builder: (anchor) => IconButton(
+                      key: ValueKey('assistant-session-menu-${session.id}'),
+                      tooltip: l10nNow.desktopConversationActions,
                       visualDensity: VisualDensity.compact,
-                      onPressed: onDelete,
-                      icon: Icon(
-                        Icons.delete_outline,
-                        size: 16,
-                        color: scheme.outline,
+                      constraints: const BoxConstraints.tightFor(
+                        width: 32,
+                        height: 36,
                       ),
-                    )
-                  else
-                    const SizedBox(width: 8),
+                      padding: EdgeInsets.zero,
+                      onPressed: () => _menu(anchor),
+                      icon: const Icon(Icons.more_horiz, size: 19),
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -296,6 +351,57 @@ class _DesktopSessionRow extends StatelessWidget {
       ),
     );
   }
+}
+
+class _RenameConversation extends StatefulWidget {
+  const _RenameConversation({required this.title});
+  final String title;
+  @override
+  State<_RenameConversation> createState() => _RenameConversationState();
+}
+
+class _RenameConversationState extends State<_RenameConversation> {
+  late final _name = TextEditingController(text: widget.title)
+    ..selection = TextSelection(
+      baseOffset: 0,
+      extentOffset: widget.title.length,
+    );
+  @override
+  void dispose() {
+    _name.dispose();
+    super.dispose();
+  }
+
+  void _save() {
+    if (_name.text.trim().isNotEmpty) Navigator.pop(context, _name.text.trim());
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: Text(l10nNow.desktopRenameConversation),
+    content: SizedBox(
+      width: 360,
+      child: TextField(
+        key: const ValueKey('assistant-session-name'),
+        controller: _name,
+        autofocus: true,
+        maxLength: 100,
+        decoration: InputDecoration(labelText: l10nNow.desktopConversationName),
+        onChanged: (_) => setState(() {}),
+        onSubmitted: (_) => _save(),
+      ),
+    ),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.pop(context),
+        child: Text(l10nNow.cancel),
+      ),
+      FilledButton(
+        onPressed: _name.text.trim().isEmpty ? null : _save,
+        child: Text(l10nNow.save),
+      ),
+    ],
+  );
 }
 
 class _HistorySheet extends ConsumerWidget {
@@ -321,7 +427,7 @@ class _HistorySheet extends ConsumerWidget {
                 children: [
                   Expanded(
                     child: Text(
-                      '历史会话',
+                      l10nNow.chatHistory,
                       style: context.texts.titleMedium!.copyWith(
                         fontWeight: FontWeight.w700,
                       ),
@@ -332,7 +438,7 @@ class _HistorySheet extends ConsumerWidget {
                       onPressed: () async {
                         final ok = await confirmDialog(
                           context,
-                          title: '清空历史会话?',
+                          title: l10nNow.clearHistoryQ,
                           message: '${sessions.length} 段对话都会删掉,已经写进创作页的改动不受影响。',
                           confirmLabel: '清空',
                         );
@@ -342,7 +448,7 @@ class _HistorySheet extends ConsumerWidget {
                         foregroundColor: scheme.error,
                         minimumSize: const Size(0, 44),
                       ),
-                      child: const Text('清空'),
+                      child: Text(l10nNow.clear),
                     ),
                 ],
               ),
@@ -351,7 +457,7 @@ class _HistorySheet extends ConsumerWidget {
               Padding(
                 padding: const EdgeInsets.fromLTRB(20, 30, 20, 46),
                 child: Text(
-                  '还没有归档的对话。\n点右上角「新对话」就会把当前这段存进来。',
+                  l10nNow.noArchivedChats,
                   textAlign: TextAlign.center,
                   style: context.texts.bodySmall!.copyWith(
                     color: scheme.onSurfaceVariant,

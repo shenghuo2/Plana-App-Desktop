@@ -6,6 +6,7 @@ import 'package:flutter/rendering.dart' show RenderMetaData;
 import 'package:flutter/scheduler.dart' show Ticker;
 
 import '../../../core/util/haptics.dart';
+import '../../../l10n/l10n.dart';
 
 /// Material 风格的范围日历；只有蓝色端点接管拖动，其余位置仍交给月份滚动。
 class GalleryRangePicker extends StatefulWidget {
@@ -191,7 +192,7 @@ class _GalleryRangePickerState extends State<GalleryRangePicker>
         lastDate: widget.lastDate,
         initialDate: _start,
         initialEntryMode: DatePickerEntryMode.inputOnly,
-        helpText: '输入日期',
+        helpText: l10nNow.desktopEnterDate,
         cancelText: '返回日历',
         confirmText: '应用',
       );
@@ -224,7 +225,7 @@ class _GalleryRangePickerState extends State<GalleryRangePicker>
       currentDate: _today,
       initialDateRange: DateTimeRange(start: _start, end: _end ?? _start),
       initialEntryMode: DatePickerEntryMode.inputOnly,
-      helpText: '选择起止日期（包含结束当天）',
+      helpText: l10nNow.desktopChooseADateRangeIncludingTheEndDate,
       cancelText: '返回日历',
       confirmText: '应用',
       fieldStartLabelText: '开始日期',
@@ -270,7 +271,7 @@ class _GalleryRangePickerState extends State<GalleryRangePicker>
           elevation: 0,
           scrolledUnderElevation: 0,
           leading: IconButton(
-            tooltip: '取消',
+            tooltip: l10nNow.cancel,
             onPressed: () => Navigator.pop(context),
             icon: const Icon(Icons.close),
           ),
@@ -284,7 +285,7 @@ class _GalleryRangePickerState extends State<GalleryRangePicker>
                       context,
                       DateTimeRange(start: _start, end: _end!),
                     ),
-              child: const Text('应用'),
+              child: Text(l10nNow.desktopApplication),
             ),
             const SizedBox(width: 8),
           ],
@@ -308,7 +309,7 @@ class _GalleryRangePickerState extends State<GalleryRangePicker>
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          '选择起止日期（包含结束当天）',
+                          l10nNow.desktopChooseADateRangeIncludingTheEndDate,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style:
@@ -357,7 +358,7 @@ class _GalleryRangePickerState extends State<GalleryRangePicker>
           Text(date(_start), style: theme.textTheme.titleLarge),
           if (!widget.singleDay) ...[
             const SizedBox(height: 20),
-            Text('结束日期', style: theme.textTheme.labelLarge),
+            Text(l10nNow.endDate, style: theme.textTheme.labelLarge),
             const SizedBox(height: 8),
             Text(
               _end == null ? '请选择' : date(_end!),
@@ -388,7 +389,7 @@ class _GalleryRangePickerState extends State<GalleryRangePicker>
                   ),
                   input,
                   IconButton(
-                    tooltip: '关闭日历',
+                    tooltip: l10nNow.desktopCloseCalendar,
                     onPressed: () => Navigator.pop(context),
                     icon: const Icon(Icons.close),
                   ),
@@ -445,7 +446,7 @@ class _GalleryRangePickerState extends State<GalleryRangePicker>
                   const SizedBox(width: 8),
                   TextButton(
                     onPressed: () => Navigator.pop(context),
-                    child: const Text('取消'),
+                    child: Text(l10nNow.cancel),
                   ),
                   const SizedBox(width: 8),
                   FilledButton(
@@ -455,7 +456,7 @@ class _GalleryRangePickerState extends State<GalleryRangePicker>
                             context,
                             DateTimeRange(start: _start, end: _end!),
                           ),
-                    child: const Text('应用'),
+                    child: Text(l10nNow.desktopApplication),
                   ),
                 ],
               ),

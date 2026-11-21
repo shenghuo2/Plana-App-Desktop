@@ -3,6 +3,8 @@
 // 容易坏的几处:窄屏一行塞不下(名字签 + 预览 + 计数 + 两颗按钮)直接溢出;
 // 删除没给撤销,或撤销没放回原位;主体那行冒出删除钮;点名字没先拿到手势,
 // 被外层「点行进编辑器」抢走。
+import 'dart:async';
+
 import 'package:flutter/gestures.dart' show kLongPressTimeout;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -28,12 +30,28 @@ class _Presets extends PromptPresetsNotifier {
 }
 
 class _Library extends TagLibrary {
-  _Library(this.seed);
+  _Library(this.seed, this.saveGate);
 
   final List<TagEntry> seed;
+  final Future<void>? saveGate;
 
   @override
   Future<TagLibraryState> build() async => TagLibraryState(entries: seed);
+
+  @override
+  Future<void> upsert(TagEntry entry) async {
+    if (saveGate != null) await saveGate;
+    final current = state.requireValue;
+    state = AsyncData(
+      current.copyWith(
+        entries: [
+          for (final old in current.entries)
+            if (old.id != entry.id) old,
+          entry,
+        ],
+      ),
+    );
+  }
 }
 
 const _a12 = TagEntry(
@@ -41,6 +59,11 @@ const _a12 = TagEntry(
   category: TagCategory.artist,
   name: 'A12',
   positive: 'artist:wlop, artist:ask, year 2024',
+);
+
+// A folded preview can show the same name as its single-line section title.
+Finder _sectionTitle(String name) => find.byWidgetPredicate(
+  (w) => w is Text && w.data == name && w.maxLines == 1,
 );
 
 /// [id] 那一行里的 [icon] 按钮。
@@ -52,6 +75,7 @@ Finder _inRow(String id, IconData icon) => find.descendant(
 Future<GenerateNotifier> _pumpCard(
   WidgetTester tester, {
   List<TagEntry> library = const [],
+  Future<void>? saveGate,
 }) async {
   tester.view.physicalSize = const Size(369 * 3, 800 * 3);
   tester.view.devicePixelRatio = 3;
@@ -60,7 +84,7 @@ Future<GenerateNotifier> _pumpCard(
     overrides: [
       appStoresProvider.overrideWithValue(AppStores.ephemeral()),
       promptPresetsProvider.overrideWith(_Presets.new),
-      tagLibraryProvider.overrideWith(() => _Library(library)),
+      tagLibraryProvider.overrideWith(() => _Library(library, saveGate)),
       publicTagsProvider(
         TagCategory.artist,
       ).overrideWith((_) async => const []),
@@ -75,7 +99,7 @@ Future<GenerateNotifier> _pumpCard(
         'looking at viewer, smile',
     negative: 'lowres, bad anatomy',
   );
-  gen.addEntrySections([_a12]);
+  gen.addEntrySections([_a12], name: '画风');
   gen.addSection();
 
   await tester.pumpWidget(
@@ -99,7 +123,7 @@ void main() {
   testWidgets('窄屏一格一行不溢出;画风条目自成一格,主体也有开关和删除', (tester) async {
     await _pumpCard(tester);
     expect(tester.takeException(), isNull);
-    expect(find.text('画风'), findsOneWidget);
+    expect(_sectionTitle('画风'), findsOneWidget);
     expect(find.text('主体'), findsOneWidget);
     expect(find.text('分区 1'), findsOneWidget);
     expect(find.byIcon(Icons.delete_outline), findsNWidgets(3));
@@ -127,7 +151,14 @@ void main() {
     expect(gen.state.sections[1].enabled, isFalse);
     // 停用的那行预览带删除线
     TextDecoration? deco() => tester
-        .widget<Text>(find.textContaining('artist:wlop'))
+        .widget<Text>(
+          find.descendant(
+            of: find.byKey(ValueKey('sec$art')),
+            matching: find.byWidgetPredicate(
+              (w) => w is Text && w.textSpan != null,
+            ),
+          ),
+        )
         .style
         ?.decoration;
     expect(deco(), TextDecoration.lineThrough);
@@ -240,7 +271,7 @@ void main() {
     final gen = await _pumpCard(tester);
     final art = gen.state.sections[1];
     final extra = gen.state.sections[2];
-    await hold(tester, find.text('画风'));
+    await hold(tester, _sectionTitle('画风'));
     expect(find.text('已选 1'), findsOneWidget);
     expect(find.text('重命名'), findsNothing);
     expect(_inRow(art.id, Icons.check), findsOneWidget);
@@ -276,7 +307,7 @@ void main() {
     final gen = await _pumpCard(tester);
     final art = gen.state.sections[1];
     final extra = gen.state.sections[2];
-    await hold(tester, find.text('画风'));
+    await hold(tester, _sectionTitle('画风'));
     // 多选态:卡头不放按钮,行尾换成勾选圈
     expect(find.byTooltip('灵感库'), findsNothing);
     expect(find.byIcon(Icons.delete_outline), findsOneWidget); // 只剩卡头那颗
@@ -309,7 +340,7 @@ void main() {
   testWidgets('多选:批量停用 / 删除连主体一起;删了主体,撤销连正向放回', (tester) async {
     final gen = await _pumpCard(tester);
     await hold(tester, find.text('主体'));
-    await tester.tap(find.text('画风'));
+    await tester.tap(_sectionTitle('画风'));
     await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('停用'));
     await tester.pumpAndSettle();
@@ -333,7 +364,7 @@ void main() {
 
   testWidgets('多选:点卡头的退出,平时的卡头按钮回来', (tester) async {
     await _pumpCard(tester);
-    await hold(tester, find.text('画风'));
+    await hold(tester, _sectionTitle('画风'));
     expect(find.text('已选 1'), findsOneWidget);
     await tester.tap(find.byTooltip('退出多选'));
     await tester.pumpAndSettle();
@@ -345,9 +376,9 @@ void main() {
 
   /// 长按 [names] 第一行进多选、再勾上其余几行,点「存到灵感库」。
   Future<void> openSave(WidgetTester tester, List<String> names) async {
-    await hold(tester, find.text(names.first));
+    await hold(tester, _sectionTitle(names.first));
     for (final n in names.skip(1)) {
-      await tester.tap(find.text(n));
+      await tester.tap(_sectionTitle(n));
     }
     await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('存到灵感库'));
@@ -388,30 +419,32 @@ void main() {
     await _settleTimers(tester);
   });
 
-  testWidgets('存到灵感库:主体猜不出分类,先弹分类下拉;选了才进新建页,只带正向', (tester) async {
+  testWidgets('存到灵感库:主体猜不出分类,落第一类;点标题换类别,词带过去', (tester) async {
     await _pumpCard(tester);
     await openSave(tester, ['主体']);
-    expect(find.byType(TagEditorPage), findsNothing);
-    expect(find.text('场景'), findsOneWidget); // 下拉里的三类
-    await tester.tap(find.text('角色'));
-    await tester.pumpAndSettle();
     expect(find.text('新建角色'), findsOneWidget);
     final d = draftOf(tester)!;
     expect(d.name, isEmpty); // 名字自己起
     expect(d.positive, startsWith('1girl, solo'));
     expect(d.negative, isEmpty); // 卡上负面那行不带
+    // 标题可点:换到场景,词跟过去
+    await tester.tap(find.text('新建角色'));
+    await tester.pumpAndSettle();
+    expect(find.text('其他'), findsNothing); // 同灵感库面板,不给「其他」
+    await tester.tap(find.text('场景'));
+    await tester.pumpAndSettle();
+    expect(find.text('新建场景'), findsOneWidget);
+    expect(draftOf(tester)!.positive, startsWith('1girl, solo'));
     await _settleTimers(tester);
   });
 
-  testWidgets('存到灵感库:只能勾一格、空格子不行;同分类里已有一样的词就提示那一条', (tester) async {
+  testWidgets('存到灵感库:空格子不行;同分类里已有一样的词就提示那一条', (tester) async {
     await _pumpCard(tester, library: const [_a12]);
     await hold(tester, find.text('分区 1'));
     final btn = find.widgetWithIcon(RoundIconBtn, Icons.save_outlined);
     VoidCallback? onTap() => tester.widget<RoundIconBtn>(btn).onTap;
-    expect(onTap(), isNull); // 空的
-    await tester.tap(find.text('画风'));
-    await tester.pumpAndSettle();
-    expect(onTap(), isNull); // 勾了两格
+    expect(onTap(), isNull); // 只勾了空的
+    await tester.tap(_sectionTitle('画风'));
     await tester.tap(find.text('分区 1'));
     await tester.pumpAndSettle();
     expect(onTap(), isNotNull);
@@ -420,6 +453,55 @@ void main() {
     expect(find.byType(TagEditorPage), findsNothing);
     expect(libOf(tester, TagCategory.artist), [_a12]);
     expect(find.text('灵感库里已有「A12」'), findsOneWidget);
+    await _settleTimers(tester);
+  });
+
+  testWidgets('存到灵感库:保存期间离开提示词页仍完成所有分区', (tester) async {
+    final saveGate = Completer<void>();
+    await _pumpCard(tester, saveGate: saveGate.future);
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(MaterialApp)),
+      listen: false,
+    );
+    await openSave(tester, ['画风', '主体']);
+    expect(container.read(tagLibraryProvider).requireValue.entries, isEmpty);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: Scaffold(body: Text('其他页面'))),
+      ),
+    );
+    saveGate.complete();
+    await tester.pumpAndSettle();
+    final entries = container.read(tagLibraryProvider).requireValue.entries;
+    expect(entries, hasLength(2));
+    expect(
+      entries.map((e) => e.positive),
+      containsAll([
+        'artist:wlop, artist:ask, year 2024',
+        startsWith('1girl, solo'),
+      ]),
+    );
+    await _settleTimers(tester);
+  });
+
+  testWidgets('存到灵感库:勾几格直接各存一条,不进新建页;已有的跳过', (tester) async {
+    await _pumpCard(tester);
+    await openSave(tester, ['画风', '主体', '分区 1']);
+    expect(find.byType(TagEditorPage), findsNothing);
+    final art = libOf(tester, TagCategory.artist);
+    expect(art.single.name, 'A1'); // 画风格用新编号
+    expect(art.single.positive, 'artist:wlop, artist:ask, year 2024');
+    final chars = libOf(tester, TagCategory.character);
+    expect(chars.single.name, '1girl'); // 主体猜不出:落第一类,名字取第一个词
+    expect(find.text('已存 2 条到灵感库'), findsOneWidget);
+    expect(find.text('已选 3'), findsNothing); // 多选已退出
+    await _settleTimers(tester);
+
+    // 再存一次:都已有
+    await openSave(tester, ['画风', '主体']);
+    expect(libOf(tester, TagCategory.artist), hasLength(1));
+    expect(find.text('灵感库里都已有了'), findsOneWidget);
     await _settleTimers(tester);
   });
 }

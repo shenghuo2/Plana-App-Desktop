@@ -142,7 +142,7 @@ void main() {
         if (before?.active == true && !after.active) queueDone.complete();
       });
 
-      for (var i = 0; i < LoopCount.x4.count; i++) {
+      for (var i = 0; i < 4; i++) {
         final frames = i == 0 ? first : await client.nextImage();
         expect(c.read(shellIndexProvider), kTabInspiration);
         frames.add((step: 28, isFinal: true, bytes: bytes));

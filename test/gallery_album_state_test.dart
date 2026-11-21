@@ -110,6 +110,23 @@ void main() {
     }
   });
 
+  test(
+    'album drag order persists and moving a missing album keeps the order',
+    () async {
+      final albums = c.read(albumsProvider.notifier);
+      await albums.create('First');
+      await albums.create('Second');
+      await albums.create('Third');
+      final ids = c.read(albumsProvider).albums.map((a) => a.id).toList();
+      await albums.moveTo(ids.last, ids.first);
+      await albums.moveTo('missing-album', ids.last);
+      final expected = [ids.last, ids.first, ids[1]];
+      expect(c.read(albumsProvider).albums.map((a) => a.id), expected);
+      final reopened = await AppStores.open(rootOverride: root);
+      expect(reopened.albums.data.albums.map((a) => a.id), expected);
+    },
+  );
+
   for (final scoped in [false, true]) {
     test('${scoped ? '指定图库' : '全部作品'}删除后选相邻图片，删除其他图片不改选', () async {
       final albums = c.read(albumsProvider.notifier);

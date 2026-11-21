@@ -8,9 +8,13 @@ library;
 
 import 'dart:convert';
 
+import 'domain/image_gen.dart';
+import 'runtime/refusal.dart' show kRefusalKeywords;
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/store/app_stores.dart';
+import '../generate/prompt_sections.dart' show SectionImport;
 
 const _key = 'assistant_settings';
 
@@ -87,6 +91,12 @@ LibraryScope effectiveLibraryScope(
 /// 把「线上协议」和「本地枚举」的耦合摆到明面上:改名字要一起改。
 String libraryScopeWire(LibraryScope s) => s.name;
 
+String sectionImportLabel(SectionImport m) => switch (m) {
+  SectionImport.main => '替换主体',
+  SectionImport.newSection => '新建分区',
+  SectionImport.clear => '清空分区',
+};
+
 /// 首次引导的版本。引导内容改版时加一:走过旧版的人进 AI 页会再看到一次。
 const kAssistantIntroVersion = 2;
 
@@ -103,6 +113,13 @@ class AssistantSettings {
     this.fontSize = fontSizeDefault,
     this.historyTurns = historyTurnsDefault,
     this.stream = true,
+    this.importTo = SectionImport.main,
+    this.retries = retriesDefault,
+    this.rerolls = rerollsDefault,
+    this.refusalKeywords = kRefusalKeywords,
+    this.imageSize = '',
+    this.imageAspect = '',
+    this.imageCount = 1,
     this.showSidebarImagePicker = false,
     this.showSidebarHistoryPicker = false,
     this.showSidebarClipboardButton = false,
@@ -115,7 +132,11 @@ class AssistantSettings {
   /// 服务端付的,拉满一个请求光历史就三万多;老版服务端封顶更低,要多了照样截回去。
   /// 自定义接口那条没人替它截,也按同一个上限走。
   ///
-  /// 十轮一档:两百轮的范围,一轮一轮地按太碎。
+  /// 每次调整一轮，保留已有的精确轮数。
+  static const retriesDefault = 3;
+  static const rerollsDefault = 3;
+  static const retriesMax = 5;
+
   static const historyTurnsDefault = 20;
   static const historyTurnsMin = 1;
   static const historyTurnsMax = 200;
@@ -194,6 +215,29 @@ class AssistantSettings {
   /// 字段、或者就是不想看字一个个蹦的人。
   final bool stream;
 
+  /// 导入与直接生成共用的主提示词分区写入方式。
+  final SectionImport importTo;
+
+  /// 出错后自动重发几次,重发时剥掉附图。
+  final int retries;
+
+  /// 回复像拒绝时原地重掷几次。0 = 不判拒绝,回复照常显示。
+  final int rerolls;
+
+  /// 回复命中这些词就算拒绝。和默认一样时不落盘,默认词表更新能跟上。
+  final List<String> refusalKeywords;
+
+  /// 图像模型的分辨率档 / 比例(输入框上方那排);空 = 交给图像模型。
+  /// 当前模型出不了的照存着,发的时候按「自动」走,换回能出的模型还是它。
+  final String imageSize;
+  final String imageAspect;
+
+  /// 图像模型一轮出几张。
+  final int imageCount;
+
+  bool get defaultRefusalKeywords =>
+      _sameList(refusalKeywords, kRefusalKeywords);
+
   /// 创作页侧栏输入框的图片按钮。默认隐藏,为输入文字留出宽度。
   final bool showSidebarImagePicker;
   final bool showSidebarHistoryPicker;
@@ -211,6 +255,13 @@ class AssistantSettings {
     double? fontSize,
     int? historyTurns,
     bool? stream,
+    SectionImport? importTo,
+    int? retries,
+    int? rerolls,
+    List<String>? refusalKeywords,
+    String? imageSize,
+    String? imageAspect,
+    int? imageCount,
     bool? showSidebarImagePicker,
     bool? showSidebarHistoryPicker,
     bool? showSidebarClipboardButton,
@@ -226,6 +277,13 @@ class AssistantSettings {
     fontSize: fontSize ?? this.fontSize,
     historyTurns: historyTurns ?? this.historyTurns,
     stream: stream ?? this.stream,
+    importTo: importTo ?? this.importTo,
+    retries: retries ?? this.retries,
+    rerolls: rerolls ?? this.rerolls,
+    refusalKeywords: refusalKeywords ?? this.refusalKeywords,
+    imageSize: imageSize ?? this.imageSize,
+    imageAspect: imageAspect ?? this.imageAspect,
+    imageCount: imageCount ?? this.imageCount,
     showSidebarImagePicker:
         showSidebarImagePicker ?? this.showSidebarImagePicker,
     showSidebarHistoryPicker:
@@ -246,6 +304,13 @@ class AssistantSettings {
     'fontSize': fontSize,
     'historyTurns': historyTurns,
     'stream': stream,
+    'importTo': importTo.name,
+    'retries': retries,
+    'rerolls': rerolls,
+    if (!defaultRefusalKeywords) 'refusalKeywords': refusalKeywords,
+    if (imageSize.isNotEmpty) 'imageSize': imageSize,
+    if (imageAspect.isNotEmpty) 'imageAspect': imageAspect,
+    if (imageCount != 1) 'imageCount': imageCount,
     'showSidebarImagePicker': showSidebarImagePicker,
     'showSidebarHistoryPicker': showSidebarHistoryPicker,
     'showSidebarClipboardButton': showSidebarClipboardButton,
@@ -267,6 +332,30 @@ class AssistantSettings {
         noDraw: j['noDraw'] == true,
         // 缺键 = 老存档,按开算:新行为更好,不必等用户自己去翻设置
         stream: j['stream'] != false,
+        importTo:
+            SectionImport.values.asNameMap()[j['importTo']] ??
+            SectionImport.main,
+        retries: _count(j['retries'], retriesDefault),
+        rerolls: _count(j['rerolls'], rerollsDefault),
+        refusalKeywords: switch (j['refusalKeywords']) {
+          final List<dynamic> l => [
+            for (final k in l)
+              if (k is String && k.trim().isNotEmpty) k.trim(),
+          ],
+          _ => kRefusalKeywords,
+        },
+        imageSize: switch (j['imageSize']) {
+          final String s when kImageSizes.contains(s) => s,
+          _ => '',
+        },
+        imageAspect: switch (j['imageAspect']) {
+          final String s when isImageAspect(s) => s,
+          _ => '',
+        },
+        imageCount: switch (j['imageCount']) {
+          final int n when n >= 1 && n <= kMaxImageCount => n,
+          _ => 1,
+        },
         showSidebarImagePicker: j['showSidebarImagePicker'] == true,
         showSidebarHistoryPicker: j['showSidebarHistoryPicker'] == true,
         showSidebarClipboardButton: j['showSidebarClipboardButton'] == true,
@@ -289,6 +378,19 @@ class AssistantSettings {
           _ => historyTurnsDefault,
         },
       );
+  static int _count(Object? v, int fallback) => switch (v) {
+    final num n when n.isFinite => n.round().clamp(0, retriesMax),
+    _ => fallback,
+  };
+}
+
+bool _sameList(List<String> a, List<String> b) {
+  if (identical(a, b)) return true;
+  if (a.length != b.length) return false;
+  for (var i = 0; i < a.length; i++) {
+    if (a[i] != b[i]) return false;
+  }
+  return true;
 }
 
 final assistantSettingsProvider =

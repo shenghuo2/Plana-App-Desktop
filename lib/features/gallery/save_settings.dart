@@ -7,7 +7,7 @@ import '../../core/store/app_stores.dart';
 /// 保存到相册的元数据处理方式(对齐 web SaveModal)。
 enum SaveMeta { original, clean, custom }
 
-enum SaveFormat { png, jpg }
+enum SaveFormat { png, jpg, webp }
 
 /// 图库的默认保存设置(持久化):点「保存」直接按此存相册,
 /// 长按进保存设置面板可单次调整或改默认。
@@ -78,6 +78,7 @@ class SaveSettings {
   Map<String, dynamic> toJson() => {
     'meta': meta.name,
     'format': format.name,
+    'formatVersion': 2,
     'quality': quality,
     'customPrompt': customPrompt,
     if (recentAlbums.isNotEmpty) 'recentAlbums': recentAlbums,
@@ -128,9 +129,26 @@ class SaveSettingsNotifier extends AsyncNotifier<SaveSettings> {
   @override
   Future<SaveSettings> build() async {
     try {
-      final raw = await ref.read(prefsStoreProvider).read(key: _key);
-      if (raw == null || raw.isEmpty) return const SaveSettings();
-      return SaveSettings.fromJson(jsonDecode(raw) as Map<String, dynamic>);
+      final prefs = ref.read(prefsStoreProvider);
+      final raw = await prefs.read(key: _key);
+      final data = raw == null || raw.isEmpty
+          ? <String, dynamic>{}
+          : jsonDecode(raw) as Map<String, dynamic>;
+      final saved = SaveSettings.fromJson(data);
+      if (data['formatVersion'] == 2 || saved.format != SaveFormat.png) {
+        return saved;
+      }
+      final old = await prefs.read(key: 'gen_settings');
+      if (old != null && old.isNotEmpty) {
+        try {
+          if (jsonDecode(old) case {'keepWebp': true}) {
+            return saved.copyWith(format: SaveFormat.webp);
+          }
+        } on FormatException {
+          // Preserve the gallery's existing settings if the legacy preference is unreadable.
+        }
+      }
+      return saved;
     } catch (_) {
       return const SaveSettings();
     }
@@ -138,7 +156,8 @@ class SaveSettingsNotifier extends AsyncNotifier<SaveSettings> {
 
   /// 先改状态(立即生效),再尽力持久化。
   Future<void> patch(SaveSettings Function(SaveSettings) change) async {
-    final next = change(state.value ?? const SaveSettings());
+    if (!state.hasValue) await future;
+    final next = change(state.requireValue);
     state = AsyncData(next);
     try {
       await ref

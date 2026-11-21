@@ -1,3 +1,4 @@
+import '../../l10n/l10n.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -30,7 +31,7 @@ class _LedgerPageState extends ConsumerState<LedgerPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('账单')),
+      appBar: AppBar(title: Text(l10nNow.desktopBilling)),
       // 外层不滚:汇总卡固定在上,流水卡撑满剩余高度、内部自滚
       body: Padding(
         padding: const EdgeInsets.fromLTRB(14, 8, 14, 14),
@@ -99,7 +100,7 @@ class _LedgerPageState extends ConsumerState<LedgerPage> {
       Expanded(
         child: _flowCard(
           context,
-          title: '流水 · 每日',
+          title: l10nNow.desktopDailyTransactions,
           trailing: '本月',
           rows: _botDailyRows(context, daily.value, daily.isLoading),
         ),
@@ -119,7 +120,7 @@ class _LedgerPageState extends ConsumerState<LedgerPage> {
     final scheme = context.scheme;
     final loading = isLoading && r == null;
     if (!loading && r == null) {
-      return const StatsCard(child: Text('账单加载失败,退出重进或稍后再试'));
+      return StatsCard(child: Text(l10nNow.desktopCouldNotLoadTheBillReopenThePage));
     }
     // 新计费规则生效之前的周期:那段消费在旧规则下早就结清了,不重复出账。
     // 必须整块换掉而不是只把金额显示成 ¥0 —— 后者会连着阶梯表一起画出来
@@ -338,7 +339,7 @@ class _LedgerPageState extends ConsumerState<LedgerPage> {
               ),
               const SizedBox(width: 6),
               Text(
-                '上期账单',
+                l10nNow.desktopPreviousBill,
                 style: context.texts.bodyMedium!.copyWith(
                   fontWeight: FontWeight.w600,
                 ),
@@ -367,7 +368,7 @@ class _LedgerPageState extends ConsumerState<LedgerPage> {
               ),
               const SizedBox(width: 7),
               Text(
-                '本期无需支付',
+                l10nNow.desktopNoPaymentDueThisPeriod,
                 style: context.texts.bodyMedium!.copyWith(
                   fontWeight: FontWeight.w600,
                 ),
@@ -469,7 +470,7 @@ class _LedgerPageState extends ConsumerState<LedgerPage> {
     return Row(
       children: [
         Text(
-          '累计',
+          l10nNow.desktopTotal,
           style: context.texts.labelSmall!.copyWith(color: scheme.outline),
         ),
         const SizedBox(width: 12),
@@ -525,7 +526,7 @@ class _LedgerPageState extends ConsumerState<LedgerPage> {
         Padding(
           padding: const EdgeInsets.symmetric(vertical: 12),
           child: Text(
-            '暂不可用',
+            l10nNow.desktopTemporarilyUnavailable,
             style: context.texts.bodySmall!.copyWith(color: scheme.outline),
           ),
         ),
@@ -540,7 +541,7 @@ class _LedgerPageState extends ConsumerState<LedgerPage> {
         Padding(
           padding: const EdgeInsets.symmetric(vertical: 12),
           child: Text(
-            '本月暂无生图记录',
+            l10nNow.desktopNoGenerationsThisMonth,
             style: context.texts.bodySmall!.copyWith(color: scheme.outline),
           ),
         ),
@@ -590,7 +591,7 @@ class _LedgerPageState extends ConsumerState<LedgerPage> {
                           ),
                           const SizedBox(width: 6),
                           Text(
-                            '本机账单',
+                            l10nNow.desktopLocalBilling,
                             style: context.texts.bodyMedium!.copyWith(
                               fontWeight: FontWeight.w600,
                             ),
@@ -619,7 +620,7 @@ class _LedgerPageState extends ConsumerState<LedgerPage> {
                           ),
                           const SizedBox(width: 8),
                           Text(
-                            '估算消耗',
+                            l10nNow.estimatedSpend,
                             style: context.texts.labelSmall!.copyWith(
                               color: scheme.outline,
                             ),
@@ -678,13 +679,13 @@ class _LedgerPageState extends ConsumerState<LedgerPage> {
                 Expanded(
                   child: _flowCard(
                     context,
-                    title: '流水',
+                    title: l10nNow.desktopTransactions,
                     trailing: '最近',
                     rows: _keyRows(context, ledger),
                     footer: Padding(
                       padding: const EdgeInsets.only(top: 4),
                       child: Text(
-                        '本机记录 · 估算值,与 NAI 实扣可能略有出入',
+                        l10nNow.desktopLocalEstimatesMayDifferFromActualNovelAICharges,
                         style: context.texts.labelSmall!.copyWith(
                           color: scheme.outline,
                         ),
@@ -752,7 +753,7 @@ class _LedgerPageState extends ConsumerState<LedgerPage> {
         Padding(
           padding: const EdgeInsets.symmetric(vertical: 12),
           child: Text(
-            '暂无记录。直连模式的生成会从现在开始记入。',
+            l10nNow.desktopNoRecordsYetNewDirectModeGenerationsWill,
             style: context.texts.bodySmall!.copyWith(color: scheme.outline),
           ),
         ),

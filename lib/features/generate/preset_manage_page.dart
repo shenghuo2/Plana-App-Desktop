@@ -1,3 +1,4 @@
+import '../../l10n/l10n.dart';
 import 'dart:convert';
 import 'dart:io';
 
@@ -177,9 +178,11 @@ class _PromptPresetManagePageState
   ) async {
     final ok = await confirmDialog(
       context,
-      title: '删除预设',
-      message: '「${p.name}」将被删除;若正在激活,回落到「无」。',
-      confirmLabel: '删除',
+      title: context.l10n.deletePreset,
+      message: context.l10n.deletePresetBody(
+        presetDisplayName(context.l10n, p),
+      ),
+      confirmLabel: context.l10n.delete,
     );
     if (!ok || !mounted) return;
     await ref.read(promptPresetsProvider.notifier).remove(p.id);
@@ -193,7 +196,7 @@ class _PromptPresetManagePageState
     final desktop = ref.watch(desktopModeProvider);
     final actions = <Widget>[
       IconButton(
-        tooltip: '导入预设（JSON）',
+        tooltip: l10nNow.desktopImportPresetsJSON,
         onPressed: s == null || _importing ? null : _importFile,
         icon: _importing
             ? const SizedBox.square(
@@ -203,7 +206,7 @@ class _PromptPresetManagePageState
             : const Icon(Icons.file_upload_outlined),
       ),
       IconButton(
-        tooltip: '新建预设',
+        tooltip: l10nNow.newPreset,
         onPressed: () => _edit(context, ref),
         icon: const Icon(Icons.add),
       ),
@@ -277,7 +280,7 @@ class _PromptPresetManagePageState
                   children: [
                     Expanded(
                       child: Text(
-                        '提示词预设',
+                        l10nNow.promptPresets,
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                         style: context.texts.titleLarge!.copyWith(
@@ -288,7 +291,7 @@ class _PromptPresetManagePageState
                     ...actions,
                     IconButton(
                       key: const ValueKey('prompt-preset-manager-close'),
-                      tooltip: '关闭预设窗口',
+                      tooltip: l10nNow.desktopClosePresets,
                       onPressed: () => Navigator.pop(context),
                       icon: const Icon(Icons.close),
                     ),
@@ -303,7 +306,7 @@ class _PromptPresetManagePageState
       );
     }
     return SettingsScaffold(
-      appBar: AppBar(title: const Text('提示词预设'), actions: actions),
+      appBar: AppBar(title: Text(l10nNow.promptPresets), actions: actions),
       body: body,
     );
   }
@@ -375,7 +378,7 @@ class _PresetTile extends StatelessWidget {
           crossAxisAlignment: WrapCrossAlignment.center,
           children: [
             Text(
-              preset.name,
+              presetDisplayName(context.l10n, preset),
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
               style: context.texts.bodyMedium!.copyWith(
@@ -401,7 +404,7 @@ class _PresetTile extends StatelessWidget {
         const SizedBox(height: 3),
         if (preset.positive.isEmpty && preset.negative.isEmpty)
           Text(
-            '无前缀',
+            l10nNow.noPrefix,
             style: context.texts.labelSmall!.copyWith(color: scheme.outline),
           )
         else ...[
@@ -441,7 +444,7 @@ class _PresetTile extends StatelessWidget {
         if (onDelete != null)
           IconButton(
             key: ValueKey('prompt-preset-delete-${preset.id}'),
-            tooltip: '删除',
+            tooltip: l10nNow.delete,
             visualDensity: VisualDensity.compact,
             onPressed: onDelete,
             icon: Icon(
@@ -513,7 +516,10 @@ class _PresetEditSheet extends StatefulWidget {
 
 class _PresetEditSheetState extends State<_PresetEditSheet> {
   late final TextEditingController nameCtl = TextEditingController(
-    text: widget.preset?.name ?? '',
+    text: switch (widget.preset) {
+      final p? => presetDisplayName(context.l10n, p),
+      null => '',
+    },
   );
   late final TextEditingController posCtl = TextEditingController(
     text: widget.preset?.positive ?? '',
@@ -570,7 +576,7 @@ class _PresetEditSheetState extends State<_PresetEditSheet> {
       children: [
         Expanded(
           child: Text(
-            '拼接位置',
+            context.l10n.placement,
             style: context.texts.labelMedium!.copyWith(
               color: scheme.onSurfaceVariant,
             ),
@@ -586,8 +592,16 @@ class _PresetEditSheetState extends State<_PresetEditSheet> {
             ),
             child: Row(
               children: [
-                seg('开头', !_suffix, () => setState(() => _suffix = false)),
-                seg('末尾', _suffix, () => setState(() => _suffix = true)),
+                seg(
+                  context.l10n.placementStart,
+                  !_suffix,
+                  () => setState(() => _suffix = false),
+                ),
+                seg(
+                  context.l10n.placementEnd,
+                  _suffix,
+                  () => setState(() => _suffix = true),
+                ),
               ],
             ),
           ),
@@ -620,7 +634,9 @@ class _PresetEditSheetState extends State<_PresetEditSheet> {
           style: multiline ? mono(context, size: 13) : null,
           decoration: InputDecoration(
             isDense: true,
-            hintText: multiline ? '空…' : '预设名称',
+            hintText: multiline
+                ? context.l10n.emptyHint
+                : context.l10n.presetName,
             border: const OutlineInputBorder(),
             contentPadding: const EdgeInsets.symmetric(
               horizontal: 12,
@@ -636,7 +652,7 @@ class _PresetEditSheetState extends State<_PresetEditSheet> {
   Widget build(BuildContext context) {
     final scheme = context.scheme;
     final title = _readOnly
-        ? '查看预设'
+        ? context.l10n.viewPreset
         : widget.preset == null
         ? '新建预设'
         : '编辑预设';
@@ -663,7 +679,7 @@ class _PresetEditSheetState extends State<_PresetEditSheet> {
             if (_readOnly) ...[
               const SizedBox(height: 4),
               Text(
-                '默认预设不可修改,可新建自定义预设替代。',
+                l10nNow.defaultPresetReadOnly,
                 style: context.texts.labelSmall!.copyWith(
                   color: scheme.outline,
                 ),
@@ -698,7 +714,7 @@ class _PresetEditSheetState extends State<_PresetEditSheet> {
                         suffix: _suffix,
                       ));
                     },
-                    child: const Text('保存'),
+                    child: Text(l10nNow.save),
                   ),
                 ],
               ],

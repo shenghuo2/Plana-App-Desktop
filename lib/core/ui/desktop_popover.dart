@@ -10,6 +10,7 @@ Future<T?> showDesktopPopover<T>(
   required WidgetBuilder builder,
   double width = 380,
   double maxHeight = 480,
+  bool preferAbove = false,
 }) {
   final navigator = Navigator.of(context);
   final overlay = navigator.overlay!.context.findRenderObject()! as RenderBox;
@@ -38,6 +39,7 @@ Future<T?> showDesktopPopover<T>(
             delegate: _PopoverLayout(
               anchor: anchor,
               width: width,
+              preferAbove: preferAbove,
               maxHeight: maxHeight,
               padding: MediaQuery.paddingOf(context),
             ),
@@ -66,10 +68,12 @@ class _PopoverLayout extends SingleChildLayoutDelegate {
   const _PopoverLayout({
     required this.anchor,
     required this.width,
+    required this.preferAbove,
     required this.maxHeight,
     required this.padding,
   });
   final Rect anchor;
+  final bool preferAbove;
   final double width;
   final double maxHeight;
   final EdgeInsets padding;
@@ -92,7 +96,10 @@ class _PopoverLayout extends SingleChildLayoutDelegate {
     return BoxConstraints(
       minWidth: math.min(width, bounds.width),
       maxWidth: math.min(width, bounds.width),
-      maxHeight: math.min(maxHeight, math.max(above, below)),
+      maxHeight: math.min(
+        maxHeight,
+        preferAbove && above >= 48 ? above : math.max(above, below),
+      ),
     );
   }
 
@@ -100,7 +107,9 @@ class _PopoverLayout extends SingleChildLayoutDelegate {
   Offset getPositionForChild(Size size, Size childSize) {
     final bounds = _bounds(size);
     final below = anchor.bottom + gap;
-    final top = below + childSize.height <= bounds.bottom
+    final fitsAbove = anchor.top - gap - childSize.height >= bounds.top;
+    final top =
+        !(preferAbove && fitsAbove) && below + childSize.height <= bounds.bottom
         ? below
         : anchor.top - gap - childSize.height;
     return Offset(
@@ -115,6 +124,7 @@ class _PopoverLayout extends SingleChildLayoutDelegate {
   @override
   bool shouldRelayout(_PopoverLayout oldDelegate) =>
       anchor != oldDelegate.anchor ||
+      preferAbove != oldDelegate.preferAbove ||
       width != oldDelegate.width ||
       maxHeight != oldDelegate.maxHeight ||
       padding != oldDelegate.padding;

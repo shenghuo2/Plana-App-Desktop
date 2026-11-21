@@ -1,17 +1,14 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
+import '../../../l10n/l10n.dart';
+
 import '../gallery_date_filter.dart';
 import 'gallery_range_picker.dart';
 
 Widget _calendarLocale(BuildContext context, Widget? child) =>
     Localizations.override(
       context: context,
-      locale: const Locale('zh', 'CN'),
-      delegates: const [
-        GlobalMaterialLocalizations.delegate,
-        GlobalWidgetsLocalizations.delegate,
-        GlobalCupertinoLocalizations.delegate,
-      ],
+      locale: Locale(context.l10n.localeName),
+      delegates: AppLocalizations.localizationsDelegates,
       child: child,
     );
 
@@ -52,14 +49,15 @@ Future<GalleryDateFilter?> showGalleryDateFilter(
     final day = await showDatePicker(
       context: context,
       builder: _calendarLocale,
+
       firstDate: first,
       lastDate: last,
       initialDate: initial,
-      helpText: '选择日期',
-      cancelText: '取消',
-      confirmText: '应用',
-      fieldLabelText: '日期',
-      fieldHintText: '年/月/日',
+      helpText: context.l10n.selectDate,
+      cancelText: context.l10n.cancel,
+      confirmText: context.l10n.applyLabel,
+      fieldLabelText: context.l10n.dateLabel,
+      fieldHintText: context.l10n.dateFieldHint,
     );
     return day == null
         ? null
@@ -143,8 +141,8 @@ class _DateFilterSheet extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const Text(
-              '按日期筛选',
+            Text(
+              l10nNow.filterByDate,
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
             ),
             const SizedBox(height: 12),
@@ -153,11 +151,11 @@ class _DateFilterSheet extends StatelessWidget {
               spacing: 8,
               runSpacing: 8,
               children: [
-                for (final (value, title) in const [
-                  (GalleryDateKind.all, '全部'),
-                  (GalleryDateKind.today, '今天'),
-                  (GalleryDateKind.week, '近 7 天'),
-                  (GalleryDateKind.month, '近 30 天'),
+                for (final (value, title) in [
+                  (GalleryDateKind.all, context.l10n.all),
+                  (GalleryDateKind.today, context.l10n.today),
+                  (GalleryDateKind.week, context.l10n.last7Days),
+                  (GalleryDateKind.month, context.l10n.last30Days),
                 ])
                   Semantics(
                     selected: current.kind == value,
@@ -190,10 +188,10 @@ class _DateFilterSheet extends StatelessWidget {
             const SizedBox(height: 16),
             _CustomDateOption(
               key: const ValueKey('gallery-date-kind-day'),
-              title: '指定日期',
+              title: l10nNow.specificDate,
               subtitle: current.kind == GalleryDateKind.day && start != null
                   ? _date(start)
-                  : '选择某一天',
+                  : context.l10n.pickADay,
               icon: Icons.event_outlined,
               selected: current.kind == GalleryDateKind.day,
               onTap: () => Navigator.pop(context, GalleryDateKind.day),
@@ -201,10 +199,13 @@ class _DateFilterSheet extends StatelessWidget {
             const SizedBox(height: 10),
             _CustomDateOption(
               key: const ValueKey('gallery-date-kind-range'),
-              title: '日期范围',
+              title: l10nNow.dateRange,
               subtitle: current.kind == GalleryDateKind.range && start != null
-                  ? '${_date(start)} 至 ${_date(current.end ?? start)}'
-                  : '选择开始与结束日期',
+                  ? context.l10n.dateRangeValue(
+                      _date(start),
+                      _date(current.end ?? start),
+                    )
+                  : context.l10n.pickStartEnd,
               icon: Icons.date_range_outlined,
               selected: current.kind == GalleryDateKind.range,
               onTap: () => Navigator.pop(context, GalleryDateKind.range),

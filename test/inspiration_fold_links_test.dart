@@ -103,10 +103,86 @@ void main() {
   }
 
   test(
+    'inspector edits preserve linked blocks and undo body changes after reload',
+    () {
+      final source = imported([
+        entry(name: '画风', positive: '0.4::artist:jyt::, blue eyes'),
+      ]);
+      use(source);
+      load();
+      editor.editFoldBody(
+        '画风',
+        '0.7::artist:jyt::, blue eyes',
+        structural: true,
+      );
+      editor.flushWriteBack();
+      expect(gen.state.promptRaw, '<#画风: 0.7::artist:jyt::, blue eyes#>');
+      expect(gen.state.negativePromptRaw, source.negativePromptRaw);
+      expect(
+        gen.state.promptFoldLinks.single.positiveBody,
+        '0.7::artist:jyt::, blue eyes',
+      );
+      load();
+      editor.undo();
+      editor.flushWriteBack();
+      expect(gen.state.promptRaw, source.promptRaw);
+      expect(gen.state.promptFoldLinks, source.promptFoldLinks);
+      expect(editor.outputPositive(), source.prompt);
+    },
+  );
+
+  test(
+    'inspector can edit the negative member without switching the main tab',
+    () {
+      final source = imported([entry(name: '画风')]);
+      use(source);
+      load();
+      editor.editFoldBody('画风·排除', '0.5::red hair::', structural: true);
+      editor.flushWriteBack();
+      expect(container.read(editorProvider).activePositive, isTrue);
+      expect(gen.state.promptRaw, source.promptRaw);
+      expect(gen.state.negativePromptRaw, '<#画风·排除: 0.5::red hair::#>');
+      expect(gen.state.promptFoldLinks.single.negativeBody, '0.5::red hair::');
+      remove('画风');
+      editor.flushWriteBack();
+      expect(gen.state.prompt, isEmpty);
+      expect(gen.state.negativePrompt, isEmpty);
+      editor.undo();
+      editor.flushWriteBack();
+      expect(gen.state.negativePromptRaw, '<#画风·排除: 0.5::red hair::#>');
+    },
+  );
+
+  test(
+    'late body edit cannot revive a deleted block and empty bodies remain folded',
+    () {
+      final source = imported([entry(name: '画风')]);
+      use(source);
+      load();
+      editor.editFoldBody('画风', '', structural: true);
+      editor.flushWriteBack();
+      expect(gen.state.promptRaw, '<#画风: #>');
+      load();
+      expect(
+        parseFoldRefs(
+          container.read(editorProvider).activeText,
+          container.read(editorProvider).foldBodies,
+        ).single.name,
+        '画风',
+      );
+      remove('画风');
+      editor.editFoldBody('画风', 'late edit', structural: true);
+      editor.flushWriteBack();
+      expect(gen.state.prompt, isEmpty);
+      expect(gen.state.promptRaw, isEmpty);
+    },
+  );
+
+  test(
     'all inspiration categories fold both sides, including single words, without exposing IDs',
     () {
       final source = imported([
-        for (final category in TagCategory.values)
+        for (final category in TagCategory.builtins)
           entry(
             name: '条目-${category.name}',
             category: category,
@@ -136,6 +212,30 @@ void main() {
         expect(request, contains(link.positiveBody));
         expect(request, contains(link.negativeBody));
       }
+    },
+  );
+
+  test(
+    'editing one repeated block never changes its identical neighbours or opposite prompt',
+    () {
+      const positive = '<#重复: blue eyes#>, <#重复: blue eyes#>';
+      const negative = '<#重复: blue eyes#>';
+      gen.setPrompts(
+        positive: outputOf(positive),
+        positiveRaw: positive,
+        negative: outputOf(negative),
+        negativeRaw: negative,
+      );
+      load();
+      final before = container.read(editorProvider);
+      final refs = parseFoldRefs(before.positiveText, before.foldBodies);
+      expect(refs.map((r) => r.name).toSet(), hasLength(2));
+      editor.editFoldBody(refs.first.name, 'green eyes', structural: true);
+      expect(editor.outputPositive(), 'green eyes, blue eyes');
+      expect(editor.outputNegative(), 'blue eyes');
+      editor.undo();
+      expect(editor.outputPositive(), 'blue eyes, blue eyes');
+      expect(editor.outputNegative(), 'blue eyes');
     },
   );
 
@@ -428,6 +528,7 @@ void main() {
       gen.addNamedCharactersFrom([
         (
           avatar: null,
+          source: null,
           name: '角色',
           positive: original.prompt,
           negative: original.negativePrompt,

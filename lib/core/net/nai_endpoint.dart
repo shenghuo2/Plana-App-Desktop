@@ -6,6 +6,8 @@
 /// 常量与判定。
 library;
 
+import '../../l10n/l10n.dart';
+
 /// NAI 官方直连基址。`/ai/*` 与 `/user/*` 现在同在 image 子域
 /// (2026-07-04 起,旧 api.novelai.net 回 400 "Please refresh NovelAI.net")。
 const kNaiOfficialBase = 'https://image.novelai.net';
@@ -52,10 +54,44 @@ bool naiBaseLooksValid(String url) {
   return u != null &&
       (u.scheme == 'http' || u.scheme == 'https') &&
       u.host.isNotEmpty &&
-      !u.hasQuery;
+      !u.hasQuery &&
+      !u.hasFragment;
 }
 
 /// 界面上认地址用的主机名;空串(官方)也回空串。整条 URL 摆进列表行里
 /// 只会把名字挤没,主机名才是「这把打哪儿」的答案。
 String naiBaseHost(String base) =>
     base.isEmpty ? '' : (Uri.tryParse(base)?.host ?? base);
+
+/// 第三方接口的请求格式,添加时选。
+enum NaiApiFormat {
+  /// NovelAI 官方格式:`/ai/generate-image(-stream)`。
+  nai,
+  openai;
+
+  String get label => switch (this) {
+    nai => l10nNow.formatNai,
+    openai => l10nNow.formatOpenai,
+  };
+
+  String get hint => switch (this) {
+    nai => l10nNow.formatNaiHint,
+    openai => l10nNow.formatOpenaiHint,
+  };
+}
+
+const _chatPath = '/chat/completions';
+
+/// OpenAI 兼容的接口存整条 `…/chat/completions` 地址,格式按路径认。
+bool naiEndpointIsChat(String endpoint) =>
+    normalizeNaiBase(endpoint).endsWith(_chatPath);
+
+/// 添加时填的地址 + 选的格式 → 存下的地址(已归一)。OpenAI 格式补全到
+/// `…/v1/chat/completions`:填根域名、带 `/v1`、整条贴进来都行。
+String naiEndpointFor(String url, NaiApiFormat format) {
+  final base = normalizeNaiBase(url);
+  if (format == NaiApiFormat.nai || base.isEmpty || naiEndpointIsChat(base)) {
+    return base;
+  }
+  return base.endsWith('/v1') ? '$base$_chatPath' : '$base/v1$_chatPath';
+}

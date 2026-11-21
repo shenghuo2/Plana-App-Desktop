@@ -5,9 +5,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../../features/assistant/session_store.dart';
+import '../../features/editor/data/trans_cache_store.dart';
 import '../../features/gallery/gallery_store.dart';
 import '../../features/gallery/albums/album_store.dart';
 import '../../features/generate/workspace_store.dart';
+import '../../features/generate/canvas_history.dart';
+import '../../features/lora/lora_stacks.dart';
 import '../../features/stats/key_ledger.dart';
 import '../net/remote_image.dart';
 import 'blob_store.dart';
@@ -29,11 +32,16 @@ class AppStores {
     this.ledger,
     this.assistant,
     this.prefs,
+    this.transCache,
     this.albums,
     this.desktopOutput,
     this.saveError,
+    this.history,
+    this.loraStacks,
   );
 
+  final CanvasHistoryStore history;
+  final LoraStackStore loraStacks;
   final BlobStore blobs;
   final WorkspaceStore workspace;
   final GalleryStore gallery;
@@ -46,6 +54,9 @@ class AppStores {
 
   /// 非机密设置(主题/生成参数/编辑器…),见 [PrefsStore]。
   final PrefsStore prefs;
+
+  /// 仅本机的译名缓存,不进入公共库或备份上传。
+  final TransCacheStore transCache;
 
   /// A failed debounced write remains in memory and can be retried from the UI.
   final ValueNotifier<String?> saveError;
@@ -61,13 +72,14 @@ class AppStores {
     RemoteImageStore.bind(root);
     final blobs = BlobStore(root);
     final saveError = ValueNotifier<String?>(null);
+    final workspace = WorkspaceStore(
+      blobs,
+      root,
+      onSaveError: (_) => saveError.value = '工作台保存失败，修改仍在内存，请检查磁盘后重试',
+    );
     return AppStores._(
       blobs,
-      WorkspaceStore(
-        blobs,
-        root,
-        onSaveError: (_) => saveError.value = '工作台保存失败，修改仍在内存，请检查磁盘后重试',
-      ),
+      workspace,
       GalleryStore(blobs, root),
       KeyLedgerStore(root),
       AssistantStore(
@@ -75,10 +87,28 @@ class AppStores {
         root,
         onSaveError: (_) => saveError.value = '助手会话保存失败，修改仍在内存，请检查磁盘后重试',
       ),
-      PrefsStore.emptyForTest(root),
+      PrefsStore.emptyForTest(
+        root,
+        onSaveError: (_) => saveError.value = '设置保存失败，修改仍在内存，请检查磁盘后重试',
+      ),
+      TransCacheStore(
+        root,
+        onSaveError: (_) => saveError.value = '译名缓存保存失败，修改仍在内存，请检查磁盘后重试',
+      ),
       AlbumStore(root),
       DesktopOutputStore(Directory('${root.path}/outputs')),
       saveError,
+      CanvasHistoryStore(
+        workspace,
+        root,
+        onReferencesChanged: blobs.referencesChanged,
+        onSaveError: (_) => saveError.value = '画布历史保存或读取失败，未保存内容仍在内存，请检查磁盘后重试',
+      ),
+      LoraStackStore(
+        root,
+        onSaveError: (_) =>
+            saveError.value = 'LoRA 组合保存或读取失败，未保存内容仍在内存，请检查磁盘后重试',
+      ),
     );
   }
 
@@ -125,14 +155,25 @@ class AppStores {
       await blobs.ensureReady();
     } catch (_) {}
     // 设置先于其余项:主题要在首帧前拿到,且它一次读全,后面各模块都走内存
-    final prefs = await PrefsStore.open(root);
+    final prefs = await PrefsStore.open(
+      root,
+      onSaveError: (_) => saveError.value = '设置保存失败，修改仍在内存，请检查磁盘后重试',
+    );
     await workspace.load();
     await gallery.load();
     await albums.load(
-      liveImages: gallery.initialResults.map((r) => r.id).toSet(),
+      liveImages: {
+        for (final r in gallery.initialResults) r.id,
+        for (final t in gallery.initialTrash) t.image.id,
+      },
     );
     await ledger.load();
     await assistant.load();
+    final transCache = TransCacheStore(
+      root,
+      onSaveError: (_) => saveError.value = '译名缓存保存失败，修改仍在内存，请检查磁盘后重试',
+    );
+    await transCache.load();
     Directory outputRoot = Directory('${root.path}/outputs');
     final legacyOutputRoots = <Directory>[];
     final outputLocationIssues = <String>[];
@@ -173,6 +214,7 @@ class AppStores {
       ledger,
       assistant,
       prefs,
+      transCache,
       albums,
       DesktopOutputStore(
         outputRoot,
@@ -180,6 +222,17 @@ class AppStores {
         locationIssues: outputLocationIssues,
       ),
       saveError,
+      CanvasHistoryStore(
+        workspace,
+        root,
+        onReferencesChanged: blobs.referencesChanged,
+        onSaveError: (_) => saveError.value = '画布历史保存或读取失败，未保存内容仍在内存，请检查磁盘后重试',
+      ),
+      LoraStackStore(
+        root,
+        onSaveError: (_) =>
+            saveError.value = 'LoRA 组合保存或读取失败，未保存内容仍在内存，请检查磁盘后重试',
+      ),
     );
   }
 
@@ -189,25 +242,36 @@ class AppStores {
     gallery.flushIndex();
     ledger.flush();
     assistant.flush();
+    transCache.flush();
+    history.flush();
+    loraStacks.flush();
+    prefs.flush();
   }
 
   /// 普通退出和更新退出都等待真正落盘，不能只触发队列后立即结束进程。
   Future<void> flushForExit() async {
+    await gallery.pendingChanges;
     flushNow();
     await Future.wait([
       workspace.idle,
+      gallery.flushIndex(),
       gallery.idle,
       ledger.idle,
       assistant.idle,
+      transCache.idle,
       albums.idle,
       desktopOutput.idle,
       prefs.idle,
+      history.idle,
+      loraStacks.idle,
     ]);
   }
 
   /// 启动后台维护(避开首帧,延迟几秒):清选图器缓存垃圾 + 远端图缓存裁剪
   /// + blob GC。
   void postBootMaintenance() {
+    final bootTime = DateTime.now();
+    final bootCanvases = workspace.initialCanvases;
     Future<void>(() async {
       await Future<void>.delayed(const Duration(seconds: 6));
       // Disk work runs after the first frame, one pair at a time through the
@@ -217,7 +281,15 @@ class AppStores {
       await RemoteImageStore.trim();
       await clearRetiredRoleLexicon();
       try {
+        // Keep all boot-time canvases, including ones deleted this session:
+        // deletion can still be undone. Newly written/loaded histories are kept.
+        if (bootCanvases != null) {
+          await history.removeOrphans({
+            for (final c in bootCanvases.canvases) c.id,
+          }, bootTime);
+        }
         final live = <String>{
+          ...await history.liveRefs(),
           ...await workspace.liveRefs(strict: true),
           ...await gallery.liveRefs(strict: true),
           // 漏了这行 = AI 助手里用户带的图在启动第 6 秒被 GC 掉

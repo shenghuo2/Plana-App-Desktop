@@ -1,3 +1,4 @@
+import '../../../l10n/l10n.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/theme/app_theme.dart';
@@ -87,7 +88,7 @@ class _OrganizeState extends ConsumerState<_Organize> {
           padding: const EdgeInsets.symmetric(horizontal: 18),
           child: Row(
             children: [
-              Expanded(child: Text('整理到图库', style: context.texts.titleLarge)),
+              Expanded(child: Text(l10nNow.desktopOrganizeIntoGalleries, style: context.texts.titleLarge)),
               TextButton.icon(
                 onPressed: _busy
                     ? null
@@ -101,7 +102,7 @@ class _OrganizeState extends ConsumerState<_Organize> {
                         }
                       },
                 icon: const Icon(Icons.add),
-                label: const Text('新建'),
+                label: Text(l10nNow.newLabel),
               ),
             ],
           ),
@@ -134,9 +135,9 @@ class _OrganizeState extends ConsumerState<_Organize> {
             padding: const EdgeInsets.symmetric(horizontal: 16),
             children: [
               if (_action != _Action.add && widget.sourceAlbum == null) ...[
-                const ListTile(
-                  title: Text('从哪些图库移出'),
-                  subtitle: Text('只移动属于所选来源的图片，其他归属保留'),
+                ListTile(
+                  title: Text(l10nNow.desktopRemoveFromWhichGalleries),
+                  subtitle: Text(l10nNow.desktopOnlyMoveImagesFromTheSelectedSourceGalleries),
                 ),
                 for (final a in data.albums.where(
                   (a) => sourceIds.contains(a.id),
@@ -156,12 +157,12 @@ class _OrganizeState extends ConsumerState<_Organize> {
                           }),
                   ),
                 if (sourceIds.isEmpty)
-                  const ListTile(title: Text('这些图片还没有所属图库，请使用“添加”')),
+                  ListTile(title: Text(l10nNow.desktopTheseImagesHaveNoGalleryYetUseAdd)),
                 const Divider(),
               ] else if (_action != _Action.add)
                 ListTile(
                   title: Text('来源：${data.name(widget.sourceAlbum)}'),
-                  subtitle: const Text('其他图库中的归属保留'),
+                  subtitle: Text(l10nNow.desktopKeepMembershipsInOtherGalleries),
                 ),
               if (_action != _Action.remove) ...[
                 ListTile(
@@ -183,7 +184,7 @@ class _OrganizeState extends ConsumerState<_Organize> {
                       }
                     }),
                   ),
-                if (data.albums.isEmpty) const ListTile(title: Text('先创建一个图库')),
+                if (data.albums.isEmpty) ListTile(title: Text(l10nNow.desktopCreateAGalleryFirst)),
               ],
             ],
           ),

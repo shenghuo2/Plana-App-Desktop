@@ -1,3 +1,4 @@
+import '../../../l10n/l10n.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -9,6 +10,8 @@ import '../../../core/net/remote_image.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../lora/lora_install_queue.dart';
 import '../../lora/lora_manager_page.dart';
+import '../../lora/lora_stack_ui.dart';
+import '../../lora/lora_upload_task.dart';
 import '../generate_state.dart';
 import '../lora_triggers.dart';
 import '../models.dart';
@@ -33,6 +36,7 @@ class LoraCard extends ConsumerStatefulWidget {
 class _LoraCardState extends ConsumerState<LoraCard> {
   String? _selectedName;
   void Function()? _dropInstallHandler;
+  void Function()? _dropUploadHandler;
 
   /// 正在收尾的任务(按 versionId):装好的回调和下面的补接、换模型时新旧两张
   /// 卡片,都可能撞上同一条。
@@ -45,6 +49,10 @@ class _LoraCardState extends ConsumerState<LoraCard> {
     _dropInstallHandler = ref
         .read(loraInstallQueueProvider.notifier)
         .onInstalled(_onLoraInstalled);
+    // 后台上传结束、管理器没开着(开着的话它先接走):在这里提示一声
+    _dropUploadHandler = ref
+        .read(loraUploadTaskProvider.notifier)
+        .onFinished(_onUploadFinished);
     // 装好的那一刻卡片不在(切去了没有 LoRA 模块的模型 / 画布),那条没人接,
     // 占位条会一直停在「下载中」:卡片回来时把队列里没收尾的补上。
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -58,7 +66,22 @@ class _LoraCardState extends ConsumerState<LoraCard> {
   @override
   void dispose() {
     _dropInstallHandler?.call();
+    _dropUploadHandler?.call();
     super.dispose();
+  }
+
+  bool _onUploadFinished(LoraUploadOutcome o) {
+    if (!mounted) return false;
+    if (!o.ok) {
+      hintSnack(context, 'LoRA「${o.name}」${o.message}', icon: Icons.cloud_off);
+    } else {
+      hintSnack(
+        context,
+        o.dedup ? 'LoRA「${o.name}」库里已有,已为你收藏' : 'LoRA「${o.name}」已上传好,可在管理器里挂载',
+        icon: Icons.check,
+      );
+    }
+    return true;
   }
 
   /// 转正 / 标红是状态上的事,卡片中途被拆也照做(用到的先取到手);只有提示
@@ -149,8 +172,11 @@ class _LoraCardState extends ConsumerState<LoraCard> {
     final cur = queue
         .where((j) => j.status == LoraInstallStatus.installing)
         .firstOrNull;
+    final upload = ref.watch(loraUploadTaskProvider);
     final dlTitle = cur != null
         ? 'LoRA · ${cur.name} ${cur.progressText}'
+        : upload != null
+        ? 'LoRA · 上传 ${upload.name} ${upload.progressText}'
         : (installing > 0 ? 'LoRA · 下载排队 $installing' : 'LoRA');
 
     return SectionCard(
@@ -159,9 +185,16 @@ class _LoraCardState extends ConsumerState<LoraCard> {
       reorderIndex: widget.reorderIndex,
       badge: loras.isEmpty ? null : CountBadge('${loras.length}'),
       actions: [
+        if (loras.any((l) => l.pending == null))
+          RoundIconBtn(
+            Icons.layers_outlined,
+            tooltip: l10nNow.desktopSaveAsLoRAStack,
+            color: scheme.onSurfaceVariant,
+            onTap: () => showSaveLoraStackDialog(context, ref),
+          ),
         RoundIconBtn(
           Icons.grid_view,
-          tooltip: 'LoRA 管理器',
+          tooltip: l10nNow.desktopLoRAManager,
           color: loras.isEmpty ? scheme.primary : scheme.onSurfaceVariant,
           onTap: _openManager,
         ),
@@ -493,7 +526,7 @@ class _LoraDetail extends ConsumerWidget {
                       Icon(Icons.delete_outline, size: 18, color: scheme.error),
                       const SizedBox(width: 6),
                       Text(
-                        '移除',
+                        l10nNow.remove,
                         style: context.texts.bodyMedium!.copyWith(
                           color: scheme.onSurface,
                         ),
@@ -507,7 +540,7 @@ class _LoraDetail extends ConsumerWidget {
         ),
         const SizedBox(height: 10),
         LiveParamSlider(
-          label: 'Weight 权重',
+          label: l10nNow.desktopWeight,
           help: Help.loraWeight,
           value: lora.weight,
           max: kLoraWeightMax,
@@ -529,7 +562,7 @@ class _LoraDetail extends ConsumerWidget {
                 const SizedBox(width: 6),
                 Expanded(
                   child: Text(
-                    '该 LoRA 未训练文本编码器,CLIP 强度对它无效',
+                    l10nNow.desktopThisLoRAHasNoTrainedTextEncoderCLIP,
                     style: context.texts.bodySmall!.copyWith(
                       color: scheme.outline,
                     ),
@@ -544,7 +577,7 @@ class _LoraDetail extends ConsumerWidget {
               // 说明挂在下面那条滑杆的标签上,这里不再重复一个问号
               Expanded(
                 child: Text(
-                  'CLIP 跟随权重',
+                  l10nNow.desktopLinkCLIPToWeight,
                   style: context.texts.bodySmall!.copyWith(
                     color: scheme.onSurface,
                   ),
@@ -568,7 +601,7 @@ class _LoraDetail extends ConsumerWidget {
         // 关掉跟随就地变可拖——不藏起来,省得用户找不到这个参数在哪。
         if (lora.hasTe != false)
           LiveParamSlider(
-            label: 'CLIP 强度',
+            label: l10nNow.desktopCLIPStrength,
             help: Help.loraClip,
             value: lora.clipWeight ?? lora.weight,
             max: kLoraWeightMax,
@@ -579,7 +612,7 @@ class _LoraDetail extends ConsumerWidget {
         if (lora.triggerWords.isNotEmpty) ...[
           const SizedBox(height: 6),
           Text(
-            '触发词 · 点击写入/移出正向提示词',
+            l10nNow.desktopTriggerWordsClickToAddOrRemoveFrom,
             style: context.texts.labelSmall!.copyWith(color: scheme.outline),
           ),
           const SizedBox(height: 6),

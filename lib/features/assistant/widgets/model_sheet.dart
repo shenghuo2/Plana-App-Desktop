@@ -1,5 +1,6 @@
-/// 选 AI 助手用哪个模型:Plana 后端的渠道,或者自己填的接口。
-/// 没有 Bot 授权时后端那组只列免费模型。
+/// 选 AI 助手用哪个模型:Plana Bot 的渠道,或者自己填的接口。图像模型和对话模型混在
+/// 同一组里(图标不同),选了就不走对话模型,发的话直接交给它出图。
+/// 没有 Bot 授权时 Plana Bot 那组只列免费模型,图像模型显示暂未开放。
 ///
 /// 两组共用**同一种行**:左边一个图标、中间完整型号名、右边留给「编辑」。
 /// 不写 `short_label`(「GLM」「豆包」这种简称看不出是哪一代),也不写线路说明
@@ -16,14 +17,17 @@ library;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/theme/app_skin.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/ui/setting_row.dart';
 import '../../generate/widgets/common.dart' show dropFocusSoon;
 import '../agent_model.dart';
 import '../custom_endpoint.dart';
-import 'endpoint_sheet.dart';
+import '../endpoints_page.dart';
+import '../image_gen/image_models.dart'
+    show ImageModelChoice, imageModelChoicesProvider;
+import '../../../l10n/l10n.dart';
 
-/// Desktop model picker stays anchored to the assistant toolbar.
 class AssistantModelDropdown extends ConsumerStatefulWidget {
   const AssistantModelDropdown({super.key, this.compact = false});
 
@@ -44,10 +48,12 @@ class _AssistantModelDropdownState
     final current = ref.watch(assistantModelProvider);
     final endpointState = ref.watch(customEndpointsProvider);
     final endpoints = endpointState.value ?? const [];
+    final images = ref.watch(imageModelChoicesProvider);
     final authorized = ref.watch(assistantBotAuthorizedProvider);
+    final hostedImages = images.where((m) => m.endpoint == null && m.available);
     void edit([CustomEndpoint? endpoint]) {
       menu.close();
-      showEndpointSheet(context, source: endpoint);
+      openEndpointsPage(context, editId: endpoint?.id);
     }
 
     Widget choice(
@@ -108,13 +114,16 @@ class _AssistantModelDropdownState
         ),
       ),
       menuChildren: [
-        if (authorized || (models.value?.free.isNotEmpty ?? false)) ...[
-          settingSection(context, authorized ? 'Plana 后端' : '免费模型'),
+        if (authorized ||
+            (models.value?.free.isNotEmpty ?? false) ||
+            hostedImages.isNotEmpty) ...[
+          settingSection(context, context.l10n.planaBackend),
           ...switch (models) {
             AsyncData(:final value) when value.choices.isNotEmpty => [
               for (final c in authorized ? value.choices : value.free)
                 choice(c.key, c.name, recommended: c.recommended),
             ],
+            AsyncData() when hostedImages.isNotEmpty => <Widget>[],
             AsyncLoading() => [
               const Padding(
                 padding: EdgeInsets.all(20),
@@ -131,31 +140,54 @@ class _AssistantModelDropdownState
               MenuItemButton(
                 leadingIcon: const Icon(Icons.refresh, size: 18),
                 onPressed: () => ref.invalidate(agentModelsProvider),
-                child: const Text('加载模型列表失败，点击重试'),
+                child: Text(l10nNow.desktopCouldNotLoadModelsClickToRetry),
               ),
             ],
           },
+          for (final image in hostedImages)
+            choice(
+              '$kImageKeyPrefix${image.key}',
+              image.name,
+              subtitle: context.l10n.imageModelField,
+            ),
           const Divider(height: 12),
         ],
-        settingSection(context, '我的接口'),
+        settingSection(context, l10nNow.myEndpoints),
         if (endpointState.hasError)
           MenuItemButton(
             leadingIcon: const Icon(Icons.refresh, size: 18),
             onPressed: () => ref.invalidate(customEndpointsProvider),
-            child: const Text('读取接口失败，重新加载接口'),
+            child: Text(l10nNow.desktopCouldNotReadEndpointsClickToReload),
           )
         else if (endpointState.isLoading && !endpointState.hasValue)
-          const Padding(padding: EdgeInsets.all(20), child: Text('正在读取接口…')),
-        for (final e in endpoints)
+          Padding(
+            padding: EdgeInsets.all(20),
+            child: Text(l10nNow.desktopLoadingEndpoints),
+          ),
+        for (final e in endpoints) ...[
           if (e.usable)
-            choice(customModelKey(e.id), e.displayName, subtitle: e.model)
-          else
+            for (final model in e.allModels)
+              choice(
+                customModelKey(e.id, model),
+                model,
+                subtitle: e.displayName,
+              ),
+          if (!e.usable && !e.canDraw)
             MenuItemButton(
               onPressed: () => edit(e),
               leadingIcon: const Icon(Icons.edit_outlined, size: 17),
               child: Text('${e.displayName} · 待完善'),
             ),
-        if (endpoints.any((e) => e.usable))
+          for (final image in images.where(
+            (m) => m.endpoint?.id == e.id && m.available,
+          ))
+            choice(
+              '$kImageKeyPrefix${image.key}',
+              image.name,
+              subtitle: e.displayName,
+            ),
+        ],
+        if (endpoints.any((e) => e.usable || e.canDraw))
           SubmenuButton(
             leadingIcon: const Icon(Icons.tune, size: 17),
             menuChildren: [
@@ -165,13 +197,13 @@ class _AssistantModelDropdownState
                   child: Text(e.displayName),
                 ),
             ],
-            child: const Text('编辑接口'),
+            child: Text(l10nNow.desktopEditEndpoints),
           ),
         MenuItemButton(
           onPressed: () => edit(),
           autofocus: current == null,
           leadingIcon: const Icon(Icons.add, size: 18),
-          child: const Text('添加接口'),
+          child: Text(l10nNow.addEndpoint),
         ),
       ],
       builder: (context, controller, _) => TextButton(
@@ -230,12 +262,29 @@ class _ModelSheet extends ConsumerWidget {
     List<AgentModelChoice> shown(AgentModelList l) =>
         authorized ? l.choices : l.free;
     final hidden = !authorized && async.hasValue && shown(async.value!).isEmpty;
+    final images = ref.watch(imageModelChoicesProvider);
+    String imageKey(ImageModelChoice m) => '$kImageKeyPrefix${m.key}';
+    Widget imageRow(ImageModelChoice m) => _row(
+      context,
+      icon: Icons.image_outlined,
+      title: m.name,
+      // 没授权的后端渠道只说暂未开放,不引导去授权
+      subtitle:
+          m.endpoint?.displayName ??
+          (m.available ? null : context.l10n.notAvailableYet),
+      dim: !m.available,
+      selected: imageKey(m) == currentKey,
+      onTap: m.available ? () => _pick(context, ref, imageKey(m)) : () {},
+      onEdit: m.endpoint == null
+          ? null
+          : () => openEndpointsPage(context, editId: m.endpoint!.id),
+    );
 
     return SettingSheet(
-      title: '选择模型',
+      title: context.l10n.selectModel,
       children: [
         if (!hidden) ...[
-          settingSection(context, authorized ? 'Plana 后端' : '免费模型'),
+          settingSection(context, context.l10n.planaBackend),
           switch (async) {
             AsyncData(:final value) when shown(value).isNotEmpty => Column(
               mainAxisSize: MainAxisSize.min,
@@ -243,7 +292,7 @@ class _ModelSheet extends ConsumerWidget {
                 for (final c in shown(value))
                   _row(
                     context,
-                    icon: Icons.cloud_outlined,
+                    icon: Icons.bolt_outlined,
                     title: c.name,
                     badge: c.recommended ? '推荐' : null,
                     selected: c.key == currentKey,
@@ -266,8 +315,10 @@ class _ModelSheet extends ConsumerWidget {
               child: Center(child: CircularProgressIndicator()),
             ),
           },
+          for (final m in images)
+            if (m.endpoint == null) imageRow(m),
         ],
-        settingSection(context, '我的接口'),
+        settingSection(context, context.l10n.myEndpoints),
         if (endpointState.hasError)
           _note(
             context,
@@ -276,32 +327,43 @@ class _ModelSheet extends ConsumerWidget {
             retryLabel: '重新加载接口',
           )
         else if (endpointState.isLoading && !endpointState.hasValue)
-          const Padding(
+          Padding(
             padding: EdgeInsets.fromLTRB(20, 8, 20, 4),
-            child: Text('正在读取接口…'),
+            child: Text(l10nNow.desktopLoadingEndpoints),
           ),
-        for (final e in endpoints)
-          _row(
-            context,
-            icon: Icons.bolt_outlined,
-            title: e.displayName,
-            // 副行写格式和模型,不写地址 —— 地址又长又不是你要确认的东西
-            subtitle: e.usable
-                ? '${agentApiFormatLabel(e.format)} · ${e.model}'
-                : '还没填全,点一下去补',
-            dim: !e.usable,
-            selected: e.usable && customModelKey(e.id) == currentKey,
-            onTap: () => e.usable
-                ? _pick(context, ref, customModelKey(e.id))
-                : showEndpointSheet(context, source: e),
-            onEdit: () => showEndpointSheet(context, source: e),
-          ),
+        // 一个接口下的每个模型各一行(对话模型在前、出图模型在后),副行写是哪个接口
+        for (final e in endpoints) ...[
+          if (e.usable)
+            for (final m in e.allModels)
+              _row(
+                context,
+                icon: Icons.bolt_outlined,
+                title: m,
+                subtitle: e.displayName,
+                selected: customModelKey(e.id, m) == currentKey,
+                onTap: () => _pick(context, ref, customModelKey(e.id, m)),
+                onEdit: () => openEndpointsPage(context, editId: e.id),
+              ),
+          for (final m in images)
+            if (m.endpoint?.id == e.id) imageRow(m),
+          // 只填了出图模型的接口不是没填完,只是不拿来对话
+          if (!e.usable && !e.canDraw)
+            _row(
+              context,
+              icon: Icons.bolt_outlined,
+              title: e.displayName,
+              subtitle: context.l10n.incompleteTapToFix,
+              dim: true,
+              onTap: () => openEndpointsPage(context, editId: e.id),
+              onEdit: () => openEndpointsPage(context, editId: e.id),
+            ),
+        ],
         _row(
           context,
           icon: Icons.add,
-          title: '添加接口',
+          title: context.l10n.addEndpoint,
           accent: true,
-          onTap: () => showEndpointSheet(context),
+          onTap: () => openEndpointsPage(context),
         ),
       ],
     );
@@ -327,18 +389,23 @@ class _ModelSheet extends ConsumerWidget {
     VoidCallback? onEdit,
   }) {
     final scheme = context.scheme;
-    final fg = selected || accent
+    final solid = selected && context.skin.float;
+    final fg = solid
+        ? scheme.onPrimary
+        : selected || accent
         ? scheme.primary
         : (dim ? scheme.outline : null);
     return ListTile(
       onTap: onTap,
       selected: selected,
-      selectedTileColor: scheme.primaryContainer.withValues(alpha: .35),
+      selectedTileColor: context.skin.float
+          ? scheme.primary
+          : scheme.primaryContainer.withValues(alpha: .35),
       contentPadding: const EdgeInsets.only(left: 20, right: 8),
       leading: Icon(
         selected ? Icons.check_circle : icon,
         size: 21,
-        color: selected ? scheme.primary : (dim ? scheme.outline : fg),
+        color: selected ? fg : (dim ? scheme.outline : fg),
       ),
       title: Row(
         children: [
@@ -360,13 +427,15 @@ class _ModelSheet extends ConsumerWidget {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
               decoration: BoxDecoration(
-                color: scheme.secondaryContainer,
+                color: solid
+                    ? scheme.onPrimary.withValues(alpha: .2)
+                    : scheme.secondaryContainer,
                 borderRadius: BorderRadius.circular(5),
               ),
               child: Text(
                 badge,
                 style: context.texts.labelSmall!.copyWith(
-                  color: scheme.onSecondaryContainer,
+                  color: solid ? scheme.onPrimary : scheme.onSecondaryContainer,
                   fontWeight: FontWeight.w700,
                 ),
               ),
@@ -380,17 +449,21 @@ class _ModelSheet extends ConsumerWidget {
               subtitle,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: context.texts.labelSmall!.copyWith(color: scheme.outline),
+              style: context.texts.labelSmall!.copyWith(
+                color: solid
+                    ? scheme.onPrimary.withValues(alpha: .8)
+                    : scheme.outline,
+              ),
             ),
       trailing: onEdit == null
           ? null
           : IconButton(
-              tooltip: '编辑',
+              tooltip: context.l10n.edit,
               visualDensity: VisualDensity.compact,
               icon: Icon(
                 Icons.edit_outlined,
                 size: 18,
-                color: scheme.onSurfaceVariant,
+                color: solid ? scheme.onPrimary : scheme.onSurfaceVariant,
               ),
               onPressed: onEdit,
             ),
@@ -401,7 +474,7 @@ class _ModelSheet extends ConsumerWidget {
     BuildContext context,
     String text, {
     required VoidCallback onRetry,
-    String retryLabel = '重试',
+    String? retryLabel,
   }) => Padding(
     padding: const EdgeInsets.fromLTRB(20, 8, 8, 4),
     child: Row(
@@ -415,7 +488,10 @@ class _ModelSheet extends ConsumerWidget {
             ),
           ),
         ),
-        TextButton(onPressed: onRetry, child: Text(retryLabel)),
+        TextButton(
+          onPressed: onRetry,
+          child: Text(retryLabel ?? context.l10n.retry),
+        ),
       ],
     ),
   );

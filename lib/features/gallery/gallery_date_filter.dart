@@ -1,4 +1,8 @@
 /// 日期只保存日历值；查询时才按当前设备时区构造边界。
+library;
+
+import '../../l10n/l10n.dart';
+
 enum GalleryDateKind { all, today, week, month, day, range }
 
 class GalleryDateFilter {
@@ -47,10 +51,10 @@ class GalleryDateFilter {
         ? ''
         : '${d.year == now.year ? '' : '${d.year}/'}${d.month}/${d.day}';
     return switch (kind) {
-      GalleryDateKind.all => '日期',
-      GalleryDateKind.today => '今天',
-      GalleryDateKind.week => '近 7 天',
-      GalleryDateKind.month => '近 30 天',
+      GalleryDateKind.all => l10nNow.dateLabel,
+      GalleryDateKind.today => l10nNow.today,
+      GalleryDateKind.week => l10nNow.last7Days,
+      GalleryDateKind.month => l10nNow.last30Days,
       GalleryDateKind.day => date(start),
       GalleryDateKind.range => '${date(start)}–${date(end)}',
     };

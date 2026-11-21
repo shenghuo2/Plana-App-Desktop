@@ -83,3 +83,7 @@ recovery-backup-*/
 **/desktop_output_roots.json
 **/settings.json
 **/prefs.json
+
+# Local Google desktop OAuth registration used when building the Windows app.
+/tool/local/google-drive-desktop.json
+client_secret*.json

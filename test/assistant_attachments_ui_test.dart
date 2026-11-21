@@ -271,7 +271,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(picker.multiple, isTrue);
       expect(find.text('已添加 2 张图片'), findsOneWidget);
-      expect(find.text('多张图片会合并为参考图发送'), findsOneWidget);
+      expect(find.text('新版接口逐张发送图片；旧版服务会合并为编号参考图。'), findsOneWidget);
       picker.files = [
         PlatformFile(name: 'third.png', size: pngA.length, bytes: pngA),
       ];
@@ -407,7 +407,7 @@ void main() {
   );
 
   testWidgets(
-    'invalid batch, attachment limit, cancellation and busy drops keep the draft',
+    'invalid batch, limit and cancellation preserve draft; busy drops add queued attachments',
     (tester) async {
       await mount(tester);
       await native(tester, 'drop', const Offset(1100, 200), [first.path]);
@@ -434,7 +434,7 @@ void main() {
       );
       await tester.pump();
       await native(tester, 'drop', const Offset(1100, 200), [second.path]);
-      expect(find.text('已添加 1 张图片'), findsOneWidget);
+      expect(find.text('已添加 2 张图片'), findsOneWidget);
       expect(fallbackImports, 0);
       recorder().seed(
         container.read(assistantProvider).copyWith(running: false),
@@ -1071,7 +1071,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(clipboardWrites, [pngA]);
-      expect(find.text('图片已复制到剪贴板'), findsOneWidget);
+      expect(find.text('图片已按图库默认保存设置复制'), findsOneWidget);
       expect(key('desktop-image-viewer'), findsNothing);
       expect(tester.takeException(), isNull);
     });

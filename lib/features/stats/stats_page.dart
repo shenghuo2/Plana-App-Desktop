@@ -17,6 +17,8 @@ import 'ledger_page.dart';
 import 'platform_page.dart';
 import 'stats_providers.dart';
 import 'stats_widgets.dart';
+import 'wallet_page.dart';
+import '../../l10n/l10n.dart';
 
 /// 统计主页:右上角下拉切数据源(Bot 服务端 / 直连 Key 本机),
 /// 主体是纯数据——时间范围 + hero 大数字 + 随范围变化的可点趋势图
@@ -65,7 +67,7 @@ class _StatsPageState extends ConsumerState<StatsPage> {
 
     return SettingsScaffold(
       appBar: AppBar(
-        title: const Text('统计'),
+        title: Text(context.l10n.stats),
         actions: [
           _ModePill(
             bot: _bot,
@@ -88,8 +90,8 @@ class _StatsPageState extends ConsumerState<StatsPage> {
 
           if (_bot && session == null) {
             children.add(
-              const StatsCard(
-                child: Text('尚未 Bot 授权。在「我的 → 账号与接入」完成授权后,可查看服务端统计与账单。'),
+              StatsCard(
+                child: Text(l10nNow.desktopAuthorizeABotAccountInProfileUnderAccountsLabel),
               ),
             );
           } else {
@@ -99,9 +101,14 @@ class _StatsPageState extends ConsumerState<StatsPage> {
           if (_bot) {
             if (session != null) {
               children.add(const SizedBox(height: 12));
-              children.add(_billingEntry(context));
-              children.add(const SizedBox(height: 10));
-              children.add(_gpuBillsEntry(context));
+              final wallet = ref.watch(walletSummaryProvider);
+              if (wallet.asData != null && wallet.asData!.value == null) {
+                children.add(_billingEntry(context));
+                children.add(const SizedBox(height: 10));
+                children.add(_gpuBillsEntry(context));
+              } else {
+                children.add(_walletEntry(context, wallet));
+              }
             }
             children.add(const SizedBox(height: 10));
             children.add(_platformEntry(context));
@@ -115,6 +122,8 @@ class _StatsPageState extends ConsumerState<StatsPage> {
               ref.invalidate(billingEstimateProvider);
               ref.invalidate(billingSettlementProvider);
               ref.invalidate(gpuBillsProvider);
+              ref.invalidate(walletSummaryProvider);
+              ref.invalidate(dayWalletLedgerProvider);
               ref.invalidate(platformHourlyProvider);
             },
             child: ListView(
@@ -180,7 +189,7 @@ class _StatsPageState extends ConsumerState<StatsPage> {
           const SizedBox(width: 8),
           Expanded(
             child: Text(
-              '张 · $scope生图',
+              context.l10n.imagesScopeSuffix(scope),
               style: context.texts.bodyMedium!.copyWith(
                 color: picked != null
                     ? scheme.primary
@@ -194,12 +203,12 @@ class _StatsPageState extends ConsumerState<StatsPage> {
         padding: const EdgeInsets.only(top: 2),
         child: loading && pts == null
             ? SkeletonText(
-                sample: '消耗 0,000 点',
+                sample: context.l10n.costPts('0,000'),
                 style: context.texts.labelSmall!,
                 width: 76,
               )
             : Text(
-                '消耗 ${pts == null ? '—' : fmtInt(pts)} 点',
+                context.l10n.costPts(pts == null ? '—' : fmtInt(pts)),
                 style: context.texts.labelSmall!.copyWith(
                   color: scheme.outline,
                 ),
@@ -237,7 +246,7 @@ class _StatsPageState extends ConsumerState<StatsPage> {
       Padding(
         padding: const EdgeInsets.only(top: 2),
         child: Text(
-          picked == null ? '' : '已选 ${picked.full}',
+          picked == null ? '' : context.l10n.selectedLabel(picked.full),
           style: context.texts.labelSmall!.copyWith(color: scheme.primary),
         ),
       ),
@@ -259,7 +268,7 @@ class _StatsPageState extends ConsumerState<StatsPage> {
   ) {
     final scheme = context.scheme;
     final today = _range == 'today';
-    final unit = today ? '时段' : '单日';
+    final peakLabel = today ? context.l10n.peakSlot : context.l10n.peakDay;
 
     // 选中某柱:第一行两个读数,第二行两个当日明细入口
     if (picked != null) {
@@ -289,7 +298,12 @@ class _StatsPageState extends ConsumerState<StatsPage> {
                   final n = _billedCount(picked);
                   return _DetailEntry(
                     icon: Icons.toll_outlined,
-                    label: '点数详情',
+                    label:
+                        _bot &&
+                            ref.watch(walletSummaryProvider).asData?.value !=
+                                null
+                        ? '钱包流水'
+                        : '点数详情',
                     value: n == null ? null : fmtInt(n),
                     unit: '笔',
                     loading: _bot && n == null,
@@ -300,9 +314,9 @@ class _StatsPageState extends ConsumerState<StatsPage> {
               Expanded(
                 child: _DetailEntry(
                   icon: Icons.photo_library_outlined,
-                  label: '生成详情',
+                  label: context.l10n.genDetails,
                   value: fmtInt(picked.images),
-                  unit: '张',
+                  unit: context.l10n.unitImages,
                   onTap: () => _openDay(picked, DayDetailMode.gens),
                 ),
               ),
@@ -333,27 +347,27 @@ class _StatsPageState extends ConsumerState<StatsPage> {
         tiles = [
           StatTile(
             icon: Icons.toll_outlined,
-            label: '点数消耗',
+            label: l10nNow.desktopPointsSpent,
             value: st == null ? null : fmtInt(st.pointsSpent),
             loading: stAsync.isLoading,
           ),
           StatTile(
             icon: Icons.calendar_today_outlined,
-            label: today ? '活跃时段' : '活跃天数',
+            label: today ? context.l10n.activeSlots : context.l10n.activeDays,
             value: series.isEmpty ? null : '$active',
             suffix: series.isEmpty ? null : '/ ${series.length}',
             loading: seriesLoading,
           ),
           StatTile(
             icon: Icons.trending_up,
-            label: '最高$unit',
+            label: peakLabel,
             value: peakOk ? fmtInt(peak.images) : null,
             suffix: peakOk ? peak.full : null,
             loading: seriesLoading,
           ),
           StatTile(
             icon: Icons.equalizer,
-            label: today ? '段均生图' : '日均生图',
+            label: today ? context.l10n.avgPerSlot : context.l10n.avgPerDay,
             value: avg ?? (seriesLoading ? null : '0'),
             loading: seriesLoading,
           ),
@@ -361,13 +375,13 @@ class _StatsPageState extends ConsumerState<StatsPage> {
           // 看不出真实消耗。没用过 V5 就是两个 0 —— 指标格本来就该摆满。
           StatTile(
             icon: Icons.auto_awesome_outlined,
-            label: 'V5 生图',
+            label: context.l10n.v5Gens,
             value: st == null ? null : fmtInt(st.v5Calls),
             loading: stAsync.isLoading,
           ),
           StatTile(
             icon: Icons.toll,
-            label: 'V5 点数',
+            label: context.l10n.v5Anlas,
             value: st == null ? null : fmtInt(st.v5Points),
             loading: stAsync.isLoading,
           ),
@@ -378,33 +392,37 @@ class _StatsPageState extends ConsumerState<StatsPage> {
         tiles = [
           StatTile(
             icon: Icons.toll_outlined,
-            label: '估算消耗',
+            label: context.l10n.estimatedSpend,
             value: fmtInt(sum.genPts + sum.vibePts + sum.upsPts),
           ),
           StatTile(
             icon: Icons.calendar_today_outlined,
-            label: today ? '活跃时段' : '活跃天数',
+            label: today ? context.l10n.activeSlots : context.l10n.activeDays,
             value: '$active',
             suffix: '/ ${series.length}',
           ),
           StatTile(
             icon: Icons.trending_up,
-            label: '最高$unit',
+            label: peakLabel,
             value: peakOk ? fmtInt(peak.images) : null,
             suffix: peakOk ? peak.full : null,
           ),
           StatTile(
             icon: Icons.equalizer,
-            label: today ? '段均生图' : '日均生图',
+            label: today ? context.l10n.avgPerSlot : context.l10n.avgPerDay,
             value: avg ?? '0',
           ),
           // 与 Bot 同口径,数据源换成本机账本(见 KeyDayAgg.v5)
           StatTile(
             icon: Icons.auto_awesome_outlined,
-            label: 'V5 生图',
+            label: context.l10n.v5Gens,
             value: fmtInt(sum.v5),
           ),
-          StatTile(icon: Icons.toll, label: 'V5 点数', value: fmtInt(sum.v5Pts)),
+          StatTile(
+            icon: Icons.toll,
+            label: context.l10n.v5Anlas,
+            value: fmtInt(sum.v5Pts),
+          ),
         ];
       }
     }
@@ -449,11 +467,15 @@ class _StatsPageState extends ConsumerState<StatsPage> {
         icon: delta == null || delta == 0
             ? Icons.remove
             : (delta > 0 ? Icons.north_east : Icons.south_east),
-        label: _range == 'today' ? '较上一时段' : '较上一日',
+        label: _range == 'today'
+            ? context.l10n.vsPrevSlot
+            : context.l10n.vsPrevDay,
         value: delta == null
             ? '—'
-            : (delta == 0 ? '持平' : '${delta > 0 ? '+' : ''}${fmtInt(delta)}'),
-        suffix: delta == null || delta == 0 ? null : '张',
+            : (delta == 0
+                  ? context.l10n.unchanged
+                  : '${delta > 0 ? '+' : ''}${fmtInt(delta)}'),
+        suffix: delta == null || delta == 0 ? null : context.l10n.unitImages,
       ),
     ];
   }
@@ -468,7 +490,22 @@ class _StatsPageState extends ConsumerState<StatsPage> {
       return ledger.gensForDay(key).where((g) => g.pts > 0).length +
           ledger.opsForDay(key).length;
     }
-    return ref.watch(dayDetailsProvider(_dayOf(p))).value?.records.length;
+    final wallet = ref.watch(walletSummaryProvider);
+    if (wallet.asData?.value != null) {
+      return ref
+          .watch(dayWalletLedgerProvider(_dayOf(p)))
+          .asData
+          ?.value
+          ?.items
+          .length;
+    }
+    if (wallet.asData == null) return null;
+    return ref
+        .watch(dayDetailsProvider(_dayOf(p)))
+        .asData
+        ?.value
+        ?.records
+        .length;
   }
 
   /// 选中格归属的日期(今日档整天;其余按 `MM-dd` 配当前年份还原)。
@@ -487,7 +524,7 @@ class _StatsPageState extends ConsumerState<StatsPage> {
       DayDetailPage(
         bot: _bot,
         day: _dayOf(picked),
-        label: _range == 'today' ? '今天' : picked.full,
+        label: _range == 'today' ? context.l10n.today : picked.full,
         mode: mode,
       ),
     );
@@ -517,7 +554,10 @@ class _StatsPageState extends ConsumerState<StatsPage> {
             final end = (h + 3) % 24;
             return TrendPoint(
               label: '$h',
-              full: '今天 $k–${end.toString().padLeft(2, '0')}:00',
+              full: l10nNow.todayRange(
+                k,
+                '${end.toString().padLeft(2, '0')}:00',
+              ),
               images: d?.imageCalls ?? 0,
               pts: d?.pointsSpent ?? 0,
             );
@@ -551,6 +591,30 @@ class _StatsPageState extends ConsumerState<StatsPage> {
           );
         }(),
     ];
+  }
+
+  Widget _walletEntry(
+    BuildContext context,
+    AsyncValue<WalletSummary?> summary,
+  ) {
+    final w = summary.asData?.value;
+    return _EntryCard(
+      icon: Icons.account_balance_wallet_outlined,
+      title: l10nNow.desktopWallet,
+      subWidget: summary.isLoading && w == null
+          ? const SkeletonBox(width: 140, height: 14)
+          : Text(
+              w == null
+                  ? '余额暂未取得 · 查看流水与刷新'
+                  : '余额 ${fmtFen(w.balanceFen, sign: false)} · 流水与充值',
+              style: context.texts.labelSmall!.copyWith(
+                color: w?.owing == true
+                    ? context.scheme.error
+                    : context.scheme.onSurfaceVariant,
+              ),
+            ),
+      onTap: () => _push(const WalletPage()),
+    );
   }
 
   /// NAI 账单入口。Key 模式下它就是本机账本,标题不带「NAI」——
@@ -615,7 +679,7 @@ class _StatsPageState extends ConsumerState<StatsPage> {
     }
     return _EntryCard(
       icon: Icons.memory_outlined,
-      title: '算力账单',
+      title: l10nNow.desktopComputeBill,
       subWidget: async.isLoading && b == null
           ? SkeletonText(
               sample: '累计 ¥00.00 · 租卡 0.0 小时',
@@ -642,7 +706,7 @@ class _StatsPageState extends ConsumerState<StatsPage> {
       sub = const SkeletonBox(width: 178, height: 8, radius: 3);
     } else if (heat == null || heat.cells.isEmpty) {
       sub = Text(
-        '当期指标 · 负载时段 · 平均耗时',
+        l10nNow.desktopCurrentPeriodLoadPeriodsAverageGenerationTime,
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
         style: context.texts.labelSmall!.copyWith(
@@ -674,7 +738,7 @@ class _StatsPageState extends ConsumerState<StatsPage> {
     }
     return _EntryCard(
       icon: Icons.public,
-      title: '全平台统计',
+      title: l10nNow.desktopPlatformStatistics,
       subWidget: SizedBox(
         height: 16,
         child: Align(alignment: Alignment.centerLeft, child: sub),
@@ -781,12 +845,12 @@ class _ModePill extends StatelessWidget {
         );
 
     return PopupMenuButton<bool>(
-      tooltip: '数据源',
+      tooltip: context.l10n.dataSource,
       position: PopupMenuPosition.under,
       onSelected: onChanged,
       itemBuilder: (_) => [
-        item(true, Icons.smart_toy_outlined, 'Bot 授权'),
-        item(false, Icons.key, '直连 Key'),
+        item(true, Icons.smart_toy_outlined, context.l10n.botAuth),
+        item(false, Icons.key, context.l10n.directKey),
       ],
       child: Container(
         padding: const EdgeInsets.fromLTRB(11, 6, 7, 6),

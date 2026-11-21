@@ -2,6 +2,7 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/live_progress/live_progress.dart';
+import 'canvas_models.dart';
 import 'gen_modules.dart';
 import 'generate_state.dart';
 import 'generation_controller.dart';
@@ -9,6 +10,7 @@ import 'loop_controller.dart';
 import 'models.dart';
 import '../gallery/albums/album_models.dart';
 import '../gallery/albums/album_state.dart';
+import '../../l10n/l10n.dart';
 
 /// 排队任务:入队瞬间的完整参数快照,之后随便改编辑器不影响已排的。
 class QueuedTask {
@@ -16,11 +18,15 @@ class QueuedTask {
     required this.id,
     required this.snapshot,
     this.galleryTarget = const GallerySaveTarget.all(),
+    this.origin,
   });
 
   final int id;
   final GenerateState snapshot;
   final GallerySaveTarget galleryTarget;
+
+  /// 入队时那张画布和它的内容,出图后记进它的历史。
+  final CanvasOrigin? origin;
 }
 
 /// items 为待跑任务(不含正在跑的);active = 消费中;
@@ -88,6 +94,7 @@ class GenQueueNotifier extends Notifier<GenQueueState> {
           id: _seq++,
           snapshot: snap,
           galleryTarget: ref.read(gallerySaveTargetProvider),
+          origin: ref.read(generationProvider.notifier).currentCanvasOrigin(),
         ),
       ],
     );
@@ -134,6 +141,7 @@ class GenQueueNotifier extends Notifier<GenQueueState> {
         var outcome = await gen.generate(
           using: task.snapshot,
           galleryTarget: task.galleryTarget,
+          origin: task.origin,
         );
         // **只有「确定未扣点」才重试。** 流中断 / 超时 / 内容审核这类失败,NAI
         // 可能已经受理并扣了点,盲目重试就是第二次扣费,而且没有任何用户动作。
@@ -144,6 +152,7 @@ class GenQueueNotifier extends Notifier<GenQueueState> {
           outcome = await gen.generate(
             using: task.snapshot,
             galleryTarget: task.galleryTarget,
+            origin: task.origin,
           );
         }
         if (outcome != GenOutcome.ok) {
@@ -164,10 +173,13 @@ class GenQueueNotifier extends Notifier<GenQueueState> {
 
     // 与循环同款收尾:岛上先显示完成态;前台不留通知,后台留一条汇总可点回应用
     final all = left == 0;
+    final l = l10nNow;
     await LiveProgress.instance.finish(
-      title: all ? '队列完成' : '队列暂停',
-      text: _appForeground ? '' : (all ? '共 $done 张 · 点按查看' : '剩 $left 项'),
-      short: all ? '完成' : '暂停',
+      title: all ? l.queueDone : l.queuePaused,
+      text: _appForeground
+          ? ''
+          : (all ? l.queueDoneText(done) : l.queueLeftText(left)),
+      short: all ? l.shortDone : l.shortPaused,
       keep: !_appForeground,
     );
   }

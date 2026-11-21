@@ -1,3 +1,4 @@
+import 'l10n/l10n.dart';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -7,6 +8,7 @@ import 'core/app_info.dart';
 import 'core/auth/auth_mode.dart';
 import 'core/auth/credential_store.dart';
 import 'core/auth/secure_storage.dart';
+import 'core/net/network_proxy.dart';
 import 'core/platform/clipboard_image.dart';
 import 'core/platform/desktop.dart';
 import 'core/store/app_stores.dart';
@@ -79,7 +81,13 @@ Future<void> _startApplication() async {
   // 凭据出口:桌面沿用平台加密存储;Android 才启用 Keystore 恢复退路。
   // 要排在 AppStores 之后,恢复判定用得上已迁出的接入方式。
   final creds = await CredentialStore.open(stores.prefs);
-  RuntimeDiagnostics.current?.event('boot-credentials-ready');
+  final networkProxy = NetworkProxyOverrides(
+    NetworkProxySettings.decode(stores.prefs.get(kNetworkProxyKey)),
+  );
+  if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
+    HttpOverrides.global = networkProxy;
+  }
+  RuntimeDiagnostics.current?.event('boot-stores-ready');
   await tagDbReady;
   final themeInit = loadThemeSettings(stores.prefs);
   final editorSessions = EditorSessions();
@@ -89,6 +97,7 @@ Future<void> _startApplication() async {
         appStoresProvider.overrideWithValue(stores),
         editorSessionsProvider.overrideWithValue(editorSessions),
         secureStorageProvider.overrideWithValue(creds),
+        networkProxyRuntimeProvider.overrideWithValue(networkProxy),
         themeInitProvider.overrideWithValue(themeInit),
         localTagDbProvider.overrideWithValue(tagDb),
       ],
@@ -141,17 +150,29 @@ class PlanaApp extends ConsumerWidget {
     return MaterialApp(
       title: kAppName,
       debugShowCheckedModeBanner: false,
-      theme: adapt(AppTheme.light(ts.seed.color)),
-      darkTheme: adapt(AppTheme.dark(ts.seed.color)),
+      theme: adapt(switch (ts.floatAccent) {
+        final accent? => AppTheme.float(Brightness.light, accent),
+        null => AppTheme.light(ts.seed.color),
+      }),
+      darkTheme: adapt(switch (ts.floatAccent) {
+        final accent? => AppTheme.float(Brightness.dark, accent),
+        null => AppTheme.dark(ts.seed.color),
+      }),
       themeMode: ts.mode,
+      locale: ts.locale,
+      supportedLocales: kSupportedLocales,
+      localizationsDelegates: AppLocalizations.localizationsDelegates,
       navigatorObservers: [_inputFocusGuard],
-      builder: (context, child) => desktop
-          ? AppTextScale(
-              factor: ts.textScale,
-              baseline: kDesktopTextBaseline,
-              child: DesktopImageDropHost(child: child!),
-            )
-          : NavBarGuard(child: child!),
+      builder: (context, child) {
+        syncL10nNow(context);
+        return desktop
+            ? AppTextScale(
+                factor: ts.textScale,
+                baseline: kDesktopTextBaseline,
+                child: DesktopImageDropHost(child: child!),
+              )
+            : NavBarGuard(child: child!);
+      },
       home: const _AuthGate(),
     );
   }

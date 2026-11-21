@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/theme/app_theme.dart';
+import '../../../l10n/l10n.dart';
 
 /// 「我的」库的全部 / 收藏 / 用户标签筛选行，灵感页与角色选择器共用。
 class TagFilterChips extends StatelessWidget {
@@ -88,7 +89,7 @@ class TagFilterChips extends StatelessWidget {
             ),
           ),
           IconButton(
-            tooltip: '标签池管理',
+            tooltip: context.l10n.manageTagPool,
             icon: Icon(
               Icons.settings_outlined,
               size: 20,

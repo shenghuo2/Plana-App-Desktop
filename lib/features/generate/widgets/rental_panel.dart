@@ -1,3 +1,4 @@
+import '../../../l10n/l10n.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -64,7 +65,7 @@ class RentalSourceChip extends ConsumerWidget {
 
     if (compact) {
       return TopBarStatus(
-        tooltip: '算力与费用',
+        tooltip: l10nNow.desktopComputeAndCosts,
         // 没开机时只报一句:共享通道「免费共享」,独享通道「未启动」(图标已分开两条线)
         value: s.status == RentalStatus.ready
             ? fmtUptime(s.elapsedAt(now))
@@ -159,7 +160,7 @@ class RentalSourceBlock extends ConsumerWidget {
         Padding(
           padding: const EdgeInsets.only(bottom: 8),
           child: Text(
-            'Anima 与 Krea 2 共用同一实例',
+            l10nNow.desktopAnimaAndKrea2ShareAnInstance,
             style: context.texts.labelSmall!.copyWith(color: scheme.outline),
           ),
         ),
@@ -224,21 +225,21 @@ class _FreeCard extends StatelessWidget {
               const SizedBox(width: 9),
               Expanded(
                 child: Text(
-                  '共享队列',
+                  l10nNow.desktopSharedQueue,
                   style: context.texts.bodyMedium!.copyWith(
                     fontWeight: FontWeight.w600,
                   ),
                 ),
               ),
               Text(
-                '不计费',
+                l10nNow.desktopNoCharge,
                 style: mono(context, size: 13, color: scheme.primary),
               ),
             ],
           ),
           const SizedBox(height: 6),
           Text(
-            '免费公共算力池,不稳定,生成较慢。',
+            l10nNow.desktopTheFreePublicComputePoolCanBeSlow,
             style: context.texts.labelSmall!.copyWith(
               color: scheme.onSurfaceVariant,
             ),
@@ -504,7 +505,7 @@ class _RentalConfigState extends ConsumerState<_RentalConfig> {
                 const SizedBox(width: 9),
                 Expanded(
                   child: Text(
-                    '空闲自动关机',
+                    l10nNow.desktopShutDownWhenIdle,
                     style: context.texts.bodyMedium!.copyWith(
                       fontWeight: FontWeight.w600,
                     ),
@@ -540,7 +541,7 @@ class _RentalConfigState extends ConsumerState<_RentalConfig> {
               const SizedBox(width: 9),
               Expanded(
                 child: Text(
-                  '台数',
+                  l10nNow.desktopInstances,
                   style: context.texts.bodyMedium!.copyWith(
                     fontWeight: FontWeight.w600,
                   ),
@@ -973,11 +974,11 @@ class _RentalRunning extends ConsumerWidget {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('取消'),
+            child: Text(l10nNow.cancel),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('关掉这台'),
+            child: Text(l10nNow.desktopStopThisInstance),
           ),
         ],
       ),
@@ -1018,11 +1019,11 @@ class _RentalRunning extends ConsumerWidget {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('取消'),
+            child: Text(l10nNow.cancel),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('关机'),
+            child: Text(l10nNow.desktopShutDown),
           ),
         ],
       ),
@@ -1106,7 +1107,7 @@ class _MachineRow extends StatelessWidget {
           ),
           IconButton(
             onPressed: busy ? null : onStop,
-            tooltip: '只关这一台',
+            tooltip: l10nNow.desktopStopThisInstanceOnly,
             visualDensity: VisualDensity.compact,
             padding: EdgeInsets.zero,
             constraints: const BoxConstraints(minWidth: 34, minHeight: 34),
@@ -1180,7 +1181,7 @@ class _RentalFailed extends ConsumerWidget {
         ),
         const SizedBox(height: 4),
         Text(
-          '实例已自动销毁,没有产生费用。',
+          l10nNow.desktopTheInstanceWasAutomaticallyRemovedThereWasNo,
           style: context.texts.labelSmall!.copyWith(
             color: scheme.onSurfaceVariant,
           ),
@@ -1193,7 +1194,7 @@ class _RentalFailed extends ConsumerWidget {
             minimumSize: const Size(double.infinity, 42),
             shape: const StadiumBorder(),
           ),
-          child: const Text('知道了'),
+          child: Text(l10nNow.desktopGotIt),
         ),
       ],
     );
@@ -1213,7 +1214,7 @@ class _RentalNoAuth extends StatelessWidget {
         const SizedBox(width: 9),
         Expanded(
           child: Text(
-            '独享实例需要 Bot 授权,可在「我的」→「账号与接入」中授权。',
+            l10nNow.desktopDedicatedInstancesRequireBotAuthorizationConnectInProfile,
             style: context.texts.labelSmall!.copyWith(
               color: scheme.onSurfaceVariant,
             ),

@@ -20,7 +20,16 @@ final albumsProvider = NotifierProvider<AlbumsNotifier, AlbumsData>(
 final albumSummariesProvider = Provider<Map<String?, AlbumSummary>>((ref) {
   final albums = ref.watch(albumsProvider);
   final images = ref.watch(galleryProvider.select((state) => state.results));
-  return summarizeAlbums(albums, images);
+  final trash = ref.watch(galleryProvider.select((state) => state.trash));
+  return Map.unmodifiable({
+    ...summarizeAlbums(albums, images),
+    favoritesId: (
+      count: images.where((r) => r.favorite).length,
+      first: null,
+      cover: null,
+    ),
+    trashId: (count: trash.length, first: null, cover: null),
+  });
 });
 
 final galleryBrowseAlbumProvider = Provider<String?>((ref) {
@@ -146,6 +155,8 @@ class AlbumsNotifier extends Notifier<AlbumsData> {
       throw StateError('请输入 1–40 个字符的图库名称');
     }
     if (name == allPhotosName ||
+        name == favoritesName ||
+        name == trashName ||
         state.albums.any((a) => a.id != except && a.name == name)) {
       throw StateError('这个图库名称已存在');
     }
@@ -171,7 +182,17 @@ class AlbumsNotifier extends Notifier<AlbumsData> {
     return id;
   }
 
+  Future<void> moveTo(String albumId, String targetId) => _edit((data) {
+    final albums = data.albums.toList();
+    final from = albums.indexWhere((album) => album.id == albumId);
+    final to = albums.indexWhere((album) => album.id == targetId);
+    if (from < 0 || to < 0 || from == to) return data;
+    albums.insert(to, albums.removeAt(from));
+    return data.copyWith(albums: albums);
+  });
+
   Future<void> rename(String id, String name) async {
+    if (isFixedGallery(id)) throw StateError('固定入口不能改名');
     name = name.trim();
     _validateName(name, except: id);
     await _edit((d) {
@@ -191,6 +212,7 @@ class AlbumsNotifier extends Notifier<AlbumsData> {
     String id, {
     bool Function(AlbumsData current)? canDelete,
   }) async {
+    if (isFixedGallery(id)) throw StateError('固定入口不能删除');
     var accepted = true;
     await _edit((d) {
       if (canDelete?.call(d) == false) {
@@ -416,6 +438,7 @@ class AlbumsNotifier extends Notifier<AlbumsData> {
     Uint8List? png, {
     String? sourceImageId,
   }) async {
+    if (isFixedGallery(id)) throw StateError('固定入口使用图标封面');
     final store = ref.read(appStoresProvider).albums;
     await store.setCover(
       id,

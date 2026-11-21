@@ -1,3 +1,4 @@
+import '../../l10n/l10n.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -7,6 +8,8 @@ import '../../core/theme/app_theme.dart';
 import 'key_ledger.dart';
 import 'stats_providers.dart';
 import 'stats_widgets.dart';
+import 'wallet_page.dart';
+import '../../core/ui/settings_scaffold.dart';
 
 enum DayDetailMode {
   points('点数详情'),
@@ -42,11 +45,19 @@ class DayDetailPage extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    return Scaffold(
-      appBar: AppBar(title: Text('$label · ${mode.title}')),
+    final wallet = bot ? ref.watch(walletSummaryProvider) : null;
+    final walletMode =
+        bot && mode == DayDetailMode.points && wallet?.asData?.value != null;
+    return SettingsScaffold(
+      appBar: AppBar(
+        title: Text('$label · ${walletMode ? '钱包流水' : mode.title}'),
+      ),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(14, 8, 14, 24),
-        children: bot ? _botBody(context, ref) : _keyBody(context, ref),
+        children: [
+          const SettingsPageHeader(),
+          ...(bot ? _botBody(context, ref) : _keyBody(context, ref)),
+        ],
       ),
     );
   }
@@ -54,12 +65,212 @@ class DayDetailPage extends ConsumerWidget {
   // ── Bot:服务端明细 ────────────────
 
   List<Widget> _botBody(BuildContext context, WidgetRef ref) {
+    final summary = ref.watch(walletSummaryProvider);
+    if (summary.asData?.value != null) {
+      return mode == DayDetailMode.points
+          ? _botWallet(context, ref)
+          : _botGens(context, ref);
+    }
+    if (summary.asData != null) return _legacyBotBody(context, ref);
+    if (summary.isLoading) return _skeletonRows(4);
+    return [
+      StatsCard(
+        child: Column(
+          children: [
+            Text(l10nNow.desktopWalletInformationIsTemporarilyUnavailable),
+            TextButton(
+              onPressed: () => ref.invalidate(walletSummaryProvider),
+              child: Text(l10nNow.retry),
+            ),
+          ],
+        ),
+      ),
+    ];
+  }
+
+  /// 当天的钱包流水:扣款 / 入账两个合计 + 逐笔。
+  List<Widget> _botWallet(BuildContext context, WidgetRef ref) {
+    final scheme = context.scheme;
+    final async = ref.watch(dayWalletLedgerProvider(day));
+    final w = async.asData?.value;
+    final loading = async.isLoading && w == null;
+
+    if (!async.isLoading && w == null) {
+      return [StatsCard(child: Text(l10nNow.desktopTransactionsForThisDayAreTemporarilyUnavailable))];
+    }
+
+    // 扣款和入账分开合计:两件事,轧差没有意义(那是余额的事)
+    var charged = 0, credited = 0, nCharge = 0, nCredit = 0;
+    for (final e in w?.items ?? const <WalletEntry>[]) {
+      if (e.amountFen < 0) {
+        charged -= e.amountFen;
+        nCharge++;
+      } else if (e.amountFen > 0) {
+        credited += e.amountFen;
+        nCredit++;
+      }
+    }
+
+    return [
+      StatsCard(
+        child: Row(
+          children: [
+            Expanded(
+              child: StatTile(
+                icon: Icons.remove_circle_outline,
+                label: w?.nextCursor != null ? '已加载扣款' : '当日扣款',
+                value: w == null ? null : fmtFen(charged, sign: false),
+                suffix: nCharge > 0 ? '$nCharge 笔' : null,
+                loading: loading,
+              ),
+            ),
+            Expanded(
+              child: StatTile(
+                icon: Icons.add_circle_outline,
+                label: w?.nextCursor != null ? '已加载入账' : '当日入账',
+                value: w == null ? null : fmtFen(credited, sign: false),
+                suffix: nCredit > 0 ? '$nCredit 笔' : null,
+                loading: loading,
+              ),
+            ),
+          ],
+        ),
+      ),
+      const SizedBox(height: 10),
+      StatsCard(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              l10nNow.desktopIndividualTransactions,
+              style: context.texts.bodyMedium!.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 2),
+            if (w == null)
+              ..._skeletonRows(4)
+            else if (w.items.isEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                child: Text(
+                  l10nNow.desktopNoWalletTransactionsOnThisDay,
+                  style: context.texts.bodySmall!.copyWith(
+                    color: scheme.outline,
+                  ),
+                ),
+              )
+            else ...[
+              for (final e in w.items)
+                WalletEntryRow(entry: e, withDate: false),
+              // 翻页到上限还没到底(见 dayWalletLedgerProvider):合计也只算了列出来的这些
+              if (w.nextCursor != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 4, bottom: 4),
+                  child: Text(
+                    '仅取得 ${fmtInt(w.items.length)} 笔，合计为已显示记录；可稍后重试。',
+                    style: context.texts.labelSmall!.copyWith(
+                      color: scheme.outline,
+                    ),
+                  ),
+                ),
+            ],
+          ],
+        ),
+      ),
+    ];
+  }
+
+  /// 当天的逐笔生成(`/api/user/stats/calls`):合计按逐笔现算。
+  List<Widget> _botGens(BuildContext context, WidgetRef ref) {
+    final callsAsync = ref.watch(dayCallsProvider(day));
+    final calls = callsAsync.asData?.value;
+    final loading = callsAsync.isLoading && calls == null;
+
+    return [
+      StatsCard(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: StatTile(
+                    icon: Icons.image_outlined,
+                    label: l10nNow.dayGens,
+                    value: calls == null ? null : fmtInt(calls.length),
+                    loading: loading,
+                  ),
+                ),
+                Expanded(
+                  child: StatTile(
+                    icon: Icons.toll_outlined,
+                    label: l10nNow.desktopPointsSpent,
+                    value: calls == null
+                        ? null
+                        : fmtInt(calls.fold(0, (s, c) => s + c.anlas)),
+                    loading: loading,
+                  ),
+                ),
+              ],
+            ),
+            if (calls != null) ...[
+              const CardDivider(),
+              Row(
+                children: [
+                  Expanded(
+                    child: StatTile(
+                      icon: Icons.redeem_outlined,
+                      label: l10nNow.desktopFreeImages,
+                      value: fmtInt(calls.where((c) => c.anlas == 0).length),
+                    ),
+                  ),
+                  Expanded(
+                    child: StatTile(
+                      icon: Icons.straighten,
+                      label: l10nNow.desktopAverageSteps,
+                      value: () {
+                        final ok = calls.where((c) => c.steps > 0).toList();
+                        return ok.isEmpty
+                            ? '—'
+                            : fmtInt(
+                                ok.fold(0, (s, c) => s + c.steps) / ok.length,
+                              );
+                      }(),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ],
+        ),
+      ),
+      const SizedBox(height: 10),
+      StatsCard(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              l10nNow.perItemGens,
+              style: context.texts.bodyMedium!.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 2),
+            ..._callRows(context, calls, callsAsync.isLoading, calls?.length),
+          ],
+        ),
+      ),
+    ];
+  }
+
+  List<Widget> _legacyBotBody(BuildContext context, WidgetRef ref) {
     final async = ref.watch(dayDetailsProvider(day));
     final d = async.value;
     final loading = async.isLoading;
 
     if (!loading && d == null) {
-      return const [StatsCard(child: Text('该日明细取不到,可能是会话过期或后端未开放'))];
+      return [StatsCard(child: Text(l10nNow.desktopDailyDetailsAreUnavailableTheSessionMayHave))];
     }
 
     final callsAsync = ref.watch(dayCallsProvider(day));
@@ -75,7 +286,7 @@ class DayDetailPage extends ConsumerWidget {
                 Expanded(
                   child: StatTile(
                     icon: Icons.image_outlined,
-                    label: '当日生图',
+                    label: l10nNow.dayGens,
                     value: d == null ? null : fmtInt(d.imageCalls),
                     loading: loading,
                   ),
@@ -83,7 +294,7 @@ class DayDetailPage extends ConsumerWidget {
                 Expanded(
                   child: StatTile(
                     icon: Icons.toll_outlined,
-                    label: '点数消耗',
+                    label: l10nNow.desktopPointsSpent,
                     value: d == null ? null : fmtInt(d.points),
                     loading: loading,
                   ),
@@ -120,14 +331,14 @@ class DayDetailPage extends ConsumerWidget {
                   Expanded(
                     child: StatTile(
                       icon: Icons.redeem_outlined,
-                      label: '免费张数',
+                      label: l10nNow.desktopFreeImages,
                       value: fmtInt(calls.where((c) => c.anlas == 0).length),
                     ),
                   ),
                   Expanded(
                     child: StatTile(
                       icon: Icons.straighten,
-                      label: '平均步数',
+                      label: l10nNow.desktopAverageSteps,
                       value: () {
                         final ok = calls.where((c) => c.steps > 0).toList();
                         return ok.isEmpty
@@ -194,7 +405,7 @@ class DayDetailPage extends ConsumerWidget {
         Padding(
           padding: const EdgeInsets.symmetric(vertical: 12),
           child: Text(
-            '该日无生成记录',
+            l10nNow.desktopNoGenerationsOnThisDay,
             style: context.texts.bodySmall!.copyWith(color: scheme.outline),
           ),
         ),
@@ -301,7 +512,7 @@ class DayDetailPage extends ConsumerWidget {
         Padding(
           padding: const EdgeInsets.symmetric(vertical: 12),
           child: Text(
-            '该日无计费记录',
+            l10nNow.desktopNoChargesOnThisDay,
             style: context.texts.bodySmall!.copyWith(color: scheme.outline),
           ),
         ),
@@ -358,8 +569,8 @@ class DayDetailPage extends ConsumerWidget {
             icon: g.inpaint ? Icons.brush_outlined : Icons.image_outlined,
             title:
                 '${g.width}×${g.height}'
-                '${g.steps > 0 ? ' · ${g.steps} 步' : ''}'
-                '${g.inpaint ? ' · 重绘' : ''}',
+                '${g.steps > 0 ? ' · ${context.l10n.stepsN(g.steps)}' : ''}'
+                '${g.inpaint ? ' · ${context.l10n.inpaint}' : ''}',
             sub:
                 '${_hhmm(DateTime.fromMillisecondsSinceEpoch(g.ts))}'
                 '${g.model.isEmpty ? '' : ' · ${g.model}'}',
@@ -378,10 +589,10 @@ class DayDetailPage extends ConsumerWidget {
               row: LedgerRow(
                 icon: g.inpaint ? Icons.brush_outlined : Icons.image_outlined,
                 title:
-                    '生图 ${g.width}×${g.height}'
-                    '${g.steps > 0 ? ' · ${g.steps} 步' : ''}',
+                    '${context.l10n.genSize(g.width, g.height)}'
+                    '${g.steps > 0 ? ' · ${context.l10n.stepsN(g.steps)}' : ''}',
                 sub: _hhmm(DateTime.fromMillisecondsSinceEpoch(g.ts)),
-                trailing: '-${fmtInt(g.pts)} 点',
+                trailing: context.l10n.minusPts(fmtInt(g.pts)),
               ),
             ),
         for (final o in ops)
@@ -391,9 +602,11 @@ class DayDetailPage extends ConsumerWidget {
               icon: o.type == 'upscale'
                   ? Icons.zoom_in
                   : Icons.palette_outlined,
-              title: o.type == 'upscale' ? '超分 4x' : 'Vibe 编码',
+              title: o.type == 'upscale'
+                  ? context.l10n.upscale4x
+                  : context.l10n.vibeEncoding,
               sub: _hhmm(DateTime.fromMillisecondsSinceEpoch(o.ts)),
-              trailing: '-${fmtInt(o.pts)} 点',
+              trailing: context.l10n.minusPts(fmtInt(o.pts)),
             ),
           ),
       ]..sort((a, b) => b.ts.compareTo(a.ts));
@@ -411,15 +624,17 @@ class DayDetailPage extends ConsumerWidget {
             Expanded(
               child: StatTile(
                 icon: Icons.image_outlined,
-                label: '当日生图',
+                label: context.l10n.dayGens,
                 value: fmtInt(agg?.images ?? 0),
-                suffix: (agg?.free ?? 0) > 0 ? '免费 ${agg!.free}' : null,
+                suffix: (agg?.free ?? 0) > 0
+                    ? context.l10n.freeN(agg!.free)
+                    : null,
               ),
             ),
             Expanded(
               child: StatTile(
                 icon: Icons.toll_outlined,
-                label: '估算消耗',
+                label: context.l10n.estimatedSpend,
                 value: fmtInt((agg?.pts ?? 0) + opsPts),
               ),
             ),
@@ -432,7 +647,9 @@ class DayDetailPage extends ConsumerWidget {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Text(
-              mode == DayDetailMode.points ? '逐笔消耗' : '逐笔生成',
+              mode == DayDetailMode.points
+                  ? context.l10n.perItemSpend
+                  : context.l10n.perItemGens,
               style: context.texts.bodyMedium!.copyWith(
                 fontWeight: FontWeight.w600,
               ),
@@ -442,7 +659,9 @@ class DayDetailPage extends ConsumerWidget {
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 12),
                 child: Text(
-                  rolled ? '该日明细已超出保留窗口,仅剩汇总' : '该日无记录',
+                  rolled
+                      ? context.l10n.detailsRolledOff
+                      : context.l10n.noRecordsDay,
                   style: context.texts.bodySmall!.copyWith(
                     color: scheme.outline,
                   ),

@@ -27,6 +27,7 @@ class AssistantStore {
 
   /// 启动读出的当前对话;空 = 首启/无存档。
   List<AssistantMsg> initialCurrent = const [];
+  ConversationMeta? initialCurrentMeta;
 
   /// 启动读出的历史会话(新的在前)。
   List<ArchivedSession> initialSessions = const [];
@@ -46,6 +47,7 @@ class AssistantStore {
 
   Future<void> load() async {
     initialTraces = await _loadTraces();
+    initialCurrentMeta = null;
     try {
       if (!await _file.exists()) return;
       final j = jsonDecode(await _file.readAsString());
@@ -58,9 +60,25 @@ class AssistantStore {
         for (final e in (j['sessions'] as List? ?? const []))
           if (e is Map<String, dynamic>) ArchivedSession.fromJson(e),
       ];
+      final meta = j['currentMeta'];
+      if (meta is Map<String, dynamic>) {
+        initialCurrentMeta = ConversationMeta.fromJson(meta);
+      } else if (initialCurrent.isNotEmpty) {
+        // Migrate once, without changing the dates/order of old conversations.
+        var id = initialCurrent.first.at;
+        final used = initialSessions.map((s) => s.id).toSet();
+        while (used.contains(id)) {
+          id++;
+        }
+        initialCurrentMeta = ConversationMeta(
+          id: id,
+          at: initialCurrent.last.at,
+        );
+      }
     } catch (e) {
       logd('[assistant] 载入失败(按首启处理): $e');
       initialCurrent = const [];
+      initialCurrentMeta = null;
       initialSessions = const [];
     }
   }
@@ -120,11 +138,25 @@ class AssistantStore {
     }
   }
 
+  /// Temporary attachments are only reachable through this in-memory map.
+  final _temporaryImages = <String, Uint8List>{};
+  int _temporaryImageId = 0;
+  void clearTemporaryImages() => _temporaryImages.clear();
+
   /// 一轮附件必须全部保存成功，才能提交消息，避免重试时只剩其中一张。
-  /// 部分写入失败产生的未引用 blob 留给常规 GC，不影响已有会话。
-  Future<List<String>> putImages(List<Uint8List> images) async {
+  /// 临时聊天只保留内存副本；普通聊天写入 blob，未引用副本留给 GC。
+  Future<List<String>> putImages(
+    List<Uint8List> images, {
+    bool temporary = false,
+  }) async {
     final hashes = <String>[];
     for (final image in images) {
+      if (temporary) {
+        final key = 'temporary-image-${++_temporaryImageId}';
+        _temporaryImages[key] = Uint8List.fromList(image);
+        hashes.add(key);
+        continue;
+      }
       final hash = await putImage(image);
       if (hash == null) throw StateError('图片附件保存失败，原对话已保留，请重试。');
       hashes.add(hash);
@@ -134,6 +166,7 @@ class AssistantStore {
 
   Future<Uint8List?> image(String? hash) async {
     if (hash == null || hash.isEmpty) return null;
+    if (hash.startsWith('temporary-image-')) return _temporaryImages[hash];
     try {
       return await _blobs.get(hash);
     } catch (_) {
@@ -143,6 +176,7 @@ class AssistantStore {
 
   List<AssistantMsg>? _pendingCurrent;
   List<ArchivedSession>? _pendingSessions;
+  ConversationMeta? _pendingCurrentMeta;
   List<Map<String, Object?>>? _pendingTraces;
   Timer? _timer;
   Future<void> _chain = Future.value();
@@ -166,12 +200,17 @@ class AssistantStore {
   Set<String>? _latestRefs;
 
   /// 状态一变就排队;真正写盘在防抖窗口后。
-  void schedule(List<AssistantMsg> current, List<ArchivedSession> sessions) {
+  void schedule(
+    List<AssistantMsg> current,
+    List<ArchivedSession> sessions, {
+    ConversationMeta? currentMeta,
+  }) {
     _blobs.referencesChanged();
     _revision++;
     _latestRefs = _refsOf(current, sessions);
     _pendingCurrent = List.of(current);
     _pendingSessions = List.of(sessions);
+    _pendingCurrentMeta = currentMeta;
     _timer?.cancel();
     _timer = Timer(const Duration(milliseconds: 800), flush);
   }
@@ -181,9 +220,11 @@ class AssistantStore {
     if (retryTraces != null) unawaited(retryTraces.catchError((Object _) {}));
     final cur = _pendingCurrent;
     final ses = _pendingSessions;
+    final meta = _pendingCurrentMeta;
     if (cur == null || ses == null) return;
     _pendingCurrent = null;
     _pendingSessions = null;
+    _pendingCurrentMeta = null;
     _timer?.cancel();
     final revision = _revision;
     unawaited(
@@ -193,9 +234,10 @@ class AssistantStore {
           await writeStringAtomic(
             _file,
             jsonEncode({
-              'v': 1,
+              'v': 2,
               'refs': _refsOf(cur, ses).toList(),
               'current': [for (final m in cur) m.toJson()],
+              if (meta != null) 'currentMeta': meta.toJson(),
               'sessions': [for (final s in ses) s.toJson()],
             }),
           );
@@ -204,6 +246,7 @@ class AssistantStore {
           if (_revision == revision) {
             _pendingCurrent = cur;
             _pendingSessions = ses;
+            _pendingCurrentMeta = meta;
           }
           _sessionError = e;
           logd('[assistant] 保存失败: $e');

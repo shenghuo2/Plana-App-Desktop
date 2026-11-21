@@ -6,8 +6,44 @@ import 'package:flutter/foundation.dart' show compute;
 import 'package:image/image.dart' as img;
 
 import 'image_resources.dart';
+import 'transparency.dart' show rgbaHasAlpha;
+import 'webp_to_png.dart' show isWebp, webpToPng;
 
-/// Read dimensions without allocating a full decoded pixel frame.
+bool isNaiImageFormat(Uint8List b) {
+  bool at(int i, List<int> sig) {
+    if (b.length < i + sig.length) return false;
+    for (var k = 0; k < sig.length; k++) {
+      if (b[i + k] != sig[k]) return false;
+    }
+    return true;
+  }
+
+  return at(0, const [0x89, 0x50, 0x4E, 0x47]) ||
+      at(0, const [0xFF, 0xD8, 0xFF]) ||
+      (at(0, 'RIFF'.codeUnits) && at(8, 'WEBP'.codeUnits));
+}
+
+/// 转成 PNG:本来就是 PNG 的原样返回;WebP 无损还原(像素 / alpha 隐写 / 参数都在,
+/// 见 webp_to_png);其余格式(JPEG 等)解码后重编码。
+Future<Uint8List> ensurePng(Uint8List src) async {
+  const sig = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+  var isPng = src.length >= sig.length;
+  for (var i = 0; isPng && i < sig.length; i++) {
+    isPng = src[i] == sig[i];
+  }
+  if (isPng) return src;
+  if (isWebp(src)) {
+    try {
+      return await compute(webpToPng, src);
+    } catch (_) {} // 有损 / 动图之类 webpToPng 解不了的,走下面通用那条
+  }
+  return withDecodedImage(src, (image) async {
+    final data = await image.toByteData(format: ui.ImageByteFormat.png);
+    if (data == null) throw StateError('PNG 编码失败');
+    return data.buffer.asUint8List();
+  });
+}
+
 Future<(int, int)> decodeImageSize(Uint8List bytes) async {
   final buffer = await ui.ImmutableBuffer.fromUint8List(bytes);
   ui.ImageDescriptor? descriptor;
@@ -18,21 +54,6 @@ Future<(int, int)> decodeImageSize(Uint8List bytes) async {
     descriptor?.dispose();
     buffer.dispose();
   }
-}
-
-/// 转成 PNG:本来就是 PNG 的原样返回,其余格式(JPEG / WebP 等)解码后重编码。
-Future<Uint8List> ensurePng(Uint8List src) async {
-  const sig = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
-  var isPng = src.length >= sig.length;
-  for (var i = 0; isPng && i < sig.length; i++) {
-    isPng = src[i] == sig[i];
-  }
-  if (isPng) return src;
-  return withDecodedImage(src, (image) async {
-    final data = await image.toByteData(format: ui.ImageByteFormat.png);
-    if (data == null) throw StateError('PNG 编码失败');
-    return data.buffer.asUint8List();
-  });
 }
 
 /// img2img 目标分辨率(与 web `setImg2imgWithAutoRes` 一致):
@@ -47,6 +68,19 @@ Future<Uint8List> ensurePng(Uint8List src) async {
     h = math.max(64, ((h * scale) / 64).floor() * 64);
   }
   return (w: w, h: h);
+}
+
+/// 导入底图时同步处理像素与声明尺寸，避免进入重绘后又回到未缩放的原图。
+/// 合法尺寸直接复用原字节；否则沿用图生图的居中填充规则，保留透明度。
+Future<({Uint8List image, int w, int h})> prepareImg2ImgBase(
+  Uint8List bytes,
+) async {
+  final (width, height) = await decodeImageSize(bytes);
+  final size = img2imgResolution(width, height);
+  final image = width == size.w && height == size.h
+      ? bytes
+      : await coverResizePng(bytes, size.w, size.h, keepAlpha: true);
+  return (image: image, w: size.w, h: size.h);
 }
 
 /// 把图 cover(填满,居中裁切)到目标尺寸、黑底兜底,输出 PNG 字节。
@@ -93,6 +127,68 @@ Future<Uint8List> coverResizePng(
     final picture = recorder.endRecording();
     return pictureToPng(picture, targetW, targetH);
   });
+}
+
+/// 缩略图短边像素。
+const kThumbShortSide = 512;
+
+/// 保留原比例，短边至多 512、长边至多 1536，不放大、不裁切。
+/// 不透明图使用 JPEG，透明图使用 PNG；所有解码和渲染资源均在完成后释放。
+Future<({Uint8List bytes, bool jpeg})> makeThumb(Uint8List src) =>
+    withDecodedImage(src, (image) async {
+      final iw = image.width, ih = image.height;
+      final scale = math.min(
+        1.0,
+        math.min(
+          kThumbShortSide / math.min(iw, ih),
+          kThumbShortSide * 3 / math.max(iw, ih),
+        ),
+      );
+      final tw = math.max(1, (iw * scale).round());
+      final th = math.max(1, (ih * scale).round());
+      final recorder = ui.PictureRecorder();
+      final canvas = ui.Canvas(recorder);
+      canvas.drawImageRect(
+        image,
+        ui.Rect.fromLTWH(0, 0, iw.toDouble(), ih.toDouble()),
+        ui.Rect.fromLTWH(0, 0, tw.toDouble(), th.toDouble()),
+        ui.Paint()..filterQuality = ui.FilterQuality.high,
+      );
+      final picture = recorder.endRecording();
+      ui.Image? output;
+      try {
+        output = await picture.toImage(tw, th);
+        final raw = await output.toByteData(format: ui.ImageByteFormat.rawRgba);
+        if (raw == null) throw StateError('缩略图像素读取失败');
+        final rgba = raw.buffer.asUint8List(
+          raw.offsetInBytes,
+          raw.lengthInBytes,
+        );
+        if (!rgbaHasAlpha(rgba)) {
+          return (bytes: await compute(_thumbJpg, (rgba, tw, th)), jpeg: true);
+        }
+        final png = await output.toByteData(format: ui.ImageByteFormat.png);
+        if (png == null) throw StateError('缩略图 PNG 编码失败');
+        return (
+          bytes: png.buffer.asUint8List(png.offsetInBytes, png.lengthInBytes),
+          jpeg: false,
+        );
+      } finally {
+        output?.dispose();
+        picture.dispose();
+      }
+    });
+
+Uint8List _thumbJpg((Uint8List, int, int) arg) {
+  final (rgba, w, h) = arg;
+  final image = img.Image.fromBytes(
+    width: w,
+    height: h,
+    bytes: rgba.buffer,
+    bytesOffset: rgba.offsetInBytes,
+    numChannels: 4,
+  );
+  return Uint8List.fromList(img.encodeJpg(image, quality: 88));
 }
 
 /// Krea 风格参考预处理,复刻 web `applyKreaStyleRefFile`:长边缩到

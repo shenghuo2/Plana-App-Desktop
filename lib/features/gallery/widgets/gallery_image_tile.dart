@@ -6,6 +6,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/primary_mouse_drag.dart';
 import '../gallery_dates.dart';
 import '../models.dart';
+import '../../import/desktop_image_drop.dart';
 import 'result_badge_chip.dart';
 import 'result_thumb.dart';
 
@@ -28,10 +29,12 @@ class GalleryImageTile extends StatelessWidget {
     this.mouseDragSelect = false,
     this.longPressDuration = kLongPressTimeout,
     this.fit = BoxFit.cover,
+    this.showTime = true,
   });
 
   final ResultImage result;
   final BoxFit fit;
+  final bool showTime;
   final bool selected;
   final bool picked;
   final bool selecting;
@@ -55,7 +58,7 @@ class GalleryImageTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = context.scheme;
     final ring = selecting ? picked : selected;
-    return Semantics(
+    final tile = Semantics(
       button: true,
       selected: ring,
       checked: selecting ? picked : null,
@@ -143,7 +146,9 @@ class GalleryImageTile extends StatelessWidget {
                                     ),
                                   ),
                                 ),
-                              if (galleryTimeBadge(result.createdAt)
+                              if (showTime
+                                      ? galleryTimeBadge(result.createdAt)
+                                      : ''
                                   case final String t when t.isNotEmpty)
                                 Positioned(
                                   left: 5,
@@ -274,6 +279,11 @@ class GalleryImageTile extends StatelessWidget {
           ),
         ),
       ),
+    );
+    return GalleryImageTransferOverlay(
+      result: result,
+      enabled: onSecondaryTap != null && !selecting,
+      child: tile,
     );
   }
 }

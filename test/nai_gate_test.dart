@@ -57,6 +57,31 @@ List<NaiKey> _plain(int n) => _plainN(n);
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  test(
+    'pinned director account waits for that account and never uses another',
+    () async {
+      final gate = _gate(_plain(2));
+      final a = await gate.acquire(paid: true, keyId: '0');
+      var done = false;
+      final waiting = gate.acquire(paid: true, keyId: '0').then((p) {
+        done = true;
+        return p;
+      });
+      await Future<void>.delayed(Duration.zero);
+      expect(done, false);
+      final b = await gate.acquire(paid: true, keyId: '1');
+      expect(b.token, 'tok-1');
+      final absent = await gate.acquire(paid: true, keyId: 'missing');
+      expect(absent.token, isNull);
+      gate.release(a.slot);
+      final resumed = await waiting;
+      expect(resumed.token, 'tok-0');
+      gate.release(resumed.slot);
+      gate.release(b.slot);
+      expect(gate.busyCount, 0);
+    },
+  );
+
   test('唯一第三方主账号不依赖订阅端点，也不等待第二把 Key', () async {
     final gate = _gate([
       const NaiKey(

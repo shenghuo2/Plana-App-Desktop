@@ -1,3 +1,4 @@
+import '../../l10n/l10n.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -305,7 +306,7 @@ class VibeFolderLibrary extends AsyncNotifier<VibeFolderState> {
         total: current.total,
         cached: current.cached,
         skipped: current.skipped,
-        message: '已停止扫描',
+        message: l10nNow.desktopScanStopped,
       ),
     );
   }
@@ -399,7 +400,7 @@ class VibeFolderLibrary extends AsyncNotifier<VibeFolderState> {
           VibeFolderState(
             directory: directory,
             entries: initial.entries,
-            message: '文件夹暂时无法读取，请检查路径后重试',
+            message: l10nNow.desktopCouldNotReadTheFolderCheckItsPath,
           ),
         );
       }

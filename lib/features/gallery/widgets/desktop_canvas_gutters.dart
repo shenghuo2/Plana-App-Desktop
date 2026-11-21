@@ -1,3 +1,4 @@
+import '../../../l10n/l10n.dart';
 import 'package:flutter/material.dart';
 
 /// Only the empty space beside a fitted image is a navigation target.
@@ -35,7 +36,7 @@ class DesktopCanvasGutters extends StatelessWidget {
             child: _Gutter(
               key: const ValueKey('canvas-previous-gutter'),
               onTap: onPrevious,
-              label: '上一张',
+              label: l10nNow.desktopPreviousImage,
               icon: Icons.chevron_left,
             ),
           ),
@@ -47,7 +48,7 @@ class DesktopCanvasGutters extends StatelessWidget {
             child: _Gutter(
               key: const ValueKey('canvas-next-gutter'),
               onTap: onNext,
-              label: '下一张',
+              label: l10nNow.desktopNextImage,
               icon: Icons.chevron_right,
             ),
           ),

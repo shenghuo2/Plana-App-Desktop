@@ -1,3 +1,5 @@
+import '../generate/widgets/common.dart' show hintSnack;
+import '../../l10n/l10n.dart';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -5,6 +7,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../gallery/albums/album_state.dart';
+import '../gallery/albums/album_models.dart';
+import '../gallery/widgets/gallery_trash_content.dart';
 import '../gallery/albums/album_ui.dart' show AlbumCoverImage, showAlbumName;
 import '../gallery/gallery_date_filter.dart';
 import '../gallery/gallery_search.dart';
@@ -55,7 +59,8 @@ class _DesktopGalleryBrowserState extends ConsumerState<DesktopGalleryBrowser>
 
   void _open(String? albumId) {
     // 切库影响浏览和后续生成；已提交任务继续跟随并保存到原目标。
-    if (ref.read(desktopLibraryProvider).albumId != albumId) {
+    if (!isFixedGallery(albumId) &&
+        ref.read(desktopLibraryProvider).albumId != albumId) {
       ref.read(desktopLibraryProvider.notifier).choose(albumId);
       if (ref.read(generationProvider).selected == null) {
         ref.read(galleryResultPreviewProvider.notifier).clear();
@@ -117,27 +122,35 @@ class _DesktopGalleryBrowserState extends ConsumerState<DesktopGalleryBrowser>
           borderRadius: BorderRadius.circular(16),
           child: Padding(
             padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 4),
-            child: GalleryGridContent(
-              key: ValueKey(
-                'desktop-gallery-content-${location.albumId ?? 'all'}',
-              ),
-              desktop: true,
-              embedded: true,
-              browser: GalleryGridBrowser(
-                albumId: location.albumId,
-                title: title,
-                onBack: () => ref
-                    .read(desktopGalleryLocationProvider.notifier)
-                    .open(null, overview: true),
-                onOpenImage: (images, index) => showDesktopImageViewer(
-                  context,
-                  images: images,
-                  index: index,
-                  libraryName: title,
-                  sourceAlbum: location.albumId,
-                ),
-              ),
-            ),
+            child: location.albumId == trashId
+                ? GalleryTrashContent(
+                    onBack: () => ref
+                        .read(desktopGalleryLocationProvider.notifier)
+                        .open(null, overview: true),
+                  )
+                : GalleryGridContent(
+                    key: ValueKey(
+                      'desktop-gallery-content-${location.albumId ?? 'all'}',
+                    ),
+                    desktop: true,
+                    embedded: true,
+                    browser: GalleryGridBrowser(
+                      albumId: location.albumId,
+                      title: title,
+                      onBack: () => ref
+                          .read(desktopGalleryLocationProvider.notifier)
+                          .open(null, overview: true),
+                      onOpenImage: (images, index) => showDesktopImageViewer(
+                        context,
+                        images: images,
+                        index: index,
+                        libraryName: title,
+                        sourceAlbum: isFixedGallery(location.albumId)
+                            ? null
+                            : location.albumId,
+                      ),
+                    ),
+                  ),
           ),
         ),
       );
@@ -157,11 +170,18 @@ class _DesktopGalleryBrowserState extends ConsumerState<DesktopGalleryBrowser>
       }
     }
     final entries = [
-      (id: null, name: '全部作品', createdAt: all.firstOrNull?.createdAt ?? 0),
+      (
+        id: null,
+        name: context.l10n.desktopAllImages,
+        createdAt: all.firstOrNull?.createdAt ?? 0,
+      ),
+      (id: favoritesId, name: context.l10n.favorites, createdAt: 0),
       for (final album in albums.albums)
         (id: album.id, name: album.name, createdAt: album.createdAt),
+      (id: trashId, name: context.l10n.trashName, createdAt: 0),
     ];
     final libraries = entries.where((entry) {
+      if (isFixedGallery(entry.id)) return true;
       final timeMatch =
           _date.kind == GalleryDateKind.all ||
           dateHits.contains(entry.id) ||
@@ -183,13 +203,13 @@ class _DesktopGalleryBrowserState extends ConsumerState<DesktopGalleryBrowser>
             children: [
               Row(
                 children: [
-                  const Text(
-                    '图库',
+                  Text(
+                    l10nNow.gallery,
                     style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700),
                   ),
                   const SizedBox(width: 12),
                   Text(
-                    '${libraries.length} 个图库',
+                    context.l10n.desktopGalleryCount(libraries.length),
                     style: TextStyle(
                       color: context.scheme.outline,
                       fontSize: 12,
@@ -213,11 +233,11 @@ class _DesktopGalleryBrowserState extends ConsumerState<DesktopGalleryBrowser>
                         decoration: InputDecoration(
                           isDense: true,
                           prefixIcon: const Icon(Icons.search, size: 20),
-                          hintText: '搜索图库名称…',
+                          hintText: l10nNow.desktopSearchGalleries,
                           suffixIcon: _search.text.isEmpty
                               ? null
                               : IconButton(
-                                  tooltip: '清除搜索',
+                                  tooltip: l10nNow.desktopClearSearchLabel,
                                   onPressed: () => setState(_search.clear),
                                   icon: const Icon(Icons.close, size: 18),
                                 ),
@@ -245,7 +265,7 @@ class _DesktopGalleryBrowserState extends ConsumerState<DesktopGalleryBrowser>
                           key: const ValueKey('desktop-gallery-create'),
                           onPressed: _createAlbum,
                           icon: Icons.create_new_folder_outlined,
-                          label: '新建图库',
+                          label: l10nNow.desktopNewGallery,
                         ),
                       ],
                     ),
@@ -257,7 +277,7 @@ class _DesktopGalleryBrowserState extends ConsumerState<DesktopGalleryBrowser>
                 child: libraries.isEmpty
                     ? Center(
                         child: Text(
-                          '没有符合条件的图库',
+                          l10nNow.desktopNoMatchingGalleries,
                           style: TextStyle(color: context.scheme.outline),
                         ),
                       )
@@ -275,18 +295,70 @@ class _DesktopGalleryBrowserState extends ConsumerState<DesktopGalleryBrowser>
                         itemCount: libraries.length,
                         itemBuilder: (context, i) {
                           final entry = libraries[i];
-                          return _GalleryTile(
+                          final tile = _GalleryTile(
                             key: ValueKey(
                               'desktop-library-card-${entry.id ?? 'all'}',
                             ),
                             albumId: entry.id,
                             title: entry.name,
-                            detail: '${summaries[entry.id]!.count} 张作品',
+                            detail: context.l10n.desktopImageCount(
+                              summaries[entry.id]!.count,
+                            ),
                             onTap: () => _open(entry.id),
                             onSecondaryTapDown: (details) => _albumMenu.show(
                               context,
                               entry.id,
                               details.globalPosition,
+                            ),
+                          );
+                          final id = entry.id;
+                          if (id == null || isFixedGallery(id)) return tile;
+                          return DragTarget<_AlbumDrag>(
+                            onWillAcceptWithDetails: (details) =>
+                                details.data.id != id,
+                            onAcceptWithDetails: (details) async {
+                              try {
+                                await ref
+                                    .read(albumsProvider.notifier)
+                                    .moveTo(details.data.id, id);
+                              } catch (e) {
+                                if (context.mounted) hintSnack(context, '$e');
+                              }
+                            },
+                            builder: (context, targets, _) => LayoutBuilder(
+                              builder: (context, constraints) =>
+                                  Draggable<_AlbumDrag>(
+                                    data: _AlbumDrag(id),
+                                    feedback: Material(
+                                      color: Colors.transparent,
+                                      child: SizedBox.fromSize(
+                                        key: const ValueKey(
+                                          "album-drag-preview",
+                                        ),
+                                        size: constraints.biggest,
+                                        child: tile,
+                                      ),
+                                    ),
+                                    childWhenDragging: Opacity(
+                                      opacity: .5,
+                                      child: tile,
+                                    ),
+                                    child: DecoratedBox(
+                                      position: DecorationPosition.foreground,
+                                      decoration: BoxDecoration(
+                                        border: targets.isEmpty
+                                            ? null
+                                            : Border.all(
+                                                color: Theme.of(
+                                                  context,
+                                                ).colorScheme.primary,
+                                                width: 2,
+                                              ),
+                                        borderRadius: BorderRadius.circular(12),
+                                      ),
+                                      child: tile,
+                                    ),
+                                  ),
                             ),
                           );
                         },
@@ -341,7 +413,11 @@ class _GalleryTile extends StatelessWidget {
             Row(
               children: [
                 Icon(
-                  Icons.folder_outlined,
+                  albumId == favoritesId
+                      ? Icons.favorite_border
+                      : albumId == trashId
+                      ? Icons.delete_outline
+                      : Icons.folder_outlined,
                   size: 16,
                   color: context.scheme.primary,
                 ),
@@ -370,4 +446,9 @@ class _GalleryTile extends StatelessWidget {
       ),
     ),
   );
+}
+
+class _AlbumDrag {
+  const _AlbumDrag(this.id);
+  final String id;
 }

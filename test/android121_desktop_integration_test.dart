@@ -189,7 +189,7 @@ void main() {
     await mount(tester, const AssistantModelDropdown());
     await tester.tap(find.byKey(const ValueKey('assistant-model-button')));
     await tester.pumpAndSettle();
-    expect(find.text('免费模型'), findsOneWidget);
+    expect(find.text('Plana 后端'), findsOneWidget);
     expect(find.byKey(const ValueKey('assistant-model-paid')), findsNothing);
     await tester.tap(find.byKey(const ValueKey('assistant-model-free')));
     await tester.pumpAndSettle();

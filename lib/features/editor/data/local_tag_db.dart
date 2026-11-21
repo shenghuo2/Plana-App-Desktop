@@ -7,8 +7,8 @@ import 'tag_index.dart';
 
 /// 离线 Danbooru 标签库(源数据 `assets/danbooru.tsv`,**含中文翻译**,已按热度降序;
 /// 进包的是构建期编好的索引,见 [TagIndex])。
-/// 用户在设置里显式选了「离线词库」时的英文补全走这里——**完全离线**,不碰网络,
-/// 天然绕开 Cloudflare。(2026-08-25 前它还是「未授权模式」的兜底,门禁解除后不再是。)
+/// 两种补全来源的英文查询都优先走这里,含拼写纠错。此库本身完全离线;
+/// 增强模式在无命中时才向后端查询,显式离线模式始终不联网。
 /// 行格式(tab 分隔):`tag<TAB>post_count<TAB>中文<TAB>alias1,alias2<TAB>category`;
 /// tag 用下划线,app 内展示/插入转空格。
 ///
@@ -35,15 +35,22 @@ class LocalTagDb {
     }
   }();
 
+  /// 索引本身;读不出来是 null。
+  Future<TagIndex?> get index => _ready;
+
   /// 读进索引并装给注音层 / 词条栏的同步反查([translationOf] / [countOf])。
   /// 开机在 runApp 之前调,从第一帧起就查得到。
   Future<void> install() async {
     offlineTagMeta = await _ready;
   }
 
-  /// 前缀匹配:标签名命中优先、别名命中次之。取前 [limit] 条。见 [TagIndex.search]。
-  Future<List<Suggestion>> search(String query, {int limit = 15}) async =>
+  /// 英文补全,口径同后端补全。取前 [limit] 条。见 [TagIndex.search]。
+  Future<List<TagHit>> search(String query, {int limit = 15}) async =>
       (await _ready)?.search(query, limit: limit) ?? const [];
+
+  /// 拼写纠错,口径同 Danbooru。见 [TagIndex.correct]。
+  Future<List<TagHit>> correct(String query, {int limit = 15}) async =>
+      (await _ready)?.correct(query, limit: limit) ?? const [];
 
   // ---- 角色反查(离线) ----
 
@@ -67,6 +74,10 @@ class LocalTagDb {
     final idx = await _ready;
     return {for (final t in tokens) t: idx?.postCountOf(t) ?? 0};
   }
+
+  /// 分词后的词里词库标成画师的那些。图库按画风归类时拿它数一张图用了几个画师。
+  Future<Set<String>> artistsIn(Iterable<String> tokens) async =>
+      (await _ready)?.artistsIn(tokens) ?? const {};
 }
 
 /// 全局单例。main 里开机就 new 一个、装好再注进来;没注的地方(测试)第一次查询时懒加载。

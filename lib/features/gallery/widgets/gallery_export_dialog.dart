@@ -1,3 +1,4 @@
+import '../../../l10n/l10n.dart';
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
@@ -10,6 +11,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../desktop/desktop_library_state.dart';
 import '../../generate/generation_controller.dart';
 import '../albums/album_state.dart';
+import '../albums/album_models.dart';
 import '../desktop_image_save.dart';
 import '../gallery_export.dart';
 import '../gallery_state.dart';
@@ -69,6 +71,13 @@ class _GalleryExportDialogState extends ConsumerState<_GalleryExportDialog> {
   }
 
   List<ResultImage> _scopeImages() {
+    if (widget.albumId == favoritesId) {
+      return ref
+          .read(galleryProvider)
+          .results
+          .where((image) => image.favorite)
+          .toList();
+    }
     final albums = ref.read(albumsProvider);
     if (!albums.exists(widget.albumId)) throw StateError('图库已被删除');
     return ref
@@ -122,7 +131,7 @@ class _GalleryExportDialogState extends ConsumerState<_GalleryExportDialog> {
           context: context,
           builder: (confirmationContext) => AlertDialog(
             key: const ValueKey('gallery-export-confirm-dialog'),
-            title: const Text('确认导出'),
+            title: Text(l10nNow.desktopConfirmExport),
             content: SizedBox(
               width: 470,
               child: SingleChildScrollView(
@@ -183,12 +192,12 @@ class _GalleryExportDialogState extends ConsumerState<_GalleryExportDialog> {
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(confirmationContext, false),
-                child: const Text('取消'),
+                child: Text(l10nNow.cancel),
               ),
               FilledButton(
                 key: const ValueKey('gallery-export-confirm'),
                 onPressed: () => Navigator.pop(confirmationContext, true),
-                child: const Text('确认导出并执行'),
+                child: Text(l10nNow.desktopConfirmAndExport),
               ),
             ],
           ),
@@ -201,6 +210,10 @@ class _GalleryExportDialogState extends ConsumerState<_GalleryExportDialog> {
     GalleryExportReport report,
   ) async {
     if (plan.options.cleanup == GalleryExportCleanup.none) return '';
+    if (isFixedGallery(plan.albumId) &&
+        plan.options.cleanup != GalleryExportCleanup.selected) {
+      throw StateError('固定入口仅支持清理所选图片');
+    }
     if (report.canceled || _cancelRequested) return '已停止，未清理图库';
     final wholeLibrary = plan.options.cleanup != GalleryExportCleanup.selected;
     if (wholeLibrary && report.failedIds.isNotEmpty) {
@@ -384,7 +397,7 @@ class _GalleryExportDialogState extends ConsumerState<_GalleryExportDialog> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Text('导出图片', style: context.texts.headlineSmall),
+                Text(l10nNow.desktopExportImages, style: context.texts.headlineSmall),
                 const SizedBox(height: 8),
                 Text('「${widget.albumName}」· 已选 ${widget.selected.length} 张'),
                 const SizedBox(height: 18),
@@ -401,9 +414,9 @@ class _GalleryExportDialogState extends ConsumerState<_GalleryExportDialog> {
                                 key: const ValueKey('gallery-export-directory'),
                                 controller: _directory,
                                 enabled: !_busy,
-                                decoration: const InputDecoration(
-                                  labelText: '导出文件夹',
-                                  hintText: '浏览选择保存位置',
+                                decoration: InputDecoration(
+                                  labelText: l10nNow.desktopExportFolder,
+                                  hintText: l10nNow.desktopChooseASaveLocation,
                                   border: OutlineInputBorder(),
                                   isDense: true,
                                 ),
@@ -417,7 +430,7 @@ class _GalleryExportDialogState extends ConsumerState<_GalleryExportDialog> {
                                 Icons.folder_open_outlined,
                                 size: 18,
                               ),
-                              label: const Text('浏览'),
+                              label: Text(l10nNow.desktopBrowse),
                             ),
                           ],
                         ),
@@ -431,7 +444,7 @@ class _GalleryExportDialogState extends ConsumerState<_GalleryExportDialog> {
                                     setState(() => _createFolder = value!),
                           contentPadding: EdgeInsets.zero,
                           controlAffinity: ListTileControlAffinity.leading,
-                          title: const Text('创建子文件夹'),
+                          title: Text(l10nNow.desktopCreateSubfolder),
                           dense: true,
                         ),
                         if (_createFolder)
@@ -464,8 +477,8 @@ class _GalleryExportDialogState extends ConsumerState<_GalleryExportDialog> {
                             ),
                           ),
                         const SizedBox(height: 10),
-                        const Text(
-                          '导出后',
+                        Text(
+                          l10nNow.desktopAfterExport,
                           style: TextStyle(fontWeight: FontWeight.w600),
                         ),
                         const SizedBox(height: 8),
@@ -476,11 +489,18 @@ class _GalleryExportDialogState extends ConsumerState<_GalleryExportDialog> {
                             children: [
                               for (final (mode, label) in [
                                 (GalleryExportCleanup.selected, '删除所选图片'),
-                                (GalleryExportCleanup.keepSamples, '每组保留一张样图'),
-                                (
-                                  GalleryExportCleanup.deleteAlbum,
-                                  widget.albumId == null ? '清空全部作品' : '清空并删除图库',
-                                ),
+                                if (!isFixedGallery(widget.albumId))
+                                  (
+                                    GalleryExportCleanup.keepSamples,
+                                    '每组保留一张样图',
+                                  ),
+                                if (!isFixedGallery(widget.albumId))
+                                  (
+                                    GalleryExportCleanup.deleteAlbum,
+                                    widget.albumId == null
+                                        ? '清空全部作品'
+                                        : '清空并删除图库',
+                                  ),
                               ])
                                 SizedBox(
                                   width: constraints.maxWidth >= 630
@@ -525,7 +545,7 @@ class _GalleryExportDialogState extends ConsumerState<_GalleryExportDialog> {
                           Padding(
                             padding: const EdgeInsets.only(top: 6),
                             child: Text(
-                              '“全部作品”是基础图库，始终保留；这里只清理图片。',
+                              l10nNow.desktopAllImagesIsTheDefaultGalleryThisAction,
                               style: TextStyle(
                                 fontSize: 12,
                                 color: scheme.onSurfaceVariant,

@@ -1,3 +1,4 @@
+import '../../../l10n/l10n.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -8,6 +9,7 @@ import '../../generate/models.dart' show tokenLimitOf;
 import '../../generate/prompt_presets.dart';
 import '../../generate/prompt_sections.dart' show sectionTexts;
 import '../../generate/widgets/common.dart' show hintSnack;
+import '../../generate/widgets/prompt_token_counts.dart';
 import '../data/tag_favorites.dart';
 import '../editor_state.dart';
 import 'prompt_preset_menu_button.dart';
@@ -45,6 +47,7 @@ class InlineEditorChrome extends ConsumerWidget {
         ? 'desktop-section-$sectionId'
         : 'desktop-prompt';
     final generated = ref.watch(generateProvider);
+    final medium = generated.params.isNaiMedium;
     final favorites = ref.watch(tagFavoritesProvider);
     final preset = character ? null : ref.watch(activePromptPresetProvider);
     final tokens = totalPromptTokens(
@@ -138,7 +141,7 @@ class InlineEditorChrome extends ConsumerWidget {
                     const PromptPresetMenuButton(),
                   PopupMenuButton<String>(
                     key: ValueKey('$prefix-favorites'),
-                    tooltip: '收藏标签',
+                    tooltip: l10nNow.desktopFavoriteTag,
                     enabled: favorites.isNotEmpty && onInsertFavorite != null,
                     constraints: const BoxConstraints(
                       minWidth: 180,
@@ -160,7 +163,7 @@ class InlineEditorChrome extends ConsumerWidget {
                                 ),
                               ),
                               IconButton(
-                                tooltip: '移出收藏',
+                                tooltip: l10nNow.desktopRemoveFromFavorites,
                                 icon: const Icon(Icons.close, size: 16),
                                 onPressed: () {
                                   final n = ref.read(
@@ -170,7 +173,7 @@ class InlineEditorChrome extends ConsumerWidget {
                                   Navigator.of(context).pop();
                                   hintSnack(
                                     context,
-                                    '已移出收藏',
+                                    l10nNow.desktopRemovedFromFavorites,
                                     actionLabel: '撤销',
                                     onAction: () => n.restore(tag, index),
                                   );
@@ -182,7 +185,7 @@ class InlineEditorChrome extends ConsumerWidget {
                     ],
                   ),
                   IconButton(
-                    tooltip: '撤销',
+                    tooltip: l10nNow.undo,
                     key: ValueKey('$prefix-undo'),
                     onPressed: state.canUndo ? notifier.undo : null,
                     icon: const Icon(Icons.undo_rounded),
@@ -190,7 +193,7 @@ class InlineEditorChrome extends ConsumerWidget {
                   if (!character && sectionId == null)
                     IconButton(
                       key: const ValueKey('desktop-editor-settings'),
-                      tooltip: '编辑器设置',
+                      tooltip: l10nNow.editorSettings,
                       onPressed: onSettings,
                       icon: const Icon(Icons.settings_outlined),
                     ),
@@ -212,12 +215,32 @@ class InlineEditorChrome extends ConsumerWidget {
           ),
         ),
         const SizedBox(height: 6),
-        Text(
-          '$tokens / $limit',
-          textAlign: TextAlign.end,
-          style: context.texts.labelSmall!.copyWith(
-            color: over ? scheme.error : scheme.outline,
-          ),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            Expanded(
+              child: Text(
+                '$tokens / $limit',
+                textAlign: TextAlign.end,
+                style: context.texts.labelSmall!.copyWith(
+                  color: over ? scheme.error : scheme.outline,
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            PromptTokenCounts(
+              positive: totalPromptTokens(
+                ref.watch(naiTokenizerProvider).value,
+                main: notifier.outputPositive(),
+              ),
+              negative: medium
+                  ? null
+                  : totalPromptTokens(
+                      ref.watch(naiTokenizerProvider).value,
+                      main: notifier.outputNegative(),
+                    ),
+            ),
+          ],
         ),
       ],
     );

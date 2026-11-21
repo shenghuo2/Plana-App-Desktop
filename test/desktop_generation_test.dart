@@ -1,8 +1,11 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:image/image.dart' as img;
 import 'package:plana_app/core/auth/auth_mode.dart';
 import 'package:plana_app/core/auth/nai_keys.dart';
 import 'package:plana_app/core/net/gen_abort.dart';
@@ -12,7 +15,9 @@ import 'package:plana_app/core/store/app_stores.dart';
 import 'package:plana_app/features/desktop/desktop_library_state.dart';
 import 'package:plana_app/features/gallery/albums/album_state.dart';
 import 'package:plana_app/features/gallery/gallery_state.dart';
+import 'package:plana_app/features/generate/generate_state.dart';
 import 'package:plana_app/features/generate/generation_controller.dart';
+import 'package:plana_app/features/generate/loop_controller.dart';
 import 'package:plana_app/features/generate/models.dart';
 import 'package:plana_app/features/shell/shell_state.dart';
 
@@ -52,8 +57,129 @@ class _Client extends NaiClient {
   );
 }
 
+class _LoopClient extends _Client {
+  // ignore: unused_element_parameter
+  _LoopClient(this.bytes, {this.steps = 28, int capacity = 4})
+    : requests = List.generate(capacity, (_) => Completer<void>()),
+      finish = List.generate(capacity, (_) => Completer<void>());
+
+  final Uint8List bytes;
+  final int steps;
+  final bodies = <Map<String, dynamic>>[];
+  final List<Completer<void>> requests;
+  final List<Completer<void>> finish;
+  int count = 0;
+
+  @override
+  Stream<NaiFrame> generateImageStream({
+    required String token,
+    required Map<String, dynamic> body,
+    GenAbort? abort,
+  }) async* {
+    final index = count++;
+    bodies.add(body);
+    requests[index].complete();
+    await finish[index].future;
+    yield (step: steps, isFinal: true, bytes: bytes);
+  }
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  test(
+    'custom loop sends exactly the requested images and locks total at start',
+    () async {
+      final stores = AppStores.ephemeral();
+      final bytes = Uint8List.fromList(
+        img.encodePng(img.Image(width: 32, height: 32)),
+      );
+      final client = _LoopClient(bytes, capacity: 8);
+      final c = ProviderContainer(
+        overrides: [
+          appStoresProvider.overrideWithValue(stores),
+          desktopModeProvider.overrideWithValue(true),
+          authModeProvider.overrideWith(_Auth.new),
+          naiKeysStoreProvider.overrideWith(_Keys.new),
+          naiClientProvider.overrideWith((ref, base) => client),
+        ],
+      );
+      try {
+        await c.read(authModeProvider.future);
+        await c.read(naiKeysStoreProvider.future);
+        final gen = c.read(generateProvider.notifier);
+        gen.setCustomLoopCount(7);
+        gen.setLoop(LoopCount.custom);
+        final work = c.read(loopStatusProvider.notifier).start();
+        for (var i = 0; i < 7; i++) {
+          await client.requests[i].future.timeout(const Duration(seconds: 10));
+          expect(c.read(loopStatusProvider).total, 7);
+          if (i == 0) gen.setCustomLoopCount(2);
+          client.finish[i].complete();
+        }
+        await work.timeout(const Duration(seconds: 10));
+        expect(client.count, 7);
+        expect(client.requests[7].isCompleted, isFalse);
+        expect(c.read(galleryProvider).results, hasLength(7));
+        expect(c.read(loopStatusProvider).active, isFalse);
+        expect(gen.state.params.loopCount, 2);
+      } finally {
+        c.dispose();
+        stores.flushNow();
+        await stores.gallery.idle;
+        await stores.albums.idle;
+      }
+    },
+  );
+  test(
+    'gallery and desktop export use returned image size, keeping input size',
+    () async {
+      final stores = AppStores.ephemeral();
+      final bytes = Uint8List.fromList(
+        img.encodePng(img.Image(width: 128, height: 96)),
+      );
+      final client = _LoopClient(bytes);
+      final c = ProviderContainer(
+        overrides: [
+          appStoresProvider.overrideWithValue(stores),
+          desktopModeProvider.overrideWithValue(true),
+          authModeProvider.overrideWith(_Auth.new),
+          naiKeysStoreProvider.overrideWith(_Keys.new),
+          naiClientProvider.overrideWith((ref, base) => client),
+        ],
+      );
+      try {
+        await c.read(authModeProvider.future);
+        await c.read(naiKeysStoreProvider.future);
+        final input = GenerateState.initial().copyWith(
+          prompt: 'blue sky',
+          params: const GenParams(width: 1024, height: 1024, seed: '123'),
+        );
+        final work = c.read(generationProvider.notifier).generate(using: input);
+        await client.requests[0].future.timeout(const Duration(seconds: 10));
+        final sent = client.bodies.single['parameters'] as Map;
+        expect((sent['width'], sent['height']), (1024, 1024));
+        client.finish[0].complete();
+        expect(await work, GenOutcome.ok);
+        await stores.gallery.idle;
+        final result = c.read(galleryProvider).results.single;
+        expect((result.width, result.height), (128, 96));
+        final saved = (await stores.gallery.readInput(result.id))!;
+        expect((saved.params.width, saved.params.height), (1024, 1024));
+        final sidecars = await stores.desktopOutput.root
+            .list(recursive: true)
+            .where((f) => f.path.endsWith('.json'))
+            .toList();
+        final meta =
+            jsonDecode(await File(sidecars.single.path).readAsString()) as Map;
+        expect((meta['width'], meta['height']), (128, 96));
+      } finally {
+        c.dispose();
+        stores.flushNow();
+        await stores.gallery.idle;
+        await stores.albums.idle;
+      }
+    },
+  );
   for (final automatic in [true, false]) {
     test('真实生成状态流保持任务图库，不打断正在浏览的网格：auto=$automatic', () async {
       final stores = AppStores.ephemeral();

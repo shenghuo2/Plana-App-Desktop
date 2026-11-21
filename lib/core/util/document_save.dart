@@ -15,6 +15,25 @@ Future<String?> saveFileAs(
   required String fileName,
   required String mime,
 }) async {
+  if (Platform.isWindows || Platform.isMacOS) {
+    final path = await FilePicker.platform.saveFile(fileName: fileName);
+    if (path == null) return null;
+    final target = File(path);
+    if (await target.exists() &&
+        await FileSystemEntity.identical(file.path, target.path)) {
+      return path;
+    }
+    final tmp = await target.parent.createTemp('.plana-export-');
+    final pending = File('${tmp.path}/document');
+    try {
+      await file.copy(pending.path);
+      await pending.rename(target.path);
+      return path;
+    } finally {
+      if (await pending.exists()) await pending.delete();
+      await tmp.delete();
+    }
+  }
   if (!Platform.isAndroid) {
     // 其它平台没有这条通道,维持原来的做法
     return FilePicker.platform.saveFile(

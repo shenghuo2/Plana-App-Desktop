@@ -16,6 +16,7 @@ import 'package:gal/gal.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/ui/param_help.dart';
 import '../../desktop/desktop_canvas_state.dart';
+import '../../director/director_page.dart';
 import '../../generate/generate_state.dart';
 import '../../generate/canvas_state.dart';
 import '../../generate/gen_modules.dart';
@@ -43,6 +44,7 @@ import '../desktop_image_save.dart';
 import '../upscale_model.dart';
 import '../super_resolution.dart';
 import 'save_sheet.dart';
+import '../../../l10n/l10n.dart';
 
 /// 持久大图层:有字节 → `Image.memory`(gaplessPlayback);否则画一个目标尺寸的空画框。
 /// 生成/查看全程复用同一个 Image widget,借 gaplessPlayback 桥接逐帧预览与终图,消除切换闪烁。
@@ -73,6 +75,12 @@ class GalleryImageLayer extends StatelessWidget {
             bytes!,
             fit: BoxFit.contain,
             gaplessPlayback: true,
+            errorBuilder: (_, _, _) => Center(
+              child: Tooltip(
+                message: l10nNow.desktopCouldNotReadImage,
+                child: Icon(Icons.broken_image_outlined),
+              ),
+            ),
           ),
         ),
       );
@@ -190,19 +198,20 @@ class ResultChrome extends StatelessWidget {
                         ),
                       ),
                       const SizedBox(width: 8),
-                      Expanded(
-                        child: Align(
-                          alignment: Alignment.bottomRight,
-                          child: FittedBox(
-                            fit: BoxFit.scaleDown,
-                            child: _SeedChip(
-                              key: const ValueKey('canvas-seed'),
-                              seed: result.seed,
-                              enabled: enabled,
+                      if (result.operation == null)
+                        Expanded(
+                          child: Align(
+                            alignment: Alignment.bottomRight,
+                            child: FittedBox(
+                              fit: BoxFit.scaleDown,
+                              child: _SeedChip(
+                                key: const ValueKey('canvas-seed'),
+                                seed: result.seed,
+                                enabled: enabled,
+                              ),
                             ),
                           ),
                         ),
-                      ),
                     ],
                   ),
                 ],
@@ -236,7 +245,8 @@ class ProgressPill extends StatelessWidget {
     if (status.sampling && status.step < status.total) {
       return '${status.step}/${status.total}';
     }
-    return status.note ?? (status.sampling ? '收尾中' : '准备中');
+    return status.note ??
+        (status.sampling ? l10nNow.finishing : l10nNow.preparing);
   }
 
   /// 胶囊那一套配套的数。**别单独动其中一个** —— 它们互相定死了:
@@ -496,7 +506,7 @@ class _ActionRailState extends ConsumerState<ResultActions> {
               style: actionStyle,
               onPressed: () => _import(context, ref),
               icon: const Icon(Icons.input, size: 18),
-              label: const Text('导入到创作'),
+              label: Text(l10nNow.desktopImportIntoCreate),
             ),
             ImageRemoteAction(
               result: widget.result,
@@ -511,7 +521,7 @@ class _ActionRailState extends ConsumerState<ResultActions> {
               style: actionStyle,
               onPressed: () => _inpaint(context, ref),
               icon: const Icon(Icons.brush_outlined, size: 17),
-              label: const Text('重绘'),
+              label: Text(l10nNow.inpaint),
             ),
             OutlinedButton.icon(
               key: const ValueKey('desktop-image-upscale'),
@@ -524,7 +534,7 @@ class _ActionRailState extends ConsumerState<ResultActions> {
                     )
                   : null,
               icon: const Icon(Icons.open_in_full, size: 17),
-              label: const Text('图生图放大'),
+              label: Text(l10nNow.img2imgUpscale),
             ),
           ),
           const SizedBox(height: 8),
@@ -542,14 +552,14 @@ class _ActionRailState extends ConsumerState<ResultActions> {
                       )
                     : null,
                 icon: const Icon(Icons.photo_size_select_large, size: 17),
-                label: const Text('超分辨率'),
+                label: Text(l10nNow.upscaleResolution),
               ),
             ),
             OutlinedButton.icon(
               style: actionStyle,
               onPressed: () => _download(context, ref),
               icon: const Icon(Icons.download_outlined, size: 17),
-              label: const Text('保存'),
+              label: Text(l10nNow.save),
             ),
           ),
         ],
@@ -591,19 +601,19 @@ class _ActionRailState extends ConsumerState<ResultActions> {
                         crossAxisAlignment: CrossAxisAlignment.end,
                         children: [
                           _RailButton(
-                            label: '重绘',
+                            label: l10nNow.inpaint,
                             icon: Icons.brush,
                             onTap: () => _inpaint(context, ref),
                           ),
                           const SizedBox(height: 10),
                           _RailButton(
-                            label: '放大',
+                            label: l10nNow.upscale,
                             icon: Icons.open_in_full,
                             onTap: () => _upscale(context, ref),
                           ),
                           const SizedBox(height: 10),
                           _RailButton(
-                            label: result.saved ? '已保存' : '保存',
+                            label: result.saved ? '已保存' : l10nNow.save,
                             icon: result.saved
                                 ? Icons.download_done
                                 : Icons.download,
@@ -612,7 +622,7 @@ class _ActionRailState extends ConsumerState<ResultActions> {
                           ),
                           const SizedBox(height: 10),
                           _RailButton(
-                            label: '导入',
+                            label: l10nNow.importLabel,
                             icon: Icons.input,
                             onTap: () => _import(context, ref),
                           ),
@@ -636,7 +646,7 @@ class _ActionRailState extends ConsumerState<ResultActions> {
                 // 只有重绘产物才有「之前」可看;源图被删了也不给(取不到字节)。
                 if (result.hasInpaintComparison) ...[
                   _RailButton(
-                    label: '旧的',
+                    label: l10nNow.desktopOriginal,
                     icon: Icons.compare,
                     onHold: _compare,
                     onTap: () {},
@@ -644,7 +654,7 @@ class _ActionRailState extends ConsumerState<ResultActions> {
                   const SizedBox(width: 10),
                 ],
                 _RailButton(
-                  label: '重新生成',
+                  label: l10nNow.regenerate,
                   icon: Icons.refresh,
                   primary: true,
                   onTap: () => _regenerate(context, ref),
@@ -702,7 +712,7 @@ class _ActionRailState extends ConsumerState<ResultActions> {
                       style: style,
                       onPressed: canAct ? () => _inpaint(context, ref) : null,
                       icon: const Icon(Icons.brush_outlined, size: 18),
-                      label: const Text('重绘'),
+                      label: Text(l10nNow.inpaint),
                     ),
                     TextButton.icon(
                       key: const ValueKey('canvas-upscale'),
@@ -715,7 +725,7 @@ class _ActionRailState extends ConsumerState<ResultActions> {
                             )
                           : null,
                       icon: const Icon(Icons.open_in_full, size: 18),
-                      label: const Text('图生图放大'),
+                      label: Text(l10nNow.img2imgUpscale),
                     ),
                     Tooltip(
                       message: _superResolutionTooltip,
@@ -733,7 +743,7 @@ class _ActionRailState extends ConsumerState<ResultActions> {
                           Icons.photo_size_select_large,
                           size: 18,
                         ),
-                        label: const Text('超分辨率'),
+                        label: Text(l10nNow.upscaleResolution),
                       ),
                     ),
                     TextButton.icon(
@@ -741,16 +751,16 @@ class _ActionRailState extends ConsumerState<ResultActions> {
                       style: style,
                       onPressed: canAct ? () => _import(context, ref) : null,
                       icon: const Icon(Icons.input, size: 18),
-                      label: const Text('导入'),
+                      label: Text(l10nNow.importLabel),
                     ),
                     TextButton.icon(
-                      key: const ValueKey('canvas-copy-image'),
+                      key: const ValueKey('canvas-director-tools'),
                       style: style,
                       onPressed: canAct
-                          ? () => copyResultToClipboard(context, ref, result)
+                          ? () => openDirectorTools(context, ref, result)
                           : null,
-                      icon: const Icon(Icons.content_copy, size: 18),
-                      label: const Text('复制图片'),
+                      icon: const Icon(Icons.movie_filter_outlined, size: 18),
+                      label: Text(l10nNow.desktopDirectorTools),
                     ),
                     ImageRemoteAction(
                       result: widget.result,
@@ -763,52 +773,76 @@ class _ActionRailState extends ConsumerState<ResultActions> {
               )
             : Row(
                 children: [
-                  Tooltip(
-                    message: '保存到选定文件夹；右键或长按打开保存设置',
-                    child: GestureDetector(
-                      onSecondaryTap: canAct
-                          ? () => _openSaveSheet(context, ref)
-                          : null,
-                      onLongPress: canAct
-                          ? () => _openSaveSheet(context, ref)
-                          : null,
-                      child: OutlinedButton.icon(
-                        key: const ValueKey('canvas-save'),
-                        style: capsuleStyle,
-                        onPressed: canAct && !_saving && !_choosingDirectory
-                            ? () => _saveInDirectory(context)
-                            : null,
-                        icon: const Icon(Icons.download_outlined, size: 18),
-                        label: Text(_saving ? '保存中' : '保存'),
-                      ),
+                  Expanded(
+                    child: Wrap(
+                      spacing: 4,
+                      runSpacing: 4,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        Tooltip(
+                          message: l10nNow.desktopSaveToTheSelectedFolderRightClickOr,
+                          child: GestureDetector(
+                            onSecondaryTap: canAct
+                                ? () => _openSaveSheet(context, ref)
+                                : null,
+                            onLongPress: canAct
+                                ? () => _openSaveSheet(context, ref)
+                                : null,
+                            child: OutlinedButton.icon(
+                              key: const ValueKey('canvas-save'),
+                              style: capsuleStyle,
+                              onPressed:
+                                  canAct && !_saving && !_choosingDirectory
+                                  ? () => _saveInDirectory(context)
+                                  : null,
+                              icon: const Icon(
+                                Icons.download_outlined,
+                                size: 18,
+                              ),
+                              label: Text(_saving ? '保存中' : '保存'),
+                            ),
+                          ),
+                        ),
+                        Tooltip(
+                          message: directory == null
+                              ? '选择保存文件夹'
+                              : '保存到：$directory\n点击更换文件夹',
+                          child: TextButton.icon(
+                            key: const ValueKey('canvas-save-folder'),
+                            style: capsuleStyle,
+                            onPressed: _saving || _choosingDirectory
+                                ? null
+                                : () => _chooseDirectory(),
+                            icon: Icon(
+                              directory == null
+                                  ? Icons.folder_open_outlined
+                                  : Icons.folder_outlined,
+                              size: 18,
+                            ),
+                            label: Text(l10nNow.desktopFolder),
+                          ),
+                        ),
+                        TextButton.icon(
+                          key: const ValueKey('canvas-copy-image'),
+                          style: capsuleStyle,
+                          onPressed: canAct
+                              ? () =>
+                                    copyResultToClipboard(context, ref, result)
+                              : null,
+                          icon: const Icon(Icons.content_copy, size: 18),
+                          label: Text(l10nNow.desktopCopyImage),
+                        ),
+                      ],
                     ),
                   ),
-                  const SizedBox(width: 4),
-                  Tooltip(
-                    message: directory == null
-                        ? '选择保存文件夹'
-                        : '保存到：$directory\n点击更换文件夹',
-                    child: TextButton.icon(
-                      key: const ValueKey('canvas-save-folder'),
-                      style: capsuleStyle,
-                      onPressed: _saving || _choosingDirectory
-                          ? null
-                          : () => _chooseDirectory(),
-                      icon: Icon(
-                        directory == null
-                            ? Icons.folder_open_outlined
-                            : Icons.folder_outlined,
-                        size: 18,
-                      ),
-                      label: const Text('文件夹'),
-                    ),
-                  ),
-                  const Spacer(),
+                  const SizedBox(width: 8),
                   FilledButton.icon(
                     key: const ValueKey('canvas-regenerate'),
                     onPressed: canAct ? () => _regenerate(context, ref) : null,
                     icon: const Icon(Icons.refresh, size: 18),
-                    label: const Text('重新生成'),
+                    label: Text(
+                      widget.result?.operation != null ? '继续处理' : '重新生成',
+                    ),
                   ),
                 ],
               ),
@@ -844,20 +878,20 @@ class _ActionRailState extends ConsumerState<ResultActions> {
       final bytes =
           image.bytes ??
           await ref.read(appStoresProvider).gallery.readImage(image.id);
-      if (!mounted) return;
+      if (!mounted || ref.read(canvasWorkspaceProvider).activeId != canvasId) {
+        return;
+      }
       if (bytes == null) throw StateError('图片尚未就绪');
-      final (width, height) = await decodeImageSize(bytes);
-      if (!mounted) return;
-      final resolution = img2imgResolution(width, height);
+      final base = await prepareImg2ImgBase(bytes);
+      if (!mounted || ref.read(canvasWorkspaceProvider).activeId != canvasId) {
+        return;
+      }
       await ref.read(genModulesProvider.future);
-      if (!mounted) return;
-      final source = ref.read(canvasWorkspaceProvider).find(canvasId);
-      if (source == null ||
-          providerOfModel(
-                source.prompts.sampling?.model ??
-                    ref.read(generateProvider).params.model,
-              ) !=
-              GenProvider.nai) {
+      if (!mounted || ref.read(canvasWorkspaceProvider).activeId != canvasId) {
+        return;
+      }
+      if (providerOfModel(ref.read(generateProvider).params.model) !=
+          GenProvider.nai) {
         return;
       }
       // Enabling the module before the image is set lets the sidebar reveal
@@ -874,14 +908,14 @@ class _ActionRailState extends ConsumerState<ResultActions> {
       ref.read(generateProvider.notifier)
         ..clearInpaint()
         ..setImg2ImgImage(
-          image: bytes,
-          width: resolution.w,
-          height: resolution.h,
+          image: base.image,
+          width: base.w,
+          height: base.h,
           canvasId: canvasId,
         );
       ref.read(shellIndexProvider.notifier).select(kTabCreate);
       ref.read(desktopImg2ImgRevealProvider.notifier).request();
-      hintSnack(context, '已将当前图片用作基础图像', icon: Icons.image_outlined);
+      hintSnack(context, l10nNow.desktopCurrentImageSetAsTheBaseImage, icon: Icons.image_outlined);
     } catch (error) {
       if (mounted) {
         hintSnack(context, '基础图像载入失败：$error', icon: Icons.error_outline);
@@ -949,7 +983,7 @@ class _ActionRailState extends ConsumerState<ResultActions> {
   }
 
   Widget _oldButton({required bool enabled}) => Tooltip(
-    message: '按住查看重绘前的蒙版区域，松开恢复结果',
+    message: l10nNow.desktopHoldToSeeTheMaskedAreaBeforeInpainting,
     child: Focus(
       focusNode: _compareFocus,
       onFocusChange: (focused) {
@@ -985,7 +1019,7 @@ class _ActionRailState extends ConsumerState<ResultActions> {
           child: Semantics(
             button: true,
             enabled: enabled,
-            label: '按住查看旧的重绘区域',
+            label: l10nNow.desktopHoldToSeeTheOriginalInpaintArea,
             child: Container(
               height: 34,
               padding: const EdgeInsets.symmetric(horizontal: 10),
@@ -1000,7 +1034,7 @@ class _ActionRailState extends ConsumerState<ResultActions> {
                 children: [
                   Icon(Icons.compare, size: 17, color: context.scheme.primary),
                   const SizedBox(width: 4),
-                  Text('旧的', style: TextStyle(color: context.scheme.primary)),
+                  Text(l10nNow.desktopOriginal, style: TextStyle(color: context.scheme.primary)),
                 ],
               ),
             ),
@@ -1046,14 +1080,14 @@ class _ActionRailState extends ConsumerState<ResultActions> {
       final bytes = await (_comparison ??= _loadComparison(image));
       if (!mounted || !active()) return;
       if (bytes == null) {
-        hintSnack(context, '这张作品没有可用的重绘前数据');
+        hintSnack(context, l10nNow.desktopNoOriginalInpaintDataIsAvailableForThis);
         return;
       }
       await precacheImage(MemoryImage(bytes), context);
       if (active()) _comparisonNotifier.show(image.id, bytes, this);
     } catch (_) {
       _comparison = null;
-      if (mounted && active()) hintSnack(context, '无法读取这张作品的重绘前数据');
+      if (mounted && active()) hintSnack(context, l10nNow.desktopCouldNotReadThisImageSOriginalInpaint);
     }
   }
 
@@ -1075,7 +1109,11 @@ class _ActionRailState extends ConsumerState<ResultActions> {
   /// 排不排得下由池子的上限说了算。
   bool _blockWhileInpainting(BuildContext context, WidgetRef ref) {
     if (!ref.read(inpaintStatusProvider).busy) return false;
-    hintSnack(context, '重绘进行中,请稍候', icon: Icons.hourglass_top);
+    hintSnack(
+      context,
+      context.l10n.inpaintInProgress,
+      icon: Icons.hourglass_top,
+    );
     return true;
   }
 
@@ -1092,7 +1130,7 @@ class _ActionRailState extends ConsumerState<ResultActions> {
     if (isModalModel(model)) {
       hintSnack(
         context,
-        '${isKreaModel(model) ? 'Krea 2' : 'Anima'} 模型不支持重绘,请先切回 NovelAI 模型',
+        context.l10n.inpaintNeedNai(isKreaModel(model) ? 'Krea 2' : 'Anima'),
         icon: Icons.block,
       );
       return;
@@ -1100,7 +1138,7 @@ class _ActionRailState extends ConsumerState<ResultActions> {
     final bytes = await _bytesOf(ref);
     if (!context.mounted) return;
     if (bytes == null) {
-      hintSnack(context, '此图无像素数据', icon: Icons.error_outline);
+      hintSnack(context, context.l10n.noPixelData, icon: Icons.error_outline);
       return;
     }
     ref
@@ -1153,12 +1191,12 @@ class _ActionRailState extends ConsumerState<ResultActions> {
     final bytes = source.bytes ?? await store.readImage(source.id);
     if (!context.mounted) return;
     if (bytes == null || bytes.isEmpty) {
-      hintSnack(context, '此图无像素数据', icon: Icons.error_outline);
+      hintSnack(context, l10nNow.noPixelData, icon: Icons.error_outline);
       return;
     }
     final w = source.width, h = source.height;
     if (w <= 0 || h <= 0) {
-      hintSnack(context, '图片尺寸无效', icon: Icons.error_outline);
+      hintSnack(context, l10nNow.desktopInvalidImageDimensions, icon: Icons.error_outline);
       return;
     }
     final naiV5Ok = naiV5UpscaleSupportsSize(w, h);
@@ -1199,9 +1237,9 @@ class _ActionRailState extends ConsumerState<ResultActions> {
         : enhanceScaleOptions(w, h, curModel);
     // 不可用时把**原因**一起算出来:三种原因差得远,看不见的缺席最难查。
     final redrawWhy = snapshot == null
-        ? '这张图没有参数快照,重绘放大用不了(只有本机生成的图带快照)'
+        ? context.l10n.redrawNoSnapshot
         : isModalModel(curModel)
-        ? '$curModel 不支持图生图,重绘放大要先切回 NAI 模型'
+        ? context.l10n.redrawModelUnsupported(curModel)
         : scales.isEmpty
         ? '源图 $w×$h 已超过图生图的 3,145,728 像素上限。'
               '请使用超分前的原图或较小图片；下方设置仍可调整。'
@@ -1344,7 +1382,11 @@ class _ActionRailState extends ConsumerState<ResultActions> {
   ) async {
     final scale = cfg.enhanceScale;
     if (input == null) {
-      hintSnack(context, '缺少参数快照,无法重绘放大', icon: Icons.error_outline);
+      hintSnack(
+        context,
+        context.l10n.redrawNoSnapshotShort,
+        icon: Icons.error_outline,
+      );
       return;
     }
     final isMax = scale.factor == null;
@@ -1409,7 +1451,7 @@ class _ActionRailState extends ConsumerState<ResultActions> {
           await processForSave(bytes, settings),
         );
         if (context.mounted) {
-          hintSnack(context, '作品已保存', icon: Icons.check_circle_outline);
+          hintSnack(context, l10nNow.desktopImageSaved, icon: Icons.check_circle_outline);
         }
         return;
       }
@@ -1417,7 +1459,11 @@ class _ActionRailState extends ConsumerState<ResultActions> {
       final ok = await Gal.hasAccess() || await Gal.requestAccess();
       if (!ok) {
         if (context.mounted) {
-          hintSnack(context, '未获相册权限', icon: Icons.error_outline);
+          hintSnack(
+            context,
+            context.l10n.noPhotoPermission,
+            icon: Icons.error_outline,
+          );
         }
         return;
       }
@@ -1430,15 +1476,23 @@ class _ActionRailState extends ConsumerState<ResultActions> {
       );
       ref.read(galleryProvider.notifier).markSaved([result.id]);
       if (context.mounted) {
-        hintSnack(context, '已保存到相册', icon: Icons.check_circle_outline);
+        hintSnack(
+          context,
+          context.l10n.savedToPhotos1,
+          icon: Icons.check_circle_outline,
+        );
       }
     } on GalException catch (_) {
       if (context.mounted) {
-        hintSnack(context, '保存失败', icon: Icons.error_outline);
+        hintSnack(context, context.l10n.saveFailed, icon: Icons.error_outline);
       }
     } catch (e) {
       if (context.mounted) {
-        hintSnack(context, '保存失败: $e', icon: Icons.error_outline);
+        hintSnack(
+          context,
+          context.l10n.saveFailedSpace('$e'),
+          icon: Icons.error_outline,
+        );
       }
     }
   }
@@ -1448,7 +1502,11 @@ class _ActionRailState extends ConsumerState<ResultActions> {
     final bytes = await _bytesOf(ref);
     if (!context.mounted) return;
     if (bytes == null) {
-      hintSnack(context, '图片尚未就绪', icon: Icons.hourglass_empty);
+      hintSnack(
+        context,
+        context.l10n.imageNotReady,
+        icon: Icons.hourglass_empty,
+      );
       return;
     }
     await showSaveSheet(context, bytes: bytes, image: result);
@@ -1456,11 +1514,19 @@ class _ActionRailState extends ConsumerState<ResultActions> {
 
   /// 按本图参数、换随机种子出一张新图(不改用户当前编辑器状态)。
   Future<void> _regenerate(BuildContext context, WidgetRef ref) async {
+    if (result.operation != null || result.badge == ResultBadge.director) {
+      await openDirectorTools(context, ref, result);
+      return;
+    }
     final galleryTarget = ref.read(gallerySaveTargetProvider);
     final input = await _inputOf(ref);
     if (!context.mounted) return;
     if (input == null) {
-      hintSnack(context, '缺少参数快照,无法重新生成', icon: Icons.error_outline);
+      hintSnack(
+        context,
+        context.l10n.regenNoSnapshot,
+        icon: Icons.error_outline,
+      );
       return;
     }
     unawaited(
@@ -1486,7 +1552,7 @@ Future<void> openResultImport(
       await ref.read(appStoresProvider).gallery.readImage(result.id);
   if (!context.mounted) return;
   if (bytes == null) {
-    hintSnack(context, '图片尚未就绪', icon: Icons.hourglass_empty);
+    hintSnack(context, l10nNow.imageNotReady, icon: Icons.hourglass_empty);
     return;
   }
   await Navigator.of(context).push(
@@ -1494,8 +1560,12 @@ Future<void> openResultImport(
       ImportImagePanel(
         origin: origin,
         bytes: bytes,
-        fileName: 'plana_${result.seed}.png',
-        displayName: 'plana_${result.seed}',
+        fileName: result.operation == null
+            ? 'plana_${result.seed}.png'
+            : '导演结果_${result.id}.png',
+        displayName: result.operation == null
+            ? 'plana_${result.seed}'
+            : '导演结果_${result.id}',
       ),
     ),
   );
@@ -1624,7 +1694,7 @@ class _ResolutionChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Tooltip(
-    message: '图片分辨率',
+    message: l10nNow.desktopImageResolution,
     child: Material(
       color: context.scheme.surfaceContainerHighest,
       elevation: 1.5,
@@ -1648,7 +1718,7 @@ class _SeedChip extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final scheme = context.scheme;
     return Tooltip(
-      message: '应用并复制种子',
+      message: l10nNow.desktopApplyAndCopySeed,
       child: Material(
         color: scheme.surfaceContainerHighest,
         elevation: 1.5,
@@ -1846,9 +1916,9 @@ class _UpscalePanelState extends ConsumerState<_UpscalePanel> {
 
   /// 当前倍率档在干什么。Max 档的尺寸是服务端定的,这里只能给估值。
   String get _scaleNote => switch (_s.enhanceScale) {
-    EnhanceScale.x1 => '同尺寸重新生成,只精修细节、不放大',
-    EnhanceScale.max => '发原图尺寸,由 NovelAI 放到最大后重绘',
-    final s => '以 ${s.label} 分辨率重新生成,画面会变',
+    EnhanceScale.x1 => context.l10n.scaleNoteX1,
+    EnhanceScale.max => context.l10n.scaleNoteMax,
+    final s => context.l10n.scaleNoteScale(s.label),
   };
 
   /// Max 档为什么没出现。**看不见的缺席最难查** —— 两个条件各有各的说法,
@@ -1861,8 +1931,7 @@ class _UpscalePanelState extends ConsumerState<_UpscalePanel> {
       return 'Max 档只有 V5 有;当前模型是 $model,重绘也按它跑';
     }
     // 官方阈值:源图像素要小于 0.8×上限才提供 Max
-    return 'Max 档要求源图小于 2,516,582 像素,'
-        '这张 ${widget.width}×${widget.height} 太大了';
+    return context.l10n.maxTooLarge(widget.width, widget.height);
   }
 
   @override
@@ -1994,12 +2063,12 @@ class _UpscalePanelState extends ConsumerState<_UpscalePanel> {
       segments: [
         ButtonSegment(
           value: false,
-          label: const Text('超分辨率'),
+          label: Text(l10nNow.upscaleResolution),
           enabled: _upscaleOk,
         ),
         ButtonSegment(
           value: true,
-          label: const Text('图生图放大'),
+          label: Text(l10nNow.img2imgUpscale),
           enabled: widget.redrawWhy == null,
         ),
       ],
@@ -2034,7 +2103,7 @@ class _UpscalePanelState extends ConsumerState<_UpscalePanel> {
           Expanded(
             child: _dropdown<EnhanceScale>(
               scheme,
-              label: '倍率',
+              label: l10nNow.scaleLabel,
               value: widget.redrawScales.contains(_s.enhanceScale)
                   ? _s.enhanceScale
                   : null,
@@ -2051,14 +2120,17 @@ class _UpscalePanelState extends ConsumerState<_UpscalePanel> {
           Expanded(
             child: _dropdown<int>(
               scheme,
-              label: '档位',
+              label: context.l10n.magnitudeLabel,
               value: mag,
               items: [
                 for (var i = 0; i < kMagnitudePresets.length; i++)
-                  (value: i, text: '档 ${kMagnitudePresets[i].label}'),
+                  (
+                    value: i,
+                    text: context.l10n.magnitudeN(kMagnitudePresets[i].label),
+                  ),
                 // 两个滑杆微调过之后就不在任何一档上 —— 列一个占位项,
                 // 否则 DropdownButton 的 value 不在 items 里会直接抛。
-                if (mag < 0) (value: -1, text: '自定义'),
+                if (mag < 0) (value: -1, text: context.l10n.sizeCustom),
               ],
               onChanged: (i) {
                 if (i < 0) return;
@@ -2084,7 +2156,7 @@ class _UpscalePanelState extends ConsumerState<_UpscalePanel> {
       ],
       const SizedBox(height: 6),
       ParamSlider(
-        label: '强度 Strength',
+        label: context.l10n.strengthStrength,
         help: Help.img2imgStrength,
         value: _s.strength,
         min: kStrengthMin,
@@ -2096,7 +2168,7 @@ class _UpscalePanelState extends ConsumerState<_UpscalePanel> {
         onChangeEnd: (v) => _set(_s.copyWith(strength: v), remember: true),
       ),
       ParamSlider(
-        label: '噪声 Noise',
+        label: context.l10n.noiseNoise,
         help: Help.img2imgNoise,
         value: _s.noise,
         max: kNoiseMax,

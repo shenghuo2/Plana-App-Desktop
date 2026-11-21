@@ -1,3 +1,4 @@
+import '../../../l10n/l10n.dart';
 import 'package:flutter/material.dart';
 
 import '../../generate/preset_manage_page.dart';
@@ -10,7 +11,7 @@ class PromptPresetMenuButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return IconButton(
       key: const ValueKey('desktop-prompt-preset'),
-      tooltip: '切换预设',
+      tooltip: l10nNow.desktopSwitchPreset,
       icon: const Icon(Icons.bookmarks_outlined),
       iconSize: 18,
       padding: const EdgeInsets.all(5),

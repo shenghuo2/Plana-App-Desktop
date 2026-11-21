@@ -19,6 +19,7 @@ import '../inspiration/codex/codex_providers.dart';
 import '../inspiration/tag_library.dart';
 import '../vibe_library/vibe_library.dart';
 import 'widgets/settings_ui.dart';
+import '../../l10n/l10n.dart';
 
 /// 存储管理:占用一览、自动清理上限、一键清理。
 class StoragePage extends ConsumerStatefulWidget {
@@ -29,14 +30,12 @@ class StoragePage extends ConsumerStatefulWidget {
 }
 
 class _CatSpec {
-  const _CatSpec(this.keys, this.icon, this.label, this.action);
+  const _CatSpec(this.keys, this.icon);
 
   /// 一行可以盖住多个扫描分类:占用取和,清理时逐个执行。
   /// 首个 key 兼作行 id(忙碌态与释放量都按它记)。
   final List<String> keys;
   final IconData icon;
-  final String label;
-  final String action;
 
   String get id => keys.first;
 }
@@ -51,14 +50,14 @@ const _kCacheKeys = ['temp', 'imgCache', 'codexCache', 'blobs'];
 ///   预览要重新做 / 作品和素材库直接不可恢复)。代价不同就得让人分开选,
 ///   不能为了少几行把它们捆成一键。
 const _cleanable = <_CatSpec>[
-  _CatSpec(_kCacheKeys, Icons.cached, '缓存文件', '清理'),
-  _CatSpec(['inpaintHistory'], Icons.layers_clear_outlined, '历史重绘原图与蒙版', '清理'),
-  _CatSpec(['vibeEnc'], Icons.bolt_outlined, 'Vibe 编码缓存', '清空'),
-  _CatSpec(['models'], Icons.hd_outlined, '超分模型(遗留)', '删除'),
-  _CatSpec(['tagPrev'], Icons.lightbulb_outline, '灵感预览图', '清空'),
-  _CatSpec(['gallery'], Icons.photo_library_outlined, '图库作品', '清空'),
-  _CatSpec(['vibeLib'], Icons.palette_outlined, 'Vibe 库', '清空'),
-  _CatSpec(['charLib'], Icons.person_outline, '角色参考库', '清空'),
+  _CatSpec(_kCacheKeys, Icons.cached),
+  _CatSpec(['inpaintHistory'], Icons.layers_clear_outlined),
+  _CatSpec(['vibeEnc'], Icons.bolt_outlined),
+  _CatSpec(['models'], Icons.hd_outlined),
+  _CatSpec(['tagPrev'], Icons.lightbulb_outline),
+  _CatSpec(['gallery'], Icons.photo_library_outlined),
+  _CatSpec(['vibeLib'], Icons.palette_outlined),
+  _CatSpec(['charLib'], Icons.person_outline),
 ];
 
 class _StoragePageState extends ConsumerState<StoragePage> {
@@ -128,13 +127,19 @@ class _StoragePageState extends ConsumerState<StoragePage> {
       });
       hintSnack(
         context,
-        freed > 0 ? '已释放 ${fmtBytes(freed)}' : '没有可清理的内容',
+        freed > 0
+            ? context.l10n.freedSize(fmtBytes(freed))
+            : context.l10n.nothingToClean,
         icon: Icons.check_circle_outline,
       );
     } catch (e) {
       if (!mounted) return;
       setState(() => _busy = null);
-      hintSnack(context, '清理失败: $e', icon: Icons.error_outline);
+      hintSnack(
+        context,
+        context.l10n.cleanFailed('$e'),
+        icon: Icons.error_outline,
+      );
     }
   }
 
@@ -164,6 +169,7 @@ class _StoragePageState extends ConsumerState<StoragePage> {
       ...await stores.workspace.liveRefs(strict: true),
       ...await stores.gallery.liveRefs(strict: true),
       ...await stores.assistant.liveRefs(strict: true),
+      ...await stores.history.liveRefs(),
     };
     await stores.blobs.gc(live, minAge: const Duration(minutes: 5));
   }
@@ -185,11 +191,11 @@ class _StoragePageState extends ConsumerState<StoragePage> {
         final n = _report?['tagPrev']?.count;
         final ok = await confirmDialog(
           context,
-          title: '清空灵感预览图',
-          message:
-              '将删除本机生成的${n == null ? '' : ' $n 张'}条目预览图,'
-              '并从条目上摘除引用;条目本身与提示词不受影响,预览需重新生成。',
-          confirmLabel: '清空',
+          title: context.l10n.clearTagPreviews,
+          message: n == null
+              ? context.l10n.clearTagPreviewsBody
+              : context.l10n.clearTagPreviewsBodyN(n),
+          confirmLabel: context.l10n.clear,
         );
         if (!ok) return;
         await _run([
@@ -199,7 +205,7 @@ class _StoragePageState extends ConsumerState<StoragePage> {
         final n = _report?['gallery']?.count;
         final ok = await confirmDialog(
           context,
-          title: '清空全部图库数据',
+          title: l10nNow.desktopClearAllGalleryData,
           message:
               '将删除全部${n == null ? '' : ' $n 张'}作品与参数快照，以及自建图库和封面，不可恢复。'
               '已保存到系统相册的图片不受影响。',
@@ -216,11 +222,9 @@ class _StoragePageState extends ConsumerState<StoragePage> {
       case 'vibeEnc':
         final ok = await confirmDialog(
           context,
-          title: '清空编码缓存',
-          message:
-              '清空后,下次用这些图生成时需重新编码;直连线路每张图约扣 2 Anlas。'
-              '不影响 Vibe 库文件本身。',
-          confirmLabel: '清空',
+          title: context.l10n.clearEncodingCache,
+          message: context.l10n.clearEncodingCacheBody,
+          confirmLabel: context.l10n.clear,
         );
         if (!ok) return;
         await _run([key], () async {
@@ -231,11 +235,11 @@ class _StoragePageState extends ConsumerState<StoragePage> {
         final n = _report?['vibeLib']?.count;
         final ok = await confirmDialog(
           context,
-          title: '清空 Vibe 库',
-          message:
-              '将删除库内全部${n == null ? '' : ' $n 个'}文件'
-              '(原图 / 缩略图 / 已存编码),不可恢复。',
-          confirmLabel: '清空',
+          title: context.l10n.clearVibeLib,
+          message: n == null
+              ? context.l10n.clearVibeLibBody
+              : context.l10n.clearVibeLibBodyN(n),
+          confirmLabel: context.l10n.clear,
         );
         if (!ok) return;
         await _run([
@@ -245,11 +249,11 @@ class _StoragePageState extends ConsumerState<StoragePage> {
         final n = _report?['charLib']?.count;
         final ok = await confirmDialog(
           context,
-          title: '清空角色参考库',
-          message:
-              '将删除库内全部${n == null ? '' : ' $n 个'}文件,不可恢复。'
-              '图库作品里的参数快照不受影响。',
-          confirmLabel: '清空',
+          title: context.l10n.clearCharRefLib,
+          message: n == null
+              ? context.l10n.clearCharRefLibBody
+              : context.l10n.clearCharRefLibBodyN(n),
+          confirmLabel: context.l10n.clear,
         );
         if (!ok) return;
         await _run([
@@ -258,11 +262,11 @@ class _StoragePageState extends ConsumerState<StoragePage> {
       case 'models':
         final ok = await confirmDialog(
           context,
-          title: '删除超分模型',
-          message:
-              '本地超分功能已下线,这 ${fmtBytes(_report?['models']?.bytes ?? 0)} '
-              '模型文件已经用不上了,删掉不会少任何功能。',
-          confirmLabel: '删除',
+          title: context.l10n.deleteUpscaleModels,
+          message: context.l10n.deleteUpscaleModelsBody(
+            fmtBytes(_report?['models']?.bytes ?? 0),
+          ),
+          confirmLabel: context.l10n.delete,
         );
         if (!ok) return;
         await _run([key], clearUpscaleModels);
@@ -273,7 +277,7 @@ class _StoragePageState extends ConsumerState<StoragePage> {
     if (_busy != null || ref.read(generationProvider).busy) return;
     final ok = await confirmDialog(
       context,
-      title: '清理历史重绘原图与蒙版',
+      title: l10nNow.desktopCleanUpOriginalInpaintImagesAndMasks,
       message:
           '清理后，历史作品将不能查看“旧的”对比，也不能恢复当时的蒙版继续编辑。'
           '生成成品、提示词和普通生成设置会保留。\n\n'
@@ -319,12 +323,12 @@ class _StoragePageState extends ConsumerState<StoragePage> {
     );
     return SettingsScaffold(
       appBar: AppBar(
-        title: const Text('存储管理'),
+        title: Text(context.l10n.storage),
         actions: [
           IconButton(
             onPressed: _scanning ? null : _refresh,
             icon: const Icon(Icons.refresh),
-            tooltip: '重新扫描',
+            tooltip: context.l10n.rescan,
           ),
         ],
       ),
@@ -339,10 +343,10 @@ class _StoragePageState extends ConsumerState<StoragePage> {
                   const SettingsPageHeader(),
                   _TotalCard(report: rep, scanning: _scanning),
                   const SizedBox(height: 16),
-                  const SettingsLabel('自动清理上限'),
+                  SettingsLabel(context.l10n.autoCleanLimits),
                   _CapsCard(onPatch: _applyCaps),
                   const SizedBox(height: 16),
-                  const SettingsLabel('可清理'),
+                  SettingsLabel(context.l10n.cleanable),
                   SettingsCard(
                     children: [
                       for (final spec in _cleanable)
@@ -394,7 +398,7 @@ class _TotalCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      '应用数据占用',
+                      l10nNow.desktopAppStorageUsage,
                       style: context.texts.bodySmall!.copyWith(
                         color: scheme.onSurfaceVariant,
                       ),
@@ -408,7 +412,7 @@ class _TotalCard extends StatelessWidget {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      '仅统计 Plana 数据、缓存与自动保存作品，不含程序本体',
+                      l10nNow.desktopIncludesPlanaDataCacheAndAutomaticallySavedImages,
                       style: context.texts.bodySmall!.copyWith(
                         color: scheme.onSurfaceVariant,
                       ),
@@ -463,20 +467,20 @@ class _CapsCard extends ConsumerWidget {
     return SettingsCard(
       children: [
         _CapRow(
-          label: '图库作品',
-          unit: '张',
+          label: context.l10n.catGallery,
+          unit: context.l10n.unitImages,
           value: s.galleryCap,
           onChanged: (v) => onPatch((x) => x.copyWith(galleryCap: v)),
         ),
         _CapRow(
-          label: 'Vibe 库',
-          unit: '条',
+          label: context.l10n.vibeLibrary,
+          unit: context.l10n.unitItems,
           value: s.vibeCap,
           onChanged: (v) => onPatch((x) => x.copyWith(vibeCap: v)),
         ),
         _CapRow(
-          label: '角色参考库',
-          unit: '张',
+          label: context.l10n.catCharLib,
+          unit: context.l10n.unitImages,
           value: s.charRefCap,
           onChanged: (v) => onPatch((x) => x.copyWith(charRefCap: v)),
         ),
@@ -504,7 +508,7 @@ class _CapRow extends StatelessWidget {
     final result = await showDialog<int>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text('$label上限'),
+        title: Text(context.l10n.capOf(label)),
         content: TextField(
           controller: ctl,
           autofocus: true,
@@ -517,16 +521,16 @@ class _CapRow extends StatelessWidget {
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(0),
-            child: const Text('无上限'),
+            child: Text(context.l10n.noLimit),
           ),
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('取消'),
+            child: Text(context.l10n.cancel),
           ),
           FilledButton(
             onPressed: () =>
                 Navigator.of(ctx).pop(int.tryParse(ctl.text.trim()) ?? 0),
-            child: const Text('确定'),
+            child: Text(context.l10n.ok),
           ),
         ],
       ),
@@ -552,7 +556,7 @@ class _CapRow extends StatelessWidget {
               ),
             ),
             Text(
-              value > 0 ? '$value $unit' : '无上限',
+              value > 0 ? '$value $unit' : context.l10n.noLimit,
               style: value > 0
                   ? mono(context, size: 13, color: scheme.onSurfaceVariant)
                   : context.texts.bodySmall!.copyWith(
@@ -602,7 +606,7 @@ class _CleanRow extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  spec.label,
+                  _catLabel(context.l10n, spec),
                   style: context.texts.bodyMedium!.copyWith(
                     fontWeight: FontWeight.w600,
                   ),
@@ -641,7 +645,7 @@ class _CleanRow extends StatelessWidget {
                       padding: EdgeInsets.zero,
                       visualDensity: VisualDensity.compact,
                     ),
-                    child: Text(spec.action),
+                    child: Text(_catAction(context.l10n, spec)),
                   ),
           ),
         ],
@@ -649,3 +653,21 @@ class _CleanRow extends StatelessWidget {
     );
   }
 }
+
+String _catLabel(AppLocalizations l, _CatSpec spec) => switch (spec.id) {
+  'temp' => l.catCache,
+  'inpaintHistory' => l.localeName == 'en' ? 'Inpaint originals and masks' : '历史重绘原图与蒙版',
+  'vibeEnc' => l.catVibeEnc,
+  'models' => l.catModels,
+  'tagPrev' => l.catTagPrev,
+  'gallery' => l.catGallery,
+  'vibeLib' => l.vibeLibrary,
+  'charLib' => l.catCharLib,
+  _ => spec.id,
+};
+
+String _catAction(AppLocalizations l, _CatSpec spec) => switch (spec.id) {
+  'temp' || 'inpaintHistory' => l.actClean,
+  'models' => l.delete,
+  _ => l.clear,
+};

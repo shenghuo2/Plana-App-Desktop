@@ -1,3 +1,4 @@
+import '../../../l10n/l10n.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/theme/app_theme.dart';
@@ -55,7 +56,7 @@ class ImportAlbumOptions extends ConsumerWidget {
                 Icons.photo_library_outlined,
                 color: context.scheme.primary,
               ),
-              title: const Text('切换到图片所属图库'),
+              title: Text(l10nNow.desktopSwitchToTheImageSGallery),
               subtitle: Text(
                 targets.isEmpty
                     ? '来源图库已变化，沿用当前图库'
@@ -98,14 +99,14 @@ class ImportAlbumOptions extends ConsumerWidget {
                       ),
                     ),
                   if (targets.length > 1 && selected == null)
-                    const Padding(
+                    Padding(
                       padding: EdgeInsets.all(8),
-                      child: Text('选择一个图库；未选定时沿用当前图库'),
+                      child: Text(l10nNow.desktopChooseAGalleryOrKeepUsingTheCurrent),
                     ),
                   CheckboxListTile(
                     dense: true,
                     contentPadding: const EdgeInsets.symmetric(horizontal: 14),
-                    title: const Text('新图也保存到该图库'),
+                    title: Text(l10nNow.desktopAlsoSaveNewImagesToThisGallery),
                     value: choice.alsoSave,
                     onChanged: selected == null
                         ? null

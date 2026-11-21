@@ -78,6 +78,11 @@ const _messages = [
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  setUpAll(() async {
+    for (final family in RulesFamily.values) {
+      await bundledDefaultRules(family);
+    }
+  });
   late AppStores stores;
   late ProviderContainer c;
 
@@ -326,7 +331,7 @@ void main() {
   });
 
   testWidgets(
-    'composer drops stay pending until send and are disabled while running',
+    'composer drops stay pending until send and remain enabled for queueing',
     (tester) async {
       await mount(tester);
       final notifier = c.read(assistantProvider.notifier) as _FixtureAssistant;
@@ -347,7 +352,12 @@ void main() {
       expect(notifier.sentImages.single, png);
       notifier.seed(const AssistantState(msgs: _messages, running: true));
       await tester.pump();
-      expect(tester.widget<ImageDropRegion>(drop).enabled, isFalse);
+      expect(tester.widget<ImageDropRegion>(drop).enabled, isTrue);
+      await tester.widget<ImageDropRegion>(drop).onDrop([
+        PickedImage('queued.png', png),
+      ], ImageDropPayload.image(name: 'queued.png', load: () async => png));
+      await tester.pump();
+      expect(find.text('已添加 1 张图片'), findsOneWidget);
       notifier.seed(const AssistantState(msgs: _messages));
       await finish(tester);
     },
@@ -442,6 +452,11 @@ void main() {
       final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
       addTearDown(() => server.close(force: true));
       server.listen((request) async {
+        if (request.uri.path == '/api/agent/channel') {
+          request.response.statusCode = HttpStatus.notFound;
+          await request.response.close();
+          return;
+        }
         requests.add(
           jsonDecode(await utf8.decoder.bind(request).join())
               as Map<String, dynamic>,

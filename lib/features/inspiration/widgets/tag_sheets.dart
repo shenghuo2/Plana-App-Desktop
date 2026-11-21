@@ -18,8 +18,10 @@ import '../../migrate/web_backup.dart';
 import '../../migrate/web_backup_import.dart';
 import '../public_tags.dart';
 import '../tag_library.dart';
+import '../codex/codex_favorites.dart';
 import '../tag_models.dart';
 import 'prompt_chips.dart';
+import '../../../l10n/l10n.dart';
 
 /// 灵感页的三个弹层:条目详情、标签池管理、数据备份
 /// (新建/编辑走全屏 TagEditorPage)。
@@ -124,7 +126,7 @@ class _DetailSheet extends ConsumerWidget {
               Padding(
                 padding: const EdgeInsets.fromLTRB(18, 2, 18, 0),
                 child: Text(
-                  '作者 $authorLabel',
+                  context.l10n.authorNamed(authorLabel),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: context.texts.bodySmall!.copyWith(
@@ -164,10 +166,10 @@ class _DetailSheet extends ConsumerWidget {
                       ),
                     ],
                     const SizedBox(height: 12),
-                    _block(context, '正向', e.positive),
+                    _block(context, context.l10n.positiveLabel, e.positive),
                     if (e.negative.trim().isNotEmpty) ...[
                       const SizedBox(height: 10),
-                      _block(context, '负面', e.negative),
+                      _block(context, context.l10n.negativeLabel, e.negative),
                     ],
                   ],
                 ),
@@ -180,11 +182,15 @@ class _DetailSheet extends ConsumerWidget {
                   await Clipboard.setData(ClipboardData(text: e.positive));
                   if (context.mounted) {
                     Navigator.pop(context);
-                    hintSnack(context, '已复制提示词', icon: Icons.copy);
+                    hintSnack(
+                      context,
+                      context.l10n.promptCopied,
+                      icon: Icons.copy,
+                    );
                   }
                 },
                 icon: const Icon(Icons.copy, size: 18),
-                label: const Text('复制提示词'),
+                label: Text(context.l10n.copyPrompt),
                 style: FilledButton.styleFrom(minimumSize: const Size(0, 44)),
               ),
             ),
@@ -265,7 +271,11 @@ class _PoolSheetState extends ConsumerState<_PoolSheet> {
     if (ok) {
       _input.clear();
     } else {
-      hintSnack(context, '标签已存在', icon: Icons.error_outline);
+      hintSnack(
+        context,
+        context.l10n.tagExistsShort,
+        icon: Icons.error_outline,
+      );
     }
   }
 
@@ -292,7 +302,7 @@ class _PoolSheetState extends ConsumerState<_PoolSheet> {
                 ),
                 if (widget.desktop)
                   IconButton(
-                    tooltip: '关闭',
+                    tooltip: l10nNow.close,
                     icon: const Icon(Icons.close, size: 18),
                     onPressed: () => Navigator.pop(context),
                   ),
@@ -308,7 +318,7 @@ class _PoolSheetState extends ConsumerState<_PoolSheet> {
                     controller: _input,
                     decoration: InputDecoration(
                       isDense: true,
-                      hintText: '新建标签…',
+                      hintText: context.l10n.newTagEllipsis,
                       filled: true,
                       fillColor: scheme.surfaceContainerHigh,
                       border: OutlineInputBorder(
@@ -324,7 +334,10 @@ class _PoolSheetState extends ConsumerState<_PoolSheet> {
                   ),
                 ),
                 const SizedBox(width: 8),
-                FilledButton.tonal(onPressed: _add, child: const Text('添加')),
+                FilledButton.tonal(
+                  onPressed: _add,
+                  child: Text(context.l10n.add),
+                ),
               ],
             ),
           ),
@@ -333,7 +346,7 @@ class _PoolSheetState extends ConsumerState<_PoolSheet> {
                 ? Padding(
                     padding: const EdgeInsets.all(28),
                     child: Text(
-                      '暂无标签',
+                      context.l10n.noTags,
                       textAlign: TextAlign.center,
                       style: context.texts.bodySmall!.copyWith(
                         color: scheme.onSurfaceVariant,
@@ -365,7 +378,7 @@ class _PoolSheetState extends ConsumerState<_PoolSheet> {
                             key: ValueKey('tag-pool-drag-$t'),
                             index: i,
                             child: Tooltip(
-                              message: '拖动调整标签顺序',
+                              message: l10nNow.desktopDragToReorderTags,
                               child: SizedBox(
                                 width: 30,
                                 height: 40,
@@ -402,9 +415,10 @@ class _PoolSheetState extends ConsumerState<_PoolSheet> {
                                       n == 0 ||
                                       await confirmDialog(
                                         context,
-                                        title: '删除标签「$t」?',
-                                        message: '$n 个条目会摘掉该标签,条目本身保留。',
-                                        confirmLabel: '删除',
+                                        title: context.l10n.deleteTagQ(t),
+                                        message: context.l10n
+                                            .deleteTagEntriesBody(n),
+                                        confirmLabel: context.l10n.delete,
                                       );
                                   if (ok && mounted) {
                                     await notifier.removePoolTag(widget.cat, t);
@@ -465,7 +479,11 @@ class _TagPickSheetState extends ConsumerState<_TagPickSheet> {
         children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(18, 14, 18, 8),
-            child: _sheetTitle(context, Icons.sell_outlined, '添加标签'),
+            child: _sheetTitle(
+              context,
+              Icons.sell_outlined,
+              context.l10n.addTag,
+            ),
           ),
           Padding(
             padding: const EdgeInsets.fromLTRB(18, 0, 18, 10),
@@ -476,7 +494,7 @@ class _TagPickSheetState extends ConsumerState<_TagPickSheet> {
                     controller: _input,
                     decoration: InputDecoration(
                       isDense: true,
-                      hintText: '新建标签…',
+                      hintText: context.l10n.newTagEllipsis,
                       filled: true,
                       fillColor: scheme.surfaceContainerHigh,
                       border: OutlineInputBorder(
@@ -500,7 +518,7 @@ class _TagPickSheetState extends ConsumerState<_TagPickSheet> {
                     final t = _input.text.trim();
                     if (t.isNotEmpty) Navigator.pop(context, t);
                   },
-                  child: const Text('使用'),
+                  child: Text(context.l10n.use),
                 ),
               ],
             ),
@@ -599,7 +617,7 @@ class _BackupSheetState extends ConsumerState<_BackupSheet> {
     if (_busy != null) return;
     final session = ref.read(botSessionProvider).value;
     if (session == null) {
-      hintSnack(context, '数据备份需要 Bot 授权', icon: Icons.cloud_off_outlined);
+      hintSnack(context, l10nNow.desktopDataBackupRequiresBotAuthorization, icon: Icons.cloud_off_outlined);
       return;
     }
     setState(() => _busy = tag);
@@ -612,19 +630,31 @@ class _BackupSheetState extends ConsumerState<_BackupSheet> {
     }
   }
 
+  /// 内置四类 + 自定义类别。
+  List<TagCategoryDef> get _allDefs => [
+    ...kTagCategoryDefs,
+    ...?ref.read(tagLibraryProvider).value?.customDefs,
+  ];
+
   String _detailLine(Map<TagCategory, String> parts) => [
-    for (final d in kTagCategoryDefs)
+    for (final d in _allDefs)
       if (parts[d.key] case final String s) '${d.label} $s',
   ].join(' · ');
 
   Future<void> _upload() => _run('backup', (sid) async {
     final lib = ref.read(tagLibraryProvider.notifier);
     final categories = lib.encodeBackup();
-    final n = categories.values.fold(0, (a, l) => a + l.length);
+    final custom = lib.encodeCustom();
+    final n =
+        categories.values.fold(0, (a, l) => a + l.length) +
+        (custom['items'] as Map).values.fold<int>(
+          0,
+          (a, l) => a + (l as List).length,
+        );
     final cloudTotal = _cloudCounts.values.fold(0, (a, b) => a + b);
     final ok = await confirmDialog(
       context,
-      title: '上传备份?',
+      title: l10nNow.desktopUploadBackup,
       message: cloudTotal > 0
           ? '本地 $n 个条目将整体覆盖云端现有的 $cloudTotal 个(本机预览图不随备份上传)。'
           : '本地 $n 个条目将上传为云端备份(本机预览图不随备份上传)。',
@@ -632,10 +662,17 @@ class _BackupSheetState extends ConsumerState<_BackupSheet> {
     );
     if (!ok || !mounted) return;
     final client = ref.read(backendClientProvider);
-    await client.uploadTagBackup(sessionId: sid, categories: categories);
+    await client.uploadTagBackup(
+      sessionId: sid,
+      categories: categories,
+      custom: custom,
+      pools: lib.encodePools(),
+      codexFavorites: ref.read(codexFavoritesProvider.notifier).encodeBackup(),
+    );
     final detail = _detailLine({
-      for (final d in kTagCategoryDefs)
-        d.key: '${categories[d.webId]?.length ?? 0}',
+      for (final d in _allDefs)
+        d.key:
+            '${d.key.isCustom ? (custom['items'] as Map)[d.webId]?.length ?? 0 : categories[d.webId]?.length ?? 0}',
     });
     await client.recordBackupLog(
       sessionId: sid,
@@ -654,19 +691,22 @@ class _BackupSheetState extends ConsumerState<_BackupSheet> {
     final client = ref.read(backendClientProvider);
     final r = await client.getTagBackup(sid);
     var n = 0;
-    for (final v in r.categories.values) {
+    for (final v in [
+      ...r.categories.values,
+      ...?(r.custom?['items'] as Map?)?.values,
+    ]) {
       if (v is List) n += v.length;
     }
-    if (n == 0) {
+    if (n == 0 && r.custom == null) {
       if (mounted) {
-        hintSnack(context, '云端暂无备份', icon: Icons.cloud_off_outlined);
+        hintSnack(context, l10nNow.desktopNoCloudBackupsYet, icon: Icons.cloud_off_outlined);
       }
       return;
     }
     if (!mounted) return;
     final lib = ref.read(tagLibraryProvider.notifier);
     // 恢复前算清「覆盖 / 新增」,别让人在不知情下被整包盖掉
-    final pre = lib.previewMerge(r.categories);
+    final pre = lib.previewMerge(r.categories, custom: r.custom);
     final ok = await confirmDialog(
       context,
       title: pre.overwrite > 0 ? '恢复将覆盖本地数据' : '恢复备份?',
@@ -676,7 +716,7 @@ class _BackupSheetState extends ConsumerState<_BackupSheet> {
       confirmLabel: '继续恢复',
     );
     if (!ok || !mounted) return;
-    final stat = await lib.mergeBackup(r.categories);
+    final stat = await lib.mergeBackup(r.categories, custom: r.custom);
     final detail = _detailLine({
       for (final e in stat.entries)
         e.key: '+${e.value.added}/✎${e.value.updated}',
@@ -776,23 +816,32 @@ class _BackupSheetState extends ConsumerState<_BackupSheet> {
 
       // 本 app / web tag-manager 导出的单分类备份:仍按当前分类校验
       final parsed = parseBackupFile(j);
-      if (parsed.cat != d.key) {
+      if (parsed.cat != d.key && !parsed.cat.isCustom) {
         throw FormatException(
           '分类不匹配:文件是「${tagCategoryDef(parsed.cat).label}」,当前是「${d.label}」',
         );
       }
       if (parsed.items.isEmpty) {
-        if (mounted) hintSnack(context, '文件里没有条目', icon: Icons.info_outline);
+        if (mounted) hintSnack(context, l10nNow.fileNoEntries, icon: Icons.info_outline);
         return;
       }
-      final payload = {d.webId: parsed.items};
+      final restoredDef = TagCategoryDef.fromJson(j['categoryDefinition']);
+      final importDef = parsed.cat.isCustom && restoredDef?.key == parsed.cat
+          ? restoredDef!
+          : tagCategoryDef(parsed.cat);
+      final payload = {importDef.webId: parsed.items};
+      final custom = parsed.cat.isCustom
+          ? <String, dynamic>{
+              'defs': [importDef.toJson()],
+            }
+          : null;
 
       if (!mounted) return;
       final picked = await showImportPicker(
         context,
-        title: '选择要导入的内容',
+        title: l10nNow.chooseImportContent,
         options: [
-          for (final def in kTagCategoryDefs)
+          for (final def in [importDef])
             if (payload[def.webId] case final List items)
               ImportOption(
                 key: def.webId,
@@ -809,7 +858,7 @@ class _BackupSheetState extends ConsumerState<_BackupSheet> {
           if (picked.contains(e.key)) e.key: e.value,
       };
       final pre = lib.previewMerge(sel);
-      await lib.mergeBackup(sel);
+      await lib.mergeBackup(sel, custom: custom);
       if (mounted) {
         hintSnack(
           context,
@@ -869,7 +918,7 @@ class _BackupSheetState extends ConsumerState<_BackupSheet> {
                   ),
                 if (widget.desktop)
                   IconButton(
-                    tooltip: '关闭',
+                    tooltip: l10nNow.close,
                     icon: const Icon(Icons.close, size: 18),
                     onPressed: () => Navigator.pop(context),
                   ),
@@ -922,7 +971,7 @@ class _BackupSheetState extends ConsumerState<_BackupSheet> {
             Row(
               children: [
                 Text(
-                  '本地文件',
+                  l10nNow.desktopLocalFiles,
                   style: context.texts.labelLarge!.copyWith(
                     fontWeight: FontWeight.w700,
                   ),
@@ -930,7 +979,7 @@ class _BackupSheetState extends ConsumerState<_BackupSheet> {
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    '按分类导出 / 导入 JSON,与网页端互通',
+                    l10nNow.desktopImportOrExportJSONByCategoryFilesAre,
                     style: context.texts.labelSmall!.copyWith(
                       color: scheme.onSurfaceVariant,
                     ),
@@ -939,12 +988,13 @@ class _BackupSheetState extends ConsumerState<_BackupSheet> {
               ],
             ),
             const SizedBox(height: 8),
-            // 每类一张卡:本地/云端计数 + 明确的导出/导入按钮
-            for (final d in kTagCategoryDefs) ...[
+            // 每类一张卡:本地/云端计数 + 明确的导出/导入按钮。
+            // 自定义类别的云端条数是合计的,单类不分开写
+            for (final d in _allDefs) ...[
               _categoryCard(
                 d,
                 lib?.of(d.key).length ?? 0,
-                _cloudCounts[d.webId],
+                d.key.isCustom ? null : _cloudCounts[d.webId],
               ),
               const SizedBox(height: 8),
             ],
@@ -1002,7 +1052,7 @@ class _BackupSheetState extends ConsumerState<_BackupSheet> {
           ),
           _fileBtn(
             icon: Icons.file_upload_outlined,
-            tooltip: '导入',
+            tooltip: l10nNow.importLabel,
             onTap: _busy != null ? null : () => _importFile(d),
           ),
         ],

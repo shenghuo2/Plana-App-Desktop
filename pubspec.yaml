@@ -24,7 +24,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # 改这里必须同步改 lib/core/app_info.dart 的 kAppVersion / kAppBuild
 # (test/app_info_test.dart 会钉住,对不上直接红)。
 # GitHub 上打的 tag 用 `v1.0.0` —— 检查更新按语义化版本比 tag 与本机 versionName。
-version: 1.2.1-desktop.2+72
+version: 1.2.4-desktop+73
 
 environment:
   sdk: ^3.12.2
@@ -41,11 +41,13 @@ dependencies:
     sdk: flutter
   flutter_localizations:
     sdk: flutter
+  intl: any
 
   flutter_riverpod: ^3.3.2
   animations: ^2.2.0
   flutter_secure_storage: ^10.3.1
   http: ^1.6.0
+  http_parser: ^4.1.2
   archive: ^4.0.9
   msgpack_dart: ^1.0.1
   file_picker: ^10.1.0
@@ -58,7 +60,7 @@ dependencies:
   path_provider: ^2.1.6
   gal: ^2.3.2
   url_launcher: ^6.3.2
-  image: ^4.8.0
+  image: ^4.10.1
   material_color_utilities: ^0.13.0
   unorm_dart: ^0.3.2
   share_plus: ^12.0.2
@@ -110,6 +112,9 @@ flutter:
   # the material Icons class.
   uses-material-design: true
 
+  # 界面文案翻译:lib/l10n/*.arb → app_localizations*.dart(flutter gen-l10n)
+  generate: true
+
   # 超分模型**不在这里** —— 它们首次使用时从 Upscayl 官方仓下载
   # (见 lib/features/gallery/upscale_model_store.dart)。内置会让 APK
   # 多 10.9 MB,更重要的是那等于由本应用再分发授权条款不明的权重。
@@ -128,6 +133,8 @@ flutter:
     # 用户写预设不必再抄工具说明。见 lib/features/assistant/preset_rules.dart。
     - assets/prompts/tool_layer.md
     - assets/prompts/output_format.md
+    - assets/prompts/tools/
+    - assets/prompts/texts.yaml
     # 关于页那颗图标(77 KB)。**不是** icons/app_icon.png —— 那张是给
     # flutter_launcher_icons 用的 1024² 原图,不进包。这张是按自适应图标
     # 的真实几何(背景色 + inset 16% 前景 + 裁到中心 72dp)预合成好的

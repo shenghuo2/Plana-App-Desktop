@@ -11,6 +11,7 @@ import 'canvas_state.dart';
 import 'gen_modules.dart';
 import 'generation_controller.dart';
 import '../gallery/albums/album_state.dart';
+import '../../l10n/l10n.dart';
 
 /// 循环生成状态。batch 为当前第几张(1-based);total 0 表示无限;
 /// stopping 表示已请求停止,本张跑完后不再续。
@@ -53,7 +54,7 @@ class LoopNotifier extends Notifier<LoopStatus> {
   Future<void> start() async {
     // 手动生成中不再让位:并行之后手动那条只是池子里的一员,循环照常投。
     if (state.active || ref.read(genQueueProvider).active) return;
-    final total = ref.read(generateProvider).params.loop.count; // 开跑时锁档位
+    final total = ref.read(generateProvider).params.loopCount; // 开跑时锁定张数
     final canvasId = ref.read(canvasWorkspaceProvider).activeId;
     // 来源画布被删了就接着用它最后那组词和参数跑完,不半路改用别的画布的
     var prompts = CanvasPrompts.of(ref.read(generateProvider));
@@ -75,8 +76,8 @@ class LoopNotifier extends Notifier<LoopStatus> {
     // 才发现第一张就挂了),而且会把 20 条的池子上限一次撑满。
     Future<void> worker() async {
       while (ok && !state.stopping && (total == 0 || dispatched < total)) {
-        // 每张重读:词和出图参数(模型、尺寸、种子、采样)取来源画布那组(切去
-        // 别的画布改的不串进来),参考图是全局的,中途改了下一张就跟着改。
+        // 每张重读来源画布那组内容(切去别的画布改的不串进来);张数等全局
+        // 设置取当前的。
         prompts =
             ref.read(canvasWorkspaceProvider).find(canvasId)?.prompts ??
             prompts;
@@ -86,8 +87,12 @@ class LoopNotifier extends Notifier<LoopStatus> {
         );
         dispatched++;
         // 非 ok 一律停(含用户取消):挂机连续失败无意义,也不该替用户决定重试
-        if (await gen.generate(using: snapshot, galleryTarget: galleryTarget) !=
-            GenOutcome.ok) {
+        final outcome = await gen.generate(
+          using: snapshot,
+          galleryTarget: galleryTarget,
+          origin: (canvasId: canvasId, content: prompts),
+        );
+        if (outcome != GenOutcome.ok) {
           ok = false;
           break;
         }
@@ -102,10 +107,13 @@ class LoopNotifier extends Notifier<LoopStatus> {
 
     // 循环期间单张不撤/不留通知(见 generation_controller._inLoop),
     // 统一在此收尾:岛上先显示完成态;前台不留通知,后台留一条汇总可点回应用。
+    final l = l10nNow;
     await LiveProgress.instance.finish(
-      title: ok ? '循环完成' : (done > 0 ? '循环中止' : '生成失败'),
-      text: _appForeground ? '' : (done > 0 ? '已出 $done 张 · 点按查看' : '点按回到应用'),
-      short: ok ? '完成' : '中止',
+      title: ok ? l.loopDone : (done > 0 ? l.loopAborted : l.generationFailed),
+      text: _appForeground
+          ? ''
+          : (done > 0 ? l.loopDoneText(done) : l.tapToReturn),
+      short: ok ? l.shortDone : l.shortStopped,
       keep: !_appForeground,
     );
     // 循环收尾后放行排队任务(失败中止时不放行,先让用户处理错误)

@@ -9,7 +9,8 @@ import 'package:crypto/crypto.dart';
 import '../../core/store/atomic_file.dart';
 import '../../core/store/blob_store.dart';
 import '../../core/util/image_ops.dart';
-import '../generate/models.dart' show GenerateState;
+import '../../core/util/webp_to_png.dart' show isWebp;
+import '../generate/models.dart' show GenerateState, imageSizeOf;
 import '../generate/state_codec.dart';
 import 'models.dart';
 
@@ -36,8 +37,19 @@ typedef _HistoryInput = ({
   Set<String> retainedRefs,
 });
 
+/// 一张图的检索元数据(见 gallery_search):[text] 已按 normalizeSearchText 归一;
+/// 后三项是图库按角色 / 画风归类认的来源 —— [ids] 灵感库条目 id(分区与角色卡
+/// 记下的),[cards] 启用的角色卡名,[folds] 草稿里的折叠组名。
+typedef GallerySearchMeta = ({
+  String model,
+  String text,
+  List<String> ids,
+  List<String> cards,
+  List<String> folds,
+});
+
 /// 图库持久化(`<support>/gallery/`):每张结果 `images/<id>.png` 原图 +
-/// `thumbs/<id>.png` 缩略图 + `inputs/<id>.json` 参数快照(参考图外置
+/// `thumbs/<id>.jpg|png` 缩略图 + `inputs/<id>.json` 参数快照(参考图外置
 /// blob 仓),旁挂 index.json(顺序/选中/发号器)。启动只读索引,像素
 /// 按需懒读——重启不丢图,也不把整库塞回内存。
 class GalleryStore {
@@ -52,10 +64,26 @@ class GalleryStore {
   Directory get _inputsDir => Directory('${_root.path}/inputs');
   File get _indexFile => File('${_root.path}/index.json');
 
-  File imageFileForPreview(String id) => _imageFile(id);
+  File imageFileForPreview(String id) {
+    final png = _imageFile(id);
+    if (png.existsSync()) return png;
+    final webp = _imageWebp(id);
+    return webp.existsSync() ? webp : png;
+  }
 
   File _imageFile(String id) => File('${_imagesDir.path}/$id.png');
-  File _thumbFile(String id) => File('${_thumbsDir.path}/$id.png');
+  File _imageWebp(String id) => File('${_imagesDir.path}/$id.webp');
+
+  /// 盘上那张原图(PNG 优先);都没有给 null。
+  Future<File?> _existingImage(String id) async {
+    for (final f in [_imageFile(id), _imageWebp(id)]) {
+      if (await f.exists()) return f;
+    }
+    return null;
+  }
+
+  File _thumbPng(String id) => File('${_thumbsDir.path}/$id.png');
+  File _thumbJpg(String id) => File('${_thumbsDir.path}/$id.jpg');
   File _thumbSourceFile(String id) => File('${_thumbsDir.path}/$id.json');
   File _inputFile(String id) => File('${_inputsDir.path}/$id.json');
 
@@ -64,10 +92,14 @@ class GalleryStore {
 
   /// 启动读出的图库(字节/快照皆空壳,懒读);首启为空。
   List<ResultImage> initialResults = const [];
+  List<TrashedImage> initialTrash = const [];
   String? initialSelectedId;
   int seq = 0;
   final _clearedInpaintIds = <String>{};
   final _thumbReads = <String, Future<Uint8List?>>{};
+  // Limit simultaneous decoding when a whole row of old thumbnails is rebuilt.
+  final _thumbLanes = List.generate(3, (_) => Future<void>.value());
+  int _nextThumbLane = 0;
 
   static final _seqRe = RegExp(r'^gen(\d+)$');
 
@@ -87,42 +119,34 @@ class GalleryStore {
       }
       seq = (j['seq'] as num?)?.toInt() ?? 0;
       initialSelectedId = j['selectedId'] as String?;
-      if (j['items'] is List) {
-        final out = <ResultImage>[];
-        for (final e in j['items'] as List) {
-          if (e is! Map || e['id'] is! String) continue;
-          final id = e['id'] as String;
-          if (e['inpaintHistoryCleared'] == true) _clearedInpaintIds.add(id);
-          ResultBadge badge = ResultBadge.none;
-          for (final b in ResultBadge.values) {
-            if (b.name == e['badge']) badge = b;
-          }
-          out.add(
-            ResultImage(
-              id: id,
-              width: (e['w'] as num?)?.toInt() ?? 0,
-              height: (e['h'] as num?)?.toInt() ?? 0,
-              seed: (e['seed'] as num?)?.toInt() ?? 0,
-              badge: badge,
-              createdAt: (e['t'] as num?)?.toInt() ?? 0,
-              // 老索引没这键 → -1(不是批次产物)
-              batchIndex: (e['bi'] as num?)?.toInt() ?? -1,
-              inpaintFrom: e['inpaintFrom'] as String?,
-              inpaintHistoryCleared: e['inpaintHistoryCleared'] == true,
-              favorite: e['favorite'] == true,
-              saved: e['sv'] == true,
-              hasInput: e['hasInput'] == true,
+      final seen = <String>{};
+      final trash = <TrashedImage>[];
+      if (j['trash'] is List) {
+        for (final entry in j['trash'] as List) {
+          final image = _parseItem(entry);
+          if (image == null || !seen.add(image.id)) continue;
+          final e = entry as Map;
+          final stamp = _number(e['dt']);
+          trash.add(
+            TrashedImage(
+              image,
+              stamp > 0 ? stamp : DateTime.now().millisecondsSinceEpoch,
+              position: _number(e['position']),
+              beforeId: _validId(e['before']),
+              afterId: _validId(e['after']),
             ),
           );
-          // 索引防抖窗口内被杀时 seq 可能落后于条目 id,取最大防撞车
-          final m = _seqRe.firstMatch(id);
-          if (m != null) {
-            final n = int.parse(m.group(1)!) + 1;
-            if (n > seq) seq = n;
-          }
         }
-        initialResults = List.unmodifiable(await _backfillCreatedAt(out));
       }
+      initialTrash = List.unmodifiable(trash);
+      final items = <ResultImage>[];
+      if (j['items'] is List) {
+        for (final entry in j['items'] as List) {
+          final image = _parseItem(entry);
+          if (image != null && seen.add(image.id)) items.add(image);
+        }
+      }
+      initialResults = List.unmodifiable(await _backfillCreatedAt(items));
       await _includeUnindexedImages();
     } catch (e) {
       logd('[gallery-store] 索引载入失败,改从目录重建: $e');
@@ -130,20 +154,77 @@ class GalleryStore {
     }
   }
 
+  static int _number(Object? value, [int fallback = 0]) =>
+      value is num && value.isFinite ? value.toInt() : fallback;
+
+  static String? _validId(Object? value) =>
+      value is String && RegExp(r'^[a-zA-Z0-9_-]+$').hasMatch(value)
+      ? value
+      : null;
+
+  ResultImage? _parseItem(Object? raw) {
+    if (raw is! Map) return null;
+    final id = _validId(raw['id']);
+    if (id == null) return null;
+    final match = _seqRe.firstMatch(id);
+    final next = match == null ? 0 : int.parse(match[1]!) + 1;
+    if (next > seq) seq = next;
+    if (raw['inpaintHistoryCleared'] == true) _clearedInpaintIds.add(id);
+    return ResultImage(
+      id: id,
+      width: _number(raw['w']),
+      height: _number(raw['h']),
+      seed: _number(raw['seed']),
+      badge:
+          ResultBadge.values.where((b) => b.name == raw['badge']).firstOrNull ??
+          ResultBadge.none,
+      createdAt: _number(raw['t']),
+      batchIndex: _number(raw['bi'], -1),
+      inpaintFrom: _validId(raw['inpaintFrom']),
+      inpaintHistoryCleared: raw['inpaintHistoryCleared'] == true,
+      favorite: raw['favorite'] == true,
+      saved: raw['sv'] == true,
+      hasInput: raw['hasInput'] == true,
+      operation: ImageOperation.fromJson(raw['operation']),
+    );
+  }
+
+  static Map<String, Object?> _itemJson(ResultImage r) => {
+    'id': r.id,
+    'w': r.width,
+    'h': r.height,
+    'seed': r.seed,
+    'badge': r.badge.name,
+    't': r.createdAt,
+    if (r.batchIndex >= 0) 'bi': r.batchIndex,
+    if (r.inpaintFrom != null) 'inpaintFrom': r.inpaintFrom,
+    if (r.inpaintHistoryCleared) 'inpaintHistoryCleared': true,
+    if (r.favorite) 'favorite': true,
+    if (r.saved) 'sv': true,
+    'hasInput': r.hasInput,
+    if (r.operation != null) 'operation': r.operation!.toJson(),
+  };
+
   /// 原图完成写入而索引未提交时，补回新增图片并推进发号器。
   Future<void> _includeUnindexedImages() async {
-    final known = initialResults.map((r) => r.id).toSet();
+    final known = {
+      for (final r in initialResults) r.id,
+      for (final t in initialTrash) t.image.id,
+    };
     final extra = <ResultImage>[];
     await for (final entry in _imagesDir.list()) {
-      if (entry is! File || !entry.path.endsWith('.png')) continue;
+      if (entry is! File ||
+          !(entry.path.endsWith('.png') || entry.path.endsWith('.webp'))) {
+        continue;
+      }
       final id = _idOf(entry);
       final match = _seqRe.firstMatch(id);
       if (match != null) {
         final next = int.parse(match[1]!) + 1;
         if (next > seq) seq = next;
       }
-      if (known.contains(id)) continue;
-      final (width, height) = await _pngSize(entry);
+      if (!known.add(id)) continue;
+      final (width, height) = await _imageSize(entry);
       extra.add(
         ResultImage(
           id: id,
@@ -178,8 +259,8 @@ class GalleryStore {
       }
       var t = 0;
       try {
-        final f = _imageFile(r.id);
-        if (await f.exists()) {
+        final f = await _existingImage(r.id);
+        if (f != null) {
           t = (await f.stat()).modified.millisecondsSinceEpoch;
         }
       } catch (_) {}
@@ -208,7 +289,10 @@ class GalleryStore {
     try {
       final files = <File>[];
       await for (final ent in _imagesDir.list()) {
-        if (ent is File && ent.path.endsWith('.png')) files.add(ent);
+        if (ent is File &&
+            (ent.path.endsWith('.png') || ent.path.endsWith('.webp'))) {
+          files.add(ent);
+        }
       }
       int numOf(File f) {
         final m = _seqRe.firstMatch(_idOf(f));
@@ -218,7 +302,7 @@ class GalleryStore {
       files.sort((a, b) => numOf(a).compareTo(numOf(b))); // 还原生成先后
       for (final f in files) {
         final id = _idOf(f);
-        final (w, h) = await _pngSize(f);
+        final (w, h) = await _imageSize(f);
         var t = 0;
         try {
           t = (await f.stat()).modified.millisecondsSinceEpoch;
@@ -241,6 +325,7 @@ class GalleryStore {
       logd('[gallery-store] 目录重建失败: $e');
     }
     initialResults = List.unmodifiable(out);
+    initialTrash = const [];
     initialSelectedId = out.isEmpty ? null : out.last.id;
     // 关键一行:发号器只进不退,否则新图会覆盖盘上老图
     if (maxSeq > seq) seq = maxSeq;
@@ -251,20 +336,19 @@ class GalleryStore {
 
   static String _idOf(File f) {
     final n = f.uri.pathSegments.last;
-    return n.substring(0, n.length - 4); // 去 .png
+    return n.substring(0, n.lastIndexOf('.')); // 去 .png / .webp
   }
 
-  /// 只读 PNG 头拿宽高(IHDR 里 offset 16/20),不解码整图。
-  static Future<(int, int)> _pngSize(File f) async {
+  /// 只读文件头拿宽高(PNG 的 IHDR / WebP 的 VP8X 等),不解码整图。
+  static Future<(int, int)> _imageSize(File? f) async {
+    if (f == null) return (0, 0);
     try {
       final head = <int>[];
-      await for (final chunk in f.openRead(0, 24)) {
+      await for (final chunk in f.openRead(0, 30)) {
         head.addAll(chunk);
-        if (head.length >= 24) break;
+        if (head.length >= 30) break;
       }
-      if (head.length < 24) return (0, 0);
-      final bd = ByteData.sublistView(Uint8List.fromList(head));
-      return (bd.getUint32(16), bd.getUint32(20));
+      return imageSizeOf(Uint8List.fromList(head)) ?? (0, 0);
     } catch (_) {
       return (0, 0);
     }
@@ -273,6 +357,16 @@ class GalleryStore {
   // ---- 写入(串行队列,互不重叠) ----
 
   Future<void> _chain = Future.value();
+  Future<void> _stateChanges = Future.value();
+
+  /// Exit waits for user-visible trash transitions before flushing the index.
+  Future<void> get pendingChanges => _stateChanges;
+  void trackChange<T>(Future<T> work) {
+    _stateChanges = Future.wait<void>([
+      _stateChanges,
+      work.then<void>((_) {}, onError: (Object _) {}),
+    ]).then((_) {});
+  }
 
   /// 写入队列排空(存储管理在清空后等它,再做 GC/重扫)。
   Future<void> get idle => _chain;
@@ -298,9 +392,12 @@ class GalleryStore {
     return _enqueue(() async {
       // 全部走原子写:半截 PNG 会变成永远打不开的坏图,半截快照 JSON 会让
       // 「重新生成」读不出参数(见 atomic_file.dart)
-      await writeBytesAtomic(_imageFile(r.id), bytes);
+      await writeBytesAtomic(
+        isWebp(bytes) ? _imageWebp(r.id) : _imageFile(r.id),
+        bytes,
+      );
       try {
-        await _writeThumb(r.id, bytes, await _imageFile(r.id).stat());
+        await _writeThumb(r.id, bytes, await imageFileForPreview(r.id).stat());
       } catch (
         _
       ) {} // Invalid/missing provenance makes readers use the original.
@@ -317,16 +414,25 @@ class GalleryStore {
   // 索引防抖:新增/点选共用,窗口内合并成一次全量重写
   Timer? _idxTimer;
   List<ResultImage>? _idxItems;
+  List<TrashedImage> _idxTrash = const [];
+  int _idxRevision = 0;
   String? _idxSelected;
   int _idxSeq = 0;
   Future<void> _indexWrite = Future.value();
 
   void scheduleIndex({
     required List<ResultImage> results,
+    List<TrashedImage>? trash,
     required String? selectedId,
     required int seq,
   }) {
     initialResults = List.unmodifiable(results.map(_normalizedResult));
+    initialTrash = List.unmodifiable([
+      for (final t in trash ?? initialTrash)
+        t.withImage(_normalizedResult(t.image)),
+    ]);
+    _idxTrash = initialTrash;
+    _idxRevision++;
     initialSelectedId = selectedId;
     this.seq = seq;
     _idxItems = initialResults;
@@ -344,10 +450,26 @@ class GalleryStore {
     _idxTimer?.cancel();
     final selected = _idxSelected;
     final seq = _idxSeq;
-    return _indexWrite = _enqueue(() async {
-      // 索引是最不能半截的一个文件:坏了会让整库看起来是空的(见 S1C-01)
-      await _writeIndex(items, selected, seq);
+    final trash = _idxTrash;
+    final revision = _idxRevision;
+    final work = _enqueue(() async {
+      try {
+        await _writeIndex(items, selected, seq, trash: trash);
+      } catch (_) {
+        // Retain a failed snapshot only if a newer edit has not superseded it.
+        if (_idxRevision == revision && _idxItems == null) {
+          _idxItems = items;
+          _idxTrash = trash;
+          _idxSelected = selected;
+          _idxSeq = seq;
+        }
+        rethrow;
+      }
     });
+    _indexWrite = work;
+    // Timer-triggered flushes are observed here; explicit callers still fail.
+    unawaited(work.then<void>((_) {}, onError: (Object _) {}));
+    return work;
   }
 
   ResultImage _normalizedResult(ResultImage result) =>
@@ -358,30 +480,23 @@ class GalleryStore {
   Future<void> _writeIndex(
     List<ResultImage> items,
     String? selected,
-    int seq,
-  ) => writeStringAtomic(
+    int seq, {
+    List<TrashedImage>? trash,
+  }) => writeStringAtomic(
     _indexFile,
     jsonEncode({
       'v': 1,
       'seq': seq,
       'selectedId': ?selected,
-      'items': [
-        for (final r in items.map(_normalizedResult))
+      'items': [for (final r in items.map(_normalizedResult)) _itemJson(r)],
+      'trash': [
+        for (final t in trash ?? initialTrash)
           {
-            'id': r.id,
-            'w': r.width,
-            'h': r.height,
-            'seed': r.seed,
-            'badge': r.badge.name,
-            't': r.createdAt,
-            // 批次内位置。只有批次产物才写,单张不占位 ——
-            // 这张索引每次出图都要整份重写,能省一个键是一个。
-            if (r.batchIndex >= 0) 'bi': r.batchIndex,
-            if (r.inpaintFrom != null) 'inpaintFrom': r.inpaintFrom,
-            if (r.inpaintHistoryCleared) 'inpaintHistoryCleared': true,
-            if (r.favorite) 'favorite': true,
-            if (r.saved) 'sv': true,
-            'hasInput': r.hasInput,
+            ..._itemJson(_normalizedResult(t.image)),
+            'dt': t.deletedAt,
+            'position': t.position,
+            'before': ?t.beforeId,
+            'after': ?t.afterId,
           },
       ],
     }),
@@ -412,42 +527,43 @@ class GalleryStore {
   }) => _enqueue(() async {
     final deleted = <String>{};
     for (final id in ids.toSet()) {
-      final original = _imageFile(id);
+      final originals = [_imageFile(id), _imageWebp(id)];
       try {
         if (canDelete?.call(id) == false) continue;
         // Revoke recovery before unlinking the original. A failed cleanup keeps
         // the image and its index entry available for a later retry.
         for (final file in [
-          original,
-          _thumbFile(id),
+          ...originals,
+          _thumbPng(id),
+          _thumbJpg(id),
           _thumbSourceFile(id),
           _inputFile(id),
         ]) {
           await _deleteRecoveryFiles(file);
         }
-        final type = await FileSystemEntity.type(
-          original.path,
-          followLinks: false,
-        );
-        if (type == FileSystemEntityType.file ||
-            type == FileSystemEntityType.link) {
-          if (canDelete != null) {
-            // A membership change may arrive while stat is in progress. Keep
-            // the last guard and unlink in one event-loop turn for this path.
-            if (!canDelete(id)) continue;
-            original.deleteSync();
-          } else {
-            await original.delete();
+        final present = <File>[];
+        var removable = true;
+        for (final original in originals) {
+          final type = await FileSystemEntity.type(
+            original.path,
+            followLinks: false,
+          );
+          if (type == FileSystemEntityType.file ||
+              type == FileSystemEntityType.link) {
+            present.add(original);
+          } else if (type != FileSystemEntityType.notFound) {
+            removable = false;
           }
         }
-        final remaining = canDelete != null
-            ? FileSystemEntity.typeSync(original.path, followLinks: false)
-            : await FileSystemEntity.type(original.path, followLinks: false);
-        if (remaining != FileSystemEntityType.notFound) {
-          continue;
+        if (!removable || canDelete?.call(id) == false) continue;
+        for (final original in present) {
+          original.deleteSync();
         }
-        if (type == FileSystemEntityType.notFound &&
-            canDelete?.call(id) == false) {
+        if (originals.any(
+          (file) =>
+              FileSystemEntity.typeSync(file.path, followLinks: false) !=
+              FileSystemEntityType.notFound,
+        )) {
           continue;
         }
         deleted.add(id);
@@ -456,7 +572,8 @@ class GalleryStore {
         continue;
       }
       for (final file in [
-        _thumbFile(id),
+        _thumbPng(id),
+        _thumbJpg(id),
         _thumbSourceFile(id),
         _inputFile(id),
       ]) {
@@ -473,9 +590,12 @@ class GalleryStore {
   /// 串行队列保证在途的 persistResult 先完成再删。
   Future<void> clearAllFiles({required int seq}) {
     initialResults = const [];
+    initialTrash = const [];
     initialSelectedId = null;
     this.seq = seq;
     _idxItems = null;
+    _idxTrash = const [];
+    _idxRevision++;
     _idxTimer?.cancel();
     return _indexWrite = _enqueue(() async {
       for (final d in [_imagesDir, _thumbsDir, _inputsDir]) {
@@ -535,7 +655,7 @@ class GalleryStore {
   }
 
   Future<InpaintHistoryInventory> inspectInpaintHistory() => _enqueue(() async {
-    final results = List<ResultImage>.of(initialResults);
+    final results = [...initialResults, for (final t in initialTrash) t.image];
     final inputs = await _historyInputs();
     return InpaintHistoryInventory(
       {
@@ -552,7 +672,7 @@ class GalleryStore {
   /// Serialized with result writes. The explicit marker is committed first:
   /// interrupted cleanup can leave extra bytes, but cannot resurrect "旧的".
   Future<InpaintHistoryRemoval> clearInpaintHistory() => _enqueue(() async {
-    final results = List<ResultImage>.of(initialResults);
+    final results = [...initialResults, for (final t in initialTrash) t.image];
     final inputs = await _historyInputs();
     final ids = {
       for (final input in inputs)
@@ -569,6 +689,10 @@ class GalleryStore {
       rethrow;
     }
     initialResults = List.unmodifiable(initialResults.map(_normalizedResult));
+    initialTrash = List.unmodifiable([
+      for (final t in initialTrash) t.withImage(_normalizedResult(t.image)),
+    ]);
+    _idxTrash = initialTrash;
     if (_idxItems != null) {
       _idxItems = List.unmodifiable(_idxItems!.map(_normalizedResult));
     }
@@ -589,8 +713,8 @@ class GalleryStore {
 
   Future<Uint8List?> readImage(String id) async {
     try {
-      final f = _imageFile(id);
-      if (!await f.exists()) return null;
+      final f = await _existingImage(id);
+      if (f == null) return null;
       return await f.readAsBytes();
     } catch (_) {
       return null;
@@ -602,21 +726,46 @@ class GalleryStore {
     Uint8List bytes,
     FileStat source,
   ) async {
-    final thumb = await coverResizePng(bytes, 256, 256, keepAlpha: true);
-    final current = await _imageFile(id).stat();
-    if (!_sameSource(current, source)) return thumb;
-    await writeBytesAtomic(_thumbFile(id), thumb);
+    final thumb = await _makeThumb(bytes);
+    await _cacheThumb(id, thumb, source);
+    return thumb.bytes;
+  }
+
+  Future<({Uint8List bytes, bool jpeg})> _makeThumb(Uint8List bytes) {
+    final lane = _nextThumbLane++ % _thumbLanes.length;
+    final work = _thumbLanes[lane].then((_) => makeThumb(bytes));
+    // Release the decoding lane before waiting for the serialized disk writer.
+    _thumbLanes[lane] = work.then<void>((_) {}, onError: (Object _) {});
+    return work;
+  }
+
+  /// Called only on the write queue, so deletion cannot interleave with commits.
+  Future<void> _cacheThumb(
+    String id,
+    ({Uint8List bytes, bool jpeg}) thumb,
+    FileStat source,
+  ) async {
+    final current = await imageFileForPreview(id).stat();
+    if (!_sameSource(current, source)) return;
+    final format = thumb.jpeg ? 'jpg' : 'png';
+    await writeBytesAtomic(
+      thumb.jpeg ? _thumbJpg(id) : _thumbPng(id),
+      thumb.bytes,
+    );
     await writeStringAtomic(
       _thumbSourceFile(id),
       jsonEncode({
-        'v': 2,
+        'v': 3,
         'id': id,
+        'format': format,
         'size': source.size,
         'modified': source.modified.microsecondsSinceEpoch,
-        'thumbSha256': sha256.convert(thumb).toString(),
+        'thumbSha256': sha256.convert(thumb.bytes).toString(),
       }),
     );
-    return thumb;
+    final obsolete = thumb.jpeg ? _thumbPng(id) : _thumbJpg(id);
+    await _deleteRecoveryFiles(obsolete);
+    if (await obsolete.exists()) await obsolete.delete();
   }
 
   bool _sameSource(FileStat a, FileStat b) =>
@@ -633,41 +782,68 @@ class GalleryStore {
     }),
   );
 
-  Future<Uint8List?> _readThumb(String id) async {
-    final source = await _imageFile(id).stat();
+  /// Read and close files before a queued Windows delete/clear can unlink them.
+  Future<({FileStat source, Uint8List bytes, bool cached})?> _thumbInput(
+    String id,
+  ) async {
+    final source = await imageFileForPreview(id).stat();
     if (source.type != FileSystemEntityType.file) return null;
     try {
       final signature = jsonDecode(await _thumbSourceFile(id).readAsString());
       if (signature is Map &&
-          signature['v'] == 2 &&
+          signature['v'] == 3 &&
           signature['id'] == id &&
+          (signature['format'] == 'jpg' || signature['format'] == 'png') &&
           signature['size'] == source.size &&
           signature['modified'] == source.modified.microsecondsSinceEpoch) {
-        final thumb = await _thumbFile(id).readAsBytes();
+        final thumb =
+            await (signature['format'] == 'jpg' ? _thumbJpg(id) : _thumbPng(id))
+                .readAsBytes();
         if (signature['thumbSha256'] == sha256.convert(thumb).toString() &&
-            _sameSource(await _imageFile(id).stat(), source)) {
-          return thumb;
+            _sameSource(await imageFileForPreview(id).stat(), source)) {
+          return (source: source, bytes: thumb, cached: true);
         }
       }
     } catch (_) {}
     final bytes = await readImage(id);
     if (bytes == null) return null;
+    return (source: source, bytes: bytes, cached: false);
+  }
+
+  Future<Uint8List?> _readThumb(String id) async {
+    final input = await _enqueue(() => _thumbInput(id));
+    if (input == null) return null;
+    if (input.cached) return input.bytes;
+    final source = input.source;
     try {
-      final thumb = await _writeThumb(id, bytes, source);
-      final current = await _imageFile(id).stat();
+      final thumb = await _makeThumb(input.bytes);
+      // Decoding runs outside the write queue; only a still-current original may
+      // publish its cache. A delete/clear queued during decoding wins safely.
+      await _enqueue(() => _cacheThumb(id, thumb, source));
+      final current = await imageFileForPreview(id).stat();
       if (current.type == FileSystemEntityType.notFound) {
-        for (final file in [_thumbFile(id), _thumbSourceFile(id)]) {
-          try {
-            await file.delete();
-          } on FileSystemException {
-            /* already removed */
+        await _enqueue(() async {
+          if (await _existingImage(id) != null) return;
+          for (final file in [
+            _thumbPng(id),
+            _thumbJpg(id),
+            _thumbSourceFile(id),
+          ]) {
+            try {
+              await _deleteRecoveryFiles(file);
+              if (await file.exists()) await file.delete();
+            } on FileSystemException {
+              /* already removed */
+            }
           }
-        }
+        });
         return null;
       }
-      return _sameSource(current, source) ? thumb : await readImage(id);
+      return _sameSource(current, source)
+          ? thumb.bytes
+          : await _enqueue(() => readImage(id));
     } catch (_) {
-      return bytes;
+      return _enqueue(() => readImage(id));
     }
   }
 
@@ -680,18 +856,23 @@ class GalleryStore {
   ///
   ///   1 → 2:禁用的角色卡不再进索引(旧版把它们也收了,搜得到图里没画的东西,
   ///          按角色分组也跟着归错)。
-  static const _searchVersion = 2;
+  ///   2 → 3:多存来源(灵感库条目 id、角色卡名、折叠组名);换行算分隔。
+  static const _searchVersion = 3;
 
   /// 检索索引读入;空/坏/**版本不对** → 空表(回填会重扫快照补齐)。
-  /// 值是结构化 record,与 gallery_search 的 GallerySearchMeta 结构同型
-  /// (record 按结构判型,这里不 import 上层 feature 文件,避免环)。
-  Future<Map<String, ({String model, String text})>> readSearchIndex() async {
+  Future<Map<String, GallerySearchMeta>> readSearchIndex() async {
     try {
       if (!await _searchFile.exists()) return const {};
       final j = jsonDecode(await _searchFile.readAsString());
       if (j is! Map || j['v'] != _searchVersion || j['items'] is! Map) {
         return const {};
       }
+      List<String> strs(Object? v) => v is List
+          ? [
+              for (final x in v)
+                if (x is String) x,
+            ]
+          : const [];
       return {
         for (final e in (j['items'] as Map).entries)
           if (e.key is String &&
@@ -700,6 +881,9 @@ class GalleryStore {
             e.key as String: (
               model: ((e.value as Map)['m'] as String?) ?? '',
               text: (e.value as Map)['t'] as String,
+              ids: strs((e.value as Map)['i']),
+              cards: strs((e.value as Map)['c']),
+              folds: strs((e.value as Map)['f']),
             ),
       };
     } catch (_) {
@@ -709,9 +893,9 @@ class GalleryStore {
 
   // 检索索引防抖写(与主索引同节奏)。窗口内被杀 → 下次启动回填重建,无妨。
   Timer? _searchTimer;
-  Map<String, ({String model, String text})>? _searchPending;
+  Map<String, GallerySearchMeta>? _searchPending;
 
-  void writeSearchIndex(Map<String, ({String model, String text})> byId) {
+  void writeSearchIndex(Map<String, GallerySearchMeta> byId) {
     _searchPending = byId;
     _searchTimer?.cancel();
     _searchTimer = Timer(const Duration(milliseconds: 400), () {
@@ -725,7 +909,13 @@ class GalleryStore {
             'v': _searchVersion,
             'items': {
               for (final e in m.entries)
-                e.key: {'m': e.value.model, 't': e.value.text},
+                e.key: {
+                  'm': e.value.model,
+                  't': e.value.text,
+                  if (e.value.ids.isNotEmpty) 'i': e.value.ids,
+                  if (e.value.cards.isNotEmpty) 'c': e.value.cards,
+                  if (e.value.folds.isNotEmpty) 'f': e.value.folds,
+                },
             },
           }),
         );

@@ -4,10 +4,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/theme/editor_theme.dart';
 import '../../../core/util/haptics.dart';
-import '../../generate/widgets/common.dart' show hintSnack;
+import '../../generate/widgets/common.dart' show hintSnack, measureText;
 import '../data/tag_favorites.dart';
 import '../editor_state.dart';
 import 'tag_panel.dart' show TagAddChip;
+import '../../../l10n/l10n.dart';
 
 /// 底栏控件的统一高度:正/负滑块、展开钮、右侧操作胶囊共用一个数。
 /// 高度钉死,系统字号放大时各控件不会各长各的。
@@ -45,9 +46,9 @@ class EditorBottomBar extends ConsumerWidget {
     if (at < 0) return;
     hintSnack(
       context,
-      '已取消收藏「$tag」',
+      context.l10n.unfavorited(tag),
       icon: Icons.star_outline_rounded,
-      actionLabel: '撤销',
+      actionLabel: context.l10n.undo,
       onAction: () => favs.restore(tag, at),
     );
   }
@@ -81,7 +82,7 @@ class EditorBottomBar extends ConsumerWidget {
                   child: favs.isEmpty
                       ? Center(
                           child: Text(
-                            '暂无收藏',
+                            l10nNow.noFavorites,
                             style: context.texts.labelMedium!.copyWith(
                               color: scheme.outline,
                             ),
@@ -149,7 +150,7 @@ class EditorBottomBar extends ConsumerWidget {
                           Expanded(
                             child: _GroupAction(
                               icon: Icons.undo,
-                              label: '撤销',
+                              label: l10nNow.undo,
                               enabled: st.canUndo,
                               onTap: notifier.undo,
                             ),
@@ -179,7 +180,7 @@ class _TrayButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = context.scheme;
     return Tooltip(
-      message: open ? '收起' : '展开',
+      message: open ? context.l10n.collapse : context.l10n.expand,
       child: Material(
         color: open
             ? scheme.secondaryContainer
@@ -273,6 +274,28 @@ class _PosNegToggle extends StatelessWidget {
     final thumbColor = positive ? scheme.primary : scheme.error;
     final onThumb = positive ? scheme.onPrimary : scheme.onError;
 
+    final l = context.l10n;
+    return LayoutBuilder(
+      builder: (context, c) {
+        // 两段都放得下「图标 + 粗体文案」才带图标
+        final room = (c.maxWidth - 6) / 2 - 8 - 19;
+        const bold = TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700);
+        final icons = [
+          l.positiveShort,
+          l.negativeShort,
+        ].every((t) => measureText(context, t, bold) <= room);
+        return _box(context, thumbColor, onThumb, icons);
+      },
+    );
+  }
+
+  Widget _box(
+    BuildContext context,
+    Color thumbColor,
+    Color onThumb,
+    bool icons,
+  ) {
+    final scheme = context.scheme;
     return Container(
       height: _h,
       padding: const EdgeInsets.all(3),
@@ -304,8 +327,8 @@ class _PosNegToggle extends StatelessWidget {
             children: [
               Expanded(
                 child: _seg(
-                  '正面',
-                  Icons.check,
+                  context.l10n.positiveShort,
+                  icons ? Icons.check : null,
                   active: positive,
                   onThumb: onThumb,
                   onTap: () => onChanged(true),
@@ -313,8 +336,8 @@ class _PosNegToggle extends StatelessWidget {
               ),
               Expanded(
                 child: _seg(
-                  '负面',
-                  Icons.block,
+                  context.l10n.negativeShort,
+                  icons ? Icons.block : null,
                   active: !positive,
                   onThumb: onThumb,
                   onTap: () => onChanged(false),
@@ -329,7 +352,7 @@ class _PosNegToggle extends StatelessWidget {
 
   Widget _seg(
     String label,
-    IconData icon, {
+    IconData? icon, {
     required bool active,
     required Color onThumb,
     required VoidCallback onTap,
@@ -356,7 +379,7 @@ class _SegLabel extends StatelessWidget {
   });
 
   final String label;
-  final IconData icon;
+  final IconData? icon;
   final bool active;
   final Color onThumb;
   final double height;
@@ -369,15 +392,18 @@ class _SegLabel extends StatelessWidget {
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: onTap,
-      child: SizedBox(
+      child: Container(
         height: height,
+        padding: const EdgeInsets.symmetric(horizontal: 4),
         child: FittedBox(
           fit: BoxFit.scaleDown,
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(icon, size: 14, color: fg),
-              const SizedBox(width: 5),
+              if (icon != null) ...[
+                Icon(icon, size: 14, color: fg),
+                const SizedBox(width: 5),
+              ],
               Text(
                 label,
                 style: TextStyle(

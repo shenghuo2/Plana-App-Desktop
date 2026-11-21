@@ -1,3 +1,4 @@
+import '../../l10n/l10n.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/store/ui_prefs.dart';
@@ -29,12 +30,12 @@ class _PlatformPageState extends ConsumerState<PlatformPage> {
     final days = rangeDays[_range] ?? 7;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('全平台统计')),
+      appBar: AppBar(title: Text(l10nNow.desktopPlatformStatistics)),
       body: session == null
           ? ListView(
               padding: const EdgeInsets.fromLTRB(14, 8, 14, 24),
-              children: const [
-                StatsCard(child: Text('全平台统计需 Bot 授权后可见。在「我的 → 账号与接入」完成授权即可。')),
+              children: [
+                StatsCard(child: Text(l10nNow.desktopAuthorizeABotAccountInProfileUnderAccounts)),
               ],
             )
           : RefreshIndicator(
@@ -64,7 +65,7 @@ class _PlatformPageState extends ConsumerState<PlatformPage> {
                   const SizedBox(height: 10),
                   HeatCard(
                     icon: Icons.stacked_line_chart,
-                    title: '每日负载时段',
+                    title: l10nNow.desktopDailyLoadPeriods,
                     heat: ref.watch(
                       platformHourlyProvider((HourlyKind.calls, days)),
                     ),
@@ -74,7 +75,7 @@ class _PlatformPageState extends ConsumerState<PlatformPage> {
                   const SizedBox(height: 10),
                   HeatCard(
                     icon: Icons.group_outlined,
-                    title: '用户活跃时段',
+                    title: l10nNow.desktopUserActivityPeriods,
                     heat: ref.watch(
                       platformHourlyProvider((HourlyKind.users, days)),
                     ),
@@ -83,7 +84,7 @@ class _PlatformPageState extends ConsumerState<PlatformPage> {
                   const SizedBox(height: 10),
                   HeatCard(
                     icon: Icons.schedule,
-                    title: '平均生成耗时',
+                    title: l10nNow.desktopAverageGenerationTime,
                     heat: ref.watch(
                       platformHourlyProvider((HourlyKind.duration, days)),
                     ),
@@ -146,7 +147,7 @@ class _PlatformPageState extends ConsumerState<PlatformPage> {
               Expanded(
                 child: StatTile(
                   icon: Icons.image_outlined,
-                  label: '生图次数',
+                  label: l10nNow.desktopImageGenerations,
                   value: st == null ? null : fmtInt(st.imageCalls),
                   loading: loading,
                 ),
@@ -154,7 +155,7 @@ class _PlatformPageState extends ConsumerState<PlatformPage> {
               Expanded(
                 child: StatTile(
                   icon: Icons.chat_bubble_outline,
-                  label: 'AI 对话',
+                  label: l10nNow.desktopAIChats,
                   value: st == null ? null : fmtInt(st.aiCalls),
                   loading: loading,
                 ),
@@ -167,7 +168,7 @@ class _PlatformPageState extends ConsumerState<PlatformPage> {
               Expanded(
                 child: StatTile(
                   icon: Icons.toll_outlined,
-                  label: '点数消耗',
+                  label: l10nNow.desktopPointsSpent,
                   value: st == null ? null : fmtInt(st.pointsSpent),
                   loading: loading,
                 ),
@@ -175,7 +176,7 @@ class _PlatformPageState extends ConsumerState<PlatformPage> {
               Expanded(
                 child: StatTile(
                   icon: Icons.group_outlined,
-                  label: '活跃用户',
+                  label: l10nNow.desktopActiveUsers,
                   value: st == null ? null : fmtInt(st.activeUsers),
                   loading: loading,
                 ),
@@ -201,7 +202,7 @@ class _PlatformPageState extends ConsumerState<PlatformPage> {
           Row(
             children: [
               Text(
-                '历史全局',
+                l10nNow.desktopAllTimePlatformTotals,
                 style: context.texts.bodyMedium!.copyWith(
                   fontWeight: FontWeight.w600,
                 ),

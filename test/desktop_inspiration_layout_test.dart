@@ -188,7 +188,7 @@ void main() {
       jsonEncode({
         'entries': [
           ...entries.map((entry) => entry.toJson()),
-          for (final category in TagCategory.values)
+          for (final category in TagCategory.builtins)
             TagEntry(
               id: 'tail-${category.name}',
               category: category,
@@ -198,7 +198,7 @@ void main() {
             ).toJson(),
         ],
         'pools': {
-          for (final category in TagCategory.values)
+          for (final category in TagCategory.builtins)
             tagCategoryDef(category).webId: [
               for (var i = 0; i < 40; i++)
                 'tag-${i.toString().padLeft(2, '0')}',
@@ -214,7 +214,7 @@ void main() {
     (tester) async {
       seedTagPools();
       await mount(tester);
-      for (final category in TagCategory.values) {
+      for (final category in TagCategory.builtins) {
         await tester.tap(key('inspiration-category-${category.name}'));
         await tester.pumpAndSettle();
         final scope = tagCategoryDef(category).hasPublic
@@ -592,7 +592,13 @@ void main() {
         await tester.pump(const Duration(milliseconds: 20));
       }
       await tester.pumpAndSettle();
-      expect(container.read(generateProvider).prompt, contains('white hair'));
+      final imported = container
+          .read(generateProvider)
+          .sections
+          .where((s) => !s.isMain)
+          .single;
+      expect(imported.name, '白发少女');
+      expect(imported.positive, contains('white hair'));
       expect(
         tester.widget<Checkbox>(key('inspiration-select-char0')).value,
         isFalse,
@@ -672,11 +678,14 @@ void main() {
         await Future<void>.delayed(const Duration(milliseconds: 150));
       });
       await tester.pumpAndSettle();
-      expect(container.read(generateProvider).prompt, contains('purple hair'));
-      expect(
-        container.read(generateProvider).prompt,
-        isNot(contains('white hair')),
-      );
+      final imported = container
+          .read(generateProvider)
+          .sections
+          .where((s) => !s.isMain)
+          .single;
+      expect(imported.name, '暮色精灵');
+      expect(imported.positive, contains('purple hair'));
+      expect(imported.positive, isNot(contains('white hair')));
       for (
         var i = 0;
         i < 50 && key('desktop-inspiration-selection').evaluate().isNotEmpty;
@@ -765,7 +774,7 @@ void main() {
     (tester) async {
       seedTagPools();
       await mount(tester);
-      for (final cat in TagCategory.values) {
+      for (final cat in TagCategory.builtins) {
         await tester.tap(key('inspiration-category-${cat.name}'));
         await tester.pumpAndSettle();
         final before = container.read(tagLibraryProvider).value!.knownTags(cat);

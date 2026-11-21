@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/net/backend_client.dart';
 import '../../core/theme/app_theme.dart';
 import 'stats_providers.dart';
+import '../../l10n/l10n.dart';
 
 /// 统计三页共用的小件:范围 chips、指标格、卡容器、流水行、热力图卡。
 
@@ -102,10 +103,12 @@ class StatTile extends StatelessWidget {
           children: [
             Icon(icon, size: 14, color: scheme.onSurfaceVariant),
             const SizedBox(width: 5),
-            Text(
-              label,
-              style: context.texts.labelSmall!.copyWith(
-                color: scheme.onSurfaceVariant,
+            Flexible(
+              child: Text(
+                label,
+                style: context.texts.labelSmall!.copyWith(
+                  color: scheme.onSurfaceVariant,
+                ),
               ),
             ),
           ],
@@ -118,21 +121,18 @@ class StatTile extends StatelessWidget {
             width: 52,
           )
         else
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.baseline,
-            textBaseline: TextBaseline.alphabetic,
+          Wrap(
+            crossAxisAlignment: WrapCrossAlignment.end,
+            spacing: 4,
             children: [
               Text(value ?? '—', style: mono(context, size: 17)),
               if (suffix != null) ...[
-                const SizedBox(width: 4),
-                Flexible(
-                  child: Text(
-                    suffix!,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: context.texts.labelSmall!.copyWith(
-                      color: scheme.onSurfaceVariant,
-                    ),
+                Text(
+                  suffix!,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: context.texts.labelSmall!.copyWith(
+                    color: scheme.onSurfaceVariant,
                   ),
                 ),
               ],
@@ -175,7 +175,7 @@ class TrendChart extends StatelessWidget {
         child: Align(
           alignment: Alignment.bottomLeft,
           child: Text(
-            '暂无数据',
+            context.l10n.noData,
             style: context.texts.labelSmall!.copyWith(color: scheme.outline),
           ),
         ),
@@ -530,7 +530,7 @@ class HeatCard extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.end,
               children: [
                 Text(
-                  '低 ',
+                  l10nNow.desktopLow,
                   style: context.texts.labelSmall!.copyWith(
                     color: scheme.outline,
                   ),
@@ -548,7 +548,7 @@ class HeatCard extends StatelessWidget {
                     ),
                   ),
                 Text(
-                  ' 高',
+                  l10nNow.desktopHigh,
                   style: context.texts.labelSmall!.copyWith(
                     color: scheme.outline,
                   ),
