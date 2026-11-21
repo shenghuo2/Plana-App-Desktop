@@ -185,13 +185,7 @@ void main() {
       final negative = totalPromptTokens(tokenizer, main: 'red hair');
       expect(counts().positive, positive);
       expect(counts().negative, negative);
-      final header = key('character-header-a');
-      final avatar = tester.getRect(key('character-avatar-a'));
-      final fullscreen = tester.getRect(key('character-fullscreen-a'));
-      final x = fullscreen.top > avatar.bottom
-          ? tester.getRect(header).right - 18
-          : fullscreen.left - 20;
-      await tester.tapAt(Offset(x, avatar.center.dy));
+      await tester.tap(key('character-collapse-a'));
       await tester.pumpAndSettle();
       expect(input('desktop-character-a'), findsNothing);
       expect(counts().positive, positive);
@@ -237,11 +231,9 @@ void main() {
             force: true,
           );
       await mount(tester, const PromptCard());
-      final header = key('prompt-section-header-s');
-      await tester.ensureVisible(header);
-      await tester.tapAt(
-        tester.getRect(header).centerRight - const Offset(18, 0),
-      );
+      final collapse = key('prompt-section-collapse-s');
+      await tester.ensureVisible(collapse);
+      await tester.tap(collapse);
       await tester.pumpAndSettle();
       final pairs = tester
           .widgetList<PromptTokenCounts>(find.byType(PromptTokenCounts))
@@ -283,7 +275,6 @@ void main() {
         find.byWidgetPredicate((w) => w is ParamSlider && w.label == label),
       );
       expect(param('步数 Steps').value, 14);
-      expect(param('CFG Rescale').value, 0);
       final steps = find.byWidgetPredicate(
         (w) => w is ParamSlider && w.label == '步数 Steps',
       );
@@ -308,6 +299,17 @@ void main() {
       await tester.tapAt(tester.getCenter(find.text('exponential')));
       await tester.pumpAndSettle();
       expect(find.text('NAI 5 噪声调度固定为 karras'), findsWidgets);
+      await tester.scrollUntilVisible(
+        find.text('CFG Rescale'),
+        180,
+        scrollable: find
+            .descendant(
+              of: find.byType(BottomSheet),
+              matching: find.byType(Scrollable),
+            )
+            .first,
+      );
+      expect(param('CFG Rescale').value, 0);
       await tester.tap(find.text('确认'));
       await tester.pumpAndSettle();
       final saved = c.read(generateProvider).params;

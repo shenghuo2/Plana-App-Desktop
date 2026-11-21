@@ -318,7 +318,7 @@ void main() {
   );
 
   test(
-    'delayed base image applies shared bytes and source canvas dimensions',
+    'delayed base image applies bytes and dimensions to its source canvas',
     () {
       final c = boot();
       final gen = c.read(generateProvider.notifier);
@@ -330,11 +330,13 @@ void main() {
       gen.setImg2ImgImage(image: image, width: 1024, height: 1024, canvasId: a);
       expect(c.read(canvasWorkspaceProvider).activeId, b);
       expect(c.read(generateProvider).params, same(before));
-      expect(c.read(generateProvider).img2img!.image, image);
+      expect(c.read(generateProvider).img2img, isNull);
       canvases.select(a);
+      expect(c.read(generateProvider).img2img!.image, image);
       expect(c.read(generateProvider).params.width, 1024);
       expect(c.read(generateProvider).params.height, 1024);
       canvases.select(b);
+      expect(c.read(generateProvider).img2img, isNull);
       expect(c.read(generateProvider).params.width, before.width);
       expect(c.read(generateProvider).params.height, before.height);
       canvases.remove(a);
@@ -344,7 +346,7 @@ void main() {
         height: 512,
         canvasId: a,
       );
-      expect(c.read(generateProvider).img2img!.image, image);
+      expect(c.read(generateProvider).img2img, isNull);
       expect(c.read(generateProvider).params.width, before.width);
     },
   );

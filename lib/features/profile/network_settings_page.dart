@@ -277,7 +277,7 @@ class _NetworkSettingsPageState extends ConsumerState<NetworkSettingsPage> {
       body: ImageDropRegion(
         label: '识别代理设置截图',
         acceptInternal: false,
-        pasteDefault: true,
+        acceptPaste: true,
         // Keep claiming repeated pastes during OCR, so they cannot fall through
         // to the workspace's generic artwork importer.
         onDrop: (images, _) async {

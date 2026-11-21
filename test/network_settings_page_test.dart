@@ -102,7 +102,7 @@ void main() {
             home: DesktopImageDropHost(
               child: ImageDropRegion(
                 label: 'synthetic artwork importer',
-                pasteFallback: true,
+                acceptPaste: true,
                 onDrop: (_, _) async {
                   fallbackDrops++;
                 },
