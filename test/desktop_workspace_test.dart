@@ -282,6 +282,9 @@ void main() {
         await tester.tap(key('profile-section-appearance'));
         await tester.pumpAndSettle();
         await tester.ensureVisible(find.text('显示工具箱'));
+        await tester.pumpAndSettle();
+        // Lazy settings cards can change the scroll extent after first layout.
+        await tester.ensureVisible(find.text('显示工具箱'));
         await tester.tap(find.text('显示工具箱'));
         await tester.pumpAndSettle();
         stores.flushNow();

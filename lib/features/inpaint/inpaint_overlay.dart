@@ -1,3 +1,4 @@
+import '../../l10n/l10n.dart';
 import '../gallery/albums/album_state.dart';
 import '../gallery/albums/album_ui.dart';
 import 'dart:async';
@@ -2033,7 +2034,7 @@ class _InpaintOverlayState extends ConsumerState<InpaintOverlay>
             children: [
               _SegTab(
                 icon: Icons.brush,
-                label: '涂抹',
+                label: context.l10n.inpaintPaint,
                 active: _mode == _Mode.paint,
                 onTap: () => _tapSeg(_Mode.paint),
               ),
@@ -2079,14 +2080,14 @@ class _InpaintOverlayState extends ConsumerState<InpaintOverlay>
               _ToolBtn(
                 key: const ValueKey('inpaint-tool-brush'),
                 icon: _assist ? Icons.my_location : Icons.brush,
-                label: _assist ? '偏位' : '画笔',
+                label: _assist ? '偏位' : context.l10n.draw,
                 active: _tool == _Tool.brush,
                 onTap: () => _tapTool(_Tool.brush),
               ),
               _ToolBtn(
                 key: const ValueKey('inpaint-tool-eraser'),
                 icon: Icons.cleaning_services,
-                label: '橡皮',
+                label: context.l10n.erase,
                 active: _tool == _Tool.eraser,
                 onTap: () => _tapTool(_Tool.eraser),
               ),
@@ -2129,7 +2130,7 @@ class _InpaintOverlayState extends ConsumerState<InpaintOverlay>
               _ToolBtn(
                 key: const ValueKey('inpaint-undo'),
                 icon: Icons.undo,
-                label: '撤销',
+                label: context.l10n.undo,
                 enabled: canUndo,
                 onTap: _undoOnce,
               ),
@@ -2144,7 +2145,7 @@ class _InpaintOverlayState extends ConsumerState<InpaintOverlay>
               _ToolBtn(
                 key: const ValueKey('inpaint-clear'),
                 icon: Icons.restart_alt,
-                label: '清空',
+                label: context.l10n.clear,
                 enabled: canClear,
                 tint: scheme.error,
                 onTap: _clearAll,
@@ -2189,7 +2190,7 @@ class _InpaintOverlayState extends ConsumerState<InpaintOverlay>
               children: [
                 _ParamChip(
                   icon: Icons.line_weight,
-                  label: '笔刷',
+                  label: context.l10n.penSizeShort,
                   value: '${_brush.round()}',
                   active: _slider == _SliderTarget.brush,
                   onTap: () => setState(
@@ -2214,7 +2215,7 @@ class _InpaintOverlayState extends ConsumerState<InpaintOverlay>
                 else if (!_censorMode)
                   _ParamChip(
                     icon: Icons.tune,
-                    label: '强度',
+                    label: context.l10n.strength,
                     value: _strength.toStringAsFixed(2),
                     active: _slider == _SliderTarget.strength,
                     onTap: () => setState(
@@ -2338,7 +2339,7 @@ class _InpaintOverlayState extends ConsumerState<InpaintOverlay>
             _buildExpandControls([
               _ParamChip(
                 icon: Icons.aspect_ratio,
-                label: '尺寸',
+                label: context.l10n.size,
                 value: '$tw×$th',
                 active: _hasExpand,
                 onTap: _editExpandSize,
@@ -2347,7 +2348,7 @@ class _InpaintOverlayState extends ConsumerState<InpaintOverlay>
                 const SizedBox(width: 8),
                 _ParamChip(
                   icon: Icons.tune,
-                  label: '强度',
+                  label: context.l10n.strength,
                   value: _strength.toStringAsFixed(2),
                   active: _slider == _SliderTarget.strength,
                   onTap: () => setState(
@@ -2362,7 +2363,7 @@ class _InpaintOverlayState extends ConsumerState<InpaintOverlay>
                 _ToolBtn(
                   key: const ValueKey('inpaint-undo'),
                   icon: Icons.undo,
-                  label: '撤销',
+                  label: context.l10n.undo,
                   enabled: _undo.isNotEmpty,
                   onTap: _undoOnce,
                 ),
@@ -2567,8 +2568,8 @@ class _InpaintOverlayState extends ConsumerState<InpaintOverlay>
     final scheme = context.scheme;
     final t = _slider ?? _SliderTarget.brush;
     final title = switch (t) {
-      _SliderTarget.brush => '笔刷大小',
-      _SliderTarget.strength => '重绘强度',
+      _SliderTarget.brush => context.l10n.penSize,
+      _SliderTarget.strength => context.l10n.inpaintStrength,
       _SliderTarget.block => '马赛克块',
     };
     // 块以像素示人(格数是实现细节),读数与滑杆都按 px 走
@@ -3669,7 +3670,7 @@ class _CompareButton extends StatelessWidget {
             Icon(Icons.visibility_outlined, size: 16, color: scheme.onSurface),
             const SizedBox(width: 7),
             Text(
-              '按住对比',
+              context.l10n.holdToCompare,
               style: TextStyle(
                 fontSize: 12.5,
                 fontWeight: FontWeight.w600,
