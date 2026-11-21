@@ -36,6 +36,9 @@ target_compile_definitions(${BINARY_NAME} PRIVATE "FLUTTER_VERSION_BUILD=${FLUTT
 
 # Disable Windows macros that collide with C++ standard library functions.
 target_compile_definitions(${BINARY_NAME} PRIVATE "NOMINMAX")
+# Inbox Windows SDK C++/WinRT headers (<winrt/base.h>, used by proxy_assist)
+# include <experimental/coroutine> under C++17, triggering MSVC 14.51+ STL1011.
+target_compile_definitions(${BINARY_NAME} PRIVATE "_SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS")
 
 # Add dependency libraries and include directories. Add any application-specific
 # dependencies here.
