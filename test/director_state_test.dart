@@ -114,6 +114,7 @@ void main() {
       director.options(const DirectorOptions(tool: DirectorTool.sketch));
       final other = await c.read(albumsProvider.notifier).create('later');
       c.read(albumsProvider.notifier).setSave(other);
+      c.read(albumsProvider.notifier).browse(album);
       response.complete([DirectorOutput(bytes, 32, 48)]);
       await pending;
       final state = c.read(directorProvider);

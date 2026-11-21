@@ -105,22 +105,32 @@ class _ResultStripState extends ConsumerState<ResultStrip>
             padding: const EdgeInsets.only(top: 8),
             child: Row(
               children: [
-                Icon(Icons.auto_awesome, size: 14, color: scheme.outline),
-                const SizedBox(width: 6),
-                Text(
-                  '生成了 $tags tag',
-                  style: context.texts.labelMedium!.copyWith(
-                    color: scheme.onSurfaceVariant,
-                    fontWeight: FontWeight.w600,
-                    fontFeatures: const [FontFeature.tabularFigures()],
+                Expanded(
+                  child: Row(
+                    children: [
+                      Icon(Icons.auto_awesome, size: 14, color: scheme.outline),
+                      const SizedBox(width: 6),
+                      Flexible(
+                        child: Text(
+                          '生成了 $tags tag',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: context.texts.labelMedium!.copyWith(
+                            color: scheme.onSurfaceVariant,
+                            fontWeight: FontWeight.w600,
+                            fontFeatures: const [FontFeature.tabularFigures()],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 9),
+                      DiffCount(
+                        added: diff.added.length,
+                        removed: diff.removed.length,
+                      ),
+                    ],
                   ),
                 ),
-                const SizedBox(width: 9),
-                DiffCount(
-                  added: diff.added.length,
-                  removed: diff.removed.length,
-                ),
-                const Spacer(),
+                const SizedBox(width: 6),
                 _openButton(context, scheme, () {
                   if (widget.inlineDetails) {
                     setState(() => _expanded = !_expanded);

@@ -189,8 +189,8 @@ void main() {
         target == 'character' ? const CharacterCard() : const PromptCard(),
       );
       final header = target == 'character'
-          ? 'character-header-$id'
-          : 'prompt-section-header-${id ?? 'main'}';
+          ? 'character-collapse-$id'
+          : 'prompt-section-collapse-${id ?? 'main'}';
       final previewKey = target == 'character'
           ? 'collapsed-character-$id-positive'
           : id == null
@@ -371,7 +371,7 @@ void main() {
           positiveRaw: '<#旧块: old prompt#>',
         );
     await mount(tester, const PromptCard());
-    await tap(tester, 'prompt-section-header-main');
+    await tap(tester, 'prompt-section-collapse-main');
     expect(find.text('current prompt'), findsOneWidget);
     expect(find.text('#旧块'), findsNothing);
     await finish(tester);

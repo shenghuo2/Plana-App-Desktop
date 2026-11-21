@@ -280,6 +280,7 @@ class _DesktopCanvasTabsState extends ConsumerState<DesktopCanvasTabs> {
                     ),
                   ),
                 ),
+              ),
             ),
           ),
           if (workspace.canvases.length > 1)

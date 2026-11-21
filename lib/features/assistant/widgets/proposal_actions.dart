@@ -107,8 +107,10 @@ class ProposalActions extends ConsumerWidget {
       alignment: MainAxisAlignment.spaceBetween,
       spacing: 8,
       children: [
-        Row(
-          mainAxisSize: MainAxisSize.min,
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          crossAxisAlignment: WrapCrossAlignment.center,
           children: [
             // 导入过就停在「已导入」,不收起来:按钮一消失,分不清是导进去了还是没点上。
             // 开着自动导入时,提议一出来就已经导进去了,这里一直是「已导入」。
@@ -121,7 +123,6 @@ class ProposalActions extends ConsumerWidget {
                 padding: EdgeInsets.symmetric(horizontal: dense ? 12 : 14),
               ),
             ),
-            const SizedBox(width: 8),
             // 不导入也能出这一版,和导入后再生成是同一张(见 proposalSendState)。
             FilledButton(
               onPressed: () => _generate(ref),

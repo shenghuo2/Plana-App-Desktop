@@ -207,7 +207,7 @@ void main() {
         );
       }
       expect(
-        tester.getRect(key('desktop-canvas-new')).right,
+        tester.getRect(key('desktop-canvas-actions')).right,
         lessThanOrEqualTo(tester.getRect(key('desktop-left-collapse')).left),
       );
       await tester.enterText(key('desktop-codex-search'), 'sea');
@@ -289,7 +289,7 @@ void main() {
           closeTo(rightButton.left - 100, 1),
         );
         expect(
-          tester.getRect(key('desktop-canvas-new')).right,
+          tester.getRect(key('desktop-canvas-actions')).right,
           lessThanOrEqualTo(tester.getRect(key('desktop-left-collapse')).left),
         );
         await tester.tap(key('desktop-left-collapse'));
