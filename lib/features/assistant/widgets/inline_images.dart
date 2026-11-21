@@ -30,6 +30,7 @@ import '../../generate/gen_jobs.dart' show GenJob;
 import '../../generate/generation_controller.dart' show generationProvider;
 import '../../generate/widgets/common.dart' show StripeThumb;
 import '../../shell/shell_state.dart';
+import '../../import/desktop_image_drop.dart';
 import '../assistant_models.dart';
 import '../assistant_state.dart';
 
@@ -162,31 +163,35 @@ class _DoneState extends ConsumerState<_Done> {
     final size = _box(result.width, result.height, widget.maxW);
     final bytes = _bytesOf(ref, result);
     final desktop = ref.watch(desktopModeProvider);
-    return GestureDetector(
-      key: ValueKey('assistant-inline-image-${result.id}'),
-      // 桌面端:点开就是这张图本身(桌面看图浮层,放大 / 复制 / 保存 / 超分
-      // 都在里面)。**不再切去图库** —— 切过去的只是图库页,连图都不给你选中,
-      // 想在对话里核对一眼还得自己找回去。
-      //
-      // 移动端照旧:那边看图、存盘、超分全在图库,浮层是桌面才有的东西。
-      onTap: _openImage,
-      // 右键:不打开也能直接复制走。桌面端专有 —— 触屏没有右键这一下。
-      onSecondaryTapUp: desktop
-          ? (details) => _menu(context, ref, details.globalPosition)
-          : null,
-      child: _frame(context, size, [
-        if (bytes != null)
-          _Bitmap(bytes: bytes, size: size)
-        else
-          StripeThumb(width: size.width, height: size.height, radius: 0),
-        // 跑着的时候框里换成了进度,这颗跟着一起不在 —— 同一条消息连投两单,
-        // 进度条只跟得住一单。
-        Positioned(
-          right: 10,
-          bottom: 10,
-          child: _AgainButton(msgId: widget.msgId),
-        ),
-      ]),
+    return GalleryImageDrag(
+      result: result,
+      enabled: desktop,
+      child: GestureDetector(
+        key: ValueKey('assistant-inline-image-${result.id}'),
+        // 桌面端:点开就是这张图本身(桌面看图浮层,放大 / 复制 / 保存 / 超分
+        // 都在里面)。**不再切去图库** —— 切过去的只是图库页,连图都不给你选中,
+        // 想在对话里核对一眼还得自己找回去。
+        //
+        // 移动端照旧:那边看图、存盘、超分全在图库,浮层是桌面才有的东西。
+        onTap: _openImage,
+        // 右键:不打开也能直接复制走。桌面端专有 —— 触屏没有右键这一下。
+        onSecondaryTapUp: desktop
+            ? (details) => _menu(context, ref, details.globalPosition)
+            : null,
+        child: _frame(context, size, [
+          if (bytes != null)
+            _Bitmap(bytes: bytes, size: size)
+          else
+            StripeThumb(width: size.width, height: size.height, radius: 0),
+          // 跑着的时候框里换成了进度,这颗跟着一起不在 —— 同一条消息连投两单,
+          // 进度条只跟得住一单。
+          Positioned(
+            right: 10,
+            bottom: 10,
+            child: _AgainButton(msgId: widget.msgId),
+          ),
+        ]),
+      ),
     );
   }
 
