@@ -1014,14 +1014,15 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
             ),
             Row(
               children: [
-                Text(
-                  '${lib.of(_cat).length} 个本地条目',
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: scheme.onSurfaceVariant,
+                Expanded(
+                  child: Text(
+                    '${lib.of(_cat).length} 个本地条目',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: scheme.onSurfaceVariant,
+                    ),
                   ),
                 ),
-                const Spacer(),
                 _categoryManager(),
                 if (_def.hasPublic) _sortButton(scheme),
                 IconButton(

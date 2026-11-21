@@ -266,27 +266,34 @@ class _GalleryPageState extends ConsumerState<GalleryPage>
     return KeyEventResult.handled;
   }
 
-  Widget _historyHeader(int count) => Padding(
-    padding: const EdgeInsets.fromLTRB(12, 6, 12, 0),
-    child: Row(
-      children: [
-        IconButton(
-          tooltip: _historyOpen ? '收起历史' : '展开历史',
-          onPressed: () => setState(() => _historyOpen = !_historyOpen),
-          icon: Icon(
-            _historyOpen ? Icons.expand_more : Icons.expand_less,
-            size: 18,
-          ),
-        ),
-        Text('历史记录 · $count', style: context.texts.bodySmall),
-        if (widget.libraryControl != null)
-          Expanded(
-            child: Align(
-              alignment: Alignment.centerRight,
-              child: widget.libraryControl!,
+  Widget _historyHeader(int count) => Material(
+    type: MaterialType.transparency,
+    child: InkWell(
+      key: const ValueKey('desktop-history-header'),
+      onTap: _historyOpen ? null : () => setState(() => _historyOpen = true),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 6, 12, 0),
+        child: Row(
+          children: [
+            IconButton(
+              tooltip: _historyOpen ? '收起历史' : '展开历史',
+              onPressed: () => setState(() => _historyOpen = !_historyOpen),
+              icon: Icon(
+                _historyOpen ? Icons.expand_more : Icons.expand_less,
+                size: 18,
+              ),
             ),
-          ),
-      ],
+            Text('历史记录 · $count', style: context.texts.bodySmall),
+            if (widget.libraryControl != null)
+              Expanded(
+                child: Align(
+                  alignment: Alignment.centerRight,
+                  child: widget.libraryControl!,
+                ),
+              ),
+          ],
+        ),
+      ),
     ),
   );
 

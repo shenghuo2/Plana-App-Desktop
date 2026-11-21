@@ -113,6 +113,41 @@ void main() {
   }
 
   testWidgets(
+    'collapsed history expands from label and blank space but preserves picker',
+    (tester) async {
+      await mount(tester);
+      final before = selected();
+      await tester.tap(find.byTooltip('收起历史'));
+      await tester.pumpAndSettle();
+      expect(key('history-thumb-image-0'), findsNothing);
+      await tester.tap(find.text('历史记录 · 3'));
+      await tester.pumpAndSettle();
+      expect(key('history-thumb-image-0'), findsOneWidget);
+
+      await tester.tap(find.byTooltip('收起历史'));
+      await tester.pumpAndSettle();
+      await tester.tap(key('desktop-library-picker'));
+      await tester.pumpAndSettle();
+      expect(find.byType(Dialog), findsOneWidget);
+      expect(key('history-thumb-image-0'), findsNothing);
+      Navigator.of(tester.element(find.byType(Dialog))).pop();
+      await tester.pumpAndSettle();
+
+      final header = tester.getRect(key('desktop-history-header'));
+      await tester.tapAt(Offset(header.center.dx, header.center.dy));
+      await tester.pumpAndSettle();
+      expect(key('history-thumb-image-0'), findsOneWidget);
+      // Expanded whitespace is not a new accidental collapse target.
+      await tester.tapAt(tester.getCenter(key('desktop-history-header')));
+      await tester.pumpAndSettle();
+      expect(key('history-thumb-image-0'), findsOneWidget);
+      expect(selected(), before);
+      expect(tester.takeException(), isNull);
+      await finish(tester);
+    },
+  );
+
+  testWidgets(
     'desktop history drop onto canvas opens import without mobile drop bands',
     (tester) async {
       await mount(tester);

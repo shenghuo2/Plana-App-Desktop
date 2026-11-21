@@ -238,9 +238,12 @@ void main() {
       expect(tester.takeException(), isNull);
       tester.view.physicalSize = size;
       await tester.pumpAndSettle();
-      await tester.tap(key('desktop-right-expand'));
+      // The entire collapsed rail, including blank space far below its arrow,
+      // expands the pane in both the full and compact workspace layouts.
+      final rightRail = tester.getRect(key('desktop-right-collapsed-rail'));
+      await tester.tapAt(Offset(rightRail.center.dx, rightRail.bottom - 24));
       await tester.pumpAndSettle();
-      await tester.tap(key('desktop-left-expand'));
+      await tester.tap(find.text('创作参数').hitTestable());
       await tester.pumpAndSettle();
       expect(
         tester.getSize(key('desktop-controls')).width,
@@ -296,7 +299,8 @@ void main() {
           tester.getRect(key('desktop-right-collapse')).left,
           closeTo(rightButton.left - 200, 1),
         );
-        await tester.tap(key('desktop-left-expand'));
+        final leftRail = tester.getRect(key('desktop-left-collapsed-rail'));
+        await tester.tapAt(leftRail.center);
         await tester.pumpAndSettle();
         await captureDesktop(tester, capture, 'sidebars-resized');
       }

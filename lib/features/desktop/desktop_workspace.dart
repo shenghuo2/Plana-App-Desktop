@@ -326,27 +326,32 @@ class _DesktopWorkspaceState extends ConsumerState<DesktopWorkspace>
               child: child,
             ),
           ),
-          if (collapsed)
-            Material(
-              color: context.scheme.surfaceContainerLow,
-              child: Column(
-                children: [
-                  _collapseButton(left: left),
-                  const SizedBox(height: 12),
-                  RotatedBox(
-                    quarterTurns: 1,
-                    child: Text(
-                      left ? '创作参数' : '助手 · 灵感 · 法典',
-                      style: context.texts.labelMedium,
-                    ),
-                  ),
-                ],
-              ),
-            ),
+          if (collapsed) _collapsedPane(left: left),
         ],
       ),
     );
   }
+
+  Widget _collapsedPane({required bool left}) => Material(
+    color: context.scheme.surfaceContainerLow,
+    child: InkWell(
+      key: ValueKey('desktop-${left ? 'left' : 'right'}-collapsed-rail'),
+      onTap: () => _togglePane(left: left),
+      child: Column(
+        children: [
+          _collapseButton(left: left),
+          const SizedBox(height: 12),
+          RotatedBox(
+            quarterTurns: 1,
+            child: Text(
+              left ? '创作参数' : '助手 · 灵感 · 法典',
+              style: context.texts.labelMedium,
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -508,13 +513,7 @@ class _DesktopWorkspaceState extends ConsumerState<DesktopWorkspace>
                             if (!wide && _rightCollapsed)
                               SizedBox(
                                 width: _collapsedWidth,
-                                child: Material(
-                                  color: context.scheme.surfaceContainerLow,
-                                  child: Align(
-                                    alignment: Alignment.topCenter,
-                                    child: _collapseButton(left: false),
-                                  ),
-                                ),
+                                child: _collapsedPane(left: false),
                               ),
                           ],
                         ),
