@@ -86,6 +86,46 @@ jobs:
       - name: Resolve locked dependencies
         run: flutter pub get --enforce-lockfile
 
+      - name: Stage ONNX Runtime from official Microsoft NuGet package
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $ortVersion = '1.22.0'
+          $expectedSha256 = 'D571E63A2329BAACB713F441E65AD75284DE354DB6E1AC435FE4BEBBB417986A'
+          $targetRoot = "build/windows/x64/plugins/flutter_onnxruntime/onnxruntime/onnxruntime-win-x64-$ortVersion"
+          $includeDir = Join-Path $targetRoot 'include'
+          $libDir = Join-Path $targetRoot 'lib'
+          if (Test-Path -LiteralPath (Join-Path $includeDir 'onnxruntime_cxx_api.h')) {
+            Write-Host "ONNX Runtime $ortVersion already staged at $targetRoot"
+            exit 0
+          }
+          $nupkg = Join-Path $env:RUNNER_TEMP "microsoft.ml.onnxruntime.$ortVersion.nupkg"
+          $extract = Join-Path $env:RUNNER_TEMP "ort-nuget-$ortVersion"
+          $url = "https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime/$ortVersion/microsoft.ml.onnxruntime.$ortVersion.nupkg"
+          Write-Host "Downloading official Microsoft.ML.OnnxRuntime $ortVersion from NuGet..."
+          Invoke-WebRequest -Uri $url -OutFile $nupkg
+          $actualSha256 = (Get-FileHash -LiteralPath $nupkg -Algorithm SHA256).Hash
+          if ($actualSha256 -ne $expectedSha256) {
+            throw "NuGet SHA-256 mismatch: expected $expectedSha256, got $actualSha256"
+          }
+          if (Test-Path -LiteralPath $extract) { Remove-Item -LiteralPath $extract -Recurse -Force }
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          [System.IO.Compression.ZipFile]::ExtractToDirectory($nupkg, $extract)
+          New-Item -ItemType Directory -Path $includeDir, $libDir -Force | Out-Null
+          Copy-Item -Path (Join-Path $extract 'build/native/include/*') -Destination $includeDir -Force
+          Copy-Item -Path (Join-Path $extract 'runtimes/win-x64/native/*') -Destination $libDir -Force
+          $dll = Join-Path $libDir 'onnxruntime.dll'
+          $sig = Get-AuthenticodeSignature -LiteralPath $dll
+          Write-Host "onnxruntime.dll signature: Status=$($sig.Status), Subject=$($sig.SignerCertificate.Subject)"
+          if ($sig.Status -ne 'Valid' -or $sig.SignerCertificate.Subject -notlike '*Microsoft Corporation*') {
+            throw "Unexpected Authenticode signature on ${dll}: $($sig.Status) / $($sig.SignerCertificate.Subject)"
+          }
+          if (!(Test-Path -LiteralPath (Join-Path $includeDir 'onnxruntime_cxx_api.h')) -or
+              !(Test-Path -LiteralPath (Join-Path $libDir 'onnxruntime.lib')) -or
+              !(Test-Path -LiteralPath $dll)) {
+            throw "Staged ONNX Runtime $ortVersion is incomplete in $targetRoot"
+          }
+
       - name: Build release app
         run: flutter build windows --release --no-pub
 
@@ -96,11 +136,38 @@ jobs:
           ./tool/test_windows_runtime_files.ps1
 
       - name: Native clipboard and crash diagnostics tests
-        shell: cmd
+        shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
           cmake -S test/native -B build/native -A x64
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           cmake --build build/native --config Release
-          ctest --test-dir build/native -C Release --output-on-failure
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $ocrTags = @(& "$env:SystemRoot/System32/WindowsPowerShell/v1.0/powershell.exe" -NoLogo -NoProfile -Command '
+            try {
+              $null = [Windows.Media.Ocr.OcrEngine, Windows.Media.Ocr, ContentType=WindowsRuntime]
+              [Windows.Media.Ocr.OcrEngine]::AvailableRecognizerLanguages | ForEach-Object { $_.LanguageTag }
+            } catch {}
+          ') | Where-Object { $_ -and $_.Trim() -ne '' }
+          $profileTags = @(& "$env:SystemRoot/System32/WindowsPowerShell/v1.0/powershell.exe" -NoLogo -NoProfile -Command '
+            try { (Get-WinUserLanguageList) | ForEach-Object { $_.LanguageTag } } catch {}
+          ') | Where-Object { $_ -and $_.Trim() -ne '' }
+          Write-Host "Available Windows OCR languages: $($ocrTags -join ', ')"
+          Write-Host "User profile languages: $($profileTags -join ', ')"
+          $exclude = @()
+          if (!($ocrTags | Where-Object { $_ -like 'en*' })) {
+            $exclude += '^proxy_assist_test$'
+          }
+          if (!($ocrTags | Where-Object { $_ -like 'zh*' }) -or !($profileTags | Where-Object { $_ -like 'zh*' })) {
+            $exclude += '^proxy_assist_chinese_test$'
+          }
+          $ctestArgs = @('--test-dir', 'build/native', '-C', 'Release', '--output-on-failure')
+          if ($exclude.Count -gt 0) {
+            Write-Host "Skipping native OCR tests requiring unavailable runner OCR language/profile: $($exclude -join ', ')"
+            $ctestArgs += @('-E', ($exclude -join '|'))
+          }
+          ctest @ctestArgs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Package Windows installer and portable ZIP
         shell: pwsh
@@ -173,7 +240,93 @@ jobs:
         run: flutter test --no-pub --reporter expanded test/macos_update_script_test.dart
 
       - name: Build arm64 release app
-        run: bash tool/build_macos_arm64.sh
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Work around download.onnxruntime.ai TLS outage on the unused
+          # onnxruntime_extensions target in masicai/onnxruntime-swift-package-manager 1.23.1.
+          # flutter_onnxruntime only uses the `onnxruntime` product, whose binary remains
+          # fetched from masicai's GitHub release with SwiftPM SHA-256 verification.
+          ort_spm_dir="$RUNNER_TEMP/onnxruntime-swift-package-manager"
+          ort_spm_commit="57f28b1fdd6fe33585370b146a46c597d6750953"
+          plugin_manifest="${PUB_CACHE:-$HOME/.pub-cache}/hosted/pub.dev/flutter_onnxruntime-1.8.4/macos/flutter_onnxruntime/Package.swift"
+          plugin_backup="$RUNNER_TEMP/flutter_onnxruntime.Package.swift.bak"
+          cp "$plugin_manifest" "$plugin_backup"
+          restore_plugin_manifest() {
+            cp "$plugin_backup" "$plugin_manifest"
+            rm -f "$plugin_backup"
+          }
+          trap restore_plugin_manifest EXIT
+
+          rm -rf "$ort_spm_dir"
+          git clone --branch 1.23.1 --depth 1 \
+            https://github.com/masicai/onnxruntime-swift-package-manager.git "$ort_spm_dir"
+          actual_commit="$(git -C "$ort_spm_dir" rev-parse HEAD)"
+          if [[ "$actual_commit" != "$ort_spm_commit" ]]; then
+            echo "::error::Unexpected onnxruntime-swift-package-manager commit: $actual_commit"
+            exit 1
+          fi
+
+          python3 - "$ort_spm_dir/Package.swift" "$plugin_manifest" "$ort_spm_dir" <<'PY'
+          from pathlib import Path
+          import sys
+
+          ort_pkg = Path(sys.argv[1])
+          plugin_pkg = Path(sys.argv[2])
+          local_dir = sys.argv[3]
+
+          src = ort_pkg.read_text(encoding="utf-8")
+          removals = [
+              '        .library(name: "onnxruntime_extensions",\n'
+              '                 type: .static,\n'
+              '                 targets: ["OnnxRuntimeExtensions"]),\n',
+              '        .target(name: "OnnxRuntimeExtensions",\n'
+              '                dependencies: ["onnxruntime_extensions", "onnxruntime"],\n'
+              '                path: "extensions",\n'
+              '                cxxSettings: [\n'
+              '                    .define("ORT_SWIFT_PACKAGE_MANAGER_BUILD"),\n'
+              '                ]),\n',
+              '        .testTarget(name: "OnnxRuntimeExtensionsTests",\n'
+              '                    dependencies: ["OnnxRuntimeExtensions", "OnnxRuntimeBindings"],\n'
+              '                    path: "swift/OnnxRuntimeExtensionsTests",\n'
+              '                    resources: [\n'
+              '                        .copy("Resources/decode_image.onnx")\n'
+              '                    ]),\n',
+              'if let ext_pod_archive_path = ProcessInfo.processInfo.environment["ORT_EXTENSIONS_POD_LOCAL_PATH"] {\n'
+              '    package.targets.append(Target.binaryTarget(name: "onnxruntime_extensions", path: ext_pod_archive_path))\n'
+              '} else {\n'
+              '    // ORT Extensions release\n'
+              '    //\n'
+              '    // NOTE: still Microsoft\'s framework-format pod archive, so the App Store\n'
+              '    // embedding issue described above applies to apps that consume the\n'
+              '    // "onnxruntime_extensions" product. Repackage it the same way if needed\n'
+              '    // (flutter_onnxruntime does not use it).\n'
+              '    package.targets.append(\n'
+              '        Target.binaryTarget(name: "onnxruntime_extensions",\n'
+              '                            url: "https://download.onnxruntime.ai/pod-archive-onnxruntime-extensions-c-0.13.0.zip",\n'
+              '                            // SHA256 checksum\n'
+              '                            checksum: "346522d1171d4c99cb0908fa8e4e9330a4a6aad39cd83ce36eb654437b33e6b5")\n'
+              '    )\n'
+              '}\n',
+          ]
+          for snippet in removals:
+              assert snippet in src, f"Expected snippet not found in ort Package.swift: {snippet[:60]!r}"
+              src = src.replace(snippet, "", 1)
+          assert "download.onnxruntime.ai" not in src
+          assert "onnxruntime_extensions" not in src
+          assert "onnxruntime-libs-1.23.0.zip" in src
+          assert "4bd86356e2d5aab1b8ece609bb9caa63161a6d79d21244da007f9fda6830ff3b" in src
+          ort_pkg.write_text(src, encoding="utf-8")
+
+          plugin_src = plugin_pkg.read_text(encoding="utf-8")
+          old_dep = '.package(url: "https://github.com/masicai/onnxruntime-swift-package-manager", exact: "1.23.1")'
+          new_dep = f'.package(path: "{local_dir}")'
+          assert old_dep in plugin_src, "Expected masicai SPM dependency line not found in flutter_onnxruntime Package.swift"
+          plugin_pkg.write_text(plugin_src.replace(old_dep, new_dep, 1), encoding="utf-8")
+          PY
+
+          swift package --package-path "$ort_spm_dir" dump-package >/dev/null
+          bash tool/build_macos_arm64.sh
 
       - name: Validate macOS application
         shell: bash
