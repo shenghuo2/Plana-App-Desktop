@@ -81,11 +81,9 @@ class _ReferenceImagePreviewState extends State<_ReferenceImagePreview> {
                   onPressed: _reset,
                   icon: const Icon(Icons.fit_screen),
                 ),
-                if (defaultTargetPlatform == TargetPlatform.windows)
-                  if (widget.image case final MemoryImage image)
-                    ImageTransferButton(load: () async => image.bytes)
-                  else if (widget.image case final FileImage image)
-                    ImageTransferButton(load: () => image.file.readAsBytes()),
+                if (defaultTargetPlatform == TargetPlatform.windows ||
+                    defaultTargetPlatform == TargetPlatform.macOS)
+                  ImageTransferButton(load: () async => widget.image),
                 IconButton(
                   tooltip: '关闭预览',
                   onPressed: () => Navigator.pop(context),

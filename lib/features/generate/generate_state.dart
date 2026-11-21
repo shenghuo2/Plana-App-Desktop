@@ -1029,6 +1029,7 @@ class GenerateNotifier extends Notifier<GenerateState> {
       cur = cur.rememberModalSampling();
       base = state.withLoraBaseOf(model);
     }
+    final medium = isNai5MediumModel(model ?? cur.model);
     state = base.copyWith(
       // 导入面板勾了模型这一项时也可能把槽位换小,同 setModel 一样收口。
       // 角色是在这之前落地的(导入面板先加角色再落设置),所以得在这儿再过一遍。
@@ -1037,11 +1038,11 @@ class GenerateNotifier extends Notifier<GenerateState> {
         model: model,
         width: width,
         height: height,
-        steps: steps,
+        steps: medium ? null : steps,
         cfg: cfg,
-        cfgRescale: cfgRescale,
+        cfgRescale: medium ? null : cfgRescale,
         varietyPlus: varietyPlus,
-        sampler: sampler,
+        sampler: medium ? null : sampler,
         noiseSchedule: noiseSchedule,
         seed: seed,
         animaSteps: animaSteps,

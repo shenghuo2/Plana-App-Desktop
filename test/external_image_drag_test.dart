@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
 import 'package:plana_app/core/platform/clipboard_image.dart';
@@ -70,8 +71,9 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
     await tester.pumpWidget(
-      MaterialApp(
-        builder: (_, child) => DesktopImageDropHost(child: child!),
+      ProviderScope(
+        child: MaterialApp(
+          builder: (_, child) => DesktopImageDropHost(child: child!),
         home: Scaffold(
           body: Stack(
             children: [
@@ -115,6 +117,7 @@ void main() {
               ),
             ],
           ),
+        ),
         ),
       ),
     );

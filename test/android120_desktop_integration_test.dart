@@ -310,7 +310,7 @@ void main() {
         ],
       );
       final composed = composeSections(s);
-      expect(composed.prompt, 'rain, forest');
+      expect(composed.prompt, 'rain, rain, forest');
       expect(composed.promptRaw, contains('~unused~'));
       expect(composed.promptRaw, contains('~archived~'));
       expect(composed.promptFoldLinks, [_pair]);

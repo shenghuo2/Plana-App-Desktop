@@ -409,6 +409,7 @@ class _ImportImagePanelState extends ConsumerState<ImportImagePanel> {
       _prep(m.negativePrompt),
       hintQt: m.tagHintQt,
       hintUcPreset: m.tagHintUcPreset,
+      naiMedium: naiSourceIsV5Medium(m.source),
     );
   }
 
@@ -428,7 +429,10 @@ class _ImportImagePanelState extends ConsumerState<ImportImagePanel> {
 
   void _initSelections(ImageMetadata m) {
     _usePrompt = m.prompt.isNotEmpty;
-    _useNegative = m.negativePrompt.isNotEmpty;
+    // Medium's fixed UC is not an editable draft; keep the user's High draft
+    // by default. Explicitly selecting negative import still permits it.
+    _useNegative =
+        m.negativePrompt.isNotEmpty && !naiSourceIsV5Medium(m.source);
     _convertPrompt = needsPromptConversion(m, _targetCategory);
     // NAI 图默认勾上:认出档位时不剥的话,当前档下次生成会把那段文本重复拼
     // 一遍。认不出时这个开关不产生任何动作(见导入落地那段),整张卡也不显示,

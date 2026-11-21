@@ -1071,7 +1071,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(clipboardWrites, [pngA]);
-      expect(find.text('图片已复制到剪贴板'), findsOneWidget);
+      expect(find.text('图片已按图库默认保存设置复制'), findsOneWidget);
       expect(key('desktop-image-viewer'), findsNothing);
       expect(tester.takeException(), isNull);
     });

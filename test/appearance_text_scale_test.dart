@@ -142,7 +142,16 @@ void main() {
     await mount(tester);
     final setting = key('appearance-collapse-prompts');
     final toggle = find.descendant(of: setting, matching: find.byType(Switch));
-    await tester.ensureVisible(setting);
+    await tester.scrollUntilVisible(
+      setting,
+      250,
+      scrollable: find
+          .descendant(
+            of: find.byType(AppearancePage),
+            matching: find.byType(Scrollable),
+          )
+          .first,
+    );
     await tester.pumpAndSettle();
     expect(find.text('提示词卡片折叠'), findsOneWidget);
     expect(find.text('默认收起提示词卡'), findsNothing);
@@ -162,7 +171,16 @@ void main() {
       ],
     );
     await mount(tester);
-    await tester.ensureVisible(setting);
+    await tester.scrollUntilVisible(
+      setting,
+      250,
+      scrollable: find
+          .descendant(
+            of: find.byType(AppearancePage),
+            matching: find.byType(Scrollable),
+          )
+          .first,
+    );
     await tester.pumpAndSettle();
     expect(tester.widget<Switch>(toggle).value, isFalse);
     await tester.pumpWidget(const SizedBox());

@@ -15,7 +15,9 @@ import 'package:plana_app/core/store/app_stores.dart';
 import 'package:plana_app/features/desktop/desktop_library_state.dart';
 import 'package:plana_app/features/gallery/albums/album_state.dart';
 import 'package:plana_app/features/gallery/gallery_state.dart';
+import 'package:plana_app/features/generate/generate_state.dart';
 import 'package:plana_app/features/generate/generation_controller.dart';
+import 'package:plana_app/features/generate/loop_controller.dart';
 import 'package:plana_app/features/generate/models.dart';
 import 'package:plana_app/features/shell/shell_state.dart';
 
