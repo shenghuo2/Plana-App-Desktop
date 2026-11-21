@@ -135,6 +135,7 @@ class NaiGate {
     bool paid = false,
     NaiFreeOn? freeOn,
     GenAbort? abort,
+    String? keyId,
   }) async {
     while (abort?.aborted != true) {
       final seen = _released;
@@ -142,7 +143,10 @@ class NaiGate {
       // 只挑空着的:占着的反正轮不到,为它们去查状态只是白等。
       final idle = [
         for (final k in all)
-          if (k.joins && !_busy.contains(k.id)) k,
+          if (k.joins &&
+              !_busy.contains(k.id) &&
+              (keyId == null || k.id == keyId))
+            k,
       ];
       final picks = await _pick(all, idle, paid: paid, freeOn: freeOn);
       if (abort?.aborted == true) break;
@@ -158,7 +162,7 @@ class NaiGate {
       if (_released != seen) continue;
       // 一把都拿不到,而且谁都没在跑 —— 不会有人来还槽叫醒它,这一单是真的
       // 没有能用的 Key(一把都没存)。别让它挂在等位里。
-      if (_busy.isEmpty) break;
+      if (_busy.isEmpty || (keyId != null && !_busy.contains(keyId))) break;
       final w = Completer<void>();
       _waiters.add(w);
       // 等位期间被取消也要醒过来,否则这条会一直挂着

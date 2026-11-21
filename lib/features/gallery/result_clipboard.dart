@@ -22,7 +22,9 @@ Future<PreparedImageTransfer> prepareResultTransfer(
   return prepareImageTransfer(
     load: () async => result.bytes ?? await store?.readImage(result.id),
     settings: settings,
-    name: 'plana_${result.seed}',
+    name: result.operation == null
+        ? 'plana_${result.seed}'
+        : 'plana_director_${result.id}',
   );
 }
 

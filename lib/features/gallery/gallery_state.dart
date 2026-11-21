@@ -216,6 +216,7 @@ class GalleryNotifier extends Notifier<GalleryState> {
     required int seed,
     ResultBadge badge = ResultBadge.none,
     GenerateState? input,
+    ImageOperation? operation,
 
     /// 重绘产物的源图 id(供「按住对比」取原图);非重绘为 null。
     String? inpaintFrom,
@@ -240,6 +241,7 @@ class GalleryNotifier extends Notifier<GalleryState> {
       inpaintFrom: inpaintFrom,
       bytes: bytes,
       input: snap,
+      operation: operation,
     );
     // 检索索引同帧写入(input 在内存,零 IO)
     if (snap != null) {
@@ -281,25 +283,35 @@ class GalleryNotifier extends Notifier<GalleryState> {
     required GallerySaveTarget target,
     ResultBadge badge = ResultBadge.none,
     GenerateState? input,
+    ImageOperation? operation,
     String? inpaintFrom,
     int batchIndex = -1,
     bool select = true,
     bool Function()? canSelect,
     bool notify = true,
+    ResultImage? retryResult,
   }) async {
     final revision = _selectionRevision;
-    final r = addResult(
+    if (retryResult != null &&
+        !state.results.any((image) => image.id == retryResult.id)) {
+      throw StateError('待保存的图片已被移除');
+    }
+    final r = retryResult ?? addResult(
       bytes: bytes,
       width: width,
       height: height,
       seed: seed,
       badge: badge,
       input: input,
+      operation: operation,
       inpaintFrom: inpaintFrom,
       batchIndex: batchIndex,
       select: false,
     );
     final store = ref.read(appStoresProvider).gallery;
+    if (retryResult != null) {
+      _writes[r.id] = store.persistResult(r);
+    }
     try {
       await _writes[r.id];
       await store.flushIndex();
@@ -407,6 +419,7 @@ class GalleryNotifier extends Notifier<GalleryState> {
             inpaintHistoryCleared: source.inpaintHistoryCleared,
             favorite: source.favorite,
             hasInput: source.hasInput,
+            operation: source.operation,
           );
           copies.add(copy);
           destinations[copy.id] = target;

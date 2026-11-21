@@ -24,7 +24,9 @@ ImageDropPayload galleryDragPayload(
   return ImageDropPayload.image(
     imageId: result.id,
     source: canvas ? 'canvas' : 'history',
-    name: 'plana_${result.seed}.png',
+    name: result.operation == null
+        ? 'plana_${result.seed}.png'
+        : '导演结果_${result.id}.png',
     load: () async => result.bytes ?? await store?.readImage(result.id),
   );
 }

@@ -621,6 +621,33 @@ class NaiClient {
     return base64Encode(resp.bodyBytes);
   }
 
+  /// Director operations have their own schema and may return several PNGs.
+  /// No automatic retry: the server may already have charged a timed-out job.
+  Future<Uint8List> augmentImage({
+    required String token,
+    required Map<String, Object?> parameters,
+  }) async {
+    if (_chat) throw NaiException('OpenAI 格式接口不支持导演工具');
+    final response = await http
+        .post(
+          Uri.parse('$_host/ai/augment-image'),
+          headers: {..._genHeaders(token), 'accept': 'application/zip'},
+          body: jsonEncode(parameters),
+        )
+        .timeout(const Duration(seconds: 120));
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      // Do not echo arbitrary response bodies, which can contain request data.
+      throw NaiException(switch (response.statusCode) {
+        401 || 403 => '导演接口拒绝授权，请检查当前账户',
+        402 => '当前账户点数或订阅不足',
+        404 || 405 => '当前服务未提供导演工具接口',
+        429 => '当前账户请求过多，请稍后重试',
+        _ => '导演转换失败（HTTP ${response.statusCode}）',
+      }, status: response.statusCode);
+    }
+    return response.bodyBytes;
+  }
+
   String _errorText(http.Response r) => _errorTextRaw(r.body, r.statusCode);
 
   String _errorTextRaw(String body, int code) {

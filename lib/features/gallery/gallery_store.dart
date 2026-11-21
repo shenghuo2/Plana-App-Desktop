@@ -158,6 +158,7 @@ class GalleryStore {
       favorite: raw['favorite'] == true,
       saved: raw['sv'] == true,
       hasInput: raw['hasInput'] == true,
+      operation: ImageOperation.fromJson(raw['operation']),
     );
   }
 
@@ -174,6 +175,7 @@ class GalleryStore {
     if (r.favorite) 'favorite': true,
     if (r.saved) 'sv': true,
     'hasInput': r.hasInput,
+    if (r.operation != null) 'operation': r.operation!.toJson(),
   };
 
   /// 原图完成写入而索引未提交时，补回新增图片并推进发号器。
