@@ -1,0 +1,73 @@
+name: Commit guard
+
+on:
+  push:
+    branches:
+      - 'main'
+      - 'feature/remote-upload'
+      - 'release/*'
+  pull_request:
+    branches:
+      - 'main'
+      - 'feature/remote-upload'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: commit-guard-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  guard:
+    name: Validate commits and staged hygiene
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Test git hooks and commit guard
+        run: python3 tool/test_git_hooks.py
+
+      - name: Resolve commit range and changed Dart files
+        id: range
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            BASE_SHA="${{ github.event.pull_request.base.sha }}"
+            HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+          else
+            BASE_SHA="${{ github.event.before }}"
+            HEAD_SHA="${{ github.sha }}"
+          fi
+          {
+            echo "BASE_SHA=$BASE_SHA"
+            echo "HEAD_SHA=$HEAD_SHA"
+          } >> "$GITHUB_ENV"
+          dart_files="$(python3 tool/git_hooks.py ci-check --base "$BASE_SHA" --head "$HEAD_SHA" --list-dart-only)"
+          if [[ -n "$dart_files" ]]; then
+            echo "has_dart=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_dart=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up Flutter for Dart formatting check
+        if: steps.range.outputs.has_dart == 'true'
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44.2'
+          channel: stable
+          cache: true
+
+      - name: Enforce commit messages, hygiene, and invariants
+        shell: bash
+        run: |
+          set -euo pipefail
+          args=(ci-check --base "$BASE_SHA" --head "$HEAD_SHA")
+          if [[ "${{ steps.range.outputs.has_dart }}" == "true" ]]; then
+            args+=(--check-dart-format)
+          fi
+          python3 tool/git_hooks.py "${args[@]}"

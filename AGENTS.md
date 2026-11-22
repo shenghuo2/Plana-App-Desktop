@@ -9,6 +9,58 @@
 - 正式 Release 图片存入独立的 `release-media` 分支，正文使用固定到具体提交的公开 raw 地址。Release 的 Assets 只保留安装包、统一的 `SHA256SUMS.txt` 和构建清单，不上传截图或各包独立的校验文件。局域网地址和本机文件路径仅用于开发预览。发布沿用当前会话的授权范围。
 - GitHub 折叠区保留完整图文，应用内更新说明展示区外的简报。修改 Release 格式时检查这两处的显示效果。
 
+## Git Commit Conventions
+
+Follow these rules strictly for every commit (never bypass git hooks with `--no-verify`):
+
+### 1. Commit Message Format
+- **Format**: `<type>(<scope>): <中文简述>` (`scope` is optional; append `!` before `:` for breaking changes; `Merge ` and `Revert ` headers are exempt; `[skip ci]` control tags may follow the Chinese description when skipping duplicate push CI).
+- **Allowed `type`**:
+  - `feat`: new feature
+  - `fix`: bug fix
+  - `docs`: documentation only
+  - `style`: formatting/whitespace with no logic change
+  - `refactor`: code restructuring without changing behavior
+  - `perf`: performance improvement
+  - `test`: adding or updating tests
+  - `build`: build system or external dependencies
+  - `ci`: CI/CD configuration or scripts
+  - `chore`: tooling, config, or maintenance tasks
+- **Language**: Both subject and body MUST be written in **Chinese** (both must contain Chinese characters `[\u4e00-\u9fff]`; standard git trailers such as `Co-Authored-By:` and `(cherry picked from commit ...)` are exempt).
+- **Scope & Granularity**:
+  - Use a concise lowercase module/area name matching `[a-z0-9_/-]+` (e.g., `auth`, `gallery`, `desktop`, `remote-upload`, `ci`); omit `scope` for cross-cutting changes.
+  - Keep **one logical change / one module per commit**; split unrelated changes into separate commits.
+- **Examples**:
+  - `feat(gallery): 新增回收站批量恢复与永久删除`
+  - `fix(windows): 修复 MSVC 14.52 下 WinRT 头文件的协程编译报错`
+  - `refactor(storage): 抽离存储写入失败拦截逻辑`
+  - `docs: 补充本地调试与版本校验说明`
+
+### 2. Staging & Hygiene Rules
+- **Never stage**:
+  - Runtime data, local secrets/credentials, or generated artifacts (`.env*` except `.env.example`/`.env.template`, `client_secret*.json`, `tool/local/google-drive-desktop.json`, `android/key.properties`, `*.jks`, `*.keystore`, `*.secure`, `flutter_secure_storage*.dat`, `bot_session*.json`, `settings.json`, `prefs.json`, `prompt_presets.json`, `desktop_output_roots.json`, `my_public_tags.json`, `tag_library*.json`, `output/`, `作品/`, `build/`, `dist/`, `logs/`, `backups/`, `validation/`, `coverage/`, `__pycache__/`, `.DS_Store`);
+  - Temporary summary/report/handoff files (`*_SUMMARY.md`, `HANDOFF.md`, `NEXT-SESSION.md`, `WINDOWS-PLAN.md`, `WINDOWS-SOURCE.json`, `WINDOWS-VALIDATION.md`);
+  - Unrelated unstaged edits in the working tree or unresolved conflict markers.
+- **Code & comment hygiene**:
+  - Retain `plana-app-desktop`'s existing bilingual Chinese/English inline comment and log convention (`pre-commit` does not block Chinese comments or logs inside code).
+  - Update relevant docs and tests whenever public behavior, config, or APIs change.
+
+### 3. Pre-Commit Verification
+Before running `git commit`:
+1. Run `dart format` and `flutter analyze --no-pub` on all staged/modified files and resolve all errors.
+2. Run relevant unit/integration tests covering the changed modules (`flutter test --no-pub ...` / `python3 tool/test_*.py`).
+3. Inspect `git status` and `git diff --cached` to confirm only intended files are staged.
+
+### 4. Mandatory Hook & CI Enforcement
+- **Local Hook Setup** (required once per clone; shared across linked worktrees):
+  ```bash
+  git config core.hooksPath .githooks
+  ```
+- **Local enforcement (`.githooks/` -> `tool/git_hooks.py`)**:
+  - `commit-msg`: validates header against `^(feat|fix|docs|style|refactor|perf|test|build|ci|chore)(\([a-z0-9_/-]+\))?!?: .+$` (exempting `Merge ` / `Revert `), and requires CJK characters in both subject and body prose.
+  - `pre-commit`: blocks forbidden paths/reports, unresolved conflict markers, Python/YAML syntax errors, `pubspec.yaml`/`lib/core/app_info.dart` version or identity drift, `pubspec.lock` `gal != 2.3.3` drift, unformatted staged Dart blobs (`dart format`), partial Dart/config staging, and `flutter analyze --no-pub` errors.
+- **CI enforcement (`.github/workflows/commit-guard.yml`)**: validates all pushes to `main`, `feature/remote-upload`, `release/*` and pull requests into `main` / `feature/remote-upload` for all commits after `v1.2.4-desktop` (`52af938` / `7d572a5`), alongside `python3 tool/test_git_hooks.py` in `build-desktop-edition.yml`.
+
 ## 上游合并与桌面保留清单
 
 合并 `LingXia979/Plana-App-for-windows` 或 Android 上游 `mc5024/Plana-App` 时，必须保留以下桌面能力与兼容性红线：
@@ -51,6 +103,7 @@
   python3 tool/test_desktop_build_plan.py
   python3 tool/test_macos_arm64.py
   python3 tool/test_desktop_release_checksums.py
+  python3 tool/test_git_hooks.py
   ```
 - **验证边界与合规**：自动化测试仅使用模拟服务与合成数据，禁止消耗真实账号点数；交付报告需区分自动化测试与真机交互验收（剪贴板互通、拖放、原生安装包、实机出图）。项目遵循 GPL-3.0，合并上游或第三方资源时须保留原作者、贡献者署名及 `THIRD_PARTY_NOTICES.md`、`docs/ACKNOWLEDGEMENTS.md`。
 

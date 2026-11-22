@@ -11,6 +11,7 @@ macOS 需要 Xcode、命令行工具及 CocoaPods。
 ```bash
 git clone --branch main https://github.com/shenghuo2/Plana-App-Desktop.git
 cd Plana-App-Desktop
+git config core.hooksPath .githooks
 flutter pub get --enforce-lockfile
 ```
 
@@ -46,14 +47,18 @@ flutter run -d macos
 
 ## 修改与验证
 
-先阅读仓库的 [任务交付约定](AGENTS.md)。修复需保留桌面布局与移动布局各自的
-行为，并检查远端上传版的 edition、上传配置与任务入口是否受影响。
+先阅读仓库的 [任务交付与提交规范](AGENTS.md)。每次提交需遵守仓库的中文提交规范，通过
+`git config core.hooksPath .githooks` 启用本地强制校验（GitHub Actions `Commit guard`
+会在推送和 PR 时再次校验 `v1.2.4-desktop` 之后的新提交，禁止使用 `--no-verify` 跳过）。
+修复需保留桌面布局与移动布局各自的行为，并检查远端上传版的 edition、上传配置与任务入口是否受影响。
 
 ```bash
 flutter analyze --no-pub
 flutter test --no-pub --concurrency=2
 python3 tool/test_desktop_build_plan.py
 python3 tool/test_macos_arm64.py
+python3 tool/test_desktop_release_checksums.py
+python3 tool/test_git_hooks.py
 ```
 
 根据改动范围运行相关检查。文档修改检查链接、截图路径和版本描述；原生剪贴板、
