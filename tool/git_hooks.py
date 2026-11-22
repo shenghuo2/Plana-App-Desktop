@@ -532,20 +532,33 @@ def _collect_commit_changed_paths(repo: Path, commits: Sequence[str]) -> list[st
     changed: list[str] = []
     seen: set[str] = set()
     for sha in commits:
-        raw = _git_bytes(
-            repo,
-            [
+        parents_line = _git_text(repo, ["rev-list", "--parents", "-n", "1", sha]).strip()
+        parents = parents_line.split()[1:]
+        if parents:
+            # Diff against the first parent only so merge commits don't re-flag
+            # untouched branch-specific differences from parent 2+.
+            diff_args = [
                 "diff-tree",
                 "--no-commit-id",
                 "--name-status",
                 "-r",
                 "-z",
-                "-m",
-                "--first-parent",
+                "--diff-filter=ACMR",
+                parents[0],
+                sha,
+            ]
+        else:
+            diff_args = [
+                "diff-tree",
+                "--no-commit-id",
+                "--root",
+                "--name-status",
+                "-r",
+                "-z",
                 "--diff-filter=ACMR",
                 sha,
-            ],
-        )
+            ]
+        raw = _git_bytes(repo, diff_args)
         for path in _parse_nul_name_status(raw):
             if path not in seen:
                 seen.add(path)
