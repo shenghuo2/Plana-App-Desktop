@@ -1,0 +1,11 @@
+#!/usr/bin/env sh
+set -eu
+ROOT="$(git rev-parse --show-toplevel)"
+if command -v python3 >/dev/null 2>&1; then
+  exec python3 "$ROOT/tool/git_hooks.py" commit-msg "$@"
+elif command -v python >/dev/null 2>&1; then
+  exec python "$ROOT/tool/git_hooks.py" commit-msg "$@"
+else
+  echo "[git-hook] ERROR: python3/python not found in PATH; cannot validate commit message." >&2
+  exit 1
+fi
