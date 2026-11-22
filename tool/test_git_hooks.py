@@ -239,6 +239,40 @@ class GitHooksE2ETest(unittest.TestCase):
         self.assertNotEqual(ci_bad.returncode, 0)
         self.assertIn("MUST contain Chinese", ci_bad.stderr)
 
+    def test_ci_check_merge_commit_only_inspects_first_parent_diff(self) -> None:
+        repo = self._create_temp_repo()
+        (repo / "edition.txt").write_text("base\n", encoding="utf-8")
+        _git(repo, "add", "edition.txt")
+        _git(repo, "commit", "-m", "chore: 添加基础版本文件")
+        main_branch = _git(repo, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
+
+        _git(repo, "checkout", "-b", "feature/test-edition")
+        (repo / "edition.txt").write_text("feature-only\n", encoding="utf-8")
+        _git(repo, "add", "edition.txt")
+        _git(repo, "commit", "-m", "feat(edition): 修改分支专有配置")
+        feature_base = _git(repo, "rev-parse", "HEAD").stdout.strip()
+
+        _git(repo, "checkout", main_branch)
+        (repo / "shared.txt").write_text("from-main\n", encoding="utf-8")
+        _git(repo, "add", "shared.txt")
+        _git(repo, "commit", "-m", "docs: 主分支新增共享说明")
+
+        _git(repo, "checkout", "feature/test-edition")
+        _git(repo, "merge", "--no-ff", main_branch, "-m", "chore(edition): 同步主分支更新")
+        merge_sha = _git(repo, "rev-parse", "HEAD").stdout.strip()
+
+        paths = git_hooks._collect_commit_changed_paths(repo, [merge_sha])
+        self.assertEqual(paths, ["shared.txt"])
+        ci_ok = subprocess.run(
+            ["python3", "tool/git_hooks.py", "ci-check", "--base", feature_base, "--head", "HEAD"],
+            cwd=str(repo),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(ci_ok.returncode, 0, msg=ci_ok.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()
