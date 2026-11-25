@@ -81,20 +81,37 @@ class TagLibraryState {
       if (!isRemoved(k)) k,
   ];
 
+  List<TagCategory> get visibleCategories => [
+    for (final key in visibleTabKeys) ?tagCategoryByWebId(key),
+  ];
+
   List<TagEntry> of(TagCategory c) => [
     for (final e in entries)
-      if (e.category == c) e,
+      if (e.category == c && !isStockInspirationExample(e)) e,
   ];
 
   List<String> poolOf(TagCategory c) => pools[c] ?? const [];
+
+  /// 旧的公共副本可能只存了名字。同名的自建条目仍有自己的标签和星标。
+  TagEntry? Function(TagEntry) publicCopyLookup(TagCategory category) {
+    final byId = <String, TagEntry>{};
+    final legacyByName = <String, TagEntry>{};
+    for (final e in of(category)) {
+      if (e.publicId case final id?) {
+        byId[id] = e;
+      } else if (e.origin != TagOrigin.local) {
+        legacyByName[e.name] = e;
+      }
+    }
+    return (entry) => byId[entry.publicId] ?? legacyByName[entry.name];
+  }
 
   /// 筛选行可用标签 = 标签池 ∪ 条目在用标签(对齐 web CompactPanel 并集)。
   /// 池里的按池的顺序,只挂在条目上、不在池里的按字母序排在后面。
   List<String> knownTags(TagCategory c) {
     final pool = <String>{...poolOf(c)};
     final extra = <String>{};
-    for (final e in entries) {
-      if (e.category != c) continue;
+    for (final e in of(c)) {
       for (final t in e.tags) {
         if (!pool.contains(t)) extra.add(t);
       }
@@ -313,16 +330,29 @@ class TagLibrary extends AsyncNotifier<TagLibraryState> {
 
   /// 新增或按 id 覆盖(新建/编辑共用,对齐 web saveCustomTag 的 upsert);
   /// 被替换掉的本机预览文件顺带清理。
-  Future<void> upsert(TagEntry e) async {
+  Future<void> upsert(TagEntry e, {bool requirePersistence = false}) async {
+    await future;
+    final previous = _s;
     final list = [..._s.entries];
     final i = list.indexWhere((x) => x.id == e.id);
     if (i >= 0) {
-      _gcPreviewFiles(list[i].previews, keep: e.previews);
       list[i] = e;
     } else {
       list.add(e);
     }
-    await _set(_s.copyWith(entries: list));
+    final next = previous.copyWith(entries: list);
+    try {
+      await _set(next, requirePersistence: requirePersistence);
+    } catch (_) {
+      if (identical(_s, next)) state = AsyncData(previous);
+      rethrow;
+    }
+    if (i >= 0) {
+      _gcPreviewFiles(
+        previous.entries[i].previews,
+        keep: [for (final entry in _s.entries) ...entry.previews],
+      );
+    }
   }
 
   Future<void> remove(String id) async {
@@ -408,36 +438,45 @@ class TagLibrary extends AsyncNotifier<TagLibraryState> {
     }
   }
 
-  /// 公共条目是否已收藏(同分类下 publicId 或同名任一命中)。
-  bool isCollected(TagCategory c, {String? publicId, required String name}) {
+  TagEntry? _collectionMatch(TagCategory c, String? publicId, String name) {
+    TagEntry? legacy;
     for (final e in _s.entries) {
       if (e.category != c) continue;
-      if (publicId != null && e.publicId == publicId) return true;
-      if (e.name == name) return true;
+      if (publicId != null && e.publicId == publicId) return e;
+      if (e.name == name && (e.publicId == null || publicId == null)) {
+        legacy ??= e;
+      }
     }
-    return false;
+    return legacy;
+  }
+
+  bool isCollected(TagCategory c, {String? publicId, required String name}) {
+    final copy = _collectionMatch(c, publicId, name);
+    return copy != null && (copy.favorite ?? true);
   }
 
   /// 收藏公共条目为本地副本;重复收藏返回 false。
   /// 老数据(同名但没记 publicId)顺手补上归属信息——「按机会迁移」,
   /// 对齐 web,否则去重与「收藏副本只读」判定会漏。
   Future<bool> collect(TagEntry publicEntry) async {
-    for (final e in _s.entries) {
-      if (e.category != publicEntry.category) continue;
-      final hit =
-          (publicEntry.publicId != null &&
-              e.publicId == publicEntry.publicId) ||
-          e.name == publicEntry.name;
-      if (!hit) continue;
-      if (e.publicId == null && publicEntry.publicId != null) {
+    final e = _collectionMatch(
+      publicEntry.category,
+      publicEntry.publicId,
+      publicEntry.name,
+    );
+    if (e != null) {
+      final linkLegacy = e.publicId == null && publicEntry.publicId != null;
+      final restoreStar = e.favorite == false;
+      if (linkLegacy || restoreStar) {
         await upsert(
           e.copyWith(
-            publicId: publicEntry.publicId,
-            origin: TagOrigin.favorited,
+            publicId: linkLegacy ? publicEntry.publicId : e.publicId,
+            origin: linkLegacy ? TagOrigin.favorited : e.origin,
+            favorite: restoreStar ? true : e.favorite,
           ),
         );
       }
-      return false;
+      return restoreStar;
     }
     await upsert(
       TagEntry(
@@ -633,8 +672,8 @@ class TagLibrary extends AsyncNotifier<TagLibraryState> {
 
   int poolTagUsage(TagCategory c, String tag) {
     var n = 0;
-    for (final e in _s.entries) {
-      if (e.category == c && e.tags.contains(tag)) n++;
+    for (final e in _s.of(c)) {
+      if (e.tags.contains(tag)) n++;
     }
     return n;
   }
@@ -775,7 +814,13 @@ class TagLibrary extends AsyncNotifier<TagLibraryState> {
               restored[e.id] ??
               _s.entries.where((entry) => entry.id == e.id).firstOrNull;
           restored[e.id] = e.copyWith(
-            previews: await _restorePreviews(item, e.id, old, created, resolvePreview),
+            previews: await _restorePreviews(
+              item,
+              e.id,
+              old,
+              created,
+              resolvePreview,
+            ),
           );
         }
         if (added + updated > 0) {

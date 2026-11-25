@@ -11,6 +11,7 @@ import 'core/auth/secure_storage.dart';
 import 'core/net/network_proxy.dart';
 import 'core/platform/clipboard_image.dart';
 import 'core/platform/desktop.dart';
+import 'core/platform/windows_diagnostics.dart';
 import 'core/store/app_stores.dart';
 import 'core/store/gen_settings.dart';
 import 'core/store/storage_lifecycle.dart';
@@ -32,11 +33,15 @@ import 'features/editor/editor_state.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  final diagnostics = RuntimeDiagnostics.initialize();
+  if (Platform.isWindows) {
+    await windowsDiagnostics.initialize();
+  } else {
+    RuntimeDiagnostics.initialize();
+  }
   try {
     await _startApplication();
   } catch (error, stack) {
-    diagnostics?.error('startup-error', error, stack);
+    RuntimeDiagnostics.current?.error('startup-error', error, stack);
     rethrow;
   }
 }

@@ -23,6 +23,7 @@ import '../../../core/ui/setting_row.dart';
 import '../../generate/widgets/common.dart' show dropFocusSoon;
 import '../agent_model.dart';
 import '../custom_endpoint.dart';
+import 'assistant_tag.dart';
 import '../endpoints_page.dart';
 import '../image_gen/image_models.dart'
     show ImageModelChoice, imageModelChoicesProvider;
@@ -47,7 +48,9 @@ class _AssistantModelDropdownState
     final models = ref.watch(agentModelsProvider);
     final current = ref.watch(assistantModelProvider);
     final endpointState = ref.watch(customEndpointsProvider);
-    final endpoints = endpointState.value ?? const [];
+    final endpoints = (endpointState.value ?? const <CustomEndpoint>[]).where(
+      (e) => e.enabled,
+    );
     final images = ref.watch(imageModelChoicesProvider);
     final authorized = ref.watch(assistantBotAuthorizedProvider);
     final hostedImages = images.where((m) => m.endpoint == null && m.available);
@@ -61,6 +64,7 @@ class _AssistantModelDropdownState
       String name, {
       String? subtitle,
       bool recommended = false,
+      bool image = false,
     }) => MenuItemButton(
       key: ValueKey('assistant-model-$key'),
       autofocus: current?.key == key,
@@ -76,16 +80,27 @@ class _AssistantModelDropdownState
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                name,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: current?.key == key
-                      ? FontWeight.w600
-                      : FontWeight.w400,
-                ),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Flexible(
+                    child: Text(
+                      name,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: current?.key == key
+                            ? FontWeight.w600
+                            : FontWeight.w400,
+                      ),
+                    ),
+                  ),
+                  if (image) ...[
+                    const SizedBox(width: 6),
+                    AssistantTag(context.l10n.imageModelField),
+                  ],
+                ],
               ),
               if (subtitle != null || recommended)
                 Text(
@@ -145,11 +160,7 @@ class _AssistantModelDropdownState
             ],
           },
           for (final image in hostedImages)
-            choice(
-              '$kImageKeyPrefix${image.key}',
-              image.name,
-              subtitle: context.l10n.imageModelField,
-            ),
+            choice('$kImageKeyPrefix${image.key}', image.name, image: true),
           const Divider(height: 12),
         ],
         settingSection(context, l10nNow.myEndpoints),
@@ -184,6 +195,7 @@ class _AssistantModelDropdownState
             choice(
               '$kImageKeyPrefix${image.key}',
               image.name,
+              image: true,
               subtitle: e.displayName,
             ),
         ],
@@ -225,6 +237,10 @@ class _AssistantModelDropdownState
                 style: const TextStyle(fontSize: 12),
               ),
             ),
+            if (imageChoiceKeyOf(current?.key ?? '') != null) ...[
+              const SizedBox(width: 6),
+              AssistantTag(context.l10n.imageModelField),
+            ],
             const SizedBox(width: 6),
             const Icon(Icons.expand_more, size: 16),
           ],
@@ -256,7 +272,9 @@ class _ModelSheet extends ConsumerWidget {
     final async = ref.watch(agentModelsProvider);
     final currentKey = ref.watch(assistantModelProvider)?.key ?? '';
     final endpointState = ref.watch(customEndpointsProvider);
-    final endpoints = endpointState.value ?? const [];
+    final endpoints = (endpointState.value ?? const <CustomEndpoint>[]).where(
+      (e) => e.enabled,
+    );
     // 没有 Bot 授权时只列免费的;后端一条免费的都没有就整组不列
     final authorized = ref.watch(assistantBotAuthorizedProvider);
     List<AgentModelChoice> shown(AgentModelList l) =>
@@ -268,6 +286,7 @@ class _ModelSheet extends ConsumerWidget {
       context,
       icon: Icons.image_outlined,
       title: m.name,
+      badge: context.l10n.imageModelField,
       // 没授权的后端渠道只说暂未开放,不引导去授权
       subtitle:
           m.endpoint?.displayName ??

@@ -89,6 +89,8 @@ void main() {
       ],
     );
     expect(list[1].title, 'alice');
+    expect(list[1].postCount, 50);
+    expect(list[2].postCount, isNull);
     expect(list[1].path, ['单画师词典', '高光二次元', '逆光半厚涂']);
     expect(list[3].path, ['单画师词典', '未归类']);
   });

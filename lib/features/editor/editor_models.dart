@@ -12,9 +12,8 @@ import 'dart:math' as math;
 import '../../core/util/prompt_convert.dart' show naiNumWeight;
 import 'data/suggestions.dart';
 
-/// Explicit provenance for the two folds created by one inspiration import.
-/// Names are anchors, not evidence of a relationship: only a persisted record
-/// with both unique, unchanged bodies authorizes deleting its counterpart.
+/// Identifies one placed inspiration. A single-sided placement has an empty
+/// name and body on the absent side. Older paired placements have no entry ID.
 class PromptFoldLink {
   const PromptFoldLink({
     required this.id,
@@ -22,21 +21,60 @@ class PromptFoldLink {
     required this.positiveBody,
     required this.negativeName,
     required this.negativeBody,
+    this.sourceEntryId,
+    this.temporaryCategory,
+    this.temporaryIcon,
   });
 
-  final String id;
-  final String positiveName, positiveBody, negativeName, negativeBody;
-
-  PromptFoldLink renamed(String positive, String negative) => PromptFoldLink(
-    id: id,
-    positiveName: positive,
+  static final _random = math.Random.secure();
+  factory PromptFoldLink.forEntry(
+    String sourceEntryId, {
+    String positiveName = '',
+    String positiveBody = '',
+    String negativeName = '',
+    String negativeBody = '',
+  }) => PromptFoldLink(
+    id: List.generate(
+      16,
+      (_) => _random.nextInt(256).toRadixString(16).padLeft(2, '0'),
+    ).join(),
+    sourceEntryId: sourceEntryId,
+    positiveName: positiveName,
     positiveBody: positiveBody,
-    negativeName: negative,
+    negativeName: negativeName,
     negativeBody: negativeBody,
+  );
+
+  final String id;
+  final String? sourceEntryId;
+  final String? temporaryCategory;
+  final String? temporaryIcon;
+  final String positiveName, positiveBody, negativeName, negativeBody;
+  bool get paired => positiveName.isNotEmpty && negativeName.isNotEmpty;
+
+  PromptFoldLink copyWith({
+    String? id,
+    String? sourceEntryId,
+    String? positiveName,
+    String? positiveBody,
+    String? negativeName,
+    String? negativeBody,
+  }) => PromptFoldLink(
+    id: id ?? this.id,
+    sourceEntryId: sourceEntryId ?? this.sourceEntryId,
+    temporaryCategory: sourceEntryId == null ? temporaryCategory : null,
+    temporaryIcon: sourceEntryId == null ? temporaryIcon : null,
+    positiveName: positiveName ?? this.positiveName,
+    positiveBody: positiveBody ?? this.positiveBody,
+    negativeName: negativeName ?? this.negativeName,
+    negativeBody: negativeBody ?? this.negativeBody,
   );
 
   Map<String, String> toJson() => {
     'id': id,
+    'sourceEntryId': ?sourceEntryId,
+    'temporaryCategory': ?temporaryCategory,
+    'temporaryIcon': ?temporaryIcon,
     'positiveName': positiveName,
     'positiveBody': positiveBody,
     'negativeName': negativeName,
@@ -46,24 +84,36 @@ class PromptFoldLink {
   static List<PromptFoldLink> decode(Object? json) => [
     if (json is List)
       for (final item in json)
-        if (item is Map &&
-            [
-              'id',
-              'positiveName',
-              'positiveBody',
-              'negativeName',
-              'negativeBody',
-            ].every(
-              (key) =>
-                  item[key] is String &&
-                  (item[key] as String).trim().isNotEmpty,
-            ))
+        if (item
+            case {
+              'id': final String id,
+              'positiveName': final String pn,
+              'positiveBody': final String pb,
+              'negativeName': final String nn,
+              'negativeBody': final String nb,
+            }
+            when id.isNotEmpty &&
+                (pn.isNotEmpty || nn.isNotEmpty) &&
+                (pn.isNotEmpty || pb.isEmpty) &&
+                (nn.isNotEmpty || nb.isEmpty) &&
+                ((pn.isNotEmpty && nn.isNotEmpty) ||
+                    item['sourceEntryId'] is String ||
+                    item['temporaryCategory'] is String))
           PromptFoldLink(
-            id: item['id'] as String,
-            positiveName: item['positiveName'] as String,
-            positiveBody: item['positiveBody'] as String,
-            negativeName: item['negativeName'] as String,
-            negativeBody: item['negativeBody'] as String,
+            id: id,
+            temporaryIcon: item['temporaryIcon'] is String
+                ? item['temporaryIcon'] as String
+                : null,
+            temporaryCategory: item['temporaryCategory'] is String
+                ? item['temporaryCategory'] as String
+                : null,
+            sourceEntryId: item['sourceEntryId'] is String
+                ? item['sourceEntryId'] as String
+                : null,
+            positiveName: pn,
+            positiveBody: pb,
+            negativeName: nn,
+            negativeBody: nb,
           ),
   ];
 
@@ -71,14 +121,25 @@ class PromptFoldLink {
   bool operator ==(Object other) =>
       other is PromptFoldLink &&
       id == other.id &&
+      sourceEntryId == other.sourceEntryId &&
+      temporaryCategory == other.temporaryCategory &&
+      temporaryIcon == other.temporaryIcon &&
       positiveName == other.positiveName &&
       positiveBody == other.positiveBody &&
       negativeName == other.negativeName &&
       negativeBody == other.negativeBody;
 
   @override
-  int get hashCode =>
-      Object.hash(id, positiveName, positiveBody, negativeName, negativeBody);
+  int get hashCode => Object.hash(
+    id,
+    sourceEntryId,
+    temporaryCategory,
+    temporaryIcon,
+    positiveName,
+    positiveBody,
+    negativeName,
+    negativeBody,
+  );
 }
 
 /// Ambiguous, edited or unwrapped anchors lose their link conservatively. Old
@@ -91,6 +152,7 @@ List<PromptFoldLink> validPromptFoldLinks(
   if (links.isEmpty) return const [];
   final pos = parseFolds(positive), neg = parseFolds(negative);
   bool matches(String text, List<FoldSpan> folds, String name, String body) {
+    if (name.isEmpty) return body.isEmpty;
     final named = folds.where((fold) => fold.name == name).toList();
     return named.length == 1 &&
         text.substring(named.single.bodyStart, named.single.bodyEnd).trim() ==
@@ -100,6 +162,11 @@ List<PromptFoldLink> validPromptFoldLinks(
   final candidates = links
       .where(
         (link) =>
+            (link.paired ||
+                ((link.sourceEntryId?.isNotEmpty == true ||
+                        link.temporaryCategory?.isNotEmpty == true) &&
+                    (link.positiveName.isNotEmpty ||
+                        link.negativeName.isNotEmpty))) &&
             matches(positive, pos, link.positiveName, link.positiveBody) &&
             matches(negative, neg, link.negativeName, link.negativeBody),
       )
@@ -107,14 +174,16 @@ List<PromptFoldLink> validPromptFoldLinks(
   return [
     for (final link in candidates)
       if (candidates.where((other) => other.id == link.id).length == 1 &&
-          candidates
-                  .where((other) => other.positiveName == link.positiveName)
-                  .length ==
-              1 &&
-          candidates
-                  .where((other) => other.negativeName == link.negativeName)
-                  .length ==
-              1)
+          (link.positiveName.isEmpty ||
+              candidates
+                      .where((other) => other.positiveName == link.positiveName)
+                      .length ==
+                  1) &&
+          (link.negativeName.isEmpty ||
+              candidates
+                      .where((other) => other.negativeName == link.negativeName)
+                      .length ==
+                  1))
         link,
   ];
 }
@@ -1033,6 +1102,7 @@ bool _isTagOpen(String c) {
 
 /// 折叠列表(按出现顺序,不嵌套故互不重叠)。
 List<FoldSpan> parseFolds(String text) {
+  if (!text.contains('<')) return const [];
   final out = <FoldSpan>[];
   parseToks(text, folds: out);
   return out;
@@ -1170,6 +1240,7 @@ bool _truncatedAt(String text, int lo, int hi) {
 /// 各占一个逗号段 —— 改写类操作都按逗号段量边界,连写着改容易把两枚词粘到
 /// 一起(`1.2::a::b` 清掉 a 的权重得到 `ab`)。
 String _unchain(String text, int lo, int hi) {
+  if (!text.substring(lo, hi).contains('::')) return text;
   final seams = <(int, int)>[];
   _parse(text, chainSeams: seams);
   var out = text;
@@ -1303,27 +1374,21 @@ String renameTok(String text, Tok t, String name) {
 /// 常剩下这种形态)时,摘掉名字外侧最近的那一对。
 String toggleTokDisabled(String text, Tok tok) {
   final (src, t) = _unchained(text, tok);
-  text = src;
-  if (!t.disabled) {
-    return text.replaceRange(
-      t.segStart,
-      t.segEnd,
-      '~${text.substring(t.segStart, t.segEnd)}~',
-    );
-  }
-  if (t.coreStart > t.segStart) {
-    return text.replaceRange(
-      t.segStart,
-      t.segEnd,
-      text.substring(t.coreStart, t.coreEnd),
-    );
-  }
-  var out = text;
-  final r = text.indexOf('~', t.nameEnd);
-  if (r >= 0 && r < t.segEnd) out = out.replaceRange(r, r + 1, '');
-  final l = t.nameStart > 0 ? text.lastIndexOf('~', t.nameStart - 1) : -1;
-  if (l >= t.segStart) out = out.replaceRange(l, l + 1, '');
-  return out;
+  return src.replaceRange(t.segStart, t.segEnd, _toggledSegment(src, t));
+}
+
+String _toggledSegment(String text, Tok t) {
+  if (!t.disabled) return '~${text.substring(t.segStart, t.segEnd)}~';
+  if (t.coreStart > t.segStart) return text.substring(t.coreStart, t.coreEnd);
+
+  var segment = text.substring(t.segStart, t.segEnd);
+  final r = segment.indexOf('~', t.nameEnd - t.segStart);
+  if (r >= 0) segment = segment.replaceRange(r, r + 1, '');
+  final l = t.nameStart > t.segStart
+      ? segment.lastIndexOf('~', t.nameStart - t.segStart - 1)
+      : -1;
+  if (l >= 0) segment = segment.replaceRange(l, l + 1, '');
+  return segment;
 }
 
 // ---- 划词多选批量操作(web multiSelectActions 移植)----
@@ -1375,6 +1440,7 @@ String? _explodeAround(
   int first,
   int last, {
   required bool keepEnclosingNum,
+  bool keepEnclosingBrace = true,
 }) {
   var out = text;
   // 每拆一层少一个组、只添词条自身的记号,不会越拆越多;上限只是保险
@@ -1387,7 +1453,9 @@ String? _explodeAround(
       if (g.firstTok >= first && g.lastTok <= last) continue;
       // 包住选区(边界可以和选区首尾对齐):它的记号不在改写范围里,留着
       final encloses = g.firstTok <= first && g.lastTok >= last;
-      if (encloses && (g.brace || keepEnclosingNum)) continue;
+      if (encloses && (g.brace ? keepEnclosingBrace : keepEnclosingNum)) {
+        continue;
+      }
       hit = g;
       break;
     }
@@ -1443,13 +1511,20 @@ String? _batchSource(
   int first,
   int last, {
   required bool keepEnclosingNum,
+  bool keepEnclosingBrace = true,
 }) {
   // 选中的组的收口可能落在下一个逗号段开头、兼作分隔(`1.2::a, b, ::c`):
   // 拆连写得连那一段一起拆,不然拿掉收口 b、c 就粘成了一枚
   final (a, b) = _rangeBounds(text, first, last);
   final (lo, hi) = _commaSpan(text, a, b);
   final src = _unchain(text, lo, hi);
-  return _explodeAround(src, first, last, keepEnclosingNum: keepEnclosingNum);
+  return _explodeAround(
+    src,
+    first,
+    last,
+    keepEnclosingNum: keepEnclosingNum,
+    keepEnclosingBrace: keepEnclosingBrace,
+  );
 }
 
 /// 批量套括号:整段外包一层 `{...}`(up)或 `[...]`(已有权重原样嵌套)。
@@ -1510,31 +1585,41 @@ String batchClearWeight(String text, int first, int last) {
   return src.replaceRange(a, b, '$close${_cleanJoin(toks, first, l)}');
 }
 
-/// 逐词应用(倒序,前面词下标不漂移),每步重扫。禁用批量用。
-String _batchEach(
-  String text,
-  int first,
-  int last,
-  String Function(String, Tok) op,
-) {
+/// Toggle only the markers. Ordinary comma-separated members keep their
+/// offsets in the original text, including members inside a shared weight.
+String batchSetDisabled(String text, int first, int last, bool disabled) {
+  final seams = <(int, int)>[];
+  final toks = _parse(text, chainSeams: seams);
+  first = math.max(0, first);
+  last = math.min(last, toks.length - 1);
+  if (first > last) return text;
+  if (seams.isEmpty && toks.every(_stableTokenName)) {
+    return _setDisabledSegments(text, toks.getRange(first, last + 1), disabled);
+  }
+  // A chained weight may introduce a comma during editing.
   var out = text;
   for (var i = last; i >= first; i--) {
-    final toks = parseToks(out);
-    if (i >= toks.length) continue;
-    out = op(out, toks[i]);
+    final current = parseToks(out);
+    if (i < current.length && current[i].disabled != disabled) {
+      out = toggleTokDisabled(out, current[i]);
+    }
   }
   return out;
 }
 
-/// 批量设置禁用状态(web 语义:第一枚的状态决定目标,全体对齐)。
-/// 逐词应用,保留各自权重与组记号。
-String batchSetDisabled(String text, int first, int last, bool disabled) =>
-    _batchEach(
-      text,
-      first,
-      last,
-      (s, t) => t.disabled == disabled ? s : toggleTokDisabled(s, t),
-    );
+String _setDisabledSegments(String text, Iterable<Tok> tokens, bool disabled) {
+  final out = StringBuffer();
+  var end = 0;
+  for (final t in tokens) {
+    if (t.disabled == disabled) continue;
+    out.write(text.substring(end, t.segStart));
+    out.write(_toggledSegment(text, t));
+    end = t.segEnd;
+  }
+  if (end == 0) return text;
+  out.write(text.substring(end));
+  return out.toString();
+}
 
 /// 批量删除:整段(含组记号)连一侧分隔一起删,返回 (新文本, 光标)。
 (String, int) batchDelete(String text, int first, int last) {
@@ -1722,6 +1807,57 @@ String foldRange(String text, int first, int last, String name) {
   );
 }
 
+/// The original slot (or the first picked chip's slot for a disjoint selection).
+/// Surrounding separators and unselected tokens stay in the editor.
+class PromptFoldSlot {
+  const PromptFoldSlot(this.text, this.start, this.end);
+  final String text;
+  final int start, end;
+
+  String body(Map<String, String> bodies) =>
+      stripFolds(expandFolds(text.substring(start, end), bodies)).trim();
+
+  String replace(String reference) {
+    final (a, b) = reference.isEmpty
+        ? _withSeparator(text, start, end)
+        : (start, end);
+    return text.replaceRange(a, b, reference);
+  }
+}
+
+PromptFoldSlot? selectedFoldSlot(
+  String text,
+  Map<String, String> bodies,
+  Set<int> selected,
+) {
+  final count = topLevelUnits(text, bodies).length;
+  final items = selected.toList()..sort();
+  if (items.isEmpty || items.first < 0 || items.last >= count) return null;
+  var source = text;
+  for (var i = 0; i < items.length;) {
+    final first = items[i++];
+    while (i < items.length && items[i] == items[i - 1] + 1) {
+      i++;
+    }
+    // A block cannot live inside an outer weight group. Distribute a partially
+    // selected group's weight to its members before moving any of them.
+    final prepared = _batchSource(
+      source,
+      first,
+      items[i - 1],
+      keepEnclosingNum: false,
+      keepEnclosingBrace: false,
+    );
+    if (prepared == null || parseToks(prepared).length != count) return null;
+    source = prepared;
+  }
+  final first = items.first, last = first + items.length - 1;
+  if (last != items.last) source = moveUnits(source, bodies, selected, first);
+  if (!canFoldRange(source, first, last)) return null;
+  final (start, end) = _rangeBounds(source, first, last);
+  return PromptFoldSlot(source, start, end);
+}
+
 /// 把一串标签包成命名折叠,供**批量加入**的来源调用(补全的画师串 / OC
 /// 标签组、灵感的条目)。折叠是 app 内部产物,名字即来源,用户不再手工建组。
 ///
@@ -1762,6 +1898,12 @@ final _foldRefRe = RegExp('$kFoldZw#([^$kFoldZw<>:,，\r\n]+)$kFoldZw');
 
 /// 拼一枚占位符字面量。
 String foldRefLiteral(String name) => '$kFoldZw#$name$kFoldZw';
+
+bool foldBodyDisabled(String body) =>
+    body.contains('~') && allFoldMembersDisabled(parseToks(body));
+
+bool allFoldMembersDisabled(List<Tok> members) =>
+    members.isNotEmpty && members.every((member) => member.disabled);
 
 /// 正文里的一枚折叠占位符。
 class FoldRef {
@@ -2374,14 +2516,26 @@ String batchClearWeightUnits(
 /// 顶层单元多选设禁用。**折叠单元跳过** —— 给占位符套上 `~` 会让它的区间
 /// 不再与 tok 段重合,[topLevelUnits] 当场把它降级成普通标签,折叠就散了。
 ///
-/// 倒序逐个应用,前面的下标不漂移(同 [_batchEach])。
+/// 倒序逐个应用,前面的下标不漂移(连写时同 [batchSetDisabled])。
 String setUnitsDisabled(
   String text,
   Map<String, String> bodies,
   Iterable<int> idx,
   bool disabled,
 ) {
-  final sel = idx.toList()..sort();
+  final sel = idx.toSet().toList()..sort();
+  if (sel.isEmpty) return text;
+  final seams = <(int, int)>[];
+  final stable =
+      !text.contains('::') ||
+      _parse(text, chainSeams: seams).every(_stableTokenName);
+  if (stable && seams.isEmpty) {
+    final units = topLevelUnits(text, bodies);
+    return _setDisabledSegments(text, [
+      for (final i in sel)
+        if (i >= 0 && i < units.length) ?units[i].tok,
+    ], disabled);
+  }
   var out = text;
   for (var k = sel.length - 1; k >= 0; k--) {
     final units = topLevelUnits(out, bodies);
@@ -2513,20 +2667,49 @@ String unfoldRef(String text, FoldRef r, Map<String, String> bodies) {
   return text.replaceRange(r.start, r.end, body);
 }
 
+// A partly typed marker can become syntax again when its neighbour is removed.
+final _partialMarkers = RegExp(r'::|[~{}\[\]]|<#|#>');
+bool _stableTokenName(Tok token) =>
+    token.name.isNotEmpty && !_partialMarkers.hasMatch(token.name);
+
 /// 输出串:**原样保留**(换行/间距/权重语法都不动),剔除禁用项
 /// (连同邻近逗号,同 deleteTok)并剥掉折叠记号。回写生成页 + 计 token。
 /// 早期按段 join(', ') 重组会抹掉用户换行,故改为原文剔除式。
 String outputOf(String text) {
   var out = text;
-  while (true) {
-    Tok? victim;
-    for (final t in parseToks(out)) {
-      if (t.disabled) {
-        victim = t;
-        break;
+  while (out.contains('~')) {
+    final groups = <_GroupInfo>[];
+    final seams = <(int, int)>[];
+    final folds = <FoldSpan>[];
+    final tokens = _parse(
+      out,
+      groupInfos: groups,
+      chainSeams: seams,
+      folds: folds,
+    );
+    final victims = tokens.where((t) => t.disabled);
+    final victim = victims.firstOrNull;
+    if (victim == null) break;
+    // Only the last member of a shared group can require removal of its
+    // opening/closing markers. Reparse there, or for chained/open weights
+    // whose interpretation can change when a neighbouring token disappears.
+    if (seams.isEmpty &&
+        groups.every((g) => g.closeStart >= 0) &&
+        !_numGroupsOf(out).any((g) => !g.closed) &&
+        folds.every((f) => out.startsWith(kFoldClose, f.end - 2)) &&
+        tokens.every(_stableTokenName)) {
+      final groupEnds = {for (final g in groups) g.lastTok};
+      final independent = <Tok>[];
+      for (var i = 0; i < tokens.length; i++) {
+        if (!tokens[i].disabled) continue;
+        if (groupEnds.contains(i)) break;
+        independent.add(tokens[i]);
+      }
+      if (independent.isNotEmpty) {
+        out = _removeDisabledSegments(out, independent);
+        continue;
       }
     }
-    if (victim == null) break;
     final (next, _) = deleteTok(out, victim);
     // deleteTok 必删非空段:拆连写补的「, 」、替前一组补的 `::` 都比删掉的
     // 那枚短,长度严格递减。万一没减(记号残片),停手,别在这儿死循环
@@ -2535,6 +2718,44 @@ String outputOf(String text) {
   }
   // 零宽空格是占位符边界(仅编辑期),孤儿占位符降级直传时把它滤干净
   return stripFolds(out).replaceAll(kFoldZw, '').trim();
+}
+
+/// Same separator choice as [_withSeparator], with previous deletions already
+/// reflected in the prefix. Each source code unit is visited a bounded number
+/// of times even when the entire last line or fold is disabled.
+String _removeDisabledSegments(String text, List<Tok> tokens) {
+  final kept = <int>[];
+  var cursor = 0;
+  final units = text.codeUnits;
+  for (final t in tokens) {
+    for (; cursor < t.segStart; cursor++) {
+      kept.add(units[cursor]);
+    }
+    var right = t.segEnd;
+    while (right < text.length && (text[right] == ' ' || text[right] == '\t')) {
+      right++;
+    }
+    if (right < text.length && (text[right] == ',' || text[right] == '，')) {
+      cursor = right + 1;
+      while (cursor < text.length && text[cursor] == ' ') {
+        cursor++;
+      }
+    } else {
+      var left = kept.length;
+      while (left > 0 && kept[left - 1] == 0x20) {
+        left--;
+      }
+      if (left > 0 && (kept[left - 1] == 0x2c || kept[left - 1] == 0xff0c)) {
+        left--;
+        while (left > 0 && kept[left - 1] == 0x20) {
+          left--;
+        }
+        kept.length = left;
+      }
+      cursor = t.segEnd;
+    }
+  }
+  return String.fromCharCodes(kept) + text.substring(cursor);
 }
 
 int estimateTokens(String output) =>

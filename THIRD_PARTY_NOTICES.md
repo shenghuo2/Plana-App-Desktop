@@ -70,3 +70,13 @@ Ultralytics 的代码本身**不随包分发**,仅在离线转换模型时用过
 
 Dart 侧的绑定 `flutter_onnxruntime` 为 **MIT**(Copyright (c) 2025 MASIC AI),
 已计入上文 Dart 依赖清单。
+
+## Windows 分支与本次来源
+
+原版应用来自 [mc5024/Plana-App](https://github.com/mc5024/Plana-App)，Windows 重构来自 [LingXia979/Plana-App-for-windows](https://github.com/LingXia979/Plana-App-for-windows)，后续桌面改进选择性参考 [shenghuo2/Plana-App-Desktop](https://github.com/shenghuo2/Plana-App-Desktop)。windows.58 分批适配原版 v1.2.2（固定提交 `46deaa02fab835df8ef88d5248015a79b0bf9b30`）；各作者及上游历史中的 AI 辅助署名见 README 的贡献者记录。
+
+Windows 包使用 ONNX Runtime 1.22.0 x64，与上方 Android 自编库分别分发；相应许可和第三方说明见包内 `licenses/ONNXRuntime-LICENSE.txt`、`licenses/ONNXRuntime-ThirdPartyNotices.txt`。Microsoft Visual C++、Inno Setup 和 7-Zip 声明见 `licenses/WINDOWS-RUNTIME-NOTICES.txt` 及同目录许可。Flutter／Dart 依赖完整许可随 `data/flutter_assets/NOTICES.Z` 提供；对应源码随 `source-code.zip` 提供。
+
+## Microsoft Edge WebView2
+
+The Windows user manual uses the Microsoft WebView2 SDK 1.0.2903.40. The SDK license and third-party notices are included in windows/runner/third_party/webview2/.

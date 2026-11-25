@@ -21,6 +21,7 @@ import 'package:plana_app/features/assistant/rules_page.dart';
 import 'package:plana_app/features/assistant/widgets/model_sheet.dart';
 import 'package:plana_app/features/assistant/widgets/settings_sheet.dart';
 import 'package:plana_app/core/ui/setting_row.dart';
+import 'package:plana_app/core/ui/image_drop.dart';
 
 class _LoadingRules extends RulesLibraryNotifier {
   _LoadingRules(this.ready);
@@ -53,7 +54,7 @@ void main() {
       }
     }
   });
-  setUp(() {
+  setUp(() async {
     stores = AppStores.ephemeral();
     c = ProviderContainer(
       overrides: [
@@ -89,6 +90,10 @@ void main() {
           ),
         ),
       ],
+    );
+    await c.read(rulesLibraryProvider.future);
+    await Future.wait(
+      RulesFamily.values.map((f) => c.read(defaultRulesProvider(f).future)),
     );
   });
   tearDown(() {
@@ -175,6 +180,87 @@ void main() {
     await tester.pumpWidget(const SizedBox());
     await tester.pump(const Duration(seconds: 1));
   }
+
+  testWidgets(
+    'Explorer drop imports presets in order and preserves the active rule selection',
+    (tester) async {
+      final dir = Directory.systemTemp.createTempSync('plana_rule_drop_');
+      addTearDown(() => dir.deleteSync(recursive: true));
+      final yaml = File('${dir.path}/画图.yaml')
+        ..writeAsStringSync(
+          'name: 水彩\nmodels: [nai45]\nsections:\n  - name: ink\n    content: wash',
+        );
+      final json = File('${dir.path}/绘图.JSON')
+        ..writeAsStringSync(
+          '{"name":"风景","models":["nai5"],"sections":[{"name":"color","content":"green"}]}',
+        );
+      final original = c.read(rulesLibraryProvider).requireValue;
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: c,
+          child: const MaterialApp(
+            home: DesktopImageDropHost(child: RulesPresetPage()),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final point = tester.getCenter(find.byType(ReorderableListView));
+      final scale = tester.view.devicePixelRatio;
+      void native(String method, List<String> paths) {
+        unawaited(
+          tester.binding.defaultBinaryMessenger.handlePlatformMessage(
+            DesktopImageDropHost.channel.name,
+            const StandardMethodCodec().encodeMethodCall(
+              MethodCall(method, {
+                'x': point.dx * scale,
+                'y': point.dy * scale,
+                'paths': paths,
+              }),
+            ),
+            (_) {},
+          ),
+        );
+      }
+
+      native('over', []);
+      await tester.pump();
+      expect(find.text('松开以导入规则预设'), findsOneWidget);
+      native('drop', ['${dir.path}/不支持.png', yaml.path, json.path]);
+      Future<void> waitFor(bool Function() ready) async {
+        for (var attempts = 0; !ready() && attempts < 60; attempts++) {
+          await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 5)),
+          );
+          await tester.pump(const Duration(milliseconds: 100));
+        }
+        expect(ready(), true);
+        await tester.pumpAndSettle();
+      }
+
+      for (final name in ['水彩', '风景']) {
+        await waitFor(
+          () => find
+              .byType(TextField)
+              .evaluate()
+              .any((e) => (e.widget as TextField).controller?.text == name),
+        );
+        await tester.tap(find.widgetWithText(FilledButton, '导入'));
+        await tester.pump();
+      }
+      await waitFor(
+        () =>
+            c.read(rulesLibraryProvider).requireValue.presets.length ==
+            original.presets.length + 2,
+      );
+      final result = c.read(rulesLibraryProvider).requireValue;
+      expect(
+        result.presets.map((p) => p.name),
+        containsAllInOrder(['水彩', '风景']),
+      );
+      expect(result.active, original.active);
+      await finish(tester);
+    },
+  );
 
   for (final embedded in [false, true]) {
     testWidgets(
@@ -403,7 +489,6 @@ void main() {
   testWidgets(
     'preset navigation and repeated mode changes preserve the assistant and draft',
     (tester) async {
-      await c.read(rulesLibraryProvider.future);
       final customId = await tester.runAsync(
         () => c
             .read(rulesLibraryProvider.notifier)
@@ -439,16 +524,18 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(
         find.widgetWithText(
-          CheckboxListTile,
+          CheckboxMenuButton,
           rulesFamilyLabel(RulesFamily.nai45),
         ),
       );
-      await tester.tap(find.text('确认'));
+      await tester.pumpAndSettle();
+      expect(find.byType(CheckboxMenuButton), findsOneWidget);
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
       await tester.pumpAndSettle();
       await tester.pageBack();
       await tester.pumpAndSettle();
       expect(
-        c.read(rulesLibraryProvider).value!.activeFor(RulesFamily.nai45).id,
+        c.read(rulesLibraryProvider).value!.activeFor(RulesFamily.nai45)?.id,
         customId,
       );
       await tester.pageBack();

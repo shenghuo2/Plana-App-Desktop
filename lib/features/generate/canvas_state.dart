@@ -13,6 +13,14 @@ final canvasWorkspaceProvider =
       CanvasWorkspaceNotifier.new,
     );
 
+final promptCardCollapsedProvider = Provider.family<bool, String>(
+  (ref, key) => ref.watch(
+    canvasWorkspaceProvider.select(
+      (w) => w.active.collapsedPromptCards.contains(key),
+    ),
+  ),
+);
+
 /// 画布集合。当前画布那组内容活在 generateProvider 里(编辑都走它),
 /// 每次变动经 [record] 抄一份回这里;其余画布只在这里存着它们那一组。
 class CanvasWorkspaceNotifier extends Notifier<CanvasWorkspace> {
@@ -121,6 +129,22 @@ class CanvasWorkspaceNotifier extends Notifier<CanvasWorkspace> {
     ref.read(editorSessionsProvider).flushPending();
   }
 
+  void togglePromptCard(String key) {
+    final active = state.active;
+    final collapsed = {...active.collapsedPromptCards};
+    if (!collapsed.remove(key)) collapsed.add(key);
+    state = state.copyWith(
+      canvases: [
+        for (final canvas in state.canvases)
+          if (canvas.id == active.id)
+            canvas.copyWith(collapsedPromptCards: collapsed)
+          else
+            canvas,
+      ],
+    );
+    _save();
+  }
+
   void select(String id) {
     if (id == state.activeId || state.find(id) == null) return;
     _prepareSwitch();
@@ -151,7 +175,14 @@ class CanvasWorkspaceNotifier extends Notifier<CanvasWorkspace> {
     state = state.copyWith(
       canvases: [
         ...state.canvases,
-        CanvasDraft(id: id, name: name, prompts: prompts),
+        CanvasDraft(
+          id: id,
+          name: name,
+          prompts: prompts,
+          collapsedPromptCards: duplicate
+              ? state.active.collapsedPromptCards
+              : const {},
+        ),
       ],
       activeId: id,
       nextId: state.nextId + 1,

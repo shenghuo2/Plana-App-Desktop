@@ -32,6 +32,12 @@ class EditorSessions {
   }
 }
 
+typedef PlacedPromptFold = ({
+  FoldRef? positive,
+  FoldRef? negative,
+  PromptFoldLink? link,
+});
+
 /// 光标驱动定稿:字符串就是真相,正/负各一条(含原样权重语法)。
 /// 折叠体不在正文里(正文只有 `<#名字>` 占位符),存 [foldBodies];
 /// 每次改动创建新表，撤销档连同正文保存对应版本；解散／删除不破坏旧快照。
@@ -57,6 +63,23 @@ class EditorState {
   final List<PromptFoldLink> foldLinks;
 
   String get activeText => activePositive ? positiveText : negativeText;
+
+  PlacedPromptFold? placementOf(String name) {
+    final link = foldLinks
+        .where((l) => l.positiveName == name || l.negativeName == name)
+        .firstOrNull;
+    FoldRef? find(String text, String name) => parseFoldRefs(
+      text,
+      foldBodies,
+    ).where((fold) => fold.name == name).singleOrNull;
+    final pos = find(positiveText, link?.positiveName ?? name);
+    final neg = find(negativeText, link?.negativeName ?? name);
+    if (pos == null && neg == null ||
+        link == null && pos != null && neg != null) {
+      return null;
+    }
+    return (positive: pos, negative: neg, link: link);
+  }
 
   /// 当前段定稿(占位符展开 + 剔除编辑期语法)。token 读数用。
   String get activeOutput => outputOf(expandFolds(activeText, foldBodies));
@@ -206,9 +229,9 @@ class EditorNotifier extends Notifier<EditorState> {
       foldBodies: arc.folds,
       foldLinks: [
         for (final link in links)
-          link.renamed(
-            posNames[link.positiveName]!,
-            negNames[link.negativeName]!,
+          link.copyWith(
+            positiveName: posNames[link.positiveName] ?? '',
+            negativeName: negNames[link.negativeName] ?? '',
           ),
       ],
     );
@@ -240,6 +263,142 @@ class EditorNotifier extends Notifier<EditorState> {
     return n;
   }
 
+  /// Commits an explicit library save as one undo step for this editor target.
+  /// A null body retains the placed side, which may have been deduplicated on import.
+  void applySavedInspiration({
+    required String entryId,
+    required String title,
+    required String? positiveBody,
+    required String? negativeBody,
+    PromptFoldSlot? selection,
+    PlacedPromptFold? editing,
+    bool rename = true,
+  }) => _applyInspiration(
+    entryId: entryId,
+    title: title,
+    positiveBody: positiveBody,
+    negativeBody: negativeBody,
+    selection: selection,
+    editing: editing,
+    rename: rename,
+  );
+
+  /// Typing the first tag on an absent side creates that side on this canvas.
+  String? addTemporaryFoldSide(
+    String anchor, {
+    required bool positive,
+    required String body,
+  }) {
+    final editing = state.placementOf(anchor);
+    final link = editing?.link;
+    if (link == null ||
+        link.temporaryCategory == null ||
+        body.trim().isEmpty ||
+        (positive ? link.positiveName : link.negativeName).isNotEmpty) {
+      return null;
+    }
+    final title = link.positiveName.isNotEmpty
+        ? link.positiveName
+        : link.negativeName.replaceFirst(RegExp(r'·排除$'), '');
+    final placed = _applyInspiration(
+      title: title,
+      positiveBody: positive ? body : null,
+      negativeBody: positive ? null : body,
+      editing: editing,
+      rename: false,
+    );
+    return positive ? placed.positiveName : placed.negativeName;
+  }
+
+  PromptFoldLink _applyInspiration({
+    String? entryId,
+    required String title,
+    required String? positiveBody,
+    required String? negativeBody,
+    PromptFoldSlot? selection,
+    PlacedPromptFold? editing,
+    required bool rename,
+  }) {
+    assert((selection == null) != (editing == null));
+    final bodies = {...state.foldBodies};
+    final used = {
+      for (final text in [state.positiveText, state.negativeText])
+        for (final fold in parseFoldRefs(text, bodies)) fold.name,
+    };
+    ({String text, String name, String body}) place(
+      bool positive,
+      FoldRef? previous,
+      String? savedBody,
+    ) {
+      final text = positive ? state.positiveText : state.negativeText;
+      final body = stripFolds(savedBody ?? bodies[previous?.name] ?? '').trim();
+      final slot = previous != null
+          ? PromptFoldSlot(text, previous.start, previous.end)
+          : positive == state.activePositive
+          ? selection
+          : null;
+      if (body.isEmpty && (savedBody != null || previous == null)) {
+        return (text: slot?.replace('') ?? text, name: '', body: '');
+      }
+      final base = sanitizeFoldName(positive ? title : '$title·排除');
+      var name = !rename && previous != null ? previous.name : base;
+      for (
+        var suffix = 2;
+        used.contains(name) && name != previous?.name;
+        suffix++
+      ) {
+        name = '$base $suffix';
+      }
+      used.add(name);
+      bodies[name] = body;
+      final reference = foldRefLiteral(name);
+      return (
+        text: slot?.replace(reference) ?? appendUnit(text, reference),
+        name: name,
+        body: body,
+      );
+    }
+
+    final pos = place(true, editing?.positive, positiveBody);
+    final neg = place(false, editing?.negative, negativeBody);
+    final oldLink = editing?.link;
+    final link = (oldLink ?? PromptFoldLink.forEntry(entryId!)).copyWith(
+      sourceEntryId: entryId,
+      positiveName: pos.name,
+      positiveBody: pos.body,
+      negativeName: neg.name,
+      negativeBody: neg.body,
+    );
+    final links = validPromptFoldLinks(
+      expandFolds(pos.text, bodies),
+      expandFolds(neg.text, bodies),
+      [
+        for (final existing in state.foldLinks)
+          if (existing != oldLink) existing,
+        link,
+      ],
+    );
+    if (pos.text == state.positiveText &&
+        neg.text == state.negativeText &&
+        oldLink == link &&
+        state.foldBodies[pos.name] == bodies[pos.name] &&
+        state.foldBodies[neg.name] == bodies[neg.name]) {
+      return link;
+    }
+    _remember();
+    _lastPushMs = DateTime.now().millisecondsSinceEpoch;
+    _arc.folds = bodies;
+    state = state.copyWith(
+      positiveText: pos.text,
+      negativeText: neg.text,
+      foldLinks: links,
+      foldBodies: bodies,
+      canUndo: true,
+    );
+    flushWriteBack();
+    return link;
+  }
+
   /// Edit a block in place. Its placeholder and the opposite prompt remain
   /// intact; body maps are immutable snapshots so undo restores their content.
   void editFoldBody(String name, String body, {bool structural = false}) {
@@ -268,10 +427,7 @@ class EditorNotifier extends Notifier<EditorState> {
       foldBodies: bodies,
       foldLinks: [
         for (final link in links)
-          PromptFoldLink(
-            id: link.id,
-            positiveName: link.positiveName,
-            negativeName: link.negativeName,
+          link.copyWith(
             positiveBody: link.positiveName == name
                 ? body.trim()
                 : link.positiveBody,
@@ -441,6 +597,7 @@ class EditorNotifier extends Notifier<EditorState> {
     );
     var removedLinkedFold = false;
     for (final link in existingLinks) {
+      if (!link.paired) continue;
       final name = state.activePositive ? link.positiveName : link.negativeName;
       if (newRefs.any((ref) => ref.name == name)) continue;
       final old = oldRefs.where((ref) => ref.name == name).toList();

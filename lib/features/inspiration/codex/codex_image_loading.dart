@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
@@ -11,12 +12,16 @@ class CodexImageLoadController {
   CodexImageLoadController({
     this.quietPeriod = const Duration(milliseconds: 140),
     this.startsPerFrame = 3,
-  }) : assert(startsPerFrame > 0);
+    this.maxConcurrent = 4,
+  }) : assert(startsPerFrame > 0),
+       assert(maxConcurrent > 0);
 
   final Duration quietPeriod;
   final int startsPerFrame;
+  final int maxConcurrent;
   final _positions = <ScrollPosition>{};
   final _waiting = <_CodexImageRequest, VoidCallback>{};
+  final _inFlight = Map<ImageStreamCompleter, ImageStreamListener>.identity();
   Timer? _quiet;
   bool _paused = false;
   bool _drainScheduled = false;
@@ -91,14 +96,21 @@ class CodexImageLoadController {
   }
 
   void _scheduleDrain() {
-    if (_disposed || _paused || _drainScheduled || _waiting.isEmpty) return;
+    if (_disposed ||
+        _paused ||
+        _drainScheduled ||
+        _waiting.isEmpty ||
+        _inFlight.length >= maxConcurrent) {
+      return;
+    }
     _drainScheduled = true;
     // After layout, cards removed by scrolling/filtering have already canceled
     // their tickets. Start only a few remaining thumbnails in each frame.
     SchedulerBinding.instance.addPostFrameCallback((_) {
       _drainScheduled = false;
       if (_disposed || _paused) return;
-      final batch = _waiting.keys.take(startsPerFrame).toList();
+      final slots = math.min(startsPerFrame, maxConcurrent - _inFlight.length);
+      final batch = _waiting.keys.take(slots).toList();
       for (final request in batch) {
         final resolve = _waiting.remove(request);
         if (request.active) resolve?.call();
@@ -106,6 +118,24 @@ class CodexImageLoadController {
       _scheduleDrain();
     });
     SchedulerBinding.instance.scheduleFrame();
+  }
+
+  // A card can leave the viewport while its download or decode still runs.
+  // Hold that slot until the first frame or error, including for offscreen cards.
+  void _trackFirstFrame(ImageStreamCompleter completer) {
+    if (_inFlight.containsKey(completer)) return;
+    void finish() {
+      final listener = _inFlight.remove(completer);
+      if (listener != null) completer.removeListener(listener);
+      _scheduleDrain();
+    }
+
+    final listener = ImageStreamListener((image, _) {
+      image.dispose();
+      finish();
+    }, onError: (Object error, StackTrace? stack) => finish());
+    _inFlight[completer] = listener;
+    completer.addListener(listener);
   }
 
   void dispose() {
@@ -117,6 +147,10 @@ class CodexImageLoadController {
       detach(position);
     }
     _waiting.clear();
+    for (final entry in _inFlight.entries) {
+      entry.key.removeListener(entry.value);
+    }
+    _inFlight.clear();
   }
 }
 
@@ -205,12 +239,17 @@ class _CodexImageProvider extends ImageProvider<Object> {
 
     void resolve() {
       if (!request.active) return;
-      if (request.controller._paused && !tracked()) {
+      final startsLoad = stream.completer == null && !tracked();
+      if (request.controller._paused && startsLoad) {
         request.controller._enqueue(request, resolve);
         return;
       }
       try {
         source.resolveStreamForKey(configuration, stream, key, handleError);
+        final completer = stream.completer;
+        if (startsLoad && completer != null) {
+          request.controller._trackFirstFrame(completer);
+        }
       } catch (error, stack) {
         handleError(error, stack);
       }

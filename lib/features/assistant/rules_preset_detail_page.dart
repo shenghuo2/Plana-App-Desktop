@@ -20,14 +20,23 @@ import 'presets/default_rules.dart';
 import 'presets/preset_rule.dart';
 import 'presets/rules_file.dart';
 import 'presets/rules_library.dart';
+import 'widgets/rule_card_drag_target.dart';
 
 class RulesPresetDetailPage extends ConsumerStatefulWidget {
   /// [family] 给了就是那个模型的默认规则,否则是 [presetId] 那份预设。
   const RulesPresetDetailPage({super.key, this.family, this.presetId})
-    : assert((family == null) != (presetId == null));
+    : draft = null,
+      assert((family == null) != (presetId == null));
+
+  const RulesPresetDetailPage.newPreset({
+    super.key,
+    required RulesPreset this.draft,
+  }) : family = null,
+       presetId = null;
 
   final RulesFamily? family;
   final String? presetId;
+  final RulesPreset? draft;
 
   @override
   ConsumerState<RulesPresetDetailPage> createState() =>
@@ -36,13 +45,13 @@ class RulesPresetDetailPage extends ConsumerStatefulWidget {
 
 class _RulesPresetDetailPageState extends ConsumerState<RulesPresetDetailPage> {
   /// 在改的那份预设;默认规则还没另存时是 null。
-  late String? _id = widget.presetId;
+  late String? _id = widget.presetId ?? widget.draft?.id;
 
   /// 默认规则正在另存,这期间的操作不接,免得存出两份。
   var _copying = false;
 
   RulesPreset? _preset(RulesLibrary? lib) =>
-      lib?.presets.where((p) => p.id == _id).firstOrNull;
+      lib?.all.where((p) => p.id == _id).firstOrNull ?? widget.draft;
 
   @override
   Widget build(BuildContext context) {
@@ -79,11 +88,7 @@ class _RulesPresetDetailPageState extends ConsumerState<RulesPresetDetailPage> {
     final l = context.l10n;
     final models = p?.models ?? {widget.family!};
     final selfId = p?.id ?? defaultPresetOf(widget.family!).id;
-    final enabled = [
-      for (final m in RulesFamily.values)
-        if (models.contains(m) && lib.activeFor(m).id == selfId)
-          rulesFamilyLabel(m),
-    ];
+    final enabled = lib.enabledFor(selfId);
     final header = Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -93,28 +98,50 @@ class _RulesPresetDetailPageState extends ConsumerState<RulesPresetDetailPage> {
               icon: Icons.drive_file_rename_outline,
               title: l.presetName,
               value: p?.name ?? d?.displayName ?? '',
-              onTap: p == null ? null : () => _editName(p),
+              onTap: p == null || p.isDefault ? null : () => _editName(p),
             ),
             SettingsRow(
               icon: Icons.person_outline,
               title: l.author,
               value: p?.author ?? d?.author ?? '',
-              onTap: p == null ? null : () => _editAuthor(p),
+              onTap: p == null || p.isDefault ? null : () => _editAuthor(p),
             ),
-            SettingsRow(
+            _ModelMenuRow(
               icon: Icons.memory_outlined,
               title: l.supportedModels,
-              value: [
-                for (final m in RulesFamily.values)
-                  if (models.contains(m)) rulesFamilyLabel(m),
-              ].join(l.listSep),
-              onTap: p == null ? null : () => _editModels(p),
+              options: RulesFamily.values,
+              selected: models,
+              locked: models.length == 1 ? models : const {},
+              onToggle: p == null || p.isDefault
+                  ? null
+                  : (f, checked) {
+                      final current = _preset(
+                        ref.read(rulesLibraryProvider).value,
+                      )!;
+                      final next = checked
+                          ? {...current.models, f}
+                          : ({...current.models}..remove(f));
+                      if (next.isNotEmpty) _replace(current, models: next);
+                    },
             ),
-            SettingsRow(
+            _ModelMenuRow(
               icon: Icons.check_circle_outline,
               title: l.enabledModels,
-              value: enabled.isEmpty ? l.notEnabled : enabled.join(l.listSep),
-              onTap: () => _editEnabled(lib, models, selfId),
+              options: RulesFamily.values.where(models.contains),
+              selected: enabled,
+              locked: const {},
+              onToggle: (f, checked) {
+                final currentLib = ref.read(rulesLibraryProvider).requireValue;
+                if (checked &&
+                    widget.draft?.id == selfId &&
+                    !currentLib.presets.any((p) => p.id == selfId)) {
+                  _replace(widget.draft!, enableFor: f);
+                } else {
+                  ref
+                      .read(rulesLibraryProvider.notifier)
+                      .use(f, checked ? selfId : null);
+                }
+              },
             ),
           ],
         ),
@@ -129,6 +156,7 @@ class _RulesPresetDetailPageState extends ConsumerState<RulesPresetDetailPage> {
       ],
     );
     return ReorderableListView.builder(
+      buildDefaultDragHandles: false,
       padding: const EdgeInsets.fromLTRB(14, 8, 14, 24),
       header: header,
       footer: Padding(
@@ -151,6 +179,7 @@ class _RulesPresetDetailPageState extends ConsumerState<RulesPresetDetailPage> {
         key: ObjectKey(rules[i]),
         padding: const EdgeInsets.only(bottom: 10),
         child: _RuleCardView(
+          index: i,
           rule: rules[i],
           onEdit: () => _edit(rules, i),
           onRename: () => _rename(rules, i),
@@ -168,6 +197,8 @@ class _RulesPresetDetailPageState extends ConsumerState<RulesPresetDetailPage> {
     String? name,
     String? author,
     Set<RulesFamily>? models,
+    List<PresetRule>? rules,
+    RulesFamily? enableFor,
   }) => ref
       .read(rulesLibraryProvider.notifier)
       .replace(
@@ -175,11 +206,13 @@ class _RulesPresetDetailPageState extends ConsumerState<RulesPresetDetailPage> {
         name: name ?? p.name,
         author: author ?? p.author,
         models: models ?? p.models,
-        rules: p.rules,
+        rules: rules ?? p.rules,
+        insertIfMissing: p.id == widget.draft?.id,
+        enableFor: enableFor,
       );
 
   Future<void> _editName(RulesPreset p) async {
-    final v = await _askText(context.l10n.presetName, p.name);
+    final v = await _askText(context.l10n.presetName, p.name, selectAll: true);
     if (v == null || v.isEmpty || v == p.name) return;
     await _replace(p, name: v);
   }
@@ -189,102 +222,6 @@ class _RulesPresetDetailPageState extends ConsumerState<RulesPresetDetailPage> {
     if (v == null || v == p.author) return;
     await _replace(p, author: v);
   }
-
-  /// 支持的模型:多选,至少留一个。去掉的模型原先在用这份的,回到默认规则。
-  Future<void> _editModels(RulesPreset p) async {
-    final picked = await _pickModels(
-      title: context.l10n.supportedModels,
-      options: RulesFamily.values,
-      initial: p.models,
-      allowEmpty: false,
-    );
-    if (picked == null || _sameSet(picked, p.models)) return;
-    await _replace(p, models: picked);
-  }
-
-  /// 启用的模型:在支持的模型里多选,勾上的改用这份,取消的回到默认规则。
-  /// 默认规则正在用时勾不掉(退无可退),要换去别的预设里勾。
-  Future<void> _editEnabled(
-    RulesLibrary lib,
-    Set<RulesFamily> models,
-    String selfId,
-  ) async {
-    final on = {
-      for (final m in models)
-        if (lib.activeFor(m).id == selfId) m,
-    };
-    final isDefault = selfId.startsWith('default');
-    final picked = await _pickModels(
-      title: context.l10n.enabledModels,
-      options: [
-        for (final m in RulesFamily.values)
-          if (models.contains(m)) m,
-      ],
-      initial: on,
-      locked: isDefault ? on : const {},
-    );
-    if (picked == null || _sameSet(picked, on)) return;
-    final n = ref.read(rulesLibraryProvider.notifier);
-    for (final m in models) {
-      if (picked.contains(m) && !on.contains(m)) {
-        await n.use(m, selfId);
-      } else if (!picked.contains(m) && on.contains(m)) {
-        await n.use(m, defaultPresetOf(m).id);
-      }
-    }
-  }
-
-  static bool _sameSet(Set<RulesFamily> a, Set<RulesFamily> b) =>
-      a.length == b.length && a.containsAll(b);
-
-  /// 模型多选弹窗,取消返回 null。[locked] 里的勾着且改不了。
-  Future<Set<RulesFamily>?> _pickModels({
-    required String title,
-    required List<RulesFamily> options,
-    required Set<RulesFamily> initial,
-    bool allowEmpty = true,
-    Set<RulesFamily> locked = const {},
-  }) => showDialog<Set<RulesFamily>>(
-    context: context,
-    builder: (context) {
-      var sel = {...initial};
-      return StatefulBuilder(
-        builder: (context, setState) => AlertDialog(
-          title: Text(title),
-          contentPadding: const EdgeInsets.fromLTRB(8, 12, 8, 0),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              for (final m in options)
-                CheckboxListTile(
-                  value: sel.contains(m),
-                  title: Text(rulesFamilyLabel(m)),
-                  onChanged: locked.contains(m)
-                      ? null
-                      : (v) => setState(
-                          () => sel = v == true
-                              ? {...sel, m}
-                              : ({...sel}..remove(m)),
-                        ),
-                ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: Text(context.l10n.cancel),
-            ),
-            TextButton(
-              onPressed: sel.isEmpty && !allowEmpty
-                  ? null
-                  : () => Navigator.pop(context, sel),
-              child: Text(context.l10n.confirm),
-            ),
-          ],
-        ),
-      );
-    },
-  );
 
   /// 存段落。默认规则第一次存是另存为一份新预设。
   Future<void> _commit(
@@ -300,38 +237,37 @@ class _RulesPresetDetailPageState extends ConsumerState<RulesPresetDetailPage> {
       return;
     }
     final n = ref.read(rulesLibraryProvider.notifier);
-    final id = _id;
-    if (id != null) {
-      final p = _preset(ref.read(rulesLibraryProvider).value);
-      if (p == null) return;
-      await n.replace(
-        id,
-        name: name ?? p.name,
-        author: author ?? p.author,
-        models: models ?? p.models,
+    final p = _preset(ref.read(rulesLibraryProvider).value);
+    if (_id != null && p == null) return;
+    if (p != null && !p.isDefault) {
+      await _replace(
+        p,
+        name: name,
+        author: author,
+        models: models,
         rules: rules,
       );
       return;
     }
-    final f = widget.family!;
+    final f = p?.models.single ?? widget.family!;
     _copying = true;
     try {
-      final d = await bundledDefaultRules(f);
-      // 副本叫「Nyako v5 (副本)」;全文编辑里改了名字的用改过的
-      final copyName = name == null || name == d.displayName
-          ? (ref.read(rulesLibraryProvider).value ?? const RulesLibrary())
-                .copyNameOf(d.displayName)
+      final d = p == null ? await bundledDefaultRules(f) : null;
+      if (!mounted) return;
+      final originalName = p?.name ?? d!.displayName;
+      final lib = ref.read(rulesLibraryProvider).requireValue;
+      final copyName = name == null || name == originalName
+          ? lib.copyNameOf(originalName)
           : name;
       final copyModels = models ?? {f};
-      final wasDefault =
-          ref.read(rulesLibraryProvider).value?.activeFor(f).isDefault ?? true;
+      final originalId = p?.id ?? defaultPresetOf(f).id;
       final newId = await n.add(
         name: copyName,
-        author: author ?? d.author,
+        author: author ?? p?.author ?? d!.author,
         models: copyModels,
         rules: rules,
+        enableFor: lib.activeFor(f)?.id == originalId ? f : null,
       );
-      if (wasDefault && copyModels.contains(f)) await n.use(f, newId);
       if (!mounted) return;
       setState(() => _id = newId);
       hintSnack(
@@ -389,31 +325,17 @@ class _RulesPresetDetailPageState extends ConsumerState<RulesPresetDetailPage> {
     String title,
     String initial, {
     String? label,
+    bool selectAll = false,
   }) async {
-    final ctrl = TextEditingController(text: initial);
     final v = await showDialog<String>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text(title),
-        content: TextField(
-          controller: ctrl,
-          autofocus: true,
-          decoration: InputDecoration(isDense: true, labelText: label),
-          onSubmitted: (v) => Navigator.pop(context, v),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text(context.l10n.cancel),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, ctrl.text),
-            child: Text(context.l10n.confirm),
-          ),
-        ],
+      builder: (_) => _RuleTextDialog(
+        title: title,
+        initial: initial,
+        label: label,
+        selectAll: selectAll,
       ),
     );
-    ctrl.dispose();
     return v?.trim();
   }
 
@@ -486,8 +408,197 @@ class _RulesPresetDetailPageState extends ConsumerState<RulesPresetDetailPage> {
   }
 }
 
+class _RuleTextDialog extends StatefulWidget {
+  const _RuleTextDialog({
+    required this.title,
+    required this.initial,
+    this.label,
+    required this.selectAll,
+  });
+
+  final String title;
+  final String initial;
+  final String? label;
+  final bool selectAll;
+
+  @override
+  State<_RuleTextDialog> createState() => _RuleTextDialogState();
+}
+
+class _RuleTextDialogState extends State<_RuleTextDialog> {
+  late final TextEditingController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.initial);
+    if (widget.selectAll) {
+      _controller.selection = TextSelection(
+        baseOffset: 0,
+        extentOffset: widget.initial.length,
+      );
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: Text(widget.title),
+    content: TextField(
+      controller: _controller,
+      autofocus: true,
+      selectAllOnFocus: widget.selectAll ? false : null,
+      decoration: InputDecoration(isDense: true, labelText: widget.label),
+      onSubmitted: (value) => Navigator.pop(context, value),
+    ),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.pop(context),
+        child: Text(context.l10n.cancel),
+      ),
+      TextButton(
+        onPressed: () => Navigator.pop(context, _controller.text),
+        child: Text(context.l10n.confirm),
+      ),
+    ],
+  );
+}
+
+class _ModelMenuRow extends StatefulWidget {
+  const _ModelMenuRow({
+    required this.icon,
+    required this.title,
+    required this.options,
+    required this.selected,
+    required this.locked,
+    required this.onToggle,
+  });
+
+  final IconData icon;
+  final String title;
+  final Iterable<RulesFamily> options;
+  final Set<RulesFamily> selected;
+  final Set<RulesFamily> locked;
+  final void Function(RulesFamily, bool)? onToggle;
+
+  @override
+  State<_ModelMenuRow> createState() => _ModelMenuRowState();
+}
+
+class _ModelMenuRowState extends State<_ModelMenuRow> {
+  static const _width = 184.0;
+  static const _gap = 4.0;
+  static const _edge = 8.0;
+  double _menuHeight = double.infinity;
+
+  double _spaceBelow(BuildContext anchor) {
+    final overlay =
+        Overlay.of(anchor, rootOverlay: true).context.findRenderObject()!
+            as RenderBox;
+    final row = anchor.findRenderObject()! as RenderBox;
+    final bottom = row
+        .localToGlobal(Offset(0, row.size.height), ancestor: overlay)
+        .dy;
+    return (overlay.size.height -
+            MediaQuery.paddingOf(anchor).bottom -
+            bottom -
+            _gap -
+            _edge)
+        .clamp(1.0, double.infinity);
+  }
+
+  Future<void> _toggleMenu(
+    BuildContext anchor,
+    MenuController controller,
+  ) async {
+    if (controller.isOpen) {
+      controller.close();
+      return;
+    }
+    if (_spaceBelow(anchor) < widget.options.length * 48 + 8) {
+      await Scrollable.ensureVisible(anchor, alignment: 0);
+      if (!anchor.mounted) return;
+    }
+    setState(() => _menuHeight = _spaceBelow(anchor));
+    controller.open();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final summary = widget.selected.isEmpty
+        ? context.l10n.notEnabled
+        : RulesFamily.values
+              .where(widget.selected.contains)
+              .map(rulesFamilyLabel)
+              .join(context.l10n.listSep);
+    if (widget.onToggle == null) {
+      return SettingsRow(
+        icon: widget.icon,
+        title: widget.title,
+        value: summary,
+      );
+    }
+    final scheme = context.scheme;
+    return MenuAnchor(
+      useRootOverlay: true,
+      consumeOutsideTap: true,
+      alignmentOffset: const Offset(-_width, _gap),
+      reservedPadding: const EdgeInsets.all(_edge),
+      style: MenuStyle(
+        alignment: AlignmentDirectional.bottomEnd,
+        minimumSize: const WidgetStatePropertyAll(Size(_width, 0)),
+        maximumSize: WidgetStatePropertyAll(Size(_width, _menuHeight)),
+        padding: const WidgetStatePropertyAll(
+          EdgeInsets.symmetric(vertical: 4),
+        ),
+        backgroundColor: WidgetStatePropertyAll(scheme.surfaceContainerLow),
+        side: WidgetStatePropertyAll(BorderSide(color: scheme.outlineVariant)),
+        shape: WidgetStatePropertyAll(
+          RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        ),
+      ),
+      menuChildren: [
+        FocusScope(
+          autofocus: true,
+          child: SizedBox(
+            width: _width,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                for (final model in widget.options)
+                  CheckboxMenuButton(
+                    value: widget.selected.contains(model),
+                    closeOnActivate: false,
+                    onChanged: widget.locked.contains(model)
+                        ? null
+                        : (value) => widget.onToggle!(model, value == true),
+                    child: Text(rulesFamilyLabel(model)),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ],
+      builder: (context, controller, _) => SettingsRow(
+        icon: widget.icon,
+        title: widget.title,
+        value: summary,
+        dropdown: true,
+        onTap: () => _toggleMenu(context, controller),
+      ),
+    );
+  }
+}
+
 class _RuleCardView extends StatelessWidget {
   const _RuleCardView({
+    required this.index,
     required this.rule,
     required this.onEdit,
     required this.onRename,
@@ -495,6 +606,7 @@ class _RuleCardView extends StatelessWidget {
     required this.onDelete,
   });
 
+  final int index;
   final PresetRule rule;
   final VoidCallback onEdit;
   final VoidCallback onRename;
@@ -504,79 +616,87 @@ class _RuleCardView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = context.scheme;
-    final on = rule.enabled;
     final meta = [
       ?whenTag(rule.when),
       context.l10n.charsN(rule.content.length),
     ].join(' · ');
-    // 与角色卡的开关 / 删除同一尺寸(窄屏同样收到 32)
     final btnSize = MediaQuery.sizeOf(context).width < 350 ? 32.0 : 36.0;
+    final body = InkWell(
+      onTap: onEdit,
+      mouseCursor: SystemMouseCursors.grab,
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(16, 12, 10 + btnSize * 2 + 12, 12),
+        child: AnimatedOpacity(
+          duration: Motion.fast,
+          opacity: rule.enabled ? 1 : .45,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              GestureDetector(
+                onTap: onRename,
+                child: Text(
+                  ruleSectionLabel(rule.name),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: context.texts.bodyLarge!.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 3),
+              Text(
+                meta,
+                style: context.texts.labelSmall!.copyWith(
+                  color: scheme.outline,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
     return Lifted(
       radius: BorderRadius.circular(16),
       child: Material(
         color: scheme.surfaceContainerLow,
         borderRadius: BorderRadius.circular(16),
         clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: onEdit,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 10, 12),
-            child: Row(
-              children: [
-                // 停用只弱化内容,操作按钮保持可用(同角色卡)
-                Expanded(
-                  child: AnimatedOpacity(
-                    duration: Motion.fast,
-                    opacity: on ? 1 : .45,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        GestureDetector(
-                          onTap: onRename,
-                          child: Text(
-                            ruleSectionLabel(rule.name),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: context.texts.bodyLarge!.copyWith(
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 3),
-                        Text(
-                          meta,
-                          style: context.texts.labelSmall!.copyWith(
-                            color: scheme.outline,
-                          ),
-                        ),
-                      ],
-                    ),
+        child: Stack(
+          fit: StackFit.passthrough,
+          children: [
+            RuleCardDragTarget(index: index, child: body),
+            // 按钮独立命中，按住按钮不会启动拖动。
+            Positioned(
+              top: 0,
+              bottom: 0,
+              right: 10,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  RoundIconBtn(
+                    Icons.power_settings_new,
+                    size: btnSize,
+                    color: rule.enabled ? scheme.primary : scheme.outline,
+                    tooltip: rule.enabled
+                        ? context.l10n.disableKeepConfig
+                        : context.l10n.enable,
+                    onTap: () {
+                      Haptics.selection();
+                      onToggle();
+                    },
                   ),
-                ),
-                const SizedBox(width: 6),
-                RoundIconBtn(
-                  Icons.power_settings_new,
-                  size: btnSize,
-                  color: on ? scheme.primary : scheme.outline,
-                  tooltip: on
-                      ? context.l10n.disableKeepConfig
-                      : context.l10n.enable,
-                  onTap: () {
-                    Haptics.selection();
-                    onToggle();
-                  },
-                ),
-                const SizedBox(width: 6),
-                RoundIconBtn(
-                  Icons.delete_outline,
-                  size: btnSize,
-                  color: scheme.error,
-                  tooltip: context.l10n.delete,
-                  onTap: onDelete,
-                ),
-              ],
+                  const SizedBox(width: 6),
+                  RoundIconBtn(
+                    Icons.delete_outline,
+                    size: btnSize,
+                    color: scheme.error,
+                    tooltip: context.l10n.delete,
+                    onTap: onDelete,
+                  ),
+                ],
+              ),
             ),
-          ),
+          ],
         ),
       ),
     );
@@ -623,7 +743,7 @@ Future<void> _confirmLeave(BuildContext context) async {
   if (ok && context.mounted) Navigator.pop(context);
 }
 
-/// 段落编辑页:一张卡,卡头是段名、条件段的小标签和 ⏻,下面就是这段的内容。
+/// 段落编辑页显示段名、条件标签和可编辑的正文。
 /// 顶栏保存,没保存就返回要确认一下。
 class _SectionEditorPage extends StatefulWidget {
   const _SectionEditorPage({required this.rule});
@@ -636,7 +756,6 @@ class _SectionEditorPage extends StatefulWidget {
 
 class _SectionEditorPageState extends State<_SectionEditorPage> {
   late final _ctl = TextEditingController(text: widget.rule.content);
-  late var _enabled = widget.rule.enabled;
   var _dirty = false;
 
   @override
@@ -655,16 +774,8 @@ class _SectionEditorPageState extends State<_SectionEditorPage> {
       );
       return;
     }
-    Navigator.pop(
-      context,
-      widget.rule.copyWith(content: content, enabled: _enabled),
-    );
+    Navigator.pop(context, widget.rule.copyWith(content: content));
   }
-
-  void _touch(VoidCallback change) => setState(() {
-    change();
-    _dirty = true;
-  });
 
   @override
   Widget build(BuildContext context) {
@@ -700,8 +811,6 @@ class _SectionEditorPageState extends State<_SectionEditorPage> {
   Widget _block(BuildContext context) {
     final scheme = context.scheme;
     final rule = widget.rule;
-    final on = _enabled;
-    final btnSize = MediaQuery.sizeOf(context).width < 350 ? 32.0 : 36.0;
     return Lifted(
       radius: BorderRadius.circular(16),
       child: Material(
@@ -712,7 +821,7 @@ class _SectionEditorPageState extends State<_SectionEditorPage> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Padding(
-              padding: const EdgeInsets.fromLTRB(16, 6, 10, 0),
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
               child: Row(
                 children: [
                   Flexible(
@@ -722,48 +831,30 @@ class _SectionEditorPageState extends State<_SectionEditorPage> {
                       overflow: TextOverflow.ellipsis,
                       style: context.texts.bodyLarge!.copyWith(
                         fontWeight: FontWeight.w700,
-                        color: on ? null : scheme.outline,
                       ),
                     ),
                   ),
                   // 触发条件只显示,要改去全文编辑
                   if (whenTag(rule.when) case final tag?) _CondTag(tag),
-                  const Spacer(),
-                  RoundIconBtn(
-                    Icons.power_settings_new,
-                    size: btnSize,
-                    color: on ? scheme.primary : scheme.outline,
-                    tooltip: on
-                        ? context.l10n.disableKeepConfig
-                        : context.l10n.enable,
-                    onTap: () {
-                      Haptics.selection();
-                      _touch(() => _enabled = !on);
-                    },
-                  ),
                 ],
               ),
             ),
-            AnimatedOpacity(
-              duration: Motion.fast,
-              opacity: on ? 1 : .45,
-              child: TextField(
-                controller: _ctl,
-                autofocus: rule.content.isEmpty,
-                maxLines: null,
-                minLines: 3,
-                keyboardType: TextInputType.multiline,
-                autocorrect: false,
-                enableSuggestions: false,
-                style: mono(context, size: 13, weight: FontWeight.w400),
-                onChanged: (_) {
-                  if (!_dirty) setState(() => _dirty = true);
-                },
-                decoration: const InputDecoration(
-                  border: InputBorder.none,
-                  isDense: true,
-                  contentPadding: EdgeInsets.fromLTRB(16, 4, 16, 14),
-                ),
+            TextField(
+              controller: _ctl,
+              autofocus: rule.content.isEmpty,
+              maxLines: null,
+              minLines: 3,
+              keyboardType: TextInputType.multiline,
+              autocorrect: false,
+              enableSuggestions: false,
+              style: mono(context, size: 13, weight: FontWeight.w400),
+              onChanged: (_) {
+                if (!_dirty) setState(() => _dirty = true);
+              },
+              decoration: const InputDecoration(
+                border: InputBorder.none,
+                isDense: true,
+                contentPadding: EdgeInsets.fromLTRB(16, 4, 16, 14),
               ),
             ),
           ],

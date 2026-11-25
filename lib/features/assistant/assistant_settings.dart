@@ -92,6 +92,8 @@ LibraryScope effectiveLibraryScope(
 String libraryScopeWire(LibraryScope s) => s.name;
 
 String sectionImportLabel(SectionImport m) => switch (m) {
+  SectionImport.aiSection => 'AI 专属分区',
+  SectionImport.appendMain => '加到主提示词后方',
   SectionImport.main => '替换主体',
   SectionImport.newSection => '新建分区',
   SectionImport.clear => '清空分区',
@@ -105,6 +107,7 @@ class AssistantSettings {
     this.autoGenerate = false,
     this.inlineImage = false,
     this.autoImport = false,
+    this.allowEditNegative = false,
     this.thinkLevel = ThinkLevel.auto,
     this.libraryScope = LibraryScope.local,
     this.ocPlaceholders = false,
@@ -113,7 +116,7 @@ class AssistantSettings {
     this.fontSize = fontSizeDefault,
     this.historyTurns = historyTurnsDefault,
     this.stream = true,
-    this.importTo = SectionImport.main,
+    this.importTo = SectionImport.aiSection,
     this.retries = retriesDefault,
     this.rerolls = rerollsDefault,
     this.refusalKeywords = kRefusalKeywords,
@@ -170,6 +173,7 @@ class AssistantSettings {
   ///
   /// 默认关:拿助手当草稿本、不想动画布的人一旦被自动覆盖,丢的是他自己写的词。
   final bool autoImport;
+  final bool allowEditNegative;
 
   /// 自定义接口的思考等级。默认 [ThinkLevel.auto] = 不发这个字段。
   final ThinkLevel thinkLevel;
@@ -247,6 +251,7 @@ class AssistantSettings {
     bool? autoGenerate,
     bool? inlineImage,
     bool? autoImport,
+    bool? allowEditNegative,
     ThinkLevel? thinkLevel,
     LibraryScope? libraryScope,
     bool? ocPlaceholders,
@@ -269,6 +274,7 @@ class AssistantSettings {
     autoGenerate: autoGenerate ?? this.autoGenerate,
     inlineImage: inlineImage ?? this.inlineImage,
     autoImport: autoImport ?? this.autoImport,
+    allowEditNegative: allowEditNegative ?? this.allowEditNegative,
     thinkLevel: thinkLevel ?? this.thinkLevel,
     libraryScope: libraryScope ?? this.libraryScope,
     ocPlaceholders: ocPlaceholders ?? this.ocPlaceholders,
@@ -296,6 +302,7 @@ class AssistantSettings {
     'autoGenerate': autoGenerate,
     'inlineImage': inlineImage,
     'autoImport': autoImport,
+    'allowEditNegative': allowEditNegative,
     'thinkLevel': thinkLevel.name,
     'libraryScope': libraryScope.name,
     'ocPlaceholders': ocPlaceholders,
@@ -323,6 +330,7 @@ class AssistantSettings {
         // alwaysCanvas 是它的旧名(那会儿还连着读画布)。老存档里开着的,
         // 保留它「自动导入」那一半 —— 读那一半已经不存在了。
         autoImport: j['autoImport'] == true || j['alwaysCanvas'] == true,
+        allowEditNegative: j['allowEditNegative'] == true,
         thinkLevel:
             ThinkLevel.values.asNameMap()[j['thinkLevel']] ?? ThinkLevel.auto,
         libraryScope:
@@ -334,7 +342,7 @@ class AssistantSettings {
         stream: j['stream'] != false,
         importTo:
             SectionImport.values.asNameMap()[j['importTo']] ??
-            SectionImport.main,
+            SectionImport.aiSection,
         retries: _count(j['retries'], retriesDefault),
         rerolls: _count(j['rerolls'], rerollsDefault),
         refusalKeywords: switch (j['refusalKeywords']) {

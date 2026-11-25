@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/gestures.dart' show PointerDeviceKind;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -502,6 +503,51 @@ void main() {
         NetworkProxySettings.decode(prefs.get(kNetworkProxyKey)).software,
         ProxySoftware.other,
       );
+    },
+  );
+
+  testWidgets(
+    'tapping anywhere on the local proxy header row expands and collapses details',
+    (tester) async {
+      await mount(tester, expanded: false);
+      final header = find.byKey(const ValueKey('network-proxy-expand'));
+      final rect = tester.getRect(header);
+      expect(rect.width, greaterThan(400));
+      expect(find.text('保存并应用'), findsNothing);
+      expect(find.text('详细设置'), findsNothing);
+      final arrow = find.byTooltip('展开详细设置');
+      final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+      await mouse.addPointer(location: rect.center);
+      await tester.pump(const Duration(seconds: 1));
+      expect(find.text('展开详细设置'), findsNothing);
+      await mouse.moveTo(tester.getCenter(arrow));
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pumpAndSettle();
+      final tip = tester.getRect(find.text('展开详细设置'));
+      expect(tip.bottom, lessThanOrEqualTo(rect.center.dy));
+      expect(tip.left, greaterThan(rect.center.dx));
+      await mouse.removePointer();
+      await tester.pumpAndSettle();
+
+      // Tap the title text on the left side of the row.
+      await tester.tap(find.text('本机代理'));
+      await tester.pumpAndSettle();
+      expect(find.text('保存并应用'), findsOneWidget);
+      expect(find.text('收起'), findsNothing);
+      expect(find.byTooltip('收起详细设置'), findsOneWidget);
+
+      // Tap the blank center area of the header row to collapse.
+      await tester.tapAt(rect.center);
+      await tester.pumpAndSettle();
+      expect(find.text('保存并应用'), findsNothing);
+      expect(find.text('详细设置'), findsNothing);
+      expect(find.byTooltip('展开详细设置'), findsOneWidget);
+
+      // Tap the right chevron icon to expand again.
+      await tester.tap(find.byIcon(Icons.expand_more));
+      await tester.pumpAndSettle();
+      expect(find.text('保存并应用'), findsOneWidget);
+      expect(tester.takeException(), isNull);
     },
   );
 

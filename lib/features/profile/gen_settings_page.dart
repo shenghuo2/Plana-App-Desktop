@@ -3,11 +3,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/store/ui_prefs.dart';
+import '../../core/platform/desktop.dart';
 
 import '../../core/store/gen_settings.dart';
 import '../../core/theme/app_theme.dart';
 import '../gallery/save_settings.dart';
 import '../generate/gen_modules.dart';
+import '../tools/metadata_tool_link.dart';
 import 'widgets/settings_ui.dart';
 import '../../l10n/l10n.dart';
 
@@ -373,10 +375,13 @@ class _SaveDefaultsCard extends ConsumerWidget {
             onChanged: (v) => patch((x) => x.copyWith(quality: v / 100)),
           ),
         if (s.format != SaveFormat.jpg && s.meta == SaveMeta.custom)
-          _PromptRow(
-            prompt: s.customPrompt,
-            onChanged: (v) => patch((x) => x.copyWith(customPrompt: v)),
-          ),
+          if (ref.watch(desktopModeProvider))
+            const MetadataToolLink()
+          else
+            _PromptRow(
+              prompt: s.customPrompt,
+              onChanged: (v) => patch((x) => x.copyWith(customPrompt: v)),
+            ),
       ],
     );
   }

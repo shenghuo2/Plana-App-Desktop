@@ -39,7 +39,7 @@ class _Library extends TagLibrary {
   Future<TagLibraryState> build() async => TagLibraryState(entries: seed);
 
   @override
-  Future<void> upsert(TagEntry entry) async {
+  Future<void> upsert(TagEntry entry, {bool requirePersistence = false}) async {
     if (saveGate != null) await saveGate;
     final current = state.requireValue;
     state = AsyncData(
@@ -155,7 +155,7 @@ void main() {
           find.descendant(
             of: find.byKey(ValueKey('sec$art')),
             matching: find.byWidgetPredicate(
-              (w) => w is Text && w.textSpan != null,
+              (w) => w is Text && w.textSpan != null && w.maxLines == 1,
             ),
           ),
         )

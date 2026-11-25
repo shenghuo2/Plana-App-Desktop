@@ -38,28 +38,37 @@ Future<void> showTagEditor(
   TagDraft? draft,
   List<TagCategory>? categories,
   String? lastPageKey,
+  bool allowNegativeOnly = false,
+  ValueChanged<TagEntry>? onSaved,
 }) {
+  void saved(TagEntry? entry) {
+    if (entry != null) onSaved?.call(entry);
+  }
+
   final desktop = ProviderScope.containerOf(
     context,
     listen: false,
   ).read(desktopModeProvider);
   if (!desktop) {
-    return Navigator.of(context).push<void>(
-      sharedAxisRoute(
-        TagEditorPage(
-          cat: cat,
-          edit: edit,
-          draft: draft,
-          categories: categories,
-          lastPageKey: lastPageKey,
-        ),
-      ),
-    );
+    return Navigator.of(context)
+        .push<TagEntry>(
+          sharedAxisRoute(
+            TagEditorPage(
+              cat: cat,
+              edit: edit,
+              draft: draft,
+              categories: categories,
+              lastPageKey: lastPageKey,
+              allowNegativeOnly: allowNegativeOnly,
+            ),
+          ),
+        )
+        .then(saved);
   }
   final navigator = Navigator.of(context, rootNavigator: true);
   final existing = _openTagEditors[navigator];
   if (existing != null) return existing;
-  final opened = showDialog<void>(
+  final opened = showDialog<TagEntry>(
     context: context,
     useRootNavigator: true,
     requestFocus: true,
@@ -79,11 +88,14 @@ Future<void> showTagEditor(
           floating: true,
           categories: categories,
           lastPageKey: lastPageKey,
+          allowNegativeOnly: allowNegativeOnly,
         ),
       ),
     ),
   );
-  final result = opened.whenComplete(() => _openTagEditors[navigator] = null);
+  final result = opened
+      .then(saved)
+      .whenComplete(() => _openTagEditors[navigator] = null);
   _openTagEditors[navigator] = result;
   return result;
 }
@@ -112,6 +124,7 @@ class TagEditorPage extends ConsumerStatefulWidget {
     this.floating = false,
     this.categories,
     this.lastPageKey,
+    this.allowNegativeOnly = false,
   });
 
   final TagCategory cat;
@@ -119,6 +132,7 @@ class TagEditorPage extends ConsumerStatefulWidget {
   final bool floating;
   final List<TagCategory>? categories;
   final String? lastPageKey;
+  final bool allowNegativeOnly;
 
   /// 新建时预填;[edit] 不为 null 时不看它。
   final TagDraft? draft;
@@ -141,6 +155,7 @@ class _Slot {
 }
 
 class _TagEditorPageState extends ConsumerState<TagEditorPage> {
+  final _categoryMenu = MenuController();
   late TagCategory _category = widget.cat;
   TagCategoryDef get _def => tagCategoryDef(_category);
   late final TagEntry? _edit = widget.edit;
@@ -196,7 +211,12 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
 
   bool get _nameOk => _name.text.trim().isNotEmpty;
   bool get _positiveOk => _positive.text.trim().isNotEmpty;
-  bool get _canSave => _locked || (_nameOk && _positiveOk);
+  bool get _negativeOnlyAllowed =>
+      widget.allowNegativeOnly ||
+      (_edit != null && _edit.positive.isEmpty && _edit.negative.isNotEmpty);
+  bool get _promptOk =>
+      _positiveOk || (_negativeOnlyAllowed && _negative.text.trim().isNotEmpty);
+  bool get _canSave => _locked || (_nameOk && _promptOk);
 
   @override
   void initState() {
@@ -206,6 +226,7 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
     // 必填联动进度环/校验态
     _name.addListener(() => setState(() {}));
     _positive.addListener(() => setState(() {}));
+    if (_negativeOnlyAllowed) _negative.addListener(() => setState(() {}));
   }
 
   @override
@@ -274,12 +295,14 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
           ? normalizeArtistModels(_models.toList())
           : const [],
       origin: origin ?? _edit?.origin ?? TagOrigin.local,
+      favorite: eid == _edit?.id ? _edit?.favorite : null,
       publicId:
           publicId ?? (origin == TagOrigin.local ? null : _edit?.publicId),
       previews: await _buildPreviews(eid),
       createdAt: _edit?.createdAt ?? DateTime.now().millisecondsSinceEpoch,
       createdBy: _edit?.createdBy,
       recipe: _category == TagCategory.artist ? _recipe : null,
+      extra: _edit?.extra ?? const {},
     );
   }
 
@@ -310,10 +333,14 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
   Future<void> _saveLocal() async {
     if (_guardValidation()) return;
     await _run(() async {
-      await ref.read(tagLibraryProvider.notifier).upsert(await _buildEntry());
-      _rememberCategory();
+      final entry = await _buildEntry();
       if (!mounted) return;
-      Navigator.pop(context);
+      await ref
+          .read(tagLibraryProvider.notifier)
+          .upsert(entry, requirePersistence: true);
+      if (!mounted) return;
+      _rememberCategory();
+      Navigator.pop(context, entry);
       hintSnack(
         context,
         context.l10n.savedLabel,
@@ -335,7 +362,7 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
       (widget.categories?.length ?? 0) > 1;
 
   /// 新建时原位切换类别。保留名称、正负向、标签与预览槽；无图类别不保存预览。
-  Future<void> _switchCategory() async {
+  Future<void> _pickMobileCategory() async {
     final cats = widget.categories!;
     final picked = await showModalBottomSheet<TagCategory>(
       context: context,
@@ -343,7 +370,11 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
       isScrollControlled: true,
       builder: (sheet) => _CategoryPickSheet(cats: cats, current: _category),
     );
-    if (picked == null || picked == _category || !mounted) return;
+    if (picked != null && mounted) _switchCategory(picked);
+  }
+
+  void _switchCategory(TagCategory picked) {
+    if (picked == _category) return;
     setState(() {
       _category = picked;
       _cover = 0;
@@ -353,17 +384,16 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
   /// favorited:内容锁定,仅保存标签改动。
   Future<void> _saveTagsOnly() async {
     await _run(() async {
+      final entry = _edit!.copyWith(
+        tags: _tags.toList()..sort(),
+        models: normalizeArtistModels(_models.toList()),
+        recipe: _recipe ?? TagEntry.clearRecipe,
+      );
       await ref
           .read(tagLibraryProvider.notifier)
-          .upsert(
-            _edit!.copyWith(
-              tags: _tags.toList()..sort(),
-              models: normalizeArtistModels(_models.toList()),
-              recipe: _recipe ?? TagEntry.clearRecipe,
-            ),
-          );
+          .upsert(entry, requirePersistence: true);
       if (!mounted) return;
-      Navigator.pop(context);
+      Navigator.pop(context, entry);
       hintSnack(
         context,
         context.l10n.savedLabel,
@@ -470,19 +500,19 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
         publicId = r.id;
         finalName = r.name;
       }
+      final entry = await _buildEntry(
+        name: finalName,
+        origin: TagOrigin.created,
+        publicId: publicId,
+      );
+      if (!mounted) return;
       await ref
           .read(tagLibraryProvider.notifier)
-          .upsert(
-            await _buildEntry(
-              name: finalName,
-              origin: TagOrigin.created,
-              publicId: publicId,
-            ),
-          );
+          .upsert(entry, requirePersistence: true);
       ref.invalidate(publicTagsProvider(_category));
       _rememberCategory();
       if (!mounted) return;
-      Navigator.pop(context);
+      Navigator.pop(context, entry);
       hintSnack(
         context,
         l10nNow.desktopPublishedToThePublicLibrary,
@@ -535,10 +565,14 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
           recipe: _recipe?.toJson() ?? const {},
         );
       }
-      await ref.read(tagLibraryProvider.notifier).upsert(await _buildEntry());
+      final entry = await _buildEntry();
+      if (!mounted) return;
+      await ref
+          .read(tagLibraryProvider.notifier)
+          .upsert(entry, requirePersistence: true);
       ref.invalidate(publicTagsProvider(_category));
       if (!mounted) return;
-      Navigator.pop(context);
+      Navigator.pop(context, entry);
       hintSnack(
         context,
         l10nNow.desktopSavedAndSynced,
@@ -557,9 +591,9 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
         name: lib.uniqueName(_category, _name.text.trim()),
         origin: TagOrigin.local, // origin=local ⇒ publicId 自动为空,脱钩
       );
-      await lib.upsert(entry);
+      await lib.upsert(entry, requirePersistence: true);
       if (!mounted) return;
-      Navigator.pop(context);
+      Navigator.pop(context, entry);
       hintSnack(
         context,
         l10nNow.desktopSavedAsALocalCopy,
@@ -1064,7 +1098,9 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
       return CallbackShortcuts(
         bindings: {
           const SingleActivator(LogicalKeyboardKey.escape): () {
-            if (widget.floating && !_busy && !_generating) {
+            if (_categoryMenu.isOpen) {
+              _categoryMenu.close();
+            } else if (widget.floating && !_busy && !_generating) {
               Navigator.pop(context);
             }
           },
@@ -1106,7 +1142,7 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
                           id: 'prompt',
                           title: l10nNow.prompt,
                           required: true,
-                          filled: _positiveOk,
+                          filled: _promptOk,
                           collapsedValue: _positive.text.trim().isEmpty
                               ? null
                               : _positive.text.trim(),
@@ -1171,7 +1207,7 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
       _desktopField(
         '提示词',
         _promptBody(scheme),
-        invalid: !_positiveOk,
+        invalid: !_promptOk,
         required: true,
       ),
       if (_category == TagCategory.artist)
@@ -1279,6 +1315,29 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
 
   Widget _header(ColorScheme scheme) {
     final isCreated = _edit?.origin == TagOrigin.created;
+    Widget title(VoidCallback? open) => InkWell(
+      key: const ValueKey('tag-editor-category'),
+      onTap: open,
+      borderRadius: BorderRadius.circular(8),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 6),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Flexible(
+              child: Text(
+                _isEdit ? '编辑${_def.label}' : '新建${_def.label}',
+                overflow: TextOverflow.ellipsis,
+                style: context.texts.titleMedium!.copyWith(
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
+            if (_switchable) const Icon(Icons.keyboard_arrow_down, size: 20),
+          ],
+        ),
+      ),
+    );
     return Padding(
       padding: const EdgeInsets.fromLTRB(4, 6, 14, 4),
       child: Row(
@@ -1299,29 +1358,60 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
           ),
           const SizedBox(width: 10),
           Expanded(
-            child: InkWell(
-              key: const ValueKey('tag-editor-category'),
-              onTap: _switchable ? _switchCategory : null,
-              borderRadius: BorderRadius.circular(8),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 6),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Flexible(
-                      child: Text(
-                        _isEdit ? '编辑${_def.label}' : '新建${_def.label}',
-                        overflow: TextOverflow.ellipsis,
-                        style: context.texts.titleMedium!.copyWith(
-                          fontWeight: FontWeight.w800,
+            child: Align(
+              alignment: AlignmentDirectional.centerStart,
+              child: _switchable && ref.watch(desktopModeProvider)
+                  ? MenuAnchor(
+                      controller: _categoryMenu,
+                      useRootOverlay: true,
+                      consumeOutsideTap: true,
+                      alignmentOffset: const Offset(0, 4),
+                      style: MenuStyle(
+                        alignment: AlignmentDirectional.bottomStart,
+                        minimumSize: const WidgetStatePropertyAll(Size(160, 0)),
+                        maximumSize: WidgetStatePropertyAll(
+                          Size(
+                            224,
+                            math.min(
+                              320,
+                              MediaQuery.sizeOf(context).height * .58,
+                            ),
+                          ),
+                        ),
+                        backgroundColor: WidgetStatePropertyAll(
+                          scheme.surfaceContainerLow,
+                        ),
+                        side: WidgetStatePropertyAll(
+                          BorderSide(color: scheme.outlineVariant),
                         ),
                       ),
-                    ),
-                    if (_switchable)
-                      const Icon(Icons.keyboard_arrow_down, size: 20),
-                  ],
-                ),
-              ),
+                      menuChildren: [
+                        for (final cat in widget.categories!)
+                          MenuItemButton(
+                            key: ValueKey('tag-editor-destination-${cat.name}'),
+                            leadingIcon: Icon(
+                              tagCategoryDef(cat).icon,
+                              size: 18,
+                            ),
+                            trailingIcon: cat == _category
+                                ? Icon(
+                                    Icons.check,
+                                    size: 18,
+                                    color: scheme.primary,
+                                  )
+                                : null,
+                            onPressed: () => _switchCategory(cat),
+                            child: Text(
+                              tagCategoryDef(cat).label,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                      ],
+                      builder: (_, menu, _) =>
+                          title(() => menu.isOpen ? menu.close() : menu.open()),
+                    )
+                  : title(_switchable ? _pickMobileCategory : null),
             ),
           ),
           if (isCreated) ...[
@@ -2348,7 +2438,9 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
                 child: _primaryBtn(
                   icon: Icons.public,
                   label: context.l10n.saveAndPublish,
-                  onPressed: _publish,
+                  onPressed: _negativeOnlyAllowed && !_positiveOk
+                      ? null
+                      : _publish,
                 ),
               ),
             ]
@@ -2376,7 +2468,9 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
           child: _primaryBtn(
             icon: Icons.cloud_sync_outlined,
             label: l10nNow.desktopSaveAndSync,
-            onPressed: _syncPublic,
+            onPressed: _negativeOnlyAllowed && !_positiveOk
+                ? null
+                : _syncPublic,
           ),
         ),
       ];
@@ -2402,7 +2496,7 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
           child: _primaryBtn(
             icon: Icons.public,
             label: context.l10n.saveAndPublish,
-            onPressed: _publish,
+            onPressed: _negativeOnlyAllowed && !_positiveOk ? null : _publish,
           ),
         ),
       ];
@@ -2435,7 +2529,7 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
   Widget _primaryBtn({
     required IconData icon,
     required String label,
-    required VoidCallback onPressed,
+    required VoidCallback? onPressed,
   }) {
     return Opacity(
       opacity: _canSave ? 1 : .45,

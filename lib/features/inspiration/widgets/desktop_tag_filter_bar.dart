@@ -147,12 +147,10 @@ class _DesktopTagFilterBarState extends State<DesktopTagFilterBar> {
     if (_pickerOpen) return;
     _pickerOpen = true;
     try {
-      final picked = await showDesktopPopover<({String? tag})>(
+      final picked = await showDesktopTagPicker(
         anchor,
-        width: 360,
-        maxHeight: 460,
-        builder: (_) =>
-            _TagPicker(tags: widget.tags, selectedTag: widget.selectedTag),
+        tags: widget.tags,
+        selectedTag: widget.selectedTag,
       );
       if (mounted && picked != null) widget.onTagSelected(picked.tag);
     } finally {
@@ -431,6 +429,17 @@ class _DesktopTagFilterBarState extends State<DesktopTagFilterBar> {
   }
 }
 
+Future<({String? tag})?> showDesktopTagPicker(
+  BuildContext anchor, {
+  required List<String> tags,
+  required String? selectedTag,
+}) => showDesktopPopover<({String? tag})>(
+  anchor,
+  width: 360,
+  maxHeight: 460,
+  builder: (_) => _TagPicker(tags: tags, selectedTag: selectedTag),
+);
+
 class _TagPicker extends StatefulWidget {
   const _TagPicker({required this.tags, required this.selectedTag});
 
@@ -472,7 +481,12 @@ class _TagPickerState extends State<_TagPicker> {
           padding: const EdgeInsets.fromLTRB(16, 8, 8, 0),
           child: Row(
             children: [
-              Expanded(child: Text(l10nNow.desktopFilterByTag, style: context.texts.titleSmall)),
+              Expanded(
+                child: Text(
+                  l10nNow.desktopFilterByTag,
+                  style: context.texts.titleSmall,
+                ),
+              ),
               const CloseButton(),
             ],
           ),
@@ -522,7 +536,10 @@ class _TagPickerState extends State<_TagPicker> {
           child: hits.isEmpty
               ? Padding(
                   padding: EdgeInsets.all(24),
-                  child: Text(l10nNow.desktopNoMatchingTags, textAlign: TextAlign.center),
+                  child: Text(
+                    l10nNow.desktopNoMatchingTags,
+                    textAlign: TextAlign.center,
+                  ),
                 )
               : Scrollbar(
                   controller: _scroll,

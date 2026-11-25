@@ -103,6 +103,101 @@ void main() {
   }
 
   test(
+    'save a negative selection at its position and undo it after reload',
+    () async {
+      gen.setPrompts(
+        positive: 'outside',
+        negative: 'one, 1.4::two, three::, four',
+      );
+      load(positive: false);
+      final before = container.read(editorProvider);
+      final slot = selectedFoldSlot(before.negativeText, before.foldBodies, {
+        1,
+        2,
+      })!;
+      expect(slot.body(before.foldBodies), '1.4::two, three::');
+      editor.applySavedInspiration(
+        entryId: 'snow',
+        title: '雪',
+        positiveBody: '',
+        negativeBody: slot.body(before.foldBodies),
+        selection: slot,
+      );
+      expect(gen.state.prompt, 'outside');
+      expect(
+        gen.state.negativePromptRaw,
+        'one, <#雪·排除: 1.4::two, three::#>, four',
+      );
+      final encoded = await encodeGenerateState(gen.state, stores.blobs);
+      final restored = await decodeGenerateState(encoded.json, stores.blobs);
+      expect(restored.promptFoldLinks.single.sourceEntryId, 'snow');
+      expect(restored.promptFoldLinks.single.paired, isFalse);
+      load(positive: false);
+      editor.undo();
+      editor.flushWriteBack();
+      expect(gen.state.negativePrompt, 'one, 1.4::two, three::, four');
+      expect(gen.state.negativePromptRaw, isEmpty);
+      expect(gen.state.promptFoldLinks, isEmpty);
+    },
+  );
+
+  test(
+    'saving a library edit updates only the chosen placement and both of its sides',
+    () {
+      final first = PromptFoldLink.forEntry(
+        'winter',
+        positiveName: '冬',
+        positiveBody: 'snow',
+        negativeName: '冬·排除',
+        negativeBody: 'rain',
+      );
+      final second = PromptFoldLink.forEntry(
+        'winter',
+        positiveName: '冬 2',
+        positiveBody: 'snow',
+        negativeName: '冬·排除 2',
+        negativeBody: 'rain',
+      );
+      gen.setPrompts(
+        positive: 'snow, snow',
+        negative: 'rain, rain',
+        positiveRaw: '<#冬: snow#>, <#冬 2: snow#>',
+        negativeRaw: '<#冬·排除: rain#>, <#冬·排除 2: rain#>',
+        promptFoldLinks: [first, second],
+      );
+      load();
+      editor.applySavedInspiration(
+        entryId: 'winter',
+        title: '冬夜',
+        positiveBody: 'moon',
+        negativeBody: null,
+        editing: container.read(editorProvider).placementOf('冬 2'),
+      );
+      expect(gen.state.promptRaw, '<#冬: snow#>, <#冬夜: moon#>');
+      expect(gen.state.negativePromptRaw, '<#冬·排除: rain#>, <#冬夜·排除: rain#>');
+      expect(gen.state.promptFoldLinks.first, first);
+      expect(gen.state.promptFoldLinks.last.id, second.id);
+      expect(gen.state.promptFoldLinks.last.sourceEntryId, 'winter');
+      editor.undo();
+      editor.flushWriteBack();
+      expect(gen.state.promptFoldLinks, [first, second]);
+      expect(gen.state.promptRaw, '<#冬: snow#>, <#冬 2: snow#>');
+    },
+  );
+
+  test(
+    'disjoint selections keep neighboring words and carry partial group weights',
+    () {
+      final slot = selectedFoldSlot('one, {two, three}, four, five', {}, {
+        2,
+        4,
+      })!;
+      expect(slot.body({}), '{three}, five');
+      expect(slot.replace('BLOCK'), 'one, {two}, BLOCK, four');
+    },
+  );
+
+  test(
     'inspector edits preserve linked blocks and undo body changes after reload',
     () {
       final source = imported([
@@ -283,7 +378,10 @@ void main() {
         [entry()],
         into: GenerateState.initial().copyWith(prompt: 'pink hair, blue eyes'),
       );
-      expect(source.promptFoldLinks, isEmpty);
+      final placement = source.promptFoldLinks.single;
+      expect(placement.paired, isFalse);
+      expect(placement.positiveName, isEmpty);
+      expect(placement.sourceEntryId, entry().id);
       expect(source.promptRaw, isEmpty);
       expect(parseFolds(source.negativePromptRaw), hasLength(1));
       use(source);

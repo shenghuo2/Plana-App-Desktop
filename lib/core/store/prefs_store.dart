@@ -30,15 +30,20 @@ class PrefsStore {
   final Map<String, String> _map;
 
   Future<void> _chain = Future.value();
+  Timer? _saveTimer;
 
   /// Wait for settings already queued before closing the application.
   Future<void> get idle async {
+    if (_saveTimer != null) flush();
     await _chain;
     if (_error case final e?) throw e;
   }
 
   void flush() {
-    if (_dirty) unawaited(_flush());
+    if (_saveTimer == null && !_dirty) return;
+    _saveTimer?.cancel();
+    _saveTimer = null;
+    unawaited(_flush());
   }
 
   /// 需要从 secure storage 迁出的键。
@@ -155,6 +160,14 @@ class PrefsStore {
     if (value == null) return delete(key: key);
     _map[key] = value;
     await _flush();
+  }
+
+  /// Update the in-memory value on each keystroke. Closing the window flushes
+  /// the latest edit even when the debounce interval has not elapsed.
+  void writeDebounced({required String key, required String value}) {
+    _map[key] = value;
+    _saveTimer?.cancel();
+    _saveTimer = Timer(const Duration(milliseconds: 300), flush);
   }
 
   Future<void> delete({required String key}) async {

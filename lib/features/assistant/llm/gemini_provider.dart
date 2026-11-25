@@ -29,13 +29,8 @@ class GeminiProvider extends HttpLlmProvider {
   /// 开流要换方法名、还得带 `alt=sse`(不带回的是一个要收完才能解析的大 JSON 数组)。
   /// 只在认得出 `:generateContent` 时替换;中转改过路径的原样用,按非流式回落。
   @override
-  Uri chatUri({required bool stream}) {
-    if (!stream) return endpoint.chatUri;
-    final u = Uri.parse(
-      '${endpoint.effectiveBase}${endpoint.effectivePath.replaceFirst(':generateContent', ':streamGenerateContent')}',
-    );
-    return u.replace(queryParameters: {...u.queryParameters, 'alt': 'sse'});
-  }
+  Uri chatUri({required bool stream}) =>
+      stream ? endpoint.chatStreamUri : endpoint.chatUri;
 
   @override
   Map<String, String> get authHeaders => {'x-goog-api-key': apiKey};
@@ -77,7 +72,8 @@ class GeminiProvider extends HttpLlmProvider {
               'thinkingLevel': switch (level) {
                 ThinkLevel.medium => 'MEDIUM',
                 ThinkLevel.high => 'HIGH',
-                ThinkLevel.ultra => _hasXHigh(endpoint.model) ? 'XHIGH' : 'HIGH',
+                ThinkLevel.ultra =>
+                  _hasXHigh(endpoint.model) ? 'XHIGH' : 'HIGH',
                 _ => 'LOW',
               },
           },

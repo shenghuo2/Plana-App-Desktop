@@ -9,6 +9,7 @@ project(runner LANGUAGES CXX)
 add_executable(${BINARY_NAME} WIN32
   "clipboard_channel.cpp"
   "flutter_window.cpp"
+  "manual_view.cpp"
   "image_drop_target.cpp"
   "image_clipboard.cpp"
   "image_transfer.cpp"
@@ -48,6 +49,13 @@ target_link_libraries(${BINARY_NAME} PRIVATE "ole32.lib" "shell32.lib" "uuid.lib
 target_link_libraries(${BINARY_NAME} PRIVATE "comctl32.lib")
 target_link_libraries(${BINARY_NAME} PRIVATE "windowsapp.lib" "iphlpapi.lib" "ws2_32.lib")
 target_include_directories(${BINARY_NAME} PRIVATE "${CMAKE_SOURCE_DIR}")
+
+# Official WebView2 SDK 1.0.2903.40, bundled for offline builds.
+set(MANUAL_SDK "${CMAKE_CURRENT_SOURCE_DIR}/third_party/webview2")
+string(TOLOWER "${CMAKE_VS_PLATFORM_NAME}" MANUAL_ARCH)
+target_include_directories(${BINARY_NAME} SYSTEM PRIVATE "${MANUAL_SDK}/include")
+target_link_libraries(${BINARY_NAME} PRIVATE "${MANUAL_SDK}/${MANUAL_ARCH}/WebView2Loader.dll.lib")
+set(MANUAL_LOADER "${MANUAL_SDK}/${MANUAL_ARCH}/WebView2Loader.dll" PARENT_SCOPE)
 
 # Run the Flutter tool portions of the build. This must not be removed.
 add_dependencies(${BINARY_NAME} flutter_assemble)

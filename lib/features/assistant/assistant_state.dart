@@ -14,8 +14,10 @@ library;
 
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' show max;
 import 'package:http/http.dart' as http;
 import '../../core/util/image_ops.dart' show decodeImageSize, ensurePng;
+import '../../core/util/prompt_block.dart';
 import '../../l10n/l10n.dart';
 import '../gallery/albums/album_state.dart' show gallerySaveTargetProvider;
 import '../editor/data/tag_completion.dart' show tagCompletionProvider;
@@ -40,11 +42,12 @@ import '../../core/net/backend_client.dart';
 import '../../core/net/backend_config.dart';
 import '../../core/store/app_stores.dart';
 import '../generate/agent_chars.dart';
+import '../generate/prompt_import_binding.dart';
 import '../generate/canvas_state.dart';
 import '../generate/prompt_sections.dart'
     show composeSections, joinSections, SectionImport, importPromptsInto;
 import '../inspiration/public_tags.dart' show publicTagsProvider;
-import '../editor/editor_models.dart' show outputOf;
+import '../editor/editor_models.dart' show outputOf, parseFolds, pickEditorText;
 import '../editor/editor_state.dart' show editorSessionsProvider;
 import '../generate/char_position.dart';
 import '../gallery/gallery_state.dart' show galleryProvider;
@@ -59,6 +62,7 @@ import '../inspiration/tag_models.dart';
 import 'agent_model.dart';
 import 'agent_trace.dart';
 import 'assistant_mode.dart';
+import 'semantic_blocks.dart';
 import 'assistant_images.dart';
 import 'assistant_models.dart';
 import 'assistant_settings.dart';
@@ -256,6 +260,9 @@ GenerateState proposalSendState(
   DrawProposal r,
   SectionImport mode, {
   required String Function() newId,
+  bool allowEditNegative = false,
+  PromptImportBinding binding = const PromptImportBinding(),
+  void Function(PromptImportBinding)? onBinding,
 }) {
   final built = buildAgentCharacters(
     [
@@ -270,14 +277,37 @@ GenerateState proposalSendState(
     model: canvas.params.model,
     newId: newId,
   );
+  final globals = r.blocks
+      .where((b) => b.character == -1 && (allowEditNegative || !b.negative))
+      .toList();
+  final firstSubject = r.blocks
+      .where(
+        (b) =>
+            !b.negative &&
+            (b.kind == PromptBlockKind.character ||
+                b.kind == PromptBlockKind.scene),
+      )
+      .firstOrNull;
+  final subjectName = assistantSectionName(
+    firstSubject?.name ?? r.characters.firstOrNull?.name,
+  );
   return importPromptsInto(
     canvas,
     r.positive,
     r.negative,
     mode,
     newId: newId,
+    sectionName: assistantSectionName(r.section),
+    fallbackName: subjectName.isEmpty ? 'AI' : subjectName,
+    binding: binding,
+    allowEditNegative: allowEditNegative,
+    onBinding: onBinding,
+    decorate: globals.isEmpty
+        ? null
+        : (row, retained, reserved) =>
+              decorateProposalRow(row, globals, retained, reserved, newId),
   ).copyWith(
-    characters: built.chars,
+    characters: decorateProposalCharacters(built.chars, r.blocks, newId),
     charRefs: const [],
     img2img: null,
     inpaint: null,
@@ -288,7 +318,10 @@ GenerateState proposalSendState(
 /// 提议里用到的库内画师串,把它们的负面补进负向(去重,同灵感页加画风)。
 ///
 /// 画师串是占位符换回来的,内容逐字不动,按整串出现在正向(含角色正向)里认。
-String withArtistNegatives(DrawProposal r, Iterable<TagEntry> artists) {
+DrawProposal proposalWithArtistNegatives(
+  DrawProposal r,
+  Iterable<TagEntry> artists,
+) {
   final texts = [
     r.positive,
     for (final c in r.characters) c.positive,
@@ -311,8 +344,71 @@ String withArtistNegatives(DrawProposal r, Iterable<TagEntry> artists) {
           usedIn(e.positive.trim()))
         e,
   ];
-  return used.isEmpty ? r.negative : appendTagNegatives(r.negative, used);
+  if (used.isEmpty) return r;
+  final appended = <PromptBlock>[];
+  final negative = appendTagNegatives(
+    r.negative,
+    used,
+    onAdded: (entry, start, body) {
+      final source = entry.positive.trim();
+      final style = r.blocks
+          .where(
+            (b) =>
+                b.character == -1 &&
+                !b.negative &&
+                b.kind == PromptBlockKind.style &&
+                b.text == source,
+          )
+          .singleOrNull;
+      if (style == null ||
+          used.where((e) => e.positive.trim() == source).length != 1 ||
+          r.blocks.any(
+            (b) =>
+                b.character == -1 &&
+                b.negative &&
+                b.kind == style.kind &&
+                b.name == style.name,
+          )) {
+        return;
+      }
+      appended.add(
+        PromptBlock(
+          kind: style.kind,
+          name: style.name,
+          icon: style.icon,
+          text: body,
+          start: start,
+          negative: true,
+        ),
+      );
+    },
+  );
+  // appendTagNegatives trims the original field before appending the new tags.
+  final shift = r.negative.length - r.negative.trimLeft().length;
+  return DrawProposal(
+    section: r.section,
+    positive: r.positive,
+    negative: negative,
+    characters: r.characters,
+  ).withValidatedBlocks([
+    for (final b in r.blocks)
+      if (shift > 0 && b.negative && b.character == -1)
+        PromptBlock(
+          kind: b.kind,
+          name: b.name,
+          icon: b.icon,
+          text: b.text,
+          start: b.start - shift,
+          negative: true,
+        )
+      else
+        b,
+    ...appended,
+  ]);
 }
+
+String withArtistNegatives(DrawProposal r, Iterable<TagEntry> artists) =>
+    proposalWithArtistNegatives(r, artists).negative;
 
 /// 创作页有没有可带给 AI 的东西。全空时「引用创作页」那颗按钮没意义,置灰。
 ///
@@ -321,6 +417,53 @@ String canvasPositive(GenerateState g) =>
     joinSections(g.sections, g.prompt, positive: true);
 String canvasNegative(GenerateState g) =>
     joinSections(g.sections, g.negativePrompt, positive: false);
+
+String assistantCanvasBlockSummary(
+  GenerateState canvas,
+  PromptImportBinding binding,
+) {
+  String names(String raw, String plain, {Set<String>? owned}) {
+    final folds = parseFolds(
+      pickEditorText(raw, plain),
+    ).where((fold) => owned == null || owned.contains(fold.name));
+    return [
+      for (final (i, fold) in folds.indexed) '${i + 1}. ${fold.name}',
+    ].join('、');
+  }
+
+  final rows = <String>[];
+  final row = canvas.sections
+      .where((r) => !r.isMain && r.id == binding.sectionId)
+      .firstOrNull;
+  if (row != null) {
+    final positive = names(row.positiveRaw, row.positive);
+    final negative = names(row.negativeRaw, row.negative);
+    rows.add(
+      [
+        'AI 分区「${row.name}」',
+        if (positive.isNotEmpty) '块顺序：$positive',
+        if (negative.isNotEmpty) '负面块顺序：$negative',
+      ].join('，'),
+    );
+  }
+  for (final negative in [false, true]) {
+    final span = negative ? binding.negative : binding.positive;
+    if (span == null || span.linkIds.isEmpty) continue;
+    final ids = span.linkIds.toSet();
+    final owned = {
+      for (final link in canvas.promptFoldLinks)
+        if (ids.contains(link.id))
+          negative ? link.negativeName : link.positiveName,
+    };
+    final labels = negative
+        ? names(canvas.negativePromptRaw, canvas.negativePrompt, owned: owned)
+        : names(canvas.promptRaw, canvas.prompt, owned: owned);
+    if (labels.isNotEmpty) {
+      rows.add('主体中 AI 的${negative ? "负面" : ""}块顺序：$labels');
+    }
+  }
+  return rows.join('。');
+}
 
 bool canvasHasContent(GenerateState g) {
   final composed = composeSections(g);
@@ -676,7 +819,7 @@ class AssistantNotifier extends Notifier<AssistantState> {
       // 界面已经挡了(见 _ModelGate),这儿再挡一道:自动生成、重试这些不经过界面。
       final model = sourceState.params.model;
       final imageKey = imageChoiceKeyOf(
-        ref.read(assistantModelPrefProvider).value ?? '',
+        ref.read(effectiveAssistantModelKeyProvider),
       );
       if (imageKey == null && !assistantSupportsModel(model)) {
         _pushError(
@@ -847,6 +990,7 @@ class AssistantNotifier extends Notifier<AssistantState> {
         if (!supported.contains(picked)) effective = AssistantMode.normal;
       }
       final modeKeys = assistantModeKeys(effective);
+      final useBlocks = semanticBlocksEnabled(custom, modeKeys);
       trace.settings.addAll({
         ..._modelSnapshot(endpoint),
         'image_model': imageModel,
@@ -902,8 +1046,21 @@ class AssistantNotifier extends Notifier<AssistantState> {
                 sessionId: sid,
               ),
       );
+      final note = [
+        if (!settings.allowEditNegative)
+          '画布全局负面提示词已锁定，nai_draw 的顶层 negative 请留空。',
+        if (settings.importTo == SectionImport.aiSection ||
+            settings.importTo == SectionImport.newSection)
+          '绘图时可在 nai_draw 顶层写 section（简短的中文分区名）。续改时输出本轮完整提示词和分块，按用户要求更新 section 和块短名。',
+        if (settings.importTo == SectionImport.appendMain)
+          '绘图时输出本对话负责部分的完整提示词和分块。续改可变更块短名，手写主体由客户端保留。',
+      ].join('\n');
+      final blockSummary = canvas
+          ? assistantCanvasBlockSummary(sourceState, _binding(sourceCanvasId))
+          : '';
       final request = AgentTurnRequest(
         userText: trimmed,
+        importNote: note,
         imageModel: imageModel,
         images: images,
         history: history,
@@ -912,6 +1069,7 @@ class AssistantNotifier extends Notifier<AssistantState> {
                 positive: canvasPositive(g),
                 negative: canvasNegative(g),
                 characters: _charsForAgent(g),
+                blockSummary: blockSummary,
               )
             : null,
         customRules: custom,
@@ -952,12 +1110,17 @@ class AssistantNotifier extends Notifier<AssistantState> {
         yield* streamAgentPrompt(
           baseUrl: base,
           sessionId: sid,
-          userRequest: images.length > 1
-              ? assistantReferenceSheetPrompt(trimmed, images.length)
-              : trimmed,
+          userRequest: [
+            images.length > 1
+                ? assistantReferenceSheetPrompt(trimmed, images.length)
+                : trimmed,
+            if (note.isNotEmpty) note,
+            if (blockSummary.isNotEmpty) blockSummary,
+          ].join('\n\n'),
           // 空串 = 用后端的全局默认。用户在顶栏选过才带 key 出去。
           model: channelModel,
           imageModel: imageModel,
+          recoverBlocks: useBlocks,
           imageB64: referenceSheet,
           history: history,
           historyTurns: settings.historyTurns,
@@ -1057,6 +1220,7 @@ class AssistantNotifier extends Notifier<AssistantState> {
                 sourceCanvasId,
                 scope,
                 artistEntries,
+                useBlocks: useBlocks,
               );
           }
         },
@@ -1317,8 +1481,9 @@ class AssistantNotifier extends Notifier<AssistantState> {
     bool noDraw,
     String sourceCanvasId,
     LibraryScope scope,
-    List<TagEntry> artistEntries,
-  ) {
+    List<TagEntry> artistEntries, {
+    required bool useBlocks,
+  }) {
     _finishTrace(null);
     // **不写创作页**。AI 的产出先当成一份「提议」挂在这条消息上,用户在结果卡上
     // 点「导入」才落地(或者不导入、直接拿它生成)。
@@ -1332,6 +1497,7 @@ class AssistantNotifier extends Notifier<AssistantState> {
     // 但这儿一并过一道,将来它扩到角色也不用再想起这件事。
     final stripped = r.hasDraw
         ? DrawProposal(
+            section: r.section,
             positive: stripArtistMarkers(r.positive),
             negative: r.negative,
             characters: [
@@ -1345,13 +1511,19 @@ class AssistantNotifier extends Notifier<AssistantState> {
             ],
           )
         : null;
-    final draw = stripped == null || scope == LibraryScope.none
-        ? stripped
-        : DrawProposal(
-            positive: stripped.positive,
-            negative: withArtistNegatives(stripped, artistEntries),
-            characters: stripped.characters,
-          );
+    final annotated = stripped?.withValidatedBlocks(
+      useBlocks ? r.blocks : const [],
+      // Stripping server artist markup can move offsets in the editor.
+      knownResources: useBlocks && stripped.positive != r.positive
+          ? r.resources
+          : null,
+    );
+    final draw =
+        annotated == null ||
+            scope == LibraryScope.none ||
+            !assistantSettingsOf(ref).allowEditNegative
+        ? annotated
+        : proposalWithArtistNegatives(annotated, artistEntries);
     final text = r.replyText.trim().isNotEmpty
         ? r.replyText.trim()
         : (draw != null ? '改好了喵~' : '这轮没什么可说的喵…');
@@ -1443,6 +1615,7 @@ class AssistantNotifier extends Notifier<AssistantState> {
       return;
     }
     if (msg?.promptAsText ?? false) return;
+    ref.read(editorSessionsProvider).flushPending();
     final sent = previewSendState(msgId, canvasId: canvasId);
     if (sent == null) return;
     final inline = assistantSettingsOf(ref).inlineImage;
@@ -1518,6 +1691,17 @@ class AssistantNotifier extends Notifier<AssistantState> {
 
   // ---- 写回 / 撤销 ----
 
+  PromptImportBinding _binding(String canvasId) =>
+      state.currentMeta?.bindings[canvasId] ?? const PromptImportBinding();
+
+  ConversationMeta _saveBinding(String canvasId, PromptImportBinding binding) {
+    final meta =
+        state.currentMeta ??
+        state.currentSession?.meta ??
+        ConversationMeta(id: DateTime.now().microsecondsSinceEpoch, at: _now);
+    return meta.copyWith(bindings: {...meta.bindings, canvasId: binding});
+  }
+
   PromptSnapshot _snapshot() {
     ref.read(editorSessionsProvider).flushPending();
     return PromptSnapshot.of(ref.read(generateProvider));
@@ -1547,19 +1731,31 @@ class AssistantNotifier extends Notifier<AssistantState> {
     final msg = state.msgs.where((m) => m.id == msgId).firstOrNull;
     final r = msg?.draw;
     if (r == null) return null;
+    final settings = assistantSettingsOf(ref);
+    final targetId = canvasId ?? workspace.activeId;
+    final change = msg!.change;
+    final alreadyApplied =
+        change != null &&
+        !change.undone &&
+        (change.canvasId ?? workspace.activeId) == targetId &&
+        PromptSnapshot.of(base).sameAs(change.after);
     var seq = 0;
-    final sent = proposalSendState(
-      base,
-      r,
-      assistantSettingsOf(ref).importTo,
-      newId: () => 'preview${seq++}',
-    );
+    final sent = alreadyApplied
+        ? base.copyWith(charRefs: const [], img2img: null, inpaint: null)
+        : proposalSendState(
+            base,
+            r,
+            settings.importTo,
+            binding: _binding(targetId),
+            allowEditNegative: settings.allowEditNegative,
+            newId: () => 'preview${seq++}',
+          );
     final mods =
         ref.read(genModulesProvider).value ?? const GenModuleSettings();
     return stripHiddenModules(sent, mods);
   }
 
-  /// 把某条 AI 消息的提议**导入**创作页。由用户在结果卡上点触发,不自动发生。
+  /// 手动「导入」和「自动写入创作页」共用的提交入口。
   ///
   /// 幂等:已经导入且没撤销过就直接返回 true。撤销之后可以再导入一次。
   ///
@@ -1571,12 +1767,14 @@ class AssistantNotifier extends Notifier<AssistantState> {
     final r = msg.draw;
     // 纯文本那种只给复制,不导入(同 [generateFrom] 那道)
     if (r == null || msg.promptAsText) return false;
-    if (msg.change != null && !msg.change!.undone) return true;
 
     final workspace = ref.read(canvasWorkspaceProvider);
     final targetId = canvasId ?? workspace.activeId;
     final target = workspace.find(targetId);
     if (target == null) return false;
+    if (msg.change != null && !msg.change!.undone) {
+      return (msg.change!.canvasId ?? targetId) == targetId;
+    }
     final before = _snapshotOf(targetId)!;
     final gen = ref.read(generateProvider.notifier);
     // Flushing the active editor may have updated the workspace draft.
@@ -1585,10 +1783,16 @@ class AssistantNotifier extends Notifier<AssistantState> {
         .find(targetId)!
         .prompts
         .applyTo(ref.read(generateProvider));
+    final settings = assistantSettingsOf(ref);
+    final binding = _binding(targetId);
+    var nextBinding = binding;
     final proposed = proposalSendState(
       base,
       r,
-      assistantSettingsOf(ref).importTo,
+      settings.importTo,
+      allowEditNegative: settings.allowEditNegative,
+      binding: binding,
+      onBinding: (value) => nextBinding = value,
       newId: gen.allocateItemId,
     );
     ref
@@ -1599,11 +1803,20 @@ class AssistantNotifier extends Notifier<AssistantState> {
       // 撤销过再导入:非空的 change 直接覆盖掉那条 undone 的记录。
       change: AssistantChange(
         before: before,
+        bindingBefore: binding,
+        writeOrder:
+            1 + msgs.fold<int>(0, (n, m) => max(n, m.change?.writeOrder ?? 0)),
         after: _snapshotOf(targetId)!,
         canvasId: targetId,
       ),
     );
-    _set(state.copyWith(msgs: msgs, changedUnseen: true));
+    _set(
+      state.copyWith(
+        msgs: msgs,
+        currentMeta: _saveBinding(targetId, nextBinding),
+        changedUnseen: true,
+      ),
+    );
     return true;
   }
 
@@ -1631,9 +1844,28 @@ class AssistantNotifier extends Notifier<AssistantState> {
         .read(canvasWorkspaceProvider.notifier)
         .updatePrompts(targetId, c.before.restoreTo);
 
+    // Restoring a previous canvas snapshot also rolls back subsequent imports
+    // made into that canvas, even if their cards appear earlier in the chat.
     final msgs = [...state.msgs];
-    msgs[i] = msgs[i].copyWith(change: c.copyWith(undone: true));
-    _set(state.copyWith(msgs: msgs));
+    for (final (index, msg) in state.msgs.indexed) {
+      final change = msg.change;
+      if (change == null || change.undone) continue;
+      final later =
+          c.writeOrder > 0 &&
+          change.writeOrder > c.writeOrder &&
+          change.canvasId == targetId;
+      if (index == i || later) {
+        msgs[index] = msg.copyWith(change: change.copyWith(undone: true));
+      }
+    }
+    _set(
+      state.copyWith(
+        msgs: msgs,
+        currentMeta: c.bindingBefore == null
+            ? state.currentMeta
+            : _saveBinding(targetId, c.bindingBefore!),
+      ),
+    );
     return true;
   }
 

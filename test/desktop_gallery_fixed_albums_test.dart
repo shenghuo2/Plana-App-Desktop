@@ -117,6 +117,71 @@ void main() {
     await tester.pump(const Duration(seconds: 1));
   }
 
+  testWidgets(
+    'visible cards move during drag, Escape cancels, dropping persists and offers undo',
+    (tester) async {
+      final store = c.read(albumsProvider.notifier);
+      await pumpUntilComplete(tester, store.create('另一本'));
+      final other = c.read(albumsProvider).albums.first.id;
+      await mount(tester);
+      final from = key('desktop-library-card-$other'),
+          next = key('desktop-library-card-$album');
+      final start = tester.getCenter(from), end = tester.getCenter(next);
+      Future<TestGesture> hover() async {
+        final g = await tester.startGesture(
+          start,
+          kind: PointerDeviceKind.mouse,
+        );
+        await g.moveBy(const Offset(24, 0));
+        await tester.pump();
+        await g.moveTo(end);
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 320));
+        expect(tester.getCenter(next).dx, closeTo(start.dx, 1));
+        expect(c.read(albumsProvider).albums.first.id, other);
+        return g;
+      }
+
+      final cancel = await hover();
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await cancel.up();
+      await tester.pumpAndSettle();
+      expect(tester.getCenter(next), end);
+      final drop = await hover();
+      await drop.up();
+      await pumpUntil(
+        tester,
+        () => c.read(albumsProvider).albums.first.id == album,
+      );
+      await tester.pumpAndSettle();
+      final message = find.text('已将「另一本」移至第 2 位');
+      expect(message, findsOneWidget);
+      final toast = tester.getRect(
+        find.ancestor(of: message, matching: find.byType(InkWell)).first,
+      );
+      final screen = tester.getRect(find.byType(Overlay).first);
+      expect(toast.width, lessThan(screen.width / 2));
+      expect(toast.center.dx, closeTo(screen.center.dx, 1));
+      expect(screen.bottom - toast.bottom, closeTo(12, 1));
+      await captureDesktop(tester, captureKey, 'gallery-reorder-undo');
+      await tester.pump(const Duration(seconds: 3));
+      await tester.tap(find.text('撤销'));
+      await pumpUntil(
+        tester,
+        () => c.read(albumsProvider).albums.first.id == other,
+      );
+      await tester.pumpAndSettle();
+      final again = await hover();
+      await again.up();
+      await pumpUntil(tester, () => message.evaluate().isNotEmpty);
+      await tester.pump(const Duration(seconds: 4));
+      await tester.pumpAndSettle();
+      expect(message, findsNothing);
+      expect(c.read(albumsProvider).albums.first.id, album);
+      await finish(tester);
+    },
+  );
+
   testWidgets('drag feedback shows the full album card in its original size', (
     tester,
   ) async {

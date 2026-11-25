@@ -8,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
 
 import '../util/log.dart';
+import '../util/prompt_block.dart';
 import 'backend_config.dart';
 import 'backend_http.dart';
 import 'nai_client.dart' show NaiUsage, parseNaiUsage;
@@ -316,8 +317,8 @@ class NaiQuota {
     this.relayEnabled = false,
     this.relayAvailable = true,
     this.relayPrice = 0.05,
-    this.relayPriceLegacy = 0.05,
-  });
+    double? relayPriceLegacy,
+  }) : _reportedLegacyPrice = relayPriceLegacy;
 
   /// 今日余额(张)。服务端按秒连续回充,所以带小数 —— 显示时**向下**取整,
   /// 免得报了 1 张、点进去却扣不动。
@@ -358,7 +359,11 @@ class NaiQuota {
 
   /// 中转单价(元 / 张):V5 / V4.5 及更早。
   final double relayPrice;
-  final double relayPriceLegacy;
+  final double? _reportedLegacyPrice;
+  double get relayPriceLegacy => _reportedLegacyPrice ?? relayPrice;
+
+  /// 后端没有单独报价时，Bot 中转的 NAI 4.5 按免费显示。
+  double get relayPrice45 => _reportedLegacyPrice ?? 0;
 
   /// 现在能出几张(余额 + 赠送)。
   int get available => (balance + extra).floor();
@@ -378,7 +383,7 @@ class NaiQuota {
     relayEnabled: relayEnabled ?? this.relayEnabled,
     relayAvailable: relayAvailable ?? this.relayAvailable,
     relayPrice: relayPrice,
-    relayPriceLegacy: relayPriceLegacy,
+    relayPriceLegacy: _reportedLegacyPrice,
   );
 
   factory NaiQuota.fromJson(Map<String, dynamic> j) {
@@ -395,7 +400,7 @@ class NaiQuota {
       relayEnabled: j['relay_enabled'] == true,
       relayAvailable: j['relay_available'] != false,
       relayPrice: price,
-      relayPriceLegacy: (j['relay_price_legacy'] as num?)?.toDouble() ?? price,
+      relayPriceLegacy: (j['relay_price_legacy'] as num?)?.toDouble(),
     );
   }
 }
@@ -1603,8 +1608,10 @@ class AgentCharacter {
 /// 不出结果卡、不点导航角标。
 class AgentResult {
   const AgentResult({
+    this.section = '',
     this.replyText = '',
     this.reasoning = '',
+    this.blocks = const [],
     this.positive = '',
     this.negative = '',
     this.characters = const [],
@@ -1613,6 +1620,8 @@ class AgentResult {
 
   /// 发给用户的角色语气正文(后端字段名是 `thinking`)。
   final String replyText;
+  final String section;
+  final List<PromptBlock> blocks;
 
   /// 模型原生思考。不进对话历史,只供当轮展示/排查。
   final String reasoning;
@@ -1633,23 +1642,39 @@ class AgentResult {
   /// 这一轮有没有产出画面改动。见类文档:服务端不下发 `should_draw`。
   bool get hasDraw => positive.trim().isNotEmpty || characters.isNotEmpty;
 
-  factory AgentResult.fromJson(Map<String, dynamic> j) => AgentResult(
-    replyText: j['thinking']?.toString().trim() ?? '',
-    reasoning: j['reasoning']?.toString().trim() ?? '',
-    positive: j['positive']?.toString() ?? '',
-    negative: j['negative']?.toString() ?? '',
-    characters: [
-      for (final c in (j['characters'] as List? ?? const []))
-        if (c is Map<String, dynamic>) AgentCharacter.fromJson(c),
-    ],
-    resources: {
+  factory AgentResult.fromJson(
+    Map<String, dynamic> j, {
+    bool recoverBlocks = false,
+  }) {
+    final resources = {
       for (final e in (j['resources'] as Map? ?? const {}).entries)
         if (e.value is Map)
           '${e.key}': {
             for (final r in (e.value as Map).entries) '${r.key}': '${r.value}',
           },
-    },
-  );
+    };
+    final saved = PromptBlock.decode(j['promptBlocks']);
+    return AgentResult(
+      section: assistantSectionName(j['section']),
+      replyText: j['thinking']?.toString().trim() ?? '',
+      blocks: saved.isNotEmpty
+          ? saved
+          : PromptBlock.fromDraw(
+              j,
+              j,
+              (line) => line,
+              recoverWith: recoverBlocks ? resources : null,
+            ),
+      reasoning: j['reasoning']?.toString().trim() ?? '',
+      positive: j['positive']?.toString() ?? '',
+      negative: j['negative']?.toString() ?? '',
+      characters: [
+        for (final c in (j['characters'] as List? ?? const []))
+          if (c is Map<String, dynamic>) AgentCharacter.fromJson(c),
+      ],
+      resources: resources,
+    );
+  }
 }
 
 /// Plana 后端客户端(当前仅含 bot 授权四端点里 App 要用的三个;
@@ -1769,7 +1794,8 @@ class BackendClient {
     }
     if (v is Map) {
       return <String, dynamic>{
-        for (final e in v.entries) '${e.key}': _extractParts(e.value, parts, seen),
+        for (final e in v.entries)
+          '${e.key}': _extractParts(e.value, parts, seen),
       };
     }
     if (v is List) return [for (final x in v) _extractParts(x, parts, seen)];
@@ -3038,7 +3064,8 @@ class BackendClient {
   /// 撤销一把,立即生效。已经撤销过 / 不是自己的回 404。
   Future<void> revokeApiKey(String sessionId, int id) async {
     await _handle(
-      () => _http.delete(_u('/user/api-keys/$id'), headers: _headers(sessionId)),
+      () =>
+          _http.delete(_u('/user/api-keys/$id'), headers: _headers(sessionId)),
     );
   }
 

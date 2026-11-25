@@ -472,7 +472,7 @@ void main() {
       await screenshot(tester, 'windows12-tag-backup');
       tester.view.physicalSize = const Size(720, 480);
       await tester.pumpAndSettle();
-      await tester.ensureVisible(find.text('其他'));
+      await tester.ensureVisible(find.text('其它'));
       await tester.sendKeyEvent(LogicalKeyboardKey.escape);
       await tester.pumpAndSettle();
       expect(key('tag-backup-dialog'), findsNothing);
@@ -591,7 +591,7 @@ void main() {
       await tester.sendKeyEvent(LogicalKeyboardKey.escape);
       await tester.pumpAndSettle();
       expect(key('tag-editor-dialog'), findsNothing);
-      for (final category in ['画风', '场景', '提示词', '角色']) {
+      for (final category in ['画风', '场景', '其它', '角色']) {
         await tester.tap(find.widgetWithText(TextButton, category));
         await tester.pumpAndSettle();
         await tester.tap(create);

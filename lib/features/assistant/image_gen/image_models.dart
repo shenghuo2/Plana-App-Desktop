@@ -116,8 +116,8 @@ List<ImageModelChoice> imageModelChoices(
           model: m,
           endpoint: e,
           // OpenAI 的 Images 接口只有方 / 竖 / 横三档尺寸;Gemini 分辨率、比例都能给
-          sizes: e.format == AgentApiFormat.google ? kImageSizes : const [],
-          aspects: e.format == AgentApiFormat.google
+          sizes: e.usesGoogleImages ? kImageSizes : const [],
+          aspects: e.usesGoogleImages
               ? kImageAspects
               : const ['1:1', '2:3', '3:2'],
         ),
@@ -140,9 +140,7 @@ final imageModelChoicesProvider = Provider<List<ImageModelChoice>>(
 
 /// 选着的图像模型;选的不是图像模型、或者它现在用不了为 null。
 final assistantImageModelProvider = Provider<ImageModelChoice?>((ref) {
-  final key = imageChoiceKeyOf(
-    ref.watch(assistantModelPrefProvider).value ?? '',
-  );
+  final key = imageChoiceKeyOf(ref.watch(effectiveAssistantModelKeyProvider));
   return key == null
       ? null
       : imageModelOf(ref.watch(imageModelChoicesProvider), key);

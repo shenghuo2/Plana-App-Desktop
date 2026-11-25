@@ -300,11 +300,11 @@ void main() {
       expect(turns, hasLength(1));
       await turns.first.finish();
       await until(() => turns.length == 2);
-      expect(turns[1].body['user_request'], 'second');
+      expect(turns[1].body['user_request'].split('\n\n').first, 'second');
       expect(c.read(assistantProvider).msgs.last.id, ids[0]);
       await turns[1].finish();
       await until(() => turns.length == 3);
-      expect(turns[2].body['user_request'], 'third');
+      expect(turns[2].body['user_request'].split('\n\n').first, 'third');
       expect(c.read(assistantProvider).msgs.last.id, ids[1]);
       await turns[2].finish();
       await until(() => !c.read(assistantProvider).running);
@@ -466,7 +466,13 @@ void main() {
           expect(c.read(canvasWorkspaceProvider).find(a), isNull);
         } else {
           expect(
-            c.read(canvasWorkspaceProvider).find(a)!.prompts.prompt,
+            c
+                .read(canvasWorkspaceProvider)
+                .find(a)!
+                .prompts
+                .sections
+                .last
+                .positive,
             'result for A',
           );
         }
@@ -486,7 +492,10 @@ void main() {
       expect(c.read(assistantProvider).msgs, isEmpty);
       await n.resumeQueue();
       await until(() => turns.isNotEmpty);
-      expect(turns.single.body['user_request'], 'keep second');
+      expect(
+        turns.single.body['user_request'].split('\n\n').first,
+        'keep second',
+      );
       await turns.single.finish();
       await until(() => !c.read(assistantProvider).running);
     },
@@ -522,7 +531,7 @@ void main() {
       expect(turns, isEmpty);
       await n.send('new');
       await until(() => turns.isNotEmpty);
-      expect(turns.single.body['user_request'], 'new');
+      expect(turns.single.body['user_request'].split('\n\n').first, 'new');
       await turns.single.finish();
       await until(() => !c.read(assistantProvider).running);
     },

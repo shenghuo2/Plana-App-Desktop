@@ -11,7 +11,7 @@ import '../../editor/editor_models.dart' show Tok, fmtMult, parseToks;
 typedef PromptSection = ({String? label, String body});
 
 /// 只读提示词芯片流:观感对齐编辑器芯片模式(同一条权重深浅曲线、同款
-/// 圆角边框、英文+译文双行),但纯展示不可点。法典翻面与灵感页详情共用。
+/// 圆角边框、英文+译文双行)。抽签台可以通过 [PromptChips.onTokenTap] 复制单个词块。
 ///
 /// 译文与编辑器同一条链路:[parseToks] 解析时先吃共享缓存/离线词库,
 /// 缺的批量丢给 [TagTranslationService](增强补全模式才联网),到货即刷新。
@@ -21,6 +21,7 @@ class PromptChips extends ConsumerStatefulWidget {
     super.key,
     required this.sections,
     this.preferredTrans,
+    this.onTokenTap,
     this.preferredTransLoading = false,
   });
 
@@ -28,6 +29,7 @@ class PromptChips extends ConsumerStatefulWidget {
     : this(key: key, sections: [(label: null, body: body)]);
 
   final List<PromptSection> sections;
+  final ValueChanged<String>? onTokenTap;
 
   /// 先于 app 自有译名链路查的一层(入参是芯片上的名字),查不到才轮到共享
   /// 缓存 / 离线词库 / 后端。传方法 tear-off:同一对象的 tear-off 彼此 `==`,
@@ -170,12 +172,7 @@ class _PromptChipsState extends ConsumerState<PromptChips>
             runSpacing: 6,
             children: [
               for (final c in _parsed[i].toks)
-                _ReadTagChip(
-                  c.tok,
-                  trans: c.trans,
-                  pending: pendingOf(c),
-                  pulse: _pulse,
-                ),
+                _token(i, c.tok, c.trans, pendingOf(c)),
             ],
           ),
         ],
@@ -183,6 +180,26 @@ class _PromptChipsState extends ConsumerState<PromptChips>
     );
     _syncPulse(anyPending);
     return content;
+  }
+
+  Widget _token(int section, Tok tok, String? trans, bool pending) {
+    final chip = _ReadTagChip(
+      tok,
+      trans: trans,
+      pending: pending,
+      pulse: _pulse,
+    );
+    final tap = widget.onTokenTap;
+    if (tap == null) return chip;
+    return InkWell(
+      borderRadius: BorderRadius.circular(8),
+      onTap: () => tap(
+        widget.sections[section].body
+            .substring(tok.segStart, tok.segEnd)
+            .trim(),
+      ),
+      child: chip,
+    );
   }
 }
 

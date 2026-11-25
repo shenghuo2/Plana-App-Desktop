@@ -11,6 +11,7 @@ import '../../../core/store/storage_stats.dart' show fmtBytes;
 import '../../../core/theme/app_theme.dart';
 import '../../../core/ui/param_input.dart';
 import '../../generate/widgets/common.dart' show hintSnack;
+import '../../tools/metadata_tool_link.dart';
 import '../desktop_image_save.dart';
 import '../gallery_state.dart';
 import '../save_pipeline.dart';
@@ -68,7 +69,14 @@ class _SaveSheetState extends ConsumerState<_SaveSheet> {
     super.dispose();
   }
 
-  SaveSettings get _current => _s.copyWith(customPrompt: _customCtl.text);
+  SaveSettings get _current => ref.read(desktopModeProvider)
+      ? _s.copyWith(
+          metadataDraft: ref
+              .read(saveSettingsProvider)
+              .requireValue
+              .metadataDraft,
+        )
+      : _s.copyWith(customPrompt: _customCtl.text);
 
   void _set(SaveSettings next) {
     setState(() => _s = next);
@@ -325,31 +333,42 @@ class _SaveSheetState extends ConsumerState<_SaveSheet> {
                             SaveMeta.original => '保留原始元数据',
                             SaveMeta.clean =>
                               desktop ? '清除生成信息' : '清除生成信息（保留生成日期）',
-                            SaveMeta.custom => '自定义提示词',
+                            SaveMeta.custom =>
+                              desktop
+                                  ? context.l10n.customMetadata
+                                  : context.l10n.customPrompt,
                           }, style: context.texts.bodyMedium),
                         ),
                     ],
                   ),
                 ),
                 if (_s.meta == SaveMeta.custom)
-                  TextField(
-                    controller: _customCtl,
-                    minLines: 2,
-                    maxLines: 4,
-                    style: mono(context, size: 12, weight: FontWeight.w400),
-                    onChanged: (_) => _estimate(),
-                    decoration: InputDecoration(
-                      filled: true,
-                      fillColor: scheme.surfaceContainerHigh,
-                      hintText: context.l10n.customPromptHint,
-                      hintStyle: TextStyle(color: scheme.outline, fontSize: 12),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide.none,
+                  if (desktop)
+                    MetadataToolLink(
+                      beforeOpen: () => Navigator.of(context).pop(),
+                    )
+                  else
+                    TextField(
+                      controller: _customCtl,
+                      minLines: 2,
+                      maxLines: 4,
+                      style: mono(context, size: 12, weight: FontWeight.w400),
+                      onChanged: (_) => _estimate(),
+                      decoration: InputDecoration(
+                        filled: true,
+                        fillColor: scheme.surfaceContainerHigh,
+                        hintText: context.l10n.customPromptHint,
+                        hintStyle: TextStyle(
+                          color: scheme.outline,
+                          fontSize: 12,
+                        ),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide.none,
+                        ),
+                        contentPadding: const EdgeInsets.all(12),
                       ),
-                      contentPadding: const EdgeInsets.all(12),
                     ),
-                  ),
               ],
               const SizedBox(height: 14),
               Row(

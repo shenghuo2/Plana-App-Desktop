@@ -342,7 +342,7 @@ void main() {
       final receiver = tester.widget<ImageDropRegion>(drop);
       expect(receiver.enabled, isTrue);
       expect(receiver.multiple, isTrue);
-      await receiver.onDrop([
+      await receiver.onDrop!([
         PickedImage('canvas.png', png),
       ], ImageDropPayload.image(name: 'canvas.png', load: () async => png));
       await tester.pump();
@@ -353,7 +353,7 @@ void main() {
       notifier.seed(const AssistantState(msgs: _messages, running: true));
       await tester.pump();
       expect(tester.widget<ImageDropRegion>(drop).enabled, isTrue);
-      await tester.widget<ImageDropRegion>(drop).onDrop([
+      await tester.widget<ImageDropRegion>(drop).onDrop!([
         PickedImage('queued.png', png),
       ], ImageDropPayload.image(name: 'queued.png', load: () async => png));
       await tester.pump();
@@ -499,7 +499,9 @@ void main() {
         {'role': 'user', 'content': '第一条提问'},
         {'role': 'assistant', 'content': '先前回复'},
       ]);
-      expect(requests.single['user_request'], '改后的提问');
+      final wireText = requests.single['user_request'] as String;
+      expect(wireText.split('\n').first, '改后的提问');
+      expect(wireText, contains('全局负面提示词已锁定'));
       expect(requests.single['image_b64'], base64Encode(image));
       expect(requests.single['current_positive'], '当前画布');
       expect(requests.single['resources'], resources);

@@ -8,10 +8,11 @@ import '../app_info.dart';
 
 /// Local diagnostics survive process exit. Never pass request bodies or images.
 class RuntimeDiagnostics {
-  RuntimeDiagnostics._(this.file, this.maxBytes);
+  RuntimeDiagnostics._(this.file, this.maxBytes, this.shareable);
 
   final File file;
   final int maxBytes;
+  final bool shareable;
   bool _writing = false;
   FlutterExceptionHandler? _previousFlutterError;
   bool Function(Object, StackTrace)? _previousPlatformError;
@@ -25,8 +26,8 @@ class RuntimeDiagnostics {
       return Directory(
         p.join(
           Platform.environment['LOCALAPPDATA'] ?? Directory.systemTemp.path,
-          'Plana App Desktop',
-          'diagnostics',
+          kAppName,
+          'logs',
         ),
       );
     }
@@ -54,12 +55,18 @@ class RuntimeDiagnostics {
     );
   }
 
-  static RuntimeDiagnostics? initialize({Directory? directory}) {
+  static RuntimeDiagnostics? initialize({
+    Directory? directory,
+    bool shareable = false,
+  }) {
     if (!(Platform.isWindows || Platform.isMacOS || Platform.isLinux)) {
       return null;
     }
     current?.dispose();
-    final diagnostics = open(directory ?? defaultDirectory());
+    final diagnostics = open(
+      directory ?? defaultDirectory(),
+      shareable: shareable,
+    );
     current = diagnostics;
     diagnostics?.installHandlers();
     return diagnostics;
@@ -68,6 +75,7 @@ class RuntimeDiagnostics {
   static RuntimeDiagnostics? open(
     Directory directory, {
     int maxBytes = 1024 * 1024,
+    bool shareable = false,
   }) {
     if (maxBytes < 128) throw ArgumentError.value(maxBytes, 'maxBytes');
     try {
@@ -93,6 +101,7 @@ class RuntimeDiagnostics {
       final diagnostics = RuntimeDiagnostics._(
         File(p.join(directory.path, name))..createSync(),
         maxBytes,
+        shareable,
       );
       diagnostics.event(
         'session-start',
@@ -162,8 +171,18 @@ class RuntimeDiagnostics {
     }
   }
 
-  void error(String source, Object error, StackTrace stack) =>
+  void error(String source, Object error, StackTrace stack) {
+    if (!shareable) {
       event(source, '${error.runtimeType}: $error\n$stack');
+      return;
+    }
+    // Exception messages can echo entire requests or local paths. Keep only
+    // the type and source positions from Dart packages in a shareable report.
+    final locations = RegExp(
+      r'(?:package:[\w./-]+\.dart|dart:[\w./-]+):\d+(?::\d+)?',
+    ).allMatches(stack.toString()).take(12).map((match) => match[0]!);
+    event(source, [error.runtimeType, ...locations].join('\n'));
+  }
 
   void installHandlers() {
     if (_flutterHandler != null) return;

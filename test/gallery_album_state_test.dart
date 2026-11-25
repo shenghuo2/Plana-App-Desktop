@@ -111,6 +111,25 @@ void main() {
   });
 
   test(
+    'filtered order and its inverse keep hidden slots, new albums and renames',
+    () async {
+      final store = c.read(albumsProvider.notifier);
+      final a = await store.create('A'),
+          hidden = await store.create('Hidden'),
+          b = await store.create('B');
+      List<String> ids() =>
+          c.read(albumsProvider).albums.map((e) => e.id).toList();
+      expect(await store.reorderVisible([b, a], [a, b]), isTrue);
+      expect(ids(), [a, hidden, b]);
+      final fresh = await store.create('New');
+      await store.rename(b, 'B2');
+      expect(await store.reorderVisible([a, b], [b, a]), isTrue);
+      expect(ids(), [fresh, b, hidden, a]);
+      expect(c.read(albumsProvider).album(b)!.name, 'B2');
+    },
+  );
+
+  test(
     'album drag order persists and moving a missing album keeps the order',
     () async {
       final albums = c.read(albumsProvider.notifier);

@@ -15,12 +15,16 @@ import 'anthropic_provider.dart';
 import 'gemini_provider.dart';
 import 'llm_provider.dart';
 import 'openai_provider.dart';
+import 'responses_provider.dart';
+import 'ollama_provider.dart';
 
 /// 这个接口按它的格式该用哪家实现。
-HttpLlmProvider llmProviderFor(CustomEndpoint e) => switch (e.format) {
-  AgentApiFormat.openai => OpenAiProvider(e),
-  AgentApiFormat.google => GeminiProvider(e),
-  AgentApiFormat.anthropic => AnthropicProvider(e),
+HttpLlmProvider llmProviderFor(CustomEndpoint e) => switch (e.route) {
+  EndpointRoute.chat => OpenAiProvider(e),
+  EndpointRoute.responses => ResponsesProvider(e),
+  EndpointRoute.gemini => GeminiProvider(e),
+  EndpointRoute.messages => AnthropicProvider(e),
+  EndpointRoute.ollama => OllamaProvider(e),
 };
 
 /// 两帧之间至少隔这么久。快的模型一秒吐几十个 token,每个都推一帧等于每秒几十次整块重建。
@@ -55,8 +59,10 @@ abstract class HttpLlmProvider implements LlmProvider {
   /// 非流式响应 → 正文。思考摘要不算正文。形状不对返回空串。
   String parseResponse(Object? body);
 
+  bool get newlineDelimited => false;
+
   /// 模型列表地址。
-  Uri get modelsUri => Uri.parse('${endpoint.effectiveBase}/models');
+  Uri get modelsUri => endpoint.catalogUri;
 
   /// 模型列表响应 → 模型 id,去重、排序。形状不对返回空表。
   List<String> parseModels(Object? body);
@@ -88,7 +94,11 @@ abstract class HttpLlmProvider implements LlmProvider {
       ..headers.addAll(
         endpoint.withHeaders({
           'Content-Type': 'application/json',
-          'Accept': 'text/event-stream',
+          'Accept': !stream
+              ? 'application/json'
+              : newlineDelimited
+              ? 'application/x-ndjson'
+              : 'text/event-stream',
           ...authHeaders,
         }),
       )
@@ -124,10 +134,10 @@ abstract class HttpLlmProvider implements LlmProvider {
       throw AgentFailure.http(resp.statusCode, await readAll(resp));
     }
     final Stream<String> lines;
+    final media = (resp.headers['content-type'] ?? '').toLowerCase();
     if (stream &&
-        (resp.headers['content-type'] ?? '').toLowerCase().contains(
-          'event-stream',
-        )) {
+        (media.contains('event-stream') ||
+            (newlineDelimited && media.contains('ndjson')))) {
       final all = resp.stream
           .transform(utf8.decoder)
           .transform(const LineSplitter());
@@ -138,7 +148,10 @@ abstract class HttpLlmProvider implements LlmProvider {
       // 没开流,或者中转不认流式:收完整段按非流式解析
       final raw = await readAll(resp);
       final text = parseResponse(_tryJson(raw));
-      if (text.isNotEmpty || !stream || !raw.contains('data:')) {
+      if (text.isNotEmpty ||
+          !stream ||
+          (!raw.contains('data:') &&
+              !(newlineDelimited && raw.trim().contains('\n')))) {
         yield (text: text, reasoning: '');
         return;
       }
@@ -151,12 +164,17 @@ abstract class HttpLlmProvider implements LlmProvider {
     var lastFrame = 0;
     await for (final line in lines) {
       // `event:` 行与 `:` 心跳不看:三家的 data 自带类型
-      if (!line.startsWith('data:')) continue;
-      final data = line.substring(5).trim();
+      if (!newlineDelimited && !line.startsWith('data:')) continue;
+      final data = newlineDelimited ? line.trim() : line.substring(5).trim();
       if (data.isEmpty || data == '[DONE]') continue;
       final frame = _tryJson(data);
       // Claude 的报错是流中间的一帧,不是 HTTP 状态码
-      if (frame is Map && frame['type'] == 'error') throw AgentFailure(data);
+      if (frame is Map &&
+          (frame['error'] != null ||
+              frame['type'] == 'error' ||
+              frame['type'] == 'response.failed')) {
+        throw AgentFailure(endpoint.redactSecrets(data));
+      }
       final d = parseDelta(frame);
       if (d.text.isEmpty && d.reasoning.isEmpty) continue;
       text.write(d.text);
@@ -171,28 +189,89 @@ abstract class HttpLlmProvider implements LlmProvider {
   }
 
   /// 拉模型列表。失败抛 [AgentFailure],内容是原始错误。
-  Future<List<String>> listModels({http.Client? client}) async {
+  Future<List<String>> listModels({http.Client? client}) async =>
+      (await modelCatalog(client: client)).keys.toList();
+
+  Future<Map<String, EndpointModelKind>> modelCatalog({
+    http.Client? client,
+  }) async {
     final own = client == null;
     final c = client ?? http.Client();
     try {
-      final http.Response resp;
-      try {
-        resp = await c
-            .get(modelsUri, headers: endpoint.withHeaders(authHeaders))
-            .timeout(const Duration(seconds: 20));
-      } catch (e) {
-        throw AgentFailure('$e');
+      final out = <String, EndpointModelKind>{};
+      final seen = <Uri>{};
+      Uri? next = modelsUri;
+      while (next != null && seen.add(next)) {
+        final page = await _catalogPage(c, next);
+        final rows = page['data'] ?? page['models'];
+        final details = {
+          if (rows is List)
+            for (final row in rows.whereType<Map>())
+              (row['id'] ?? row['name'] ?? '').toString().trim().replaceFirst(
+                RegExp(r'^models/'),
+                '',
+              ): row,
+        };
+        for (final id in parseModels(page)) {
+          out[id] = modelKind(id, details[id]);
+        }
+        final token = page['nextPageToken'];
+        final last = page['last_id'];
+        next = token is String && token.isNotEmpty
+            ? modelsUri.replace(
+                queryParameters: {
+                  ...modelsUri.queryParameters,
+                  'pageToken': token,
+                },
+              )
+            : page['has_more'] == true && last is String && last.isNotEmpty
+            ? modelsUri.replace(
+                queryParameters: {
+                  ...modelsUri.queryParameters,
+                  'after_id': last,
+                },
+              )
+            : null;
       }
-      final body = utf8.decode(resp.bodyBytes);
-      if (resp.statusCode < 200 || resp.statusCode >= 300) {
-        throw AgentFailure.http(resp.statusCode, body);
+      if (endpoint.preset?.label == 'OpenRouter') {
+        try {
+          final imagePage = await _catalogPage(
+            c,
+            endpoint.uriForPath('/images/models'),
+          );
+          for (final id in modelIdsOf(imagePage['data'])) {
+            out[id] = EndpointModelKind.image;
+          }
+        } on AgentFailure catch (error) {
+          if (out.isEmpty || (error.status != 404 && error.status != 405)) {
+            rethrow;
+          }
+        }
       }
-      final out = parseModels(_tryJson(body));
       if (out.isEmpty) throw AgentFailure(l10nNow.epNoModels);
-      return out;
+      return Map.fromEntries(
+        out.entries.toList()..sort((a, b) => a.key.compareTo(b.key)),
+      );
     } finally {
       if (own) c.close();
     }
+  }
+
+  Future<Map> _catalogPage(http.Client client, Uri uri) async {
+    final http.Response resp;
+    try {
+      resp = await client
+          .get(uri, headers: endpoint.withHeaders(authHeaders))
+          .timeout(const Duration(seconds: 20));
+    } catch (e) {
+      throw AgentFailure(endpoint.redactSecrets('$e'));
+    }
+    final body = utf8.decode(resp.bodyBytes);
+    if (resp.statusCode < 200 || resp.statusCode >= 300) {
+      throw AgentFailure.http(resp.statusCode, endpoint.redactSecrets(body));
+    }
+    final data = _tryJson(body);
+    return data is Map ? data : const {};
   }
 
   /// 发一条最短的对话,确认地址、Key、模型、格式对得上。成功返回用时;

@@ -245,10 +245,15 @@ abstract final class RemoteImageStore {
 /// 网络恢复了也不会重试)。
 @immutable
 class RemoteImageProvider extends ImageProvider<RemoteImageProvider> {
-  const RemoteImageProvider(this.url, {this.scale = 1.0, this.version = 0});
+  const RemoteImageProvider(this.url, {this.scale = 1.0, this.version = 0})
+    : _coverSize = null;
+
+  const RemoteImageProvider._cover(this.url, this.version, this._coverSize)
+    : scale = 1.0;
 
   final String url;
   final double scale;
+  final ({int width, int height})? _coverSize;
 
   /// 内容版本(见 [RemoteImageStore.versionOf])。**只为缓存键存在**:
   /// 同一个 URL 换了内容时它 +1,于是内存里那份解码后的旧位图不再命中。
@@ -286,8 +291,29 @@ class RemoteImageProvider extends ImageProvider<RemoteImageProvider> {
     ImageDecoderCallback decode,
   ) {
     final chunks = StreamController<ImageChunkEvent>();
+    final cover = key._coverSize;
     return MultiFrameImageStreamCompleter(
-      codec: _load(key, decode, chunks),
+      codec: _load(
+        key,
+        cover == null
+            ? decode
+            : (buffer, {getTargetSize}) => decode(
+                buffer,
+                getTargetSize: (width, height) {
+                  // Fill both physical dimensions before cropping. Keep the source
+                  // aspect ratio and never manufacture pixels beyond its native size.
+                  if (cover.width * height >= cover.height * width) {
+                    return ui.TargetImageSize(
+                      width: cover.width.clamp(1, width),
+                    );
+                  }
+                  return ui.TargetImageSize(
+                    height: cover.height.clamp(1, height),
+                  );
+                },
+              ),
+        chunks,
+      ),
       chunkEvents: chunks.stream,
       scale: key.scale,
       debugLabel: key.url,
@@ -330,7 +356,14 @@ class RemoteImageProvider extends ImageProvider<RemoteImageProvider> {
     if (_downloading[url] case final f?) return f;
     final f = _fetch(url, chunks);
     _downloading[url] = f;
-    f.then((_) {}, onError: (_) => _downloading.remove(url));
+    unawaited(
+      f.then<void>(
+        (_) {},
+        onError: (Object _) {
+          _downloading.remove(url);
+        },
+      ),
+    );
     return f;
   }
 
@@ -343,11 +376,9 @@ class RemoteImageProvider extends ImageProvider<RemoteImageProvider> {
     // 落盘是旁路:写失败只是下次还得重下,不该连累这一次显示。
     // 落盘完成前别从 _downloading 里摘掉,这段时间里来要字节的直接拿这一份
     unawaited(
-      RemoteImageStore.write(
-        url,
-        bytes,
-        etag: etag,
-      ).whenComplete(() => _downloading.remove(url)),
+      RemoteImageStore.write(url, bytes, etag: etag).whenComplete(() {
+        _downloading.remove(url);
+      }),
     );
     return bytes;
   }
@@ -437,6 +468,8 @@ class RemoteImageProvider extends ImageProvider<RemoteImageProvider> {
     }
     final bytes = buf.takeBytes();
     if (bytes.isEmpty) throw Exception('空响应');
+    // A different thumbnail size can read these same bytes immediately.
+    RemoteImageStore.markChecked(url);
     return (bytes: bytes, etag: resp.headers['etag']);
   }
 
@@ -445,10 +478,11 @@ class RemoteImageProvider extends ImageProvider<RemoteImageProvider> {
       other is RemoteImageProvider &&
       other.url == url &&
       other.scale == scale &&
-      other.version == version;
+      other.version == version &&
+      other._coverSize == _coverSize;
 
   @override
-  int get hashCode => Object.hash(url, scale, version);
+  int get hashCode => Object.hash(url, scale, version, _coverSize);
 
   @override
   String toString() => 'RemoteImageProvider("$url")';
@@ -503,6 +537,7 @@ class RemoteImage extends StatelessWidget {
     this.url, {
     super.key,
     this.fit,
+    this.alignment = Alignment.center,
     this.width,
     this.height,
     this.decodeWidth,
@@ -517,14 +552,15 @@ class RemoteImage extends StatelessWidget {
 
   final String url;
   final BoxFit? fit;
+  final AlignmentGeometry alignment;
   final double? width;
   final double? height;
 
   /// 解码宽度上限(**逻辑像素**,内部乘 dpr);null = 取布局约束宽。
   final double? decodeWidth;
 
-  /// Optional height cap for contained thumbnails. Limiting width alone can
-  /// decode tall images far beyond the height actually displayed in a card.
+  /// Logical height of the displayed image. With both dimensions supplied,
+  /// cover decodes enough pixels to fill the crop and contain caps both axes.
   final double? decodeHeight;
 
   final FilterQuality filterQuality;
@@ -538,12 +574,15 @@ class RemoteImage extends StatelessWidget {
   final RemoteImageProviderDecorator? providerDecorator;
 
   Widget _image(int? cacheWidth, int? cacheHeight) {
-    final base = RemoteImageProvider(
-      url,
-      version: RemoteImageStore.versionOf(url),
-    );
+    final version = RemoteImageStore.versionOf(url);
+    final base = RemoteImageProvider(url, version: version);
     final ImageProvider<Object> provider =
-        cacheWidth == null && cacheHeight == null
+        fit == BoxFit.cover && cacheWidth != null && cacheHeight != null
+        ? RemoteImageProvider._cover(url, version, (
+            width: cacheWidth,
+            height: cacheHeight,
+          ))
+        : cacheWidth == null && cacheHeight == null
         ? base
         : ResizeImage(
             base,
@@ -554,6 +593,7 @@ class RemoteImage extends StatelessWidget {
     return Image(
       image: providerDecorator?.call(provider) ?? provider,
       fit: fit,
+      alignment: alignment,
       width: width,
       height: height,
       filterQuality: filterQuality,

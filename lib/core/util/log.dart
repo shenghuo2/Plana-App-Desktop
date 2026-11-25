@@ -19,7 +19,14 @@ void logd(String message) {
 /// 生命周期级日志:**release 也输出**。只准用于低频关键节点(生成的提交/
 /// 完成/失败/取消、状态机转移),给装机排障留现场;禁止进热路径或带
 /// 提示词/路径/凭据等内容 —— 那些走 [logd]。
-void logi(String message) {
-  RuntimeDiagnostics.current?.event('lifecycle', message);
+void logi(String message, {String? diagnosticEvent}) {
+  final diagnostics = RuntimeDiagnostics.current;
+  if (diagnostics != null) {
+    if (!diagnostics.shareable) {
+      diagnostics.event('lifecycle', message);
+    } else if (diagnosticEvent != null) {
+      diagnostics.event(diagnosticEvent);
+    }
+  }
   debugPrint(message);
 }

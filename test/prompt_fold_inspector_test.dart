@@ -126,6 +126,142 @@ void main() {
   );
 
   testWidgets(
+    'temporary block can acquire a negative side without adopting loose negatives',
+    (tester) async {
+      const link = PromptFoldLink(
+        id: 'temp',
+        temporaryCategory: 'artist-style',
+        positiveName: '画风',
+        positiveBody: '0.4::artist:jyt::, {blue eyes}, ~hat~',
+        negativeName: '',
+        negativeBody: '',
+      );
+      gen.setPrompts(
+        positive: outputOf(raw),
+        positiveRaw: raw,
+        negative: 'watermark',
+        negativeRaw: 'watermark',
+        promptFoldLinks: [link],
+      );
+      await mount(tester);
+      await inspect(tester);
+      await tester.tap(find.byKey(const ValueKey('fold-inspector-负面')));
+      await tester.pumpAndSettle();
+      expect(
+        tester.widget<AnnotatedField>(bodyField()).controller.text,
+        isEmpty,
+      );
+      expect(gen.state.promptFoldLinks.single, link);
+      expect(gen.state.negativePrompt, 'watermark');
+      await tester.enterText(
+        find.descendant(of: bodyField(), matching: find.byType(TextField)),
+        'extra limbs',
+      );
+      await tester.pumpAndSettle();
+      final placed = gen.state.promptFoldLinks.single;
+      expect(placed.id, link.id);
+      expect(placed.temporaryCategory, 'artist-style');
+      expect(placed.negativeBody, 'extra limbs');
+      expect(gen.state.negativePrompt, 'watermark, extra limbs');
+      expect(gen.state.promptRaw, raw);
+      await tester.tap(find.byKey(const ValueKey('fold-inspector-正面')));
+      await tester.pumpAndSettle();
+      expect(
+        tester.widget<AnnotatedField>(bodyField()).controller.text,
+        link.positiveBody,
+      );
+      await finish(tester);
+    },
+  );
+
+  for (final temporary in [true, false]) {
+    testWidgets(
+      'disabled folded title is struck in the parent editor, temporary $temporary',
+      (tester) async {
+        final link = PromptFoldLink(
+          id: 'placement',
+          temporaryCategory: temporary ? 'artist-style' : null,
+          sourceEntryId: temporary ? null : 'library',
+          positiveName: '画风',
+          positiveBody: '0.4::artist:jyt::, {blue eyes}, ~hat~',
+          negativeName: '',
+          negativeBody: '',
+        );
+        gen.setPrompts(
+          positive: outputOf(raw),
+          positiveRaw: raw,
+          promptFoldLinks: [link],
+        );
+        await mount(tester);
+        final parentField = find.byType(AnnotatedField);
+        final editable = tester.state<EditableTextState>(
+          find.descendant(of: parentField, matching: find.byType(EditableText)),
+        );
+        Iterable<TextSpan> titleSpans() =>
+            (editable.renderEditable.text! as TextSpan).children!
+                .whereType<TextSpan>()
+                .where((span) => span.text?.contains('画风') == true);
+        expect(
+          titleSpans().single.style?.decoration,
+          isNot(TextDecoration.lineThrough),
+        );
+        await inspect(tester);
+        await tester.tap(
+          find.descendant(
+            of: find.byType(FoldInspector),
+            matching: find.text('禁用'),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(
+          titleSpans().single.style?.decoration,
+          TextDecoration.lineThrough,
+        );
+        expect(gen.state.prompt, 'sunrise');
+        await captureDesktop(tester, capture, 'disabled-fold-$temporary');
+        await tester.tap(
+          find.descendant(
+            of: find.byType(FoldInspector),
+            matching: find.text('启用'),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(
+          titleSpans().single.style?.decoration,
+          isNot(TextDecoration.lineThrough),
+        );
+        await tester.tap(
+          find.descendant(
+            of: find.byType(FoldInspector),
+            matching: find.text('禁用'),
+          ),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(
+          find
+              .descendant(
+                of: find.byType(FoldInspector),
+                matching: find.byIcon(Icons.close),
+              )
+              .first,
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const ValueKey('desktop-prompt-mode')));
+        await tester.pumpAndSettle();
+        final chip = find.descendant(
+          of: find.byType(ChipFlowView),
+          matching: find.text('画风'),
+        );
+        expect(
+          tester.widget<Text>(chip).style?.decoration,
+          TextDecoration.lineThrough,
+        );
+        await finish(tester);
+      },
+    );
+  }
+
+  testWidgets(
     'single click inspects and edits weighted text without unfolding; undo restores body',
     (tester) async {
       await mount(tester);

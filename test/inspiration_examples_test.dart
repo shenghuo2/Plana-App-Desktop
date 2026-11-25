@@ -43,6 +43,10 @@ void main() {
       expect(await library.addPreviewExamples(TagCategory.other), 3);
       final entries = container.read(tagLibraryProvider).requireValue.entries;
       expect(entries.length, 7);
+      final stock = container.read(tagLibraryProvider).requireValue;
+      expect(stock.of(TagCategory.scene), [own]);
+      expect(stock.of(TagCategory.other), isEmpty);
+      expect(stock.knownTags(TagCategory.other), isEmpty);
       final previews = entries.where((e) => e.previews.isNotEmpty).toList();
       expect(previews.map((e) => e.previews.single).toSet().length, 6);
       for (final entry in previews) {
@@ -59,17 +63,28 @@ void main() {
         positive: 'my prompt',
       );
       await library.upsert(edited);
+      final starred = previews[3].copyWith(favorite: true);
+      await library.upsert(starred);
+      final reillustrated = previews[4].copyWith(
+        previews: [previews[1].previews.single],
+      );
+      await library.upsert(reillustrated);
       expect(await library.addPreviewExamples(TagCategory.scene), 0);
       await library.remove(previews.last.id);
       expect(await File(previews.last.previews.single).exists(), isFalse);
-      expect(
-        await File(previews[previews.length - 2].previews.single).exists(),
-        isTrue,
-      );
+      expect(await File(reillustrated.previews.single).exists(), isTrue);
       container.dispose();
       container = ProviderContainer();
       final reopened = await container.read(tagLibraryProvider.future);
       expect(reopened.entries.length, 6);
+      expect(
+        reopened.of(TagCategory.scene).map((e) => e.id),
+        containsAll([own.id, edited.id]),
+      );
+      expect(
+        reopened.of(TagCategory.other).map((e) => e.id),
+        unorderedEquals([starred.id, reillustrated.id]),
+      );
       expect(
         reopened.entries.firstWhere((e) => e.id == edited.id).positive,
         'my prompt',

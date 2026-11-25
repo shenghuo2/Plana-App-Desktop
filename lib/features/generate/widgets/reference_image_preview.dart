@@ -10,17 +10,39 @@ Future<void> showReferenceImagePreview(
   BuildContext context, {
   required Uint8List image,
   required String title,
+}) => showImageProviderPreview(
+  context,
+  image: MemoryImage(image),
+  title: title,
+  errorMessage: '这张参考图暂时无法读取',
+);
+
+/// Uses the original image provider, independently of any thumbnail decode size.
+Future<void> showImageProviderPreview(
+  BuildContext context, {
+  required ImageProvider image,
+  required String title,
+  String errorMessage = '这张图片暂时无法读取',
 }) => showDialog<void>(
   context: context,
   requestFocus: true,
-  builder: (_) => _ReferenceImagePreview(image: image, title: title),
+  builder: (_) => _ReferenceImagePreview(
+    image: image,
+    title: title,
+    errorMessage: errorMessage,
+  ),
 );
 
 class _ReferenceImagePreview extends StatefulWidget {
-  const _ReferenceImagePreview({required this.image, required this.title});
+  const _ReferenceImagePreview({
+    required this.image,
+    required this.title,
+    required this.errorMessage,
+  });
 
-  final Uint8List image;
+  final ImageProvider image;
   final String title;
+  final String errorMessage;
 
   @override
   State<_ReferenceImagePreview> createState() => _ReferenceImagePreviewState();
@@ -84,7 +106,10 @@ class _ReferenceImagePreviewState extends State<_ReferenceImagePreview> {
                 ),
                 if (defaultTargetPlatform == TargetPlatform.windows ||
                     defaultTargetPlatform == TargetPlatform.macOS)
-                  ImageTransferButton(load: () async => widget.image),
+                  if (widget.image case final MemoryImage image)
+                    ImageTransferButton(load: () async => image.bytes)
+                  else if (widget.image case final FileImage image)
+                    ImageTransferButton(load: () => image.file.readAsBytes()),
                 IconButton(
                   tooltip: l10nNow.desktopClosePreview,
                   onPressed: () => Navigator.pop(context),
@@ -108,17 +133,19 @@ class _ReferenceImagePreviewState extends State<_ReferenceImagePreview> {
                       transformationController: _transform,
                       maxScale: 8,
                       child: SizedBox.expand(
-                        child: Image.memory(
-                          widget.image,
+                        child: Image(
+                          image: widget.image,
                           key: const ValueKey('reference-preview-image'),
                           fit: BoxFit.contain,
                           filterQuality: FilterQuality.medium,
                           frameBuilder: (_, child, frame, synchronous) =>
                               synchronous || frame != null
                               ? child
-                              : Center(child: Text(l10nNow.desktopLoadingImage)),
+                              : Center(
+                                  child: Text(l10nNow.desktopLoadingImage),
+                                ),
                           errorBuilder: (_, _, _) =>
-                              const Center(child: Text('这张参考图暂时无法读取')),
+                              Center(child: Text(widget.errorMessage)),
                         ),
                       ),
                     ),

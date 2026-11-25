@@ -378,16 +378,23 @@ class CanvasDraft {
     required this.id,
     required this.name,
     required this.prompts,
+    this.collapsedPromptCards = const {},
   });
 
   final String id;
   final String name;
   final CanvasPrompts prompts;
+  final Set<String> collapsedPromptCards;
 
-  CanvasDraft copyWith({String? name, CanvasPrompts? prompts}) => CanvasDraft(
+  CanvasDraft copyWith({
+    String? name,
+    CanvasPrompts? prompts,
+    Set<String>? collapsedPromptCards,
+  }) => CanvasDraft(
     id: id,
     name: name ?? this.name,
     prompts: prompts ?? this.prompts,
+    collapsedPromptCards: collapsedPromptCards ?? this.collapsedPromptCards,
   );
 }
 

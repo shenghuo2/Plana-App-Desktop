@@ -85,6 +85,17 @@ class SelectedCodexNotifier extends Notifier<String?> {
   void select(String id) => state = id;
 }
 
+final codexMainDrawProvider = NotifierProvider<CodexMainDraw, bool>(
+  CodexMainDraw.new,
+);
+
+class CodexMainDraw extends Notifier<bool> {
+  @override
+  bool build() => false;
+
+  void toggle() => state = !state;
+}
+
 /// 首次进入法典功能的说明弹窗:确认一次落盘,之后不再弹。
 /// null=尚未读盘(先不弹),false=没读过(可弹),true=已确认(不弹)。
 final codexIntroProvider = NotifierProvider<CodexIntro, bool?>(CodexIntro.new);

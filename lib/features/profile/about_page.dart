@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import '../../core/ui/settings_scaffold.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show Clipboard, ClipboardData;
@@ -9,12 +11,11 @@ import '../generate/widgets/common.dart' show hintSnack, sharedAxisRoute;
 import '../onboarding/welcome_page.dart';
 import '../update/update_sheet.dart' show UpdateRow;
 import 'widgets/settings_ui.dart';
+import 'widgets/diagnostic_settings.dart';
+import 'manual/user_manual_entry.dart';
 import '../../l10n/l10n.dart';
 
-/// 关于:身份 + 出处 + 法律。
-///
-/// 只放**别处看不到、又必须交代**的东西:版本、第三方数据与模型的来源、
-/// 开源许可、免责。设置项一律不进这里。
+/// 版本、问题诊断、使用手册与应用出处。
 class AboutPage extends StatelessWidget {
   const AboutPage({super.key});
 
@@ -93,6 +94,10 @@ class AboutPage extends StatelessWidget {
           ),
           SettingsLabel(context.l10n.version),
           const SettingsCard(children: [UpdateRow()]),
+          if (Platform.isWindows) ...[
+            const SizedBox(height: 16),
+            const DiagnosticSettings(),
+          ],
           const SizedBox(height: 16),
           const SettingsLabel('项目来源'),
           SettingsCard(
@@ -173,6 +178,7 @@ class AboutPage extends StatelessWidget {
           SettingsLabel(context.l10n.guide),
           SettingsCard(
             children: [
+              if (Platform.isWindows) const UserManualEntry(),
               SettingsRow(
                 icon: Icons.flag_outlined,
                 title: context.l10n.reviewGuide,

@@ -199,7 +199,7 @@ String? customModelOf(String key) {
 
 /// [key] 落在 [e] 上就给出用哪个模型发的那份,模型不在了的按第一个算;不是它为 null。
 CustomEndpoint? resolveCustomChoice(CustomEndpoint e, String key) {
-  if (customEndpointIdOf(key) != e.id) return null;
+  if (!e.usable || customEndpointIdOf(key) != e.id) return null;
   final m = customModelOf(key);
   return m != null && e.allModels.contains(m) ? e.forModel(m) : e;
 }
@@ -237,12 +237,51 @@ class AssistantModelPrefNotifier extends AsyncNotifier<String> {
   }
 }
 
+/// Resolve pre-classification selections and never dispatch to a disabled endpoint.
+String availableEndpointModel(String key, List<CustomEndpoint> endpoints) {
+  final inner = imageChoiceKeyOf(key) ?? key;
+  final id = customEndpointIdOf(inner);
+  if (id == null) return key;
+  final wanted = customModelOf(inner);
+  final same = endpoints.where((e) => e.id == id).firstOrNull;
+  String? firstChoice(CustomEndpoint e) {
+    if (e.usable) return customModelKey(e.id, e.allModels.first);
+    if (e.canDraw) {
+      return '$kImageKeyPrefix${customModelKey(e.id, e.imageModels.first)}';
+    }
+    return null;
+  }
+
+  if (same != null && same.enabled) {
+    if (same.usable && same.allModels.contains(wanted)) {
+      return customModelKey(id, wanted!);
+    }
+    if (same.canDraw && same.imageModels.contains(wanted)) {
+      return '$kImageKeyPrefix${customModelKey(id, wanted!)}';
+    }
+    final first = firstChoice(same);
+    if (first != null) return first;
+  }
+  for (final e in endpoints) {
+    final first = firstChoice(e);
+    if (first != null) return first;
+  }
+  return '';
+}
+
+final effectiveAssistantModelKeyProvider = Provider<String>((ref) {
+  final key = ref.watch(assistantModelPrefProvider).value ?? '';
+  if (customEndpointIdOf(imageChoiceKeyOf(key) ?? key) == null) return key;
+  final endpoints = ref.watch(customEndpointsProvider).value;
+  return endpoints == null ? key : availableEndpointModel(key, endpoints);
+});
+
 /// 这一轮实际要发的 `model`。没选过就发空串,让后端用它的全局默认。
 /// 选的是自定义接口时后端渠道用不上,发空串即可(那条根本不打后端出词)。
 ///
 /// 没有 Bot 授权时发界面上显示的那条免费模型,不发空串:后端的全局默认未必免费。
 final assistantModelKeyProvider = Provider<String>((ref) {
-  final k = ref.watch(assistantModelPrefProvider).value ?? '';
+  final k = ref.watch(effectiveAssistantModelKeyProvider);
   bool backend(String key) =>
       customEndpointIdOf(key) == null && imageChoiceKeyOf(key) == null;
   if (ref.watch(assistantBotAuthorizedProvider)) return backend(k) ? k : '';
@@ -268,7 +307,7 @@ final assistantBackendAvailableProvider = Provider<bool>((ref) {
 /// 没有 Bot 授权时只认免费的(见 [AgentModelList.pick]),选着的那条不免费也不改存档,
 /// 授权回来就还是它。
 final assistantModelProvider = Provider<AgentModelChoice?>((ref) {
-  final pinned = ref.watch(assistantModelPrefProvider).value ?? '';
+  final pinned = ref.watch(effectiveAssistantModelKeyProvider);
   // 图像模型用不了(授权没了、接口删了)时回落到对话模型那边照常显示
   if (ref.watch(assistantImageModelProvider) case final m?) {
     return AgentModelChoice(key: pinned, name: m.name);
@@ -292,7 +331,7 @@ final assistantModelProvider = Provider<AgentModelChoice?>((ref) {
 
 /// 这一轮该走哪条路:非 null = 直连这个自定义接口,null = 走 Plana 后端。
 final assistantEndpointProvider = Provider<CustomEndpoint?>((ref) {
-  final key = ref.watch(assistantModelPrefProvider).value ?? '';
+  final key = ref.watch(effectiveAssistantModelKeyProvider);
   if (customEndpointIdOf(key) == null) return null;
   for (final e in ref.watch(customEndpointsProvider).value ?? const []) {
     // 填不全的不算数:发出去必然失败,不如当没选,回落后端那条

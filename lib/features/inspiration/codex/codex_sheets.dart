@@ -85,15 +85,35 @@ Future<void> showCodexDetailSheet(
   CodexMedia media, {
   required List<CodexEntry> entries,
   required int index,
+  int imageIndex = 0,
 }) => _sheet(
   context,
   _DetailSheet(
     codex: codex,
     entry: entries[index],
+    initialImage: imageIndex,
     media: media,
     entries: entries,
     index: index,
   ),
+);
+
+Widget buildCodexListInspector(
+  CodexMeta codex,
+  CodexMedia media, {
+  required List<CodexEntry> entries,
+  required int index,
+  required ValueChanged<int> onSelect,
+  required VoidCallback onClose,
+}) => _DetailSheet(
+  key: ValueKey('inspector-${entries[index].id}'),
+  codex: codex,
+  media: media,
+  entry: entries[index],
+  entries: entries,
+  index: index,
+  onSelect: onSelect,
+  onClose: onClose,
 );
 
 /// 随机抽一条:从当前筛选出的 [pool] 里随机取一条弹详情,并带「继续抽」。
@@ -112,17 +132,24 @@ Future<void> showCodexRandomSheet(
 
 class _DetailSheet extends ConsumerStatefulWidget {
   const _DetailSheet({
+    super.key,
+    this.onClose,
+    this.onSelect,
     required this.codex,
     required this.entry,
     required this.media,
     this.pool,
     this.entries = const [],
     this.index = 0,
+    this.initialImage = 0,
   });
 
   final CodexMeta codex;
   final CodexEntry entry;
   final CodexMedia media;
+
+  final VoidCallback? onClose;
+  final ValueChanged<int>? onSelect;
 
   /// 非空 = 随机模式:从这批词条里「继续抽」(随机模式不支持左右翻)。
   final List<CodexEntry>? pool;
@@ -130,6 +157,7 @@ class _DetailSheet extends ConsumerStatefulWidget {
   /// 普通模式的整批词条 + 当前位置,供左右滑动翻页。
   final List<CodexEntry> entries;
   final int index;
+  final int initialImage;
 
   @override
   ConsumerState<_DetailSheet> createState() => _DetailSheetState();
@@ -157,7 +185,7 @@ class _DetailSheetState extends ConsumerState<_DetailSheet>
 
   /// 多图词条的翻图进度:0=停稳,>0=往后翻一张,<0=往前。与牌堆同一套写法。
   late final AnimationController _pageDrag;
-  int _imgPage = 0;
+  late int _imgPage = widget.initialImage.clamp(0, max(0, _imgCount - 1));
   _DragMode _dragMode = _DragMode.undecided;
 
   /// 正在下载原图:按钮转圈并停用,不让同一张被点两遍。
@@ -259,8 +287,12 @@ class _DetailSheetState extends ConsumerState<_DetailSheet>
 
   /// 翻到相邻词条;到头就不动(不循环,免得分不清自己在哪)。
   void _step(int delta) {
-    final next = _index + delta;
+    final next = (widget.onSelect == null ? _index : widget.index) + delta;
     if (next < 0 || next >= _list.length) return;
+    if (widget.onSelect != null) {
+      widget.onSelect!(next);
+      return;
+    }
     Haptics.selection();
     setState(() {
       _index = next;
@@ -392,7 +424,9 @@ class _DetailSheetState extends ConsumerState<_DetailSheet>
   @override
   Widget build(BuildContext context) {
     final desktop = ref.watch(desktopModeProvider);
-    final detail = _detailBody(context, desktop: desktop);
+    final detail = widget.onClose == null
+        ? _detailBody(context, desktop: desktop)
+        : _inlineInspector();
     if (!desktop) return detail;
     return CallbackShortcuts(
       bindings: {
@@ -542,7 +576,7 @@ class _DetailSheetState extends ConsumerState<_DetailSheet>
                           ),
                           child: Consumer(
                             builder: (_, ref, _) =>
-                                _codexChips(ref, widget.codex.id, e),
+                                codexPromptChips(ref, widget.codex.id, e),
                           ),
                         ),
                     ],
@@ -558,8 +592,187 @@ class _DetailSheetState extends ConsumerState<_DetailSheet>
     );
   }
 
-  Widget _desktopDetail(ColorScheme scheme, CodexEntry e) {
+  Widget _desktopExample(ColorScheme scheme, CodexEntry e) {
     final url = codexImageItemUrl(widget.codex, e, widget.media, _imgPage);
+    return Container(
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        children: [
+          Expanded(
+            child: url == null
+                ? Center(
+                    child: Icon(
+                      Icons.menu_book_outlined,
+                      size: 64,
+                      color: scheme.outline,
+                    ),
+                  )
+                : RemoteImage(
+                    url,
+                    fit: BoxFit.contain,
+                    errorBuilder: (_, _, _) =>
+                        const Center(child: Icon(Icons.broken_image_outlined)),
+                  ),
+          ),
+          if (_imgCount > 1)
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                IconButton(
+                  tooltip: l10nNow.desktopPreviousExample,
+                  onPressed: _imgPage > 0
+                      ? () => setState(() => _imgPage--)
+                      : null,
+                  icon: const Icon(Icons.chevron_left),
+                ),
+                Text('${_imgPage + 1} / $_imgCount'),
+                IconButton(
+                  tooltip: l10nNow.desktopNextExample,
+                  onPressed: _imgPage < _imgCount - 1
+                      ? () => setState(() => _imgPage++)
+                      : null,
+                  icon: const Icon(Icons.chevron_right),
+                ),
+              ],
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _inlineInspector() {
+    final e = widget.entry;
+    final scheme = context.scheme;
+    final local = context.l10n;
+    return Column(
+      key: const ValueKey('codex-list-inspector'),
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  local.codexEntryDetails,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: context.texts.titleSmall,
+                ),
+              ),
+              Text(
+                '${widget.index + 1} / ${widget.entries.length}',
+                style: context.texts.labelMedium,
+              ),
+              IconButton(
+                visualDensity: VisualDensity.compact,
+                tooltip: local.desktopPreviousEntry,
+                onPressed: widget.index > 0 ? () => _step(-1) : null,
+                icon: const Icon(Icons.chevron_left, size: 18),
+              ),
+              IconButton(
+                visualDensity: VisualDensity.compact,
+                tooltip: local.desktopNextEntry,
+                onPressed: widget.index + 1 < widget.entries.length
+                    ? () => _step(1)
+                    : null,
+                icon: const Icon(Icons.chevron_right, size: 18),
+              ),
+              IconButton(
+                visualDensity: VisualDensity.compact,
+                tooltip: local.codexFullDetails,
+                onPressed: () => showCodexDetailSheet(
+                  context,
+                  widget.codex,
+                  widget.media,
+                  entries: widget.entries,
+                  index: widget.index,
+                ),
+                icon: const Icon(Icons.open_in_full, size: 16),
+              ),
+              IconButton(
+                visualDensity: VisualDensity.compact,
+                tooltip: MaterialLocalizations.of(context).closeButtonTooltip,
+                onPressed: widget.onClose,
+                icon: const Icon(Icons.close, size: 18),
+              ),
+            ],
+          ),
+        ),
+        const Divider(height: 1),
+        Expanded(
+          child: LayoutBuilder(
+            builder: (context, box) => ListView(
+              primary: false,
+              padding: const EdgeInsets.fromLTRB(14, 8, 14, 12),
+              children: [
+                SizedBox(
+                  height: e.hasImage
+                      ? min(
+                          box.maxWidth,
+                          box.maxHeight * .67,
+                        ).clamp(100.0, 430.0)
+                      : 112,
+                  child: _desktopExample(scheme, e),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  [widget.codex.displayTitle, ...e.path].join(' / '),
+                  style: context.texts.bodySmall,
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  e.title,
+                  style: context.texts.titleMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                if (e.isNew || e.postCount != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 5),
+                    child: Text(
+                      [
+                        if (e.isNew)
+                          widget.codex.newFilterLabel ??
+                              local.codexRecentAdditions,
+                        if (e.postCount != null) 'post ${e.postCount}',
+                      ].join(' · '),
+                      style: context.texts.labelSmall,
+                    ),
+                  ),
+                const SizedBox(height: 12),
+                Text(local.prompt, style: context.texts.titleSmall),
+                const SizedBox(height: 6),
+                codexPromptChips(ref, widget.codex.id, e),
+              ],
+            ),
+          ),
+        ),
+        const Divider(height: 1),
+        Padding(
+          padding: const EdgeInsets.all(8),
+          child: Wrap(
+            alignment: WrapAlignment.center,
+            spacing: 5,
+            runSpacing: 4,
+            children: [
+              _favButton(scheme, e),
+              _copyButton(e, showLabel: true),
+              _importButton(labelImage: true),
+              _mainButton(e),
+              _addButton(e),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _desktopDetail(ColorScheme scheme, CodexEntry e) {
     return Column(
       key: const ValueKey('desktop-codex-detail'),
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -609,57 +822,7 @@ class _DetailSheetState extends ConsumerState<_DetailSheet>
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Expanded(
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: scheme.surfaceContainerLow,
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    clipBehavior: Clip.antiAlias,
-                    child: Column(
-                      children: [
-                        Expanded(
-                          child: url == null
-                              ? Center(
-                                  child: Icon(
-                                    Icons.menu_book_outlined,
-                                    size: 64,
-                                    color: scheme.outline,
-                                  ),
-                                )
-                              : RemoteImage(
-                                  url,
-                                  fit: BoxFit.contain,
-                                  errorBuilder: (_, _, _) => const Center(
-                                    child: Icon(Icons.broken_image_outlined),
-                                  ),
-                                ),
-                        ),
-                        if (_imgCount > 1)
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              IconButton(
-                                tooltip: l10nNow.desktopPreviousExample,
-                                onPressed: _imgPage > 0
-                                    ? () => setState(() => _imgPage--)
-                                    : null,
-                                icon: const Icon(Icons.chevron_left),
-                              ),
-                              Text('${_imgPage + 1} / $_imgCount'),
-                              IconButton(
-                                tooltip: l10nNow.desktopNextExample,
-                                onPressed: _imgPage < _imgCount - 1
-                                    ? () => setState(() => _imgPage++)
-                                    : null,
-                                icon: const Icon(Icons.chevron_right),
-                              ),
-                            ],
-                          ),
-                      ],
-                    ),
-                  ),
-                ),
+                Expanded(child: _desktopExample(scheme, e)),
                 const SizedBox(width: 20),
                 Expanded(
                   child: Column(
@@ -669,7 +832,7 @@ class _DetailSheetState extends ConsumerState<_DetailSheet>
                       const SizedBox(height: 12),
                       Expanded(
                         child: SingleChildScrollView(
-                          child: _codexChips(ref, widget.codex.id, e),
+                          child: codexPromptChips(ref, widget.codex.id, e),
                         ),
                       ),
                     ],
@@ -779,7 +942,7 @@ class _DetailSheetState extends ConsumerState<_DetailSheet>
   Future<void> _copyPrompt(CodexEntry e) async {
     await Clipboard.setData(ClipboardData(text: e.fullText));
     if (mounted) {
-      Navigator.pop(context);
+      if (widget.onClose == null) Navigator.pop(context);
       hintSnack(context, l10nNow.promptCopied, icon: Icons.copy);
     }
   }
@@ -852,7 +1015,9 @@ class _DetailSheetState extends ConsumerState<_DetailSheet>
       final bytes = await fetchRemoteImageBytes(
         url,
         onProgress: (got, total) {
-          if (total != null && total > 0) _importAt.value = got / total;
+          if (mounted && total != null && total > 0) {
+            _importAt.value = got / total;
+          }
         },
       );
       if (!mounted) return;
@@ -860,7 +1025,8 @@ class _DetailSheetState extends ConsumerState<_DetailSheet>
           ? l10nNow.codexOriginalImage
           : e.title.trim();
       final nav = Navigator.of(context);
-      nav.pop();
+      if (widget.onClose == null) nav.pop();
+      if (widget.onClose != null) setState(() => _importing = false);
       unawaited(
         nav.push(
           sharedAxisRoute(
@@ -909,7 +1075,7 @@ class _DetailSheetState extends ConsumerState<_DetailSheet>
       final r = codexAddToPrompt(ref, e);
       // The toast outlives this detail sheet; capture navigation before popping.
       final shell = ref.read(shellIndexProvider.notifier);
-      Navigator.pop(context);
+      if (widget.onClose == null) Navigator.pop(context);
       hintSnack(
         context,
         // 拆出了角色就说清楚 —— 不然用户只看到主提示词短了一截,
@@ -928,14 +1094,18 @@ class _DetailSheetState extends ConsumerState<_DetailSheet>
     icon: const Icon(Icons.add, size: 18),
     // 兜底:系统字号调得很大时宁可省略号,也不能换行 —— 这条操作栏是钉在
     // 底部的,它一变高就把上面的内容挤走
-    label: Text(l10nNow.desktopImportIntoANewSection, maxLines: 1, overflow: TextOverflow.ellipsis),
+    label: Text(
+      l10nNow.desktopImportIntoANewSection,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+    ),
   );
 
   Widget _mainButton(CodexEntry e) => OutlinedButton.icon(
     onPressed: () {
       codexAddToPrompt(ref, e, asSection: false);
       final shell = ref.read(shellIndexProvider.notifier);
-      Navigator.pop(context);
+      if (widget.onClose == null) Navigator.pop(context);
       hintSnack(
         context,
         l10nNow.desktopAppendedToTheMainPrompt,
@@ -1761,7 +1931,7 @@ class _PromptFaceState extends ConsumerState<_PromptFace> {
       controller: _scroll,
       padding: const EdgeInsets.all(14),
       physics: _fits ? const NeverScrollableScrollPhysics() : null,
-      child: _codexChips(ref, widget.codexId, widget.entry),
+      child: codexPromptChips(ref, widget.codexId, widget.entry),
     );
     if (widget.bgUrl == null) {
       return ColoredBox(color: scheme.surfaceContainerHigh, child: content);
@@ -1778,10 +1948,16 @@ class _PromptFaceState extends ConsumerState<_PromptFace> {
 
 /// 法典词条的芯片流:译名先查原站的对照表([codexTagZhProvider]),查不到才
 /// 退回 app 自己的词库 / 后端。
-PromptChips _codexChips(WidgetRef ref, String codexId, CodexEntry e) {
+PromptChips codexPromptChips(
+  WidgetRef ref,
+  String codexId,
+  CodexEntry e, {
+  ValueChanged<String>? onCopy,
+}) {
   final zh = ref.watch(codexTagZhProvider(codexId));
   return PromptChips(
     sections: _codexPromptSections(e),
+    onTokenTap: onCopy,
     preferredTrans: zh.value?.lookup,
     preferredTransLoading: zh.isLoading && !zh.hasError,
   );

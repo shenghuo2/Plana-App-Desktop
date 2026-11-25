@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:plana_app/core/net/remote_image.dart';
 import 'package:plana_app/core/platform/desktop.dart';
 import 'package:plana_app/core/store/app_stores.dart';
 import 'package:plana_app/core/theme/app_theme.dart';
@@ -52,6 +53,9 @@ void main() {
   late int indexLoads;
   var disposed = false;
   final capture = GlobalKey();
+  const seaImage = 'https://example.test/coastal-station.png';
+  const forestImage = 'https://example.test/moonlit-waterfall.png';
+  const forestOriginal = 'https://example.test/full/moonlit-waterfall.png';
   Finder key(String id) => find.byKey(ValueKey(id));
 
   setUpAll(loadDesktopCaptureFonts);
@@ -63,6 +67,14 @@ void main() {
       (_) async => temp.path,
     );
     stores = AppStores.ephemeral();
+    RemoteImageStore.bind(temp);
+    for (final url in [seaImage, forestImage, forestOriginal]) {
+      final file = File(
+        'examples/inspiration-previews/${Uri.parse(url).pathSegments.last}',
+      );
+      await RemoteImageStore.write(url, await file.readAsBytes());
+      RemoteImageStore.markChecked(url);
+    }
     await stores.prefs.write(
       key: 'editor_settings',
       value: '{"enableCompletion":false,"showTranslation":false}',
@@ -96,12 +108,17 @@ void main() {
                       id: 'sea',
                       title: '水彩海岸',
                       tags: 'watercolor, sea',
+                      image: seaImage,
                       path: ['自然'],
                     ),
                     CodexEntry(
                       id: 'forest',
                       title: '森林',
                       tags: 'forest, soft light',
+                      image: forestImage,
+                      original: forestOriginal,
+                      imageWidth: 1024,
+                      imageHeight: 1536,
                       path: ['自然'],
                     ),
                   ],
@@ -193,13 +210,97 @@ void main() {
       expect(key('codex-picker-button').hitTestable(), findsOneWidget);
       expect(key('codex-category-picker').hitTestable(), findsOneWidget);
       final pickerRect = tester.getRect(key('codex-picker-button'));
+      final categoryRect = tester.getRect(key('codex-category-picker'));
       final searchRect = tester.getRect(key('desktop-codex-search'));
-      expect(pickerRect.center.dy, closeTo(searchRect.center.dy, 1));
-      expect(pickerRect.right, lessThan(searchRect.left));
-      expect(
-        tester.getRect(key('codex-category-picker')).top,
-        greaterThan(searchRect.bottom),
+      final count = tester.getRect(key('embedded-codex-summary'));
+      expect(find.text('全部词条'), findsOneWidget);
+      expect(find.text('· 2 条'), findsOneWidget);
+      final favorites = tester.getRect(key('desktop-codex-favorites'));
+      final random = tester.getRect(key('desktop-codex-random'));
+      expect(pickerRect.center.dy, closeTo(categoryRect.center.dy, 1));
+      expect(pickerRect.right, lessThan(categoryRect.left));
+      expect(searchRect.top, greaterThan(categoryRect.bottom));
+      expect(searchRect.left, closeTo(pickerRect.left, 1));
+      expect(searchRect.right, closeTo(categoryRect.right, 1));
+      expect(count.top, greaterThan(searchRect.bottom));
+      expect(count.right, lessThan(favorites.left));
+      expect(count.center.dy, closeTo(favorites.center.dy, 1));
+      expect(favorites.right, lessThan(random.left));
+      expect(favorites.center.dy, closeTo(random.center.dy, 1));
+      expect(find.text('随机灵感'), findsOneWidget);
+      expect(find.text('法典图册'), findsNothing);
+      final firstCard = key('desktop-codex-card-sea');
+      final firstRect = tester.getRect(firstCard);
+      final secondRect = tester.getRect(key('desktop-codex-card-forest'));
+      expect(firstRect.top, greaterThan(random.bottom));
+      expect(secondRect.top, firstRect.top);
+      expect(secondRect.left, greaterThan(firstRect.right));
+      final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+      await mouse.addPointer(location: firstRect.center);
+      await tester.pump(const Duration(milliseconds: 150));
+      Finder hoverAction(String label) =>
+          find.descendant(of: firstCard, matching: key('codex-hover-$label'));
+      final firstAction = tester.getRect(hoverAction('导入图片'));
+      for (final label in ['导入图片', '复制提示词', '创建分区并导入', '导入主提示词']) {
+        final action = hoverAction(label);
+        expect(action.hitTestable(), findsOneWidget);
+        final rect = tester.getRect(action);
+        expect(rect.center.dy, closeTo(firstAction.center.dy, 1));
+        expect(firstRect.contains(rect.topLeft), isTrue);
+        expect(firstRect.contains(rect.bottomRight), isTrue);
+        expect(rect.width, greaterThanOrEqualTo(26));
+      }
+      final loadedArt = find.descendant(
+        of: firstCard,
+        matching: find.byType(RawImage),
       );
+      await pumpUntil(
+        tester,
+        () =>
+            tester.widgetList<RawImage>(loadedArt).any((w) => w.image != null),
+      );
+      final artRect = tester.getRect(loadedArt);
+      expect(artRect.width / artRect.height, closeTo(.88, .055));
+      await captureDesktop(tester, capture, 'creation-codex-two-columns-$name');
+      final forestCard = key('desktop-codex-card-forest');
+      final forestCenter = tester.getCenter(
+        find.descendant(of: forestCard, matching: find.byType(RemoteImage)),
+      );
+      await mouse.moveTo(forestCenter);
+      await tester.pump(const Duration(milliseconds: 400));
+      final largeImage = key('codex-hover-preview');
+      await pumpUntil(tester, () => largeImage.evaluate().isNotEmpty);
+      final large = tester.getRect(largeImage);
+      final pane = tester.getRect(key('desktop-codex-grid'));
+      expect(pane.inflate(.01).intersect(large), large);
+      expect(large.width, greaterThan(secondRect.width * 1.3));
+      expect(large.width / large.height, closeTo(2 / 3, .01));
+      for (final label in ['导入图片', '复制提示词', '创建分区并导入', '导入主提示词']) {
+        expect(
+          find
+              .descendant(of: forestCard, matching: key('codex-hover-$label'))
+              .hitTestable(),
+          findsOneWidget,
+        );
+      }
+      await captureDesktop(tester, capture, 'creation-codex-large-image-$name');
+      final favorite = find.descendant(
+        of: forestCard,
+        matching: find.byTooltip('收藏'),
+      );
+      await mouse.moveTo(tester.getCenter(favorite));
+      await mouse.down(tester.getCenter(favorite));
+      await mouse.up();
+      await pumpUntil(
+        tester,
+        () => find
+            .descendant(of: forestCard, matching: find.byTooltip('取消收藏'))
+            .evaluate()
+            .isNotEmpty,
+      );
+      expect(largeImage, findsNothing);
+      await mouse.removePointer();
+      await tester.pumpAndSettle();
       if (size.width >= 1100) {
         expect(
           tester.getRect(key('desktop-ai-tab')).left,
@@ -214,6 +315,7 @@ void main() {
       await tester.pumpAndSettle(const Duration(milliseconds: 300));
       expect(key('desktop-codex-card-sea'), findsOneWidget);
       expect(key('desktop-codex-card-forest'), findsNothing);
+      expect(find.text('· 1 条'), findsOneWidget);
       final searchController = tester
           .widget<TextField>(key('desktop-codex-search'))
           .controller;
@@ -284,6 +386,14 @@ void main() {
         );
         final rightButton = tester.getRect(key('desktop-right-collapse'));
         await resize('desktop-right-divider', -100);
+        expect(tester.getRect(firstCard).width, greaterThan(firstRect.width));
+        await mouse.addPointer(location: tester.getCenter(firstCard));
+        await tester.pump(const Duration(milliseconds: 150));
+        expect(
+          tester.getRect(hoverAction('导入图片')).width,
+          greaterThan(firstAction.width),
+        );
+        await mouse.removePointer();
         expect(
           tester.getRect(key('desktop-right-collapse')).left,
           closeTo(rightButton.left - 100, 1),

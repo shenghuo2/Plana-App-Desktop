@@ -26,12 +26,24 @@ import 'package:plana_app/features/generate/widgets/collapsed_prompt_preview.dar
 import 'package:plana_app/features/inspiration/widgets/tag_card.dart';
 
 import 'support/desktop_capture.dart';
+import 'support/pump_until.dart';
 
 void main() {
   late AppStores stores;
   late ProviderContainer container;
   final capture = GlobalKey();
   setUpAll(loadDesktopCaptureFonts);
+  ProviderContainer openContainer() => ProviderContainer(
+    overrides: [
+      appStoresProvider.overrideWithValue(stores),
+      desktopModeProvider.overrideWithValue(true),
+      tagTranslationServiceProvider.overrideWith((ref) {
+        final service = TagTranslationService(enabled: false, baseUrl: '');
+        ref.onDispose(service.dispose);
+        return service;
+      }),
+    ],
+  );
   setUp(() async {
     stores = AppStores.ephemeral();
     await stores.prefs.write(
@@ -43,17 +55,7 @@ void main() {
         ).toJson(),
       ),
     );
-    container = ProviderContainer(
-      overrides: [
-        appStoresProvider.overrideWithValue(stores),
-        desktopModeProvider.overrideWithValue(true),
-        tagTranslationServiceProvider.overrideWith((ref) {
-          final service = TagTranslationService(enabled: false, baseUrl: '');
-          ref.onDispose(service.dispose);
-          return service;
-        }),
-      ],
-    );
+    container = openContainer();
   });
   tearDown(() {
     container.dispose();
@@ -134,6 +136,44 @@ void main() {
           .children!
           .whereType<TextSpan>()
           .toList();
+
+  testWidgets(
+    'sidebar restores collapsed and expanded cards per canvas after restart',
+    (tester) async {
+      const cards = Column(children: [PromptCard(), CharacterCard()]);
+      await mount(tester, cards);
+      final workspace = container.read(canvasWorkspaceProvider.notifier);
+      final first = container.read(canvasWorkspaceProvider).activeId;
+      await tap(tester, 'prompt-section-collapse-main');
+      final second = workspace.create();
+      final gen = container.read(generateProvider.notifier);
+      gen.addSection();
+      gen.addCharacter();
+      final s = container.read(generateProvider);
+      final section = s.sections.last.id, character = s.characters.single.id;
+      await tester.pumpAndSettle();
+      await tap(tester, 'prompt-section-collapse-$section');
+      await tap(tester, 'character-collapse-$character');
+      await tap(tester, 'prompt-section-collapse-main');
+      await tap(tester, 'prompt-section-collapse-main');
+      await tester.pumpWidget(const SizedBox());
+      await pumpUntilComplete(tester, stores.flushForExit());
+      container.dispose();
+      stores = (await tester.runAsync(
+        () => AppStores.open(rootOverride: stores.desktopOutput.root.parent),
+      ))!;
+      container = openContainer();
+      await mount(tester, cards);
+      expect(container.read(canvasWorkspaceProvider).activeId, second);
+      expect(input('desktop-prompt'), findsOneWidget);
+      expect(key('collapsed-section-$section'), findsOneWidget);
+      expect(key('collapsed-character-$character-positive'), findsOneWidget);
+      container.read(canvasWorkspaceProvider.notifier).select(first);
+      await tester.pumpAndSettle();
+      expect(key('collapsed-main-positive'), findsOneWidget);
+      await finish(tester);
+    },
+  );
 
   for (final target in ['main', 'section', 'main-with-sections', 'character']) {
     testWidgets('collapsed summary keeps folds, weights and draft: $target', (
@@ -588,8 +628,17 @@ void main() {
       await mount(tester, const PromptCard());
       await tap(tester, 'prompt-section-collapse-$id');
       expect(input('desktop-section-$id'), findsNothing);
+      expect(find.text('已停用'), findsOneWidget);
       await tap(tester, 'prompt-section-collapse-$id');
       expect(input('desktop-section-$id'), findsOneWidget);
+      final faded = find.ancestor(
+        of: input('desktop-section-$id'),
+        matching: find.byWidgetPredicate(
+          (w) => w is Opacity && w.opacity == .5,
+        ),
+      );
+      expect(faded, findsOneWidget);
+      await captureDesktop(tester, capture, 'disabled-section');
       await tester.enterText(input('desktop-section-$id'), 'disabled draft');
       await tap(tester, 'prompt-section-collapse-$id');
       expect(
@@ -597,6 +646,26 @@ void main() {
         'disabled draft',
       );
       expect(container.read(generateProvider).sections.last.enabled, isFalse);
+      await finish(tester);
+    },
+  );
+  testWidgets(
+    'collapsed summary distinguishes disabled and partially active blocks',
+    (tester) async {
+      await mount(
+        tester,
+        const CollapsedPromptPreview(
+          draft: '<#停用: ~one~, ~two~#>, <#部分: ~three~, four#>',
+        ),
+      );
+      expect(
+        tester.widget<Text>(find.text('#停用')).style?.decoration,
+        TextDecoration.lineThrough,
+      );
+      expect(
+        tester.widget<Text>(find.text('#部分')).style?.decoration,
+        isNot(TextDecoration.lineThrough),
+      );
       await finish(tester);
     },
   );

@@ -31,7 +31,12 @@ function Assert-InstalledFiles {
 }
 
 function Test-InstalledDiagnostics {
-    $directory = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Plana App Desktop/diagnostics'
+    $appDataRoot = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Plana App Desktop'
+    $directory = Join-Path $appDataRoot 'logs'
+    $marker = Join-Path $appDataRoot 'write-diagnostic-logs.enabled'
+    $markerExisted = Test-Path -LiteralPath $marker -PathType Leaf
+    New-Item -ItemType Directory -Path $appDataRoot -Force | Out-Null
+    if (!$markerExisted) { Set-Content -LiteralPath $marker -Value '' }
     $process = Start-Process -FilePath (Join-Path $installRoot 'plana_app_for_windows.exe') -PassThru
     try {
         $deadline = [DateTime]::UtcNow.AddSeconds(45)
@@ -62,6 +67,9 @@ function Test-InstalledDiagnostics {
     } finally {
         if (!$process.HasExited) { Stop-Process -Id $process.Id -Force }
         $process.Dispose()
+        if (!$markerExisted -and (Test-Path -LiteralPath $marker -PathType Leaf)) {
+            Remove-Item -LiteralPath $marker -Force
+        }
     }
 }
 

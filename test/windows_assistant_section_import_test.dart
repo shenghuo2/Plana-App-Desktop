@@ -76,8 +76,148 @@ class _Rules extends RulesLibraryNotifier {
 
 class _LocalHttp extends HttpOverrides {}
 
+class _SemanticRules extends RulesLibraryNotifier {
+  @override
+  Future<RulesLibrary> build() async => const RulesLibrary(
+    active: {RulesFamily.nai45: 'test', RulesFamily.nai5: 'test'},
+    presets: [
+      RulesPreset(
+        id: 'test',
+        name: '测试',
+        author: '',
+        models: {RulesFamily.nai45, RulesFamily.nai5},
+        rules: [PresetRule(name: 'semantic_blocks', content: '按行标注分块')],
+      ),
+    ],
+  );
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  for (final mode in [SectionImport.aiSection, SectionImport.appendMain]) {
+    test(
+      'automatic and manual turns share the persisted destination and quoted labels in $mode',
+      () async {
+        final requests = <Map<String, dynamic>>[];
+        final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+        server.listen((request) async {
+          if (request.uri.path == '/api/agent/channel') {
+            request.response.statusCode = HttpStatus.notFound;
+          } else {
+            final body =
+                jsonDecode(await utf8.decoder.bind(request).join())
+                    as Map<String, dynamic>;
+            requests.add(body);
+            final first = requests.length == 1;
+            final label = first ? '池边' : '窗光';
+            request.response.headers.contentType = ContentType(
+              'text',
+              'event-stream',
+              charset: 'utf-8',
+            );
+            request.response.write(
+              'event: final\ndata: ${jsonEncode({
+                'positive': first ? 'artist:foo,\nmoonlight' : 'artist:foo,\nsunlight',
+                'section': first ? '池边小景' : '教堂',
+                'negative': 'model exclusion',
+                'blocks': {
+                  'positive': ['画风·画师·Brush', '场景·$label·Moon'],
+                },
+              })}\n\n',
+            );
+          }
+          await request.response.close();
+        });
+        final stores = AppStores.ephemeral();
+        final c = ProviderContainer(
+          overrides: [
+            appStoresProvider.overrideWithValue(stores),
+            botSessionProvider.overrideWith(_Session.new),
+            backendBaseProvider.overrideWith(
+              () => _Backend('http://127.0.0.1:${server.port}'),
+            ),
+            assistantEndpointProvider.overrideWithValue(null),
+            agentModelsProvider.overrideWith(
+              (_) async => const AgentModelList(),
+            ),
+            rulesLibraryProvider.overrideWith(_SemanticRules.new),
+            tagLibraryProvider.overrideWith(_Library.new),
+          ],
+        );
+        try {
+          await c.read(backendBaseProvider.future);
+          await c.read(assistantSettingsProvider.future);
+          final settings = c.read(assistantSettingsProvider.notifier);
+          await settings.patch(
+            (s) => s.copyWith(autoImport: true, importTo: mode),
+          );
+          final gen = c.read(generateProvider.notifier);
+          gen.setPrompts(positive: 'handwritten', negative: 'fixed exclusion');
+          final assistant = c.read(assistantProvider.notifier);
+          Future<AssistantMsg> turn(String ask, {bool quote = false}) async {
+            final done = Completer<void>();
+            final sub = c.listen(assistantProvider, (old, next) {
+              if (old?.running == true && !next.running && !done.isCompleted) {
+                done.complete();
+              }
+            });
+            try {
+              await HttpOverrides.runWithHttpOverrides(
+                () => assistant.send(ask, withCanvas: quote),
+                _LocalHttp(),
+              );
+              await done.future.timeout(const Duration(seconds: 10));
+              final msg = c.read(assistantProvider).msgs.last;
+              expect(msg.role, MsgRole.ai, reason: msg.text);
+              return msg;
+            } finally {
+              sub.close();
+            }
+          }
+
+          final first = await turn('画一张');
+          expect(first.change, isNotNull);
+          expect(
+            first.draw!.negative,
+            'model exclusion',
+            reason: 'locked imports skip the artist supplement',
+          );
+          expect(requests.first['user_request'], contains('全局负面提示词已锁定'));
+          final original = c.read(generateProvider);
+          expect(composeSections(original).negativePrompt, 'fixed exclusion');
+          if (mode == SectionImport.aiSection) {
+            gen.updateSection(original.sections.last.id, name: '手改分区名');
+          }
+          await settings.patch((s) => s.copyWith(autoImport: false));
+          final next = await turn('把第二块改名窗光', quote: true);
+          expect(next.change, isNull);
+          expect(requests.last['user_request'], contains('池边'));
+          if (mode == SectionImport.aiSection) {
+            expect(requests.last['user_request'], contains('手改分区名'));
+          }
+          final preview = assistant.previewSendState(next.id)!;
+          expect(assistant.applyProposal(next.id), true);
+          final actual = c.read(generateProvider);
+          expect(preview.prompt, composeSections(actual).prompt);
+          expect(preview.negativePrompt, 'fixed exclusion');
+          expect(actual.sections.length, original.sections.length);
+          final links = mode == SectionImport.aiSection
+              ? actual.sections.last.foldLinks
+              : actual.promptFoldLinks;
+          expect(
+            links.map((l) => l.positiveName).join(),
+            allOf(contains('窗光'), isNot(contains('池边'))),
+          );
+          expect(actual.negativePrompt, 'fixed exclusion');
+          expect(assistant.undo(next.id), true);
+        } finally {
+          c.dispose();
+          await stores.flushForExit();
+          await server.close(force: true);
+        }
+      },
+    );
+  }
   for (final mode in SectionImport.values) {
     test(
       'inactive canvas ${mode.name} import matches preview and fully undoes',
@@ -144,9 +284,9 @@ void main() {
           expect(sent.prompt, preview.prompt);
           expect(sent.negativePrompt, preview.negativePrompt);
           expect(changed.sections.length, switch (mode) {
-            SectionImport.main => 2,
-            SectionImport.newSection => 3,
-            SectionImport.clear => 0,
+            SectionImport.main || SectionImport.appendMain => 2,
+            SectionImport.newSection || SectionImport.aiSection => 3,
+            SectionImport.clear => 2, // Locked exclusions retain their rows.
           });
           if (mode != SectionImport.clear) {
             expect(
@@ -170,13 +310,21 @@ void main() {
     );
   }
 
-  test('old and unknown import preferences default to replacing main', () {
-    expect(AssistantSettings.fromJson({}).importTo, SectionImport.main);
-    expect(
-      AssistantSettings.fromJson({'importTo': 'future-choice'}).importTo,
-      SectionImport.main,
-    );
-  });
+  test(
+    'new import preferences use the dedicated section and retain saved choices',
+    () {
+      expect(
+        AssistantSettings.fromJson({'importTo': 'main'}).importTo,
+        SectionImport.main,
+      );
+      expect(AssistantSettings.fromJson({}).allowEditNegative, false);
+      expect(AssistantSettings.fromJson({}).importTo, SectionImport.aiSection);
+      expect(
+        AssistantSettings.fromJson({'importTo': 'future-choice'}).importTo,
+        SectionImport.aiSection,
+      );
+    },
+  );
   test(
     'import dedup never removes members of disabled, folded or weighted groups',
     () {
@@ -310,6 +458,8 @@ void main() {
               .patch(
                 (s) => s.copyWith(
                   libraryScope: scope,
+                  importTo: SectionImport.main,
+                  allowEditNegative: true,
                   autoImport: true,
                   stream: false,
                 ),
@@ -428,9 +578,9 @@ void main() {
         final assistant = c.read(assistantProvider.notifier);
         expect(assistant.applyProposal('reply'), isTrue);
         final after = c.read(generateProvider);
-        expect(after.prompt, 'new scene');
-        expect(after.sections.last.positive, 'watercolor');
-        expect(after.sections.last.positiveRaw, '<#style: watercolor#>');
+        expect(after.prompt, 'old scene');
+        expect(after.sections.last.positive, 'new scene');
+        expect(after.sections[1].positiveRaw, '<#style: watercolor#>');
         expect(composeSections(after).negativePrompt, 'lowres, blurry');
         final other = c.read(canvasWorkspaceProvider.notifier).create();
         gen.setPrompts(positive: 'keep this canvas');

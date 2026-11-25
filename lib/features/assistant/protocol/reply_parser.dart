@@ -11,6 +11,8 @@ import '../domain/agent_event.dart' show AgentDelta;
 import '../llm/llm_provider.dart' show LlmText;
 import '../runtime/prompt_assets.dart';
 import 'fenced_protocol.dart' show toolFence;
+import 'native_tool_markup.dart';
+import 'draw_reply_prose.dart';
 
 final _drawFence = RegExp(
   r'```[ \t]*nai_draw[ \t]*\r?\n(.*?)```',
@@ -43,7 +45,7 @@ final _halfTag = RegExp(
 const _drawKeys = ['positive', 'negative', 'characters'];
 
 /// 角色分区留下的字段。
-const _charKeys = {'name', 'positive', 'negative', 'position'};
+const _charKeys = {'name', 'positive', 'negative', 'position', 'blocks'};
 
 final _gridPos = RegExp(r'^\s*([A-Ea-e])\s*([1-5])\s*$');
 final _xyPos = RegExp(r'^\s*(\d*\.?\d+)\s*,\s*(\d*\.?\d+)\s*$');
@@ -76,7 +78,9 @@ class OutputFailure implements Exception {
 /// 出图块取**最后一个**非空的:模型偶尔先写一版再改一版,后写的是它的结论。
 ParsedReply parseReply(String raw, PromptTexts texts) {
   final repairs = <String>[];
-  var text = raw.replaceAll(_pairedTag, '').replaceAll(toolFence, '');
+  var text = nativeToolProse(
+    raw,
+  ).replaceAll(_pairedTag, '').replaceAll(toolFence, '');
   Map<String, dynamic>? draw;
   final fences = _drawFence.allMatches(text).toList();
   if (fences.isNotEmpty) {
@@ -91,8 +95,9 @@ ParsedReply parseReply(String raw, PromptTexts texts) {
   } else {
     (draw, text) = _salvage(text, texts, repairs);
   }
+  final prose = text.replaceAll(_halfTag, '').trim();
   return ParsedReply(
-    text.replaceAll(_halfTag, '').trim(),
+    draw == null ? prose : drawReplyProse(prose),
     draw == null ? null : checkDraw(draw, texts, repairs),
     repairs,
   );
@@ -280,6 +285,7 @@ Map<String, dynamic> checkDraw(
         'name': name,
         'positive': cpos,
         'negative': _tagString(c['negative']) ?? '',
+        if (c['blocks'] is Map) 'blocks': c['blocks'],
       };
       // 空串不写进去:没指定站位就别带这个字段
       final (xy, why) = _position(c['position']);
@@ -397,11 +403,12 @@ final _liveTail = RegExp(r'(?:<[A-Za-z_/]{0,18}|`{1,3}[ \t]*[A-Za-z_]{1,9})$');
     pos = close?.end ?? raw.length;
   }
   if (pos < raw.length) body.write(raw.substring(pos));
-  var text = body.toString();
+  var text = nativeToolProse(body.toString(), streaming: true);
   final fence = _liveFenceOpen.firstMatch(text);
   if (fence != null) text = text.substring(0, fence.start);
+  final prose = text.replaceFirst(_liveTail, '').trim();
   return (
-    body: text.replaceFirst(_liveTail, '').trim(),
+    body: _drawOpen.hasMatch(raw) ? drawReplyProse(prose) : prose,
     think: think.join('\n').trim(),
   );
 }

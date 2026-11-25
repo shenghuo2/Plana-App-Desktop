@@ -25,9 +25,18 @@ Future<Uint8List> processForSave(Uint8List bytes, SaveSettings o) async {
     if (o.format == SaveFormat.png) return ensurePng(bytes);
     return isWebp(bytes) ? bytes : compute(_encodeWebp, bytes);
   }
-  final png = o.meta == SaveMeta.clean
-      ? await cleanImagePng(bytes)
-      : await writeCustomMetadataPng(bytes, o.customPrompt);
+  final Uint8List png;
+  if (o.meta == SaveMeta.clean) {
+    png = await cleanImagePng(bytes);
+  } else if (o.metadataDraft case final draft?) {
+    png = await writeImageMetadataPng(
+      bytes,
+      comment: draft.buildComment(),
+      source: draft.source,
+    );
+  } else {
+    png = await writeCustomMetadataPng(bytes, o.customPrompt);
+  }
   return o.format == SaveFormat.webp ? compute(_encodeWebp, png) : png;
 }
 

@@ -5,6 +5,7 @@ import '../../core/store/ui_prefs.dart';
 import '../../core/platform/desktop.dart';
 import '../../core/ui/settings_scaffold.dart';
 import 'metadata_tool_page.dart';
+import 'metadata_tool_link.dart';
 import 'weight_convert_page.dart';
 import '../../l10n/l10n.dart';
 
@@ -18,7 +19,6 @@ class ToolsPage extends ConsumerStatefulWidget {
 }
 
 class _ToolsPageState extends ConsumerState<ToolsPage> {
-  late int _tab = ref.read(uiPrefsProvider).toolsTab.clamp(0, 1);
   final _scroll = ScrollController();
 
   @override
@@ -30,6 +30,16 @@ class _ToolsPageState extends ConsumerState<ToolsPage> {
   @override
   Widget build(BuildContext context) {
     final desktop = ref.watch(desktopModeProvider);
+    final tab = ref.watch(
+      uiPrefsProvider.select((p) => p.toolsTab.clamp(0, 1)),
+    );
+    ref.listen(singleMetadataRequestProvider, (_, _) {
+      final toolsRoute = ModalRoute.of(context);
+      Navigator.of(
+        context,
+      ).popUntil((route) => route == toolsRoute || route.isFirst);
+      if (_scroll.hasClients) _scroll.jumpTo(0);
+    });
     final tabs = Padding(
       padding: desktop
           ? const EdgeInsets.only(bottom: 20)
@@ -49,13 +59,12 @@ class _ToolsPageState extends ConsumerState<ToolsPage> {
               icon: Icon(Icons.document_scanner_outlined, size: 17),
             ),
           ],
-          selected: {_tab},
+          selected: {tab},
           onSelectionChanged: (s) {
             FocusManager.instance.primaryFocus?.unfocus();
             ref
                 .read(uiPrefsProvider.notifier)
                 .patch((p) => p.copyWith(toolsTab: s.first));
-            setState(() => _tab = s.first);
           },
           showSelectedIcon: false,
         ),
@@ -82,11 +91,11 @@ class _ToolsPageState extends ConsumerState<ToolsPage> {
                         Align(alignment: Alignment.centerLeft, child: tabs),
                         for (var i = 0; i < views.length; i++)
                           Offstage(
-                            offstage: _tab != i,
+                            offstage: tab != i,
                             child: TickerMode(
-                              enabled: _tab == i,
+                              enabled: tab == i,
                               child: ExcludeFocus(
-                                excluding: _tab != i,
+                                excluding: tab != i,
                                 child: views[i],
                               ),
                             ),
@@ -101,7 +110,7 @@ class _ToolsPageState extends ConsumerState<ToolsPage> {
               children: [
                 tabs,
                 Expanded(
-                  child: IndexedStack(index: _tab, children: views),
+                  child: IndexedStack(index: tab, children: views),
                 ),
               ],
             ),

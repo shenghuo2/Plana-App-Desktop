@@ -18,6 +18,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/platform/desktop.dart';
 import '../../../core/ui/setting_row.dart';
 import '../../../core/util/haptics.dart';
+import '../../generate/generate_state.dart' show generateProvider;
 import '../../generate/prompt_sections.dart' show SectionImport;
 import '../../generate/widgets/common.dart' show dropFocusSoon, hintSnack;
 import '../agent_model.dart'
@@ -282,7 +283,8 @@ class _DesktopSettingsPanel extends ConsumerWidget {
                                       ),
                                       SettingRow(
                                         icon: Icons.content_paste,
-                                        title: l10nNow.desktopPasteFromClipboard,
+                                        title:
+                                            l10nNow.desktopPasteFromClipboard,
                                         desc: '在创作页侧栏显示图片粘贴按钮',
                                         value: s.showSidebarClipboardButton,
                                         onChanged: (v) => n.patch(
@@ -331,6 +333,7 @@ class _DesktopSettingsPanel extends ConsumerWidget {
                                           (o) => o.copyWith(importTo: v),
                                         ),
                                       ),
+                                      _negativeSetting(s, n),
                                     ]),
                                     section('自动操作', [
                                       SettingRow(
@@ -356,7 +359,8 @@ class _DesktopSettingsPanel extends ConsumerWidget {
                                     ]),
                                     if (s.noDraw)
                                       Text(
-                                        l10nNow.desktopPlainTextIsOnAutomaticImportAndGeneration,
+                                        l10nNow
+                                            .desktopPlainTextIsOnAutomaticImportAndGeneration,
                                         style: TextStyle(
                                           fontSize: 12,
                                           height: 1.6,
@@ -381,7 +385,8 @@ class _DesktopSettingsPanel extends ConsumerWidget {
                                             ),
                                             const SizedBox(height: 6),
                                             Text(
-                                              l10nNow.desktopSourcesUsedToLookUpArtistPromptsAnd,
+                                              l10nNow
+                                                  .desktopSourcesUsedToLookUpArtistPromptsAnd,
                                               style: TextStyle(
                                                 fontSize: 11,
                                                 color: scheme.onSurfaceVariant,
@@ -475,6 +480,16 @@ class _DesktopSettingsPanel extends ConsumerWidget {
   }
 }
 
+Widget _negativeSetting(AssistantSettings s, AssistantSettingsNotifier n) =>
+    SettingRow(
+      icon: Icons.block_outlined,
+      title: '允许 AI 修改负面提示词',
+      desc: '允许导入和直接生成使用 AI 的全局负面提示词',
+      enabled: !s.noDraw,
+      value: s.allowEditNegative,
+      onChanged: (v) => n.patch((o) => o.copyWith(allowEditNegative: v)),
+    );
+
 /// Give the explanation and the full-width selection field separate space.
 class _DesktopImportChoice extends StatelessWidget {
   const _DesktopImportChoice({
@@ -511,7 +526,7 @@ class _DesktopImportChoice extends StatelessWidget {
                 Expanded(
                   child: SettingRowTexts(
                     title: l10nNow.importMode,
-                    desc: '提示词写入主提示词的位置',
+                    desc: '手动导入和自动写入使用同一位置',
                   ),
                 ),
               ],
@@ -584,13 +599,14 @@ class _SettingsSheet extends ConsumerWidget {
           SettingChoiceRow<SectionImport>(
             icon: Icons.splitscreen_outlined,
             title: l10nNow.importMode,
-            desc: '提示词写入创作页主提示词的位置',
+            desc: '手动导入和自动写入使用同一位置',
             enabled: !s.noDraw,
             value: s.importTo,
             options: SectionImport.values,
             labelOf: sectionImportLabel,
             onChanged: (v) => n.patch((o) => o.copyWith(importTo: v)),
           ),
+          _negativeSetting(s, n),
           settingSection(context, l10nNow.aiChoice),
           // 纯文本格式开着时这两项不会发生,淡显
           SettingRow(
@@ -702,7 +718,11 @@ Future<void> _exportTrace(BuildContext context, WidgetRef ref) async {
       bytes: utf8.encode(ref.read(assistantProvider.notifier).exportTrace()),
     );
     if (path != null && context.mounted) {
-      hintSnack(context, l10nNow.chatLogExported, icon: Icons.check_circle_outline);
+      hintSnack(
+        context,
+        l10nNow.chatLogExported,
+        icon: Icons.check_circle_outline,
+      );
     }
   } catch (e) {
     if (context.mounted) {
@@ -711,28 +731,52 @@ Future<void> _exportTrace(BuildContext context, WidgetRef ref) async {
   }
 }
 
-/// 规则那一行右边的状态:两个模型都用默认规则就是「默认」;都用同一份导入的预设
-/// 就报它的名字;两边各用各的只说「自定义」,名字留给点进去的那一页。
+/// 与助手生成提示词时使用同一个画布模型。
 String _rulesValue(WidgetRef ref) {
   final lib = ref.watch(rulesLibraryProvider).value;
+  final model = ref.watch(generateProvider.select((g) => g.params.model));
   if (lib == null) return '';
-  final used = [for (final f in RulesFamily.values) lib.activeFor(f)];
-  if (used.every((p) => p.isDefault)) return '默认';
-  if (used.every((p) => p.id == used.first.id)) return used.first.name;
-  return '自定义';
+  return lib.activeFor(rulesFamilyOf(agentImageModel(model)))?.settingsLabel ??
+      l10nNow.notEnabled;
 }
 
-List<Widget> _retrySettings(BuildContext context, AssistantSettings s, AssistantSettingsNotifier n) {
+List<Widget> _retrySettings(
+  BuildContext context,
+  AssistantSettings s,
+  AssistantSettingsNotifier n,
+) {
   final l = context.l10n;
   return [
-    SettingStepperRow(icon:Icons.refresh,title:l.failRetries,desc:l.failRetriesDesc,value:s.retries.toDouble(),
-      min:0,max:AssistantSettings.retriesMax.toDouble(),step:1,format:(v)=>v.toInt().toString(),
-      onChanged:(v)=>n.patch((old)=>old.copyWith(retries:v.toInt()))),
-    SettingStepperRow(icon:Icons.replay,title:l.refusalRetries,desc:l.refusalRetriesDesc,value:s.rerolls.toDouble(),
-      min:0,max:AssistantSettings.retriesMax.toDouble(),step:1,format:(v)=>v.toInt().toString(),
-      onChanged:(v)=>n.patch((old)=>old.copyWith(rerolls:v.toInt()))),
-    SettingNavRow(icon:Icons.text_fields,title:l.refusalKeywords,desc:l.refusalKeywordsDesc,
-      value:s.refusalKeywords.length.toString(),
-      onTap:()=>Navigator.of(context).push(MaterialPageRoute<void>(builder:(_)=>const RefusalKeywordsPage()))),
+    SettingStepperRow(
+      icon: Icons.refresh,
+      title: l.failRetries,
+      desc: l.failRetriesDesc,
+      value: s.retries.toDouble(),
+      min: 0,
+      max: AssistantSettings.retriesMax.toDouble(),
+      step: 1,
+      format: (v) => v.toInt().toString(),
+      onChanged: (v) => n.patch((old) => old.copyWith(retries: v.toInt())),
+    ),
+    SettingStepperRow(
+      icon: Icons.replay,
+      title: l.refusalRetries,
+      desc: l.refusalRetriesDesc,
+      value: s.rerolls.toDouble(),
+      min: 0,
+      max: AssistantSettings.retriesMax.toDouble(),
+      step: 1,
+      format: (v) => v.toInt().toString(),
+      onChanged: (v) => n.patch((old) => old.copyWith(rerolls: v.toInt())),
+    ),
+    SettingNavRow(
+      icon: Icons.text_fields,
+      title: l.refusalKeywords,
+      desc: l.refusalKeywordsDesc,
+      value: s.refusalKeywords.length.toString(),
+      onTap: () => Navigator.of(context).push(
+        MaterialPageRoute<void>(builder: (_) => const RefusalKeywordsPage()),
+      ),
+    ),
   ];
 }

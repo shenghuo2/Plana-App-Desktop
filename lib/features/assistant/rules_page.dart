@@ -2,24 +2,30 @@
 ///
 /// 默认规则按模型分两张(v4.5 版、v5 版),名称、作者、版本读内置那份的 meta。
 /// 点卡进预设页([RulesPresetDetailPage]);卡上直接摆副本、导出、删除。
-/// 卡底下一条分段只显示它支持的模型、哪些在用;启用的模型在预设页里改。
+/// 支持的模型列在标题旁，启用的模型在预设详情页里改。
 /// 每个模型恰好有一份在用,默认规则兜底。
 library;
 
+import 'widgets/assistant_tag.dart';
+
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path/path.dart' as path;
 
 import '../../core/theme/app_skin.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/ui/image_drop.dart';
 import '../generate/widgets/common.dart' show confirmDialog, hintSnack;
 import 'presets/default_rules.dart';
 import 'presets/preset_rule.dart';
 import 'presets/rules_file.dart';
 import 'presets/rules_library.dart';
 import 'rules_preset_detail_page.dart';
+import 'widgets/rule_card_drag_target.dart';
 import '../../l10n/l10n.dart';
 
 class RulesPresetPage extends ConsumerWidget {
@@ -27,62 +33,84 @@ class RulesPresetPage extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final lib = ref.watch(rulesLibraryProvider).value;
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(context.l10n.rulePresets),
-        actions: [
-          IconButton(
-            tooltip: context.l10n.importLabel,
-            onPressed: () => _import(context, ref),
-            icon: const Icon(Icons.file_open_outlined),
-          ),
-          IconButton(
-            tooltip: context.l10n.newPreset,
-            onPressed: () => _create(context, ref),
-            icon: const Icon(Icons.add),
-          ),
-        ],
-      ),
-      body: lib == null
-          ? const Center(child: CircularProgressIndicator())
-          : ListView(
-              padding: const EdgeInsets.fromLTRB(14, 8, 14, 24),
-              children: [
-                for (final p in lib.all)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 10),
-                    child: _card(context, ref, lib, p),
-                  ),
-              ],
+    final library = ref.watch(rulesLibraryProvider).value;
+    final presets = library?.all;
+    return ImageDropRegion.files(
+      label: context.l10n.importRulePreset,
+      enabled: presets != null,
+      onFiles: (files) => _importDropped(context, ref, files),
+      child: Scaffold(
+        appBar: AppBar(
+          title: Text(context.l10n.rulePresets),
+          actions: [
+            IconButton(
+              tooltip: context.l10n.importLabel,
+              onPressed: () => _import(context, ref),
+              icon: const Icon(Icons.file_open_outlined),
             ),
+            IconButton(
+              tooltip: context.l10n.newPreset,
+              onPressed: presets == null ? null : () => _create(context, ref),
+              icon: const Icon(Icons.add),
+            ),
+          ],
+        ),
+        body: presets == null
+            ? const Center(child: CircularProgressIndicator())
+            : ReorderableListView(
+                padding: const EdgeInsets.fromLTRB(14, 8, 14, 24),
+                buildDefaultDragHandles: false,
+                onReorderItem: (from, to) => ref
+                    .read(rulesLibraryProvider.notifier)
+                    .move(presets[from].id, presets[to].id),
+                proxyDecorator: (child, _, _) => Material(
+                  color: Colors.transparent,
+                  elevation: 3,
+                  borderRadius: BorderRadius.circular(16),
+                  child: child,
+                ),
+                children: [
+                  for (final (index, p) in presets.indexed)
+                    Padding(
+                      key: ValueKey(p.id),
+                      padding: const EdgeInsets.only(bottom: 10),
+                      child: _card(
+                        context,
+                        ref,
+                        p,
+                        index,
+                        library!.enabledFor(p.id),
+                      ),
+                    ),
+                ],
+              ),
+      ),
     );
   }
 
   Widget _card(
     BuildContext context,
     WidgetRef ref,
-    RulesLibrary lib,
     RulesPreset p,
+    int index,
+    Set<RulesFamily> enabled,
   ) {
-    final inUse = {
-      for (final f in RulesFamily.values)
-        if (lib.activeFor(f).id == p.id) f,
-    };
+    void toggle() => ref.read(rulesLibraryProvider.notifier).togglePreset(p.id);
     void open() => Navigator.push<void>(
       context,
       MaterialPageRoute(
-        builder: (_) => p.isDefault
+        builder: (_) => p.kind == RulesPresetKind.standard
             ? RulesPresetDetailPage(family: p.models.single)
             : RulesPresetDetailPage(presetId: p.id),
       ),
     );
 
-    if (p.isDefault) {
+    if (p.kind == RulesPresetKind.standard) {
       // 默认规则只支持一个模型;名称(带版本)、作者读内置那份,没读到时用占位值
       final f = p.models.single;
       final info = ref.watch(defaultRulesProvider(f)).value;
       return _PresetCard(
+        index: index,
         title: info?.displayName ?? defaultRulesFallbackName(f),
         subtitle: [
           info?.author ?? p.author,
@@ -90,23 +118,26 @@ class RulesPresetPage extends ConsumerWidget {
         ].where((s) => s.isNotEmpty).join(' · '),
         isDefault: true,
         models: p.models,
-        inUse: inUse,
         onOpen: open,
+        enabled: enabled,
+        onToggle: toggle,
         onCopy: () => _duplicate(context, ref, p),
         onExport: () => _exportDefault(context, ref, f),
       );
     }
     return _PresetCard(
+      index: index,
       title: p.name,
-      onEditYaml: () => _edit(context, ref, p),
+      onEditYaml: p.isDefault ? null : () => _edit(context, ref, p),
       subtitle: [
         if (p.author.isNotEmpty) p.author,
         l10nNow.sectionsN(p.rules.length),
       ].join(' · '),
-      isDefault: false,
+      isDefault: p.isDefault,
       models: p.models,
-      inUse: inUse,
       onOpen: open,
+      enabled: enabled,
+      onToggle: toggle,
       onCopy: () => _duplicate(context, ref, p),
       onExport: () => _save(
         context,
@@ -116,7 +147,7 @@ class RulesPresetPage extends ConsumerWidget {
         rules: p.rules,
         fileName: 'plana-rules-${_safe(p.name)}.yaml',
       ),
-      onDelete: () => _delete(context, ref, p),
+      onDelete: p.isDefault ? null : () => _delete(context, ref, p),
     );
   }
 
@@ -130,7 +161,7 @@ class RulesPresetPage extends ConsumerWidget {
     final String author;
     final Set<RulesFamily> models;
     final List<PresetRule> rules;
-    if (p.isDefault) {
+    if (p.kind == RulesPresetKind.standard) {
       final f = p.models.single;
       final d = await bundledDefaultRules(f);
       base = d.displayName;
@@ -165,10 +196,58 @@ class RulesPresetPage extends ConsumerWidget {
     final picked = res?.files.firstOrNull;
     final bytes = picked?.bytes;
     if (picked == null || bytes == null || !context.mounted) return;
+    await _importFile(context, ref, bytes, picked.name);
+  }
 
+  Future<void> _importDropped(
+    BuildContext context,
+    WidgetRef ref,
+    List<String> files,
+  ) async {
+    for (final name in files) {
+      if (!context.mounted || ModalRoute.of(context)?.isCurrent == false) {
+        return;
+      }
+      final file = File(name);
+      final base = path.basename(name);
+      try {
+        if (!{
+          '.yaml',
+          '.yml',
+          '.json',
+        }.contains(path.extension(base).toLowerCase())) {
+          throw FormatException(context.l10n.rulesDropUnsupported(base));
+        }
+        final bytes = await file.readAsBytes();
+        if (!context.mounted || ModalRoute.of(context)?.isCurrent == false) {
+          return;
+        }
+        await _importFile(context, ref, bytes, base);
+      } on FileSystemException {
+        if (context.mounted) {
+          hintSnack(
+            context,
+            context.l10n.rulesDropUnreadable(base),
+            icon: Icons.error_outline,
+          );
+        }
+      } on FormatException catch (e) {
+        if (context.mounted) {
+          hintSnack(context, e.message, icon: Icons.error_outline);
+        }
+      }
+    }
+  }
+
+  Future<void> _importFile(
+    BuildContext context,
+    WidgetRef ref,
+    List<int> bytes,
+    String name,
+  ) async {
     final RulesFile file;
     try {
-      file = decodeRulesFile(utf8.decode(bytes), fileName: picked.name);
+      file = decodeRulesFile(utf8.decode(bytes), fileName: name);
     } on FormatException catch (e) {
       hintSnack(context, e.message, icon: Icons.error_outline);
       return;
@@ -214,31 +293,15 @@ class RulesPresetPage extends ConsumerWidget {
     }
   }
 
-  /// 新建:填名字、作者、支持的模型,建一份空预设,直接进它的预设页加段落。
-  Future<void> _create(BuildContext context, WidgetRef ref) async {
-    final meta = await showModalBottomSheet<_PresetMeta>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      builder: (_) => _PresetMetaSheet(
-        title: context.l10n.newPreset,
-        action: context.l10n.create,
-        models: RulesFamily.values.toSet(),
-      ),
-    );
-    if (meta == null || !context.mounted) return;
-    final id = await ref
+  Future<void> _create(BuildContext context, WidgetRef ref) {
+    final draft = ref
         .read(rulesLibraryProvider.notifier)
-        .add(
-          name: meta.name,
-          author: meta.author,
-          models: meta.models,
-          rules: const [],
-        );
-    if (!context.mounted) return;
-    await Navigator.push<void>(
+        .newDraft(context.l10n.newPreset);
+    return Navigator.push<void>(
       context,
-      MaterialPageRoute(builder: (_) => RulesPresetDetailPage(presetId: id)),
+      MaterialPageRoute(
+        builder: (_) => RulesPresetDetailPage.newPreset(draft: draft),
+      ),
     );
   }
 
@@ -371,18 +434,21 @@ class RulesPresetPage extends ConsumerWidget {
 
 class _PresetCard extends StatelessWidget {
   const _PresetCard({
+    required this.index,
     required this.title,
     required this.subtitle,
     required this.isDefault,
     required this.models,
-    required this.inUse,
     required this.onOpen,
+    required this.enabled,
+    required this.onToggle,
     required this.onCopy,
     required this.onExport,
     this.onDelete,
     this.onEditYaml,
   });
 
+  final int index;
   final String title;
   final String subtitle;
   final bool isDefault;
@@ -390,10 +456,9 @@ class _PresetCard extends StatelessWidget {
   /// 这份支持的模型。
   final Set<RulesFamily> models;
 
-  /// 正在用这份的模型。
-  final Set<RulesFamily> inUse;
-
   final VoidCallback onOpen;
+  final Set<RulesFamily> enabled;
+  final VoidCallback onToggle;
   final VoidCallback onCopy;
   final VoidCallback onExport;
 
@@ -419,21 +484,32 @@ class _PresetCard extends StatelessWidget {
         clipBehavior: Clip.antiAlias,
         child: InkWell(
           onTap: onOpen,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 6, 14),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
+          mouseCursor: SystemMouseCursors.grab,
+          child: Stack(
+            children: [
+              // 空白处从底层开始拖动，内容和操作按钮在前面各自响应。
+              Positioned.fill(
+                child: RuleCardDragTarget(
+                  index: index,
+                  child: const SizedBox.expand(),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 6, 14),
+                child: Row(
                   children: [
                     Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Flexible(
-                                child: Text(
+                      child: RuleCardDragTarget(
+                        index: index,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Wrap(
+                              spacing: 6,
+                              runSpacing: 3,
+                              crossAxisAlignment: WrapCrossAlignment.center,
+                              children: [
+                                Text(
                                   title,
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
@@ -441,23 +517,47 @@ class _PresetCard extends StatelessWidget {
                                     fontWeight: FontWeight.w700,
                                   ),
                                 ),
-                              ),
-                              if (isDefault)
-                                _Tag(context.l10n.presetGroupDefault),
-                            ],
-                          ),
-                          const SizedBox(height: 3),
-                          Text(
-                            subtitle,
-                            style: context.texts.labelSmall!.copyWith(
-                              color: scheme.outline,
+                                if (isDefault)
+                                  AssistantTag(context.l10n.presetGroupDefault),
+                                for (final model in RulesFamily.values)
+                                  if (models.contains(model))
+                                    AssistantTag(
+                                      rulesFamilyLabel(model),
+                                      active: enabled.contains(model),
+                                    ),
+                              ],
                             ),
-                          ),
-                        ],
+                            const SizedBox(height: 3),
+                            Text(
+                              subtitle,
+                              style: context.texts.labelSmall!.copyWith(
+                                color: scheme.outline,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                     // 副本、导出、删除直接摆出来,不收进菜单
                     const SizedBox(width: 4),
+                    IconButton(
+                      tooltip: enabled.isEmpty
+                          ? context.l10n.enable
+                          : context.l10n.disableKeepConfig,
+                      visualDensity: VisualDensity.compact,
+                      isSelected: enabled.isNotEmpty,
+                      onPressed: onToggle,
+                      icon: Icon(
+                        Icons.power_settings_new,
+                        size: 19,
+                        color: scheme.outline,
+                      ),
+                      selectedIcon: Icon(
+                        Icons.power_settings_new,
+                        size: 19,
+                        color: scheme.primary,
+                      ),
+                    ),
                     if (onEditYaml != null)
                       btn(
                         Icons.code,
@@ -486,35 +586,8 @@ class _PresetCard extends StatelessWidget {
                       ),
                   ],
                 ),
-                const SizedBox(height: 10),
-                // 只显示:支持的模型一段一个,选中的是在用的。点这里和点卡一样进预设页,
-                // 在那里改启用的模型
-                Padding(
-                  padding: const EdgeInsets.only(right: 10),
-                  child: IgnorePointer(
-                    child: SegmentedButton<RulesFamily>(
-                      multiSelectionEnabled: true,
-                      emptySelectionAllowed: true,
-                      expandedInsets: EdgeInsets.zero,
-                      style: const ButtonStyle(
-                        visualDensity: VisualDensity.compact,
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      ),
-                      segments: [
-                        for (final f in RulesFamily.values)
-                          if (models.contains(f))
-                            ButtonSegment(
-                              value: f,
-                              label: Text(rulesFamilyLabel(f)),
-                            ),
-                      ],
-                      selected: inUse,
-                      onSelectionChanged: (_) {},
-                    ),
-                  ),
-                ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
       ),
@@ -523,42 +596,17 @@ class _PresetCard extends StatelessWidget {
 }
 
 /// 标题后面那几枚小标签:默认、支持的模型。
-class _Tag extends StatelessWidget {
-  const _Tag(this.text);
-
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = context.scheme;
-    return Container(
-      margin: const EdgeInsets.only(left: 6),
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-      decoration: BoxDecoration(
-        color: scheme.surfaceContainerHigh,
-        borderRadius: BorderRadius.circular(6),
-      ),
-      child: Text(
-        text,
-        style: context.texts.labelSmall!.copyWith(
-          color: scheme.onSurfaceVariant,
-        ),
-      ),
-    );
-  }
-}
-
 typedef _PresetMeta = ({String name, String author, Set<RulesFamily> models});
 
-/// 名字、作者、支持的模型:导入前过一眼(文件里写了就预先填上),新建时从这里填起。
+/// 导入前核对文件里的名字、作者和支持的模型。
 class _PresetMetaSheet extends StatefulWidget {
   const _PresetMetaSheet({
     required this.title,
     required this.action,
     this.subtitle,
-    this.name = '',
-    this.author = '',
-    this.models = const {},
+    required this.name,
+    required this.author,
+    required this.models,
   });
 
   final String title;

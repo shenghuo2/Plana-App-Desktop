@@ -480,7 +480,7 @@ void main() {
       await native(tester, 'drop', const Offset(1100, 200), [first.path]);
       final acceptedDrop = tester
           .widget<ImageDropRegion>(key('assistant-image-drop'))
-          .onDrop;
+          .onDrop!;
       final preparing = recorder().preparing = Completer<void>();
       await tester.tap(find.byTooltip('发送 (Enter) · Shift + Enter 换行'));
       await tester.pump();

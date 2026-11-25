@@ -9,6 +9,7 @@
 #include <memory>
 
 #include "win32_window.h"
+#include "manual_view.h"
 #include "clipboard_channel.h"
 #include "image_drop_target.h"
 #include "image_clipboard.h"
@@ -34,6 +35,7 @@ class FlutterWindow : public Win32Window {
 
   // The Flutter instance hosted by this window.
   std::unique_ptr<flutter::FlutterViewController> flutter_controller_;
+  std::unique_ptr<ManualView> manual_view_;
   ImageDropTarget* image_drop_target_ = nullptr;
   HWND image_drop_window_ = nullptr;
 
@@ -41,6 +43,7 @@ class FlutterWindow : public Win32Window {
   // 复制出去那半截只有它有,见 clipboard_channel.h。
   std::unique_ptr<ClipboardChannel> clipboard_channel_;
   std::unique_ptr<ProxyAssistChannel> proxy_assist_channel_;
+  std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>> diagnostics_channel_;
 
   // 原生拦 Ctrl+V:按键在窗口过程里就被吃掉,读到的图经 plana/image_drop 的
   // `paste` 事件推给 Dart。这么做才拦得住 `WM_CHAR` 里那个 0x16 —— 光靠 Flutter

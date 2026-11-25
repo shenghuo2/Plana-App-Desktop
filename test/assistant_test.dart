@@ -391,9 +391,9 @@ void main() {
       expect(s.characters, isEmpty, reason: '画布上的初音和镜音铃不能混进来');
     });
 
-    test('AI 没写负向,负向就是空', () {
+    test('缺少全局负面时沿用画布主负面', () {
       final s = send(const DrawProposal(positive: '1girl'));
-      expect(s.negativePrompt, '');
+      expect(s.negativePrompt, 'my curated negatives');
     });
 
     test('正向词只认 AI 的,编辑器草稿也不带', () {

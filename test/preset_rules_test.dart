@@ -180,7 +180,7 @@ sections:
     test('什么都没选:两个模型都用默认规则,什么都不发', () {
       const lib = RulesLibrary(presets: [comic]);
       for (final f in RulesFamily.values) {
-        expect(lib.activeFor(f).isDefault, isTrue);
+        expect(lib.activeFor(f)?.isDefault, isTrue);
         expect(lib.customRulesFor(f), isNull);
       }
     });
@@ -190,9 +190,9 @@ sections:
         presets: [comic],
         active: {RulesFamily.nai5: 'p1'},
       );
-      expect(lib.activeFor(RulesFamily.nai5).name, '漫画特化');
+      expect(lib.activeFor(RulesFamily.nai5)?.name, '漫画特化');
       expect(lib.customRulesFor(RulesFamily.nai5)!.single.content, 'R');
-      expect(lib.activeFor(RulesFamily.nai45).isDefault, isTrue);
+      expect(lib.activeFor(RulesFamily.nai45)?.isDefault, isTrue);
     });
 
     test('选的那份不支持这个模型:回落默认,不能把 5 的规则发给 4.5', () {
@@ -200,15 +200,15 @@ sections:
         presets: [comic],
         active: {RulesFamily.nai45: 'p1'},
       );
-      expect(lib.activeFor(RulesFamily.nai45).isDefault, isTrue);
+      expect(lib.activeFor(RulesFamily.nai45)?.isDefault, isTrue);
     });
 
     test('选的那份被删了:回落默认', () {
       const lib = RulesLibrary(active: {RulesFamily.nai5: 'p1'});
-      expect(lib.activeFor(RulesFamily.nai5).isDefault, isTrue);
+      expect(lib.activeFor(RulesFamily.nai5)?.isDefault, isTrue);
     });
 
-    test('默认规则排第一,存得下也读得回来', () {
+    test('未排序时默认规则排第一，旧存档照常读取', () {
       const lib = RulesLibrary(
         presets: [comic],
         active: {RulesFamily.nai5: 'p1'},
@@ -226,7 +226,190 @@ sections:
       expect(back.presets.single.name, '漫画特化');
       expect(back.presets.single.author, '某某');
       expect(back.presets.single.models, {RulesFamily.nai5});
-      expect(back.activeFor(RulesFamily.nai5).id, 'p1');
+      expect(back.activeFor(RulesFamily.nai5)?.id, 'p1');
+    });
+
+    test('预设排序跨重启保留，改名、启用和增删后仍按卡片身份排序', () async {
+      final root = _tempRoot();
+      Future<ProviderContainer> open() async {
+        final stores = await AppStores.open(rootOverride: root);
+        final c = ProviderContainer(
+          overrides: [appStoresProvider.overrideWithValue(stores)],
+        );
+        addTearDown(c.dispose);
+        await c.read(rulesLibraryProvider.future);
+        return c;
+      }
+
+      final c = await open();
+      final n = c.read(rulesLibraryProvider.notifier);
+      Future<String> add(String name) => n.add(
+        name: name,
+        author: '',
+        models: {RulesFamily.nai5},
+        rules: const [],
+      );
+      final a = await add('预设');
+      final b = await add('预设');
+      final defaults = [
+        for (final f in RulesFamily.values) defaultPresetOf(f).id,
+        for (final variant in ['semantic', 'semantic-lite'])
+          for (final f in RulesFamily.values) 'default-$variant-${f.name}',
+      ];
+      await n.move(b, a);
+      await n.move(b, defaults.first);
+      await n.replace(
+        b,
+        name: '已改名',
+        author: '',
+        models: {RulesFamily.nai5},
+        rules: const [],
+      );
+      await n.use(RulesFamily.nai5, b);
+      final added = await add('新建');
+      await n.remove(a);
+      await n.move('已删除', added);
+      final reloaded = (await open()).read(rulesLibraryProvider).requireValue;
+      expect(reloaded.all.map((p) => p.id), [b, ...defaults, added]);
+      expect(reloaded.all.first.name, '已改名');
+      expect(reloaded.activeFor(RulesFamily.nai5)?.id, b);
+      expect(reloaded.order, isNot(contains(a)));
+    });
+
+    test('读取部分排序时忽略失效和重复的 ID，把新增卡片放在末尾', () {
+      final library = RulesLibrary.fromJson({
+        'presets': [comic.toJson()],
+        'order': ['default-nai5', 12, 'default-nai5', 'removed'],
+      });
+      expect(library.all.map((p) => p.id), [
+        'default-nai5',
+        'default-nai45',
+        comic.id,
+      ]);
+    });
+
+    test('四份内置语义预设独立启用、导出和重启，原件受保护', () async {
+      final stores = AppStores.ephemeral();
+      final c = ProviderContainer(
+        overrides: [appStoresProvider.overrideWithValue(stores)],
+      );
+      addTearDown(c.dispose);
+      final lib = await c.read(rulesLibraryProvider.future);
+      final n = c.read(rulesLibraryProvider.notifier);
+      expect(lib.active, isEmpty);
+      expect(lib.presets, isEmpty);
+      expect(lib.all.where((p) => p.isDefault), hasLength(6));
+      for (final p in lib.bundled) {
+        final f = p.models.single;
+        expect(p.rules.length, f == RulesFamily.nai5 ? 15 : 8);
+        expect(p.rules.any((r) => r.name == 'semantic_blocks'), isTrue);
+        final file = decodeRulesFile(
+          encodeRulesFile(
+            name: p.name,
+            author: p.author,
+            models: p.models,
+            rules: p.rules,
+          ),
+        );
+        expect(
+          file.rules.map((r) => r.toJson()),
+          p.rules.map((r) => r.toJson()),
+        );
+        expect(
+          supportedModes(p.rules),
+          f == RulesFamily.nai5
+              ? AssistantMode.values.toSet()
+              : {AssistantMode.normal, AssistantMode.natural},
+        );
+        await n.use(f, p.id);
+        expect(
+          c.read(rulesLibraryProvider).requireValue.customRulesFor(f),
+          p.rules,
+        );
+        await n.remove(p.id);
+        await n.replace(
+          p.id,
+          name: '改名',
+          author: '',
+          models: {f},
+          rules: const [],
+          insertIfMissing: true,
+        );
+        expect(c.read(rulesLibraryProvider).requireValue.activeFor(f), same(p));
+      }
+      await n.use(RulesFamily.nai45, defaultPresetOf(RulesFamily.nai45).id);
+      c.invalidate(rulesLibraryProvider);
+      final restored = await c.read(rulesLibraryProvider.future);
+      expect(restored.customRulesFor(RulesFamily.nai45), isNull);
+      expect(
+        restored.activeFor(RulesFamily.nai5)?.kind,
+        RulesPresetKind.semanticLite,
+      );
+      expect(restored.bundled, hasLength(4));
+      expect(restored.toJson()['presets'], isEmpty);
+    });
+
+    test('升级只接管完全相同的已发行预设，保留用户改动、排序和停用状态', () async {
+      final stores = AppStores.ephemeral();
+      final c = ProviderContainer(
+        overrides: [appStoresProvider.overrideWithValue(stores)],
+      );
+      addTearDown(c.dispose);
+      final bundled = (await c.read(rulesLibraryProvider.future)).bundled;
+      final original = bundled.first, lite = bundled.last;
+      final edited = [...original.rules]
+        ..[0] = original.rules[0].copyWith(enabled: false);
+      final saved = {
+        'semanticPresetsInstalled': true,
+        'active': {'nai45': 'old-full', 'nai5': null},
+        'order': ['edited', 'old-lite', 'default-nai45', 'old-full', 'renamed'],
+        'presets': [
+          {...original.toJson(), 'id': 'old-full'},
+          {
+            ...lite.toJson(),
+            'id': 'old-lite',
+            'name': 'Plana 规则预设 · NAI 5（语义分块）',
+            'author': 'Plana',
+          },
+          {
+            ...original.toJson(),
+            'id': 'edited',
+            'rules': edited.map((r) => r.toJson()).toList(),
+          },
+          {...lite.toJson(), 'id': 'renamed', 'name': '个人副本'},
+          {
+            ...original.toJson(),
+            'id': 'plana-semantic-nai45',
+            'name': '旧版短规则',
+            'rules': [original.rules.first.toJson()],
+          },
+        ],
+      };
+      final lib = RulesLibrary.fromJson(saved, bundled: bundled);
+      expect(lib.activeFor(RulesFamily.nai45)?.id, original.id);
+      expect(lib.activeFor(RulesFamily.nai5), isNull);
+      expect(lib.presets.map((p) => p.id), [
+        'edited',
+        'renamed',
+        'plana-semantic-nai45',
+      ]);
+      expect(lib.presets.first.rules.first.enabled, isFalse);
+      expect(lib.all.take(5).map((p) => p.id), [
+        'edited',
+        lite.id,
+        'default-nai45',
+        original.id,
+        'renamed',
+      ]);
+      final next = lib.toJson();
+      (next['presets'] as List).add({
+        ...original.toJson(),
+        'id': 'imported-again',
+      });
+      expect(
+        RulesLibrary.fromJson(next, bundled: bundled).presets.last.id,
+        'imported-again',
+      );
     });
 
     test('上一版每个模型一份无名规则:迁成预设,并且照旧在用', () async {
@@ -245,13 +428,15 @@ sections:
       addTearDown(c.dispose);
 
       final lib = await c.read(rulesLibraryProvider.future);
-      expect(lib.presets.single.models, {RulesFamily.nai5});
+      expect(lib.presets.singleWhere((p) => p.id == 'legacy-nai5').models, {
+        RulesFamily.nai5,
+      });
       expect(
         lib.customRulesFor(RulesFamily.nai5)!.single.content,
         '我导入过的规则',
         reason: '升级之后不该悄悄换回默认规则',
       );
-      expect(lib.activeFor(RulesFamily.nai45).isDefault, isTrue);
+      expect(lib.activeFor(RulesFamily.nai45)?.isDefault, isTrue);
       expect(await stores.prefs.read(key: 'assistant_rules'), isNull);
     });
 
@@ -272,7 +457,7 @@ sections:
       await n.use(RulesFamily.nai5, id);
       await n.use(RulesFamily.nai5, defaultPresetOf(RulesFamily.nai5).id);
       final lib = c.read(rulesLibraryProvider).value!;
-      expect(lib.activeFor(RulesFamily.nai5).isDefault, isTrue);
+      expect(lib.activeFor(RulesFamily.nai5)?.isDefault, isTrue);
       expect(lib.active, isEmpty);
     });
 
@@ -292,12 +477,12 @@ sections:
       );
       await n.use(RulesFamily.nai5, id);
       expect(
-        c.read(rulesLibraryProvider).value!.activeFor(RulesFamily.nai5).id,
+        c.read(rulesLibraryProvider).value!.activeFor(RulesFamily.nai5)?.id,
         id,
       );
       await n.remove(id);
       final lib = c.read(rulesLibraryProvider).value!;
-      expect(lib.activeFor(RulesFamily.nai5).isDefault, isTrue);
+      expect(lib.activeFor(RulesFamily.nai5)?.isDefault, isTrue);
       expect(lib.active, isEmpty);
     });
 
@@ -325,10 +510,9 @@ sections:
         rules: const [PresetRule(name: 'role', content: 'R2')],
       );
       final lib = c.read(rulesLibraryProvider).value!;
-      expect(lib.presets.single.id, id);
-      expect(lib.presets.single.name, '漫画特化 2');
+      expect(lib.presets.singleWhere((p) => p.id == id).name, '漫画特化 2');
       expect(lib.customRulesFor(RulesFamily.nai5)!.single.content, 'R2');
-      expect(lib.activeFor(RulesFamily.nai45).isDefault, isTrue);
+      expect(lib.activeFor(RulesFamily.nai45)?.isDefault, isTrue);
       expect(lib.active, {RulesFamily.nai5: id});
     });
   });

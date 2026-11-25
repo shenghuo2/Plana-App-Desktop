@@ -85,6 +85,7 @@ class PresetRule {
 String ruleSectionLabel(String name) => switch (name) {
   'role' => l10nNow.ruleSecRole,
   'model_traits' => l10nNow.ruleSecModelTraits,
+  'semantic_blocks' => l10nNow.semanticPromptGrouping,
   'prompt_construction' => l10nNow.ruleSecPromptConstruction,
   'natural_construction' => l10nNow.ruleSecNaturalConstruction,
   'weight_control' => l10nNow.ruleSecWeightControl,
@@ -144,6 +145,16 @@ String renderRules(List<PresetRule> rules, List<String> chosen) => [
   for (final r in rules)
     if (r.enabled && _whenWanted(r.when, chosen)) r.content,
 ].join('\n\n');
+
+bool semanticBlocksEnabled(List<PresetRule>? rules, List<String> modes) =>
+    rules?.any(
+      (r) =>
+          r.name == 'semantic_blocks' &&
+          r.enabled &&
+          r.content.trim().isNotEmpty &&
+          _whenWanted(r.when, modes),
+    ) ??
+    false;
 
 bool _whenWanted(String when, List<String> chosen) {
   if (when.isEmpty) return true;

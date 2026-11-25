@@ -770,7 +770,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get presetPageIntro =>
-      'The active preset is added to the prompt and undesired content when generating, without filling the input boxes. Default presets can\'t be changed; create your own from the top right.';
+      'Generation adds the active preset’s positive and negative prompts at the chosen positions. Built-in presets are read-only. Create a preset at the top right.';
 
   @override
   String get presetGroupLegacy => '4.5 and earlier';
@@ -2508,6 +2508,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get guide => 'Guide';
 
   @override
+  String get userManual => 'User Manual';
+
+  @override
   String get reviewGuide => 'View the Guide Again';
 
   @override
@@ -2745,6 +2748,13 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get customPrompt => 'Custom Prompt';
+
+  @override
+  String get customMetadata => 'Custom metadata';
+
+  @override
+  String get toolboxMetadataSource =>
+      'Use the settings from Toolbox → Image Metadata → Single Image';
 
   @override
   String get customPromptHint =>
@@ -7222,6 +7232,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get desktopRandomInspiration => 'Random inspiration';
 
   @override
+  String get codexAllEntries => 'All entries';
+
+  @override
   String get desktopBrowseCategories => 'Browse categories';
 
   @override
@@ -7608,11 +7621,11 @@ class AppLocalizationsEn extends AppLocalizations {
       'Show Toolbox in the top navigation, or access it from Profile when hidden';
 
   @override
-  String get desktopCodexHoverPreview => 'Codex hover preview';
+  String get desktopCodexHoverPreview => 'Large Codex image on hover';
 
   @override
-  String get desktopHoverForAbout15SecondsToPreview =>
-      'Hover for about 1.5 seconds to preview prompts. Quick actions are available with this setting on or off.';
+  String get desktopCodexImageHoverHint =>
+      'Hover over an entry’s image for 0.4 seconds to enlarge it. Click, move away, or scroll to close.';
 
   @override
   String get desktopNoLocalContentToBackUp => 'No local content to back up';
@@ -7687,14 +7700,14 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get desktopConnectThroughClashOrAnotherProxyAppStart =>
-      'Connect through Clash or another proxy app. Start the proxy app first.';
+      'Route Plana traffic through a local proxy app such as Clash (start the proxy app first; usually unnecessary if system TUN mode is already active).';
 
   @override
   String get desktopUseLocalHTTPProxy => 'Use local HTTP proxy';
 
   @override
   String get desktopTakesEffectImmediatelyUsingTheSavedAddress =>
-      'Takes effect immediately using the saved address';
+      'Toggles immediately using the saved proxy address below';
 
   @override
   String get desktopRetrySavingProxyToggle => 'Retry saving proxy toggle';
@@ -7704,7 +7717,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get desktop7890IsAnExampleUseYourProxyApp =>
-      '7890 is an example. Use your proxy app’s HTTP or mixed port. Subscription links, control ports and SOCKS ports cannot be used here.';
+      'Enter your proxy app\'s HTTP or mixed port (7890 is an example; do not use subscription links, control ports, or SOCKS ports). Click Local proxy above to expand screenshot OCR import.';
 
   @override
   String get desktopUnsavedChangesExpandToSave =>
@@ -7715,7 +7728,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get desktopCopyAScreenshotOrAddressThenChoosePaste =>
-      'Copy a screenshot or address, then choose Paste and detect. You can also paste or drop a screenshot here. Recognition runs locally.';
+      'Copy a proxy settings screenshot or address and click Paste and detect, or press Ctrl+V / drop a screenshot on this page. Recognition runs locally and never uploads images.';
 
   @override
   String get desktopAppNameForTheConnectionPath =>
@@ -7730,18 +7743,18 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get desktopBypassLocalhostLocalNamesAndPrivateIPAddresses =>
-      'Bypass localhost, .local names and private IP addresses';
+      'Bypass the proxy for localhost, .local hosts, and LAN addresses so local services stay reachable';
 
   @override
   String get desktopUnappliedChanges => 'Unapplied changes';
 
   @override
   String get desktopSaveAndApplyUpdatesTheAddressAppName =>
-      'Save and apply updates the address, app name and local network settings. The proxy switch keeps its current value.';
+      'Save and apply updates the address, app name, and direct-LAN rule without changing the proxy switch.';
 
   @override
   String get desktopTestTheEnteredProxyWithNovelAITestingDoes =>
-      'Test the entered proxy with NovelAI. Testing does not send a token, generate images, enable the proxy or save settings.';
+      'Test proxy only checks connectivity to NovelAI using the entered address. It sends no token, costs no points, and does not save or enable the proxy.';
 
   @override
   String get desktopActiveConnectionPath => 'Active connection path';
@@ -7751,11 +7764,11 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get desktopTheLocalProxyAppliesToPlanaNetworkRequests =>
-      'The local proxy applies to Plana network requests, including NovelAI, the Bot backend, AI assistants and downloads. The path shows app settings. External routing such as system TUN is managed separately.';
+      '• Scope: Local proxy applies to all Plana network requests (NovelAI, Bot backend, AI assistants, and downloads). Cloud relay only affects official NovelAI endpoints, not third-party endpoints or the Bot backend.';
 
   @override
   String get desktopThePathAboveIsForOfficialNovelAIRequests =>
-      'The path above is for official NovelAI requests. Third-party endpoints and the Bot backend use their own routes. With both proxies on, requests go through the local proxy before the cloud relay.';
+      '• Route note: The path above reflects Plana\'s own settings for official NovelAI requests (external routing such as system TUN is not detected). When both are enabled, requests go through the local proxy before the cloud relay.';
 
   @override
   String get desktopClearAllGalleryData => 'Clear all gallery data';
@@ -8219,4 +8232,403 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get useBundledDriveClient => 'Use the built-in Google client';
+
+  @override
+  String get sidebarEntryMenu => 'Menu';
+
+  @override
+  String get sidebarPickEntry => 'Select for creation';
+
+  @override
+  String get sidebarSelectAndReturn => 'Select and return';
+
+  @override
+  String get sidebarDeselectAndReturn => 'Deselect and return';
+
+  @override
+  String get sidebarPreviousEntry => 'Previous item';
+
+  @override
+  String get sidebarNextEntry => 'Next item';
+
+  @override
+  String get inspirationRowSnap => 'Snap inspiration categories to rows';
+
+  @override
+  String get temporaryInspirationBlocks => 'Temporary inspiration blocks';
+
+  @override
+  String get semanticPromptGrouping => 'Semantic prompt groups';
+
+  @override
+  String get semanticPromptGroupingLite => 'Semantic prompt groups · Lite';
+
+  @override
+  String get saveSelectionAsInspiration => 'Save as inspiration block';
+
+  @override
+  String get editInspirationBlock => 'Edit inspiration';
+
+  @override
+  String get foldAfterInspirationSave => 'Merge into a block after saving';
+
+  @override
+  String get foldAfterInspirationSaveHint =>
+      'Group selected prompts in place as a named block after saving them to Inspiration.';
+
+  @override
+  String get savedWithoutFolding =>
+      'Saved to Inspiration. The selection changed or shares a weight with another block, so the prompt was kept.';
+
+  @override
+  String get inspirationRowSnapHint =>
+      'Scroll the category bar in Inspiration to move one full row at a time.';
+
+  @override
+  String sidebarLocalEntries(int n) {
+    String _temp0 = intl.Intl.pluralLogic(
+      n,
+      locale: localeName,
+      other: '$n local items',
+      one: '1 local item',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String codexDeckCandidates(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count candidates',
+      one: '1 candidate',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get codexDeckSeen => 'Seen';
+
+  @override
+  String get codexDeckNoRepeat => 'No repeats';
+
+  @override
+  String get codexDeckReshuffle => 'Reshuffle';
+
+  @override
+  String get codexDeckRecent => 'Recent draws';
+
+  @override
+  String get codexDeckHistory => 'Draw history';
+
+  @override
+  String get codexDeckBack => 'Back to random inspiration';
+
+  @override
+  String get codexDeckFirst => 'Draw your first entry';
+
+  @override
+  String get codexDeckDayBefore => 'Two days ago';
+
+  @override
+  String get codexDeckDates => 'Jump to date';
+
+  @override
+  String get codexDeckClear => 'Clear history';
+
+  @override
+  String codexDeckClearMessage(int count) {
+    return 'Clear $count draws from all dictionaries?';
+  }
+
+  @override
+  String get codexCloseDrawDesk => 'Close random inspiration';
+
+  @override
+  String get codexMyFavorites => 'My favorites';
+
+  @override
+  String get codexRecentAdditions => 'New this update';
+
+  @override
+  String get codexGalleryView => 'Gallery';
+
+  @override
+  String get codexGroupNavigation => 'Style group navigation';
+
+  @override
+  String get codexGroupNavigationHint =>
+      'Click or drag to jump to a group. Use the wheel or arrow keys to change groups, or Home and End for the first and last groups.';
+
+  @override
+  String get codexGroupedView => 'Grouped by category';
+
+  @override
+  String get codexListView => 'Compact list';
+
+  @override
+  String get codexDensityCompact => 'Compact';
+
+  @override
+  String get codexDensityNormal => 'Standard';
+
+  @override
+  String get codexDensityLarge => 'Large';
+
+  @override
+  String get codexCardDensity => 'Change card size';
+
+  @override
+  String get codexEntryDetails => 'Entry details';
+
+  @override
+  String get codexCollapseTree => 'Collapse all';
+
+  @override
+  String get codexExpandTree => 'Expand tree';
+
+  @override
+  String get codexEnterCategory => 'Open category';
+
+  @override
+  String get codexDrawCategory => 'Draw from category';
+
+  @override
+  String get codexResetFilters => 'Reset filters';
+
+  @override
+  String get codexCategoryless => 'Uncategorized';
+
+  @override
+  String get codexOnlyFavorites => 'Favorites only';
+
+  @override
+  String get codexEmptyFavorites => 'No matching favorites';
+
+  @override
+  String get codexFullDetails => 'Expand details';
+
+  @override
+  String get codexAppendMain => 'Append to main prompt';
+
+  @override
+  String get codexNewSection => 'Import into new section';
+
+  @override
+  String get codexDrawScope => 'Draw scope';
+
+  @override
+  String get codexWideOriginal => 'Import original';
+
+  @override
+  String get codexWideSingle => 'Single card';
+
+  @override
+  String get codexWideTrio => 'Pick from three';
+
+  @override
+  String get codexWideReshuffle => 'Reshuffle deck';
+
+  @override
+  String get codexWideSameCategory => 'Draw again in this category';
+
+  @override
+  String get codexWideBrowseCategory => 'Browse category';
+
+  @override
+  String get codexWideNext => 'Draw next card';
+
+  @override
+  String get codexWideDeal => 'Deal again';
+
+  @override
+  String get codexWideHistory => 'View history';
+
+  @override
+  String get codexWideHideHistory => 'Close history';
+
+  @override
+  String rulesDropUnsupported(String file) {
+    return 'Choose a YAML or JSON rule preset for import ($file).';
+  }
+
+  @override
+  String rulesDropUnreadable(String file) {
+    return 'Could not read $file.';
+  }
+
+  @override
+  String metadataRemoveBatchImage(String name) {
+    return 'Remove $name from this batch';
+  }
+
+  @override
+  String get proxyExpandDetails => 'Expand proxy details';
+
+  @override
+  String get proxyCollapseDetails => 'Collapse proxy details';
+
+  @override
+  String get promptPresetDesktopImportHint =>
+      'Drop or select multiple JSON files to import them. Drag presets to reorder them.';
+
+  @override
+  String get promptPresetTouchImportHint =>
+      'Select multiple JSON files to import them. Touch and hold a preset to reorder it.';
+
+  @override
+  String get promptPresetSelectJson => 'Choose a JSON preset file';
+
+  @override
+  String get promptPresetFileTooLarge =>
+      'Each preset file must be 5 MB or smaller';
+
+  @override
+  String promptPresetsImported(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count presets',
+      one: '1 preset',
+    );
+    return 'Imported $_temp0. Matching IDs were updated.';
+  }
+
+  @override
+  String get promptPresetSaveFailed =>
+      'Could not save the presets. Check available space and file permissions, then try again.';
+
+  @override
+  String emptyTemporaryPrompt(String side) {
+    return '$side prompt is empty. Type here to add tags.';
+  }
+
+  @override
+  String releaseToAction(String action) {
+    return 'Drop to $action';
+  }
+
+  @override
+  String codexWideRelated(String category, int count) {
+    return '$category · $count matching entries';
+  }
+
+  @override
+  String get savedEndpoints => 'Saved endpoints';
+
+  @override
+  String get endpointService => 'Provider';
+
+  @override
+  String get endpointConnection => 'Connection';
+
+  @override
+  String get endpointName => 'Endpoint name';
+
+  @override
+  String get endpointPath => 'Request path';
+
+  @override
+  String get chatModelField => 'Chat models';
+
+  @override
+  String get galleryDragFeel => 'Drag response';
+
+  @override
+  String get galleryDragFeelHint =>
+      'Adjust how nearby albums move aside as you drag and how the card settles when you release it.';
+
+  @override
+  String get galleryDragCrisp => 'Snappy';
+
+  @override
+  String get galleryDragSmooth => 'Smooth';
+
+  @override
+  String get galleryDragBouncy => 'Bouncy';
+
+  @override
+  String galleryMovedTo(String name, int position) {
+    return 'Moved “$name” to position $position';
+  }
+
+  @override
+  String get noImageModelsAvailable => 'No image models available';
+
+  @override
+  String get noModelsInGroup =>
+      'No models of this type were listed. You can enter a model ID.';
+
+  @override
+  String get endpointModelTypeMismatch =>
+      'Enter this model in the matching model field.';
+
+  @override
+  String get diagnosticLogs => 'Diagnostic logs';
+
+  @override
+  String get writeDiagnosticLogs => 'Write log files';
+
+  @override
+  String get writeDiagnosticLogsHint =>
+      'Record startup, navigation and errors when troubleshooting. Text logs exclude prompts, API keys and sign-in credentials.';
+
+  @override
+  String get diagnosticDirectory => 'Log folder';
+
+  @override
+  String get diagnosticDirectoryHint =>
+      'View this profile’s log files in File Explorer.';
+
+  @override
+  String get diagnosticOpen => 'Open';
+
+  @override
+  String get copyDiagnostics => 'Copy diagnostic information';
+
+  @override
+  String get copyDiagnosticsHint =>
+      'Copy the version, operating system, display adapters and local service configuration for a support report.';
+
+  @override
+  String get diagnosticWriteFailed =>
+      'Could not change logging. Check write access to your profile folder.';
+
+  @override
+  String get diagnosticOpenFailed =>
+      'Could not open the log folder. Check your profile folder permissions.';
+
+  @override
+  String get diagnosticCopyFailed =>
+      'Could not copy diagnostic information. Please try again.';
+
+  @override
+  String get diagnosticTimestamp => 'Captured (UTC)';
+
+  @override
+  String get diagnosticOperatingSystem => 'Operating system';
+
+  @override
+  String get diagnosticDisplayAdapters => 'Display adapters';
+
+  @override
+  String get diagnosticAccountMode => 'Account mode';
+
+  @override
+  String get diagnosticNaiAccount => 'NovelAI direct configuration';
+
+  @override
+  String get diagnosticBotSession => 'Local Bot session';
+
+  @override
+  String get diagnosticEnabledEndpoints => 'Enabled AI endpoints';
+
+  @override
+  String get diagnosticHttpProxy => 'Local HTTP proxy';
+
+  @override
+  String get diagnosticConfigured => 'Configured';
+
+  @override
+  String get diagnosticExpired => 'Expired';
 }

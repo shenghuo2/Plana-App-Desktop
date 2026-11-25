@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
 
+import '../../core/store/atomic_file.dart' show writeStringAtomic;
 import '../../l10n/l10n.dart';
 import 'auto_text.dart' show userTextMarker;
 import 'models.dart' show isNai5Model, GenerateState;
@@ -226,6 +227,8 @@ final activePromptPresetProvider = Provider<PromptPreset?>((ref) {
 /// 持久化:support 目录 `prompt_presets.json`,只存自定义预设和顺序
 /// (默认预设恒用内置文本,web 同款——localStorage 里的默认项每次加载都被覆盖)。
 class PromptPresetsNotifier extends AsyncNotifier<PromptPresetsState> {
+  Future<void> _writes = Future.value();
+
   Future<File> _file() async {
     final dir = await getApplicationSupportDirectory();
     return File('${dir.path}/prompt_presets.json');
@@ -261,22 +264,35 @@ class PromptPresetsNotifier extends AsyncNotifier<PromptPresetsState> {
     );
   }
 
-  Future<void> _write(PromptPresetsState s) async {
-    state = AsyncData(s);
-    try {
-      final f = await _file();
-      await f.writeAsString(
-        jsonEncode({
-          'custom': [
-            for (final p in s.presets)
-              if (!p.isDefault) p.toJson(),
-          ],
-          // 内置档也能拖,顺序表因此连内置 id 一起存(自定义档的先后光看
-          // custom 数组也读得出来,但那样内置档的位置就丢了)。
-          'order': [for (final p in s.presets) p.id],
-        }),
-      );
-    } catch (_) {} // 写失败只影响下次启动的恢复,忽略
+  Future<void> _write(
+    PromptPresetsState Function(PromptPresetsState) update, {
+    bool requirePersistence = false,
+  }) {
+    final write = _writes.then((_) async {
+      final current = await future;
+      final next = update(current);
+      if (identical(current, next)) return;
+      if (!requirePersistence) state = AsyncData(next);
+      try {
+        await writeStringAtomic(
+          await _file(),
+          jsonEncode({
+            'custom': [
+              for (final p in next.presets)
+                if (!p.isDefault) p.toJson(),
+            ],
+            'order': [for (final p in next.presets) p.id],
+          }),
+        );
+      } catch (_) {
+        if (requirePersistence) rethrow;
+        return;
+      }
+      if (requirePersistence && ref.mounted) state = AsyncData(next);
+    });
+    // 每次操作都从前一次生效的库开始。某一批保存失败后仍能继续导入。
+    _writes = write.catchError((Object _) {});
+    return write;
   }
 
   /// 当前画布换成这一档。每张画布各存一份,别的画布不跟着变。
@@ -296,15 +312,14 @@ class PromptPresetsNotifier extends AsyncNotifier<PromptPresetsState> {
   /// **内置档也能拖**:动的只是位置,正/负文本仍恒用内置的(见 [_write])。
   ///
   /// 索引按 `onReorderItem` 语义:[to] 已经按「移除 [from] 之后」调整过。
-  Future<void> reorder(int from, int to) async {
-    final s = await future;
-    if (from == to) return;
-    if (from < 0 || from >= s.presets.length) return;
-    if (to < 0 || to >= s.presets.length) return;
+  Future<void> reorder(int from, int to) => _write((s) {
+    if (from == to) return s;
+    if (from < 0 || from >= s.presets.length) return s;
+    if (to < 0 || to >= s.presets.length) return s;
     final next = [...s.presets];
     next.insert(to, next.removeAt(from));
-    await _write(PromptPresetsState(presets: next));
-  }
+    return PromptPresetsState(presets: next);
+  });
 
   /// [suffixPositive] 缺省 false = 正向拼在提示词开头。
   /// 内置档已与官方对齐成后缀,但自定义档保持前缀作默认:没有这个键的存量预设
@@ -314,8 +329,7 @@ class PromptPresetsNotifier extends AsyncNotifier<PromptPresetsState> {
     String positive = '',
     String negative = '',
     bool suffixPositive = false,
-  }) async {
-    final s = await future;
+  }) => _write((s) {
     final now = DateTime.now().millisecondsSinceEpoch;
     final p = PromptPreset(
       id: 'custom_$now', // web addPromptPreset 同款 id 形态
@@ -325,8 +339,8 @@ class PromptPresetsNotifier extends AsyncNotifier<PromptPresetsState> {
       createdAt: now,
       suffixPositive: suffixPositive,
     );
-    await _write(PromptPresetsState(presets: [...s.presets, p]));
-  }
+    return PromptPresetsState(presets: [...s.presets, p]);
+  });
 
   /// 仅自定义可改;默认预设恒内置文本(web 同款)。
   Future<void> updatePreset(
@@ -335,8 +349,7 @@ class PromptPresetsNotifier extends AsyncNotifier<PromptPresetsState> {
     String? positive,
     String? negative,
     bool? suffixPositive,
-  }) async {
-    final s = await future;
+  }) => _write((s) {
     final presets = [
       for (final p in s.presets)
         if (p.id == id && !p.isDefault)
@@ -349,48 +362,49 @@ class PromptPresetsNotifier extends AsyncNotifier<PromptPresetsState> {
         else
           p,
     ];
-    await _write(PromptPresetsState(presets: presets));
-  }
+    return PromptPresetsState(presets: presets);
+  });
 
   /// 仅自定义可删;用着它的画布按「无」算(web handleDeletePreset 同款,见
   /// [selectedPromptPresetId])。
-  Future<void> remove(String id) async {
-    final s = await future;
-    if (s.presets.any((p) => p.id == id && p.isDefault)) return;
-    await _write(
-      PromptPresetsState(presets: [...s.presets.where((p) => p.id != id)]),
-    );
-  }
+  Future<void> remove(String id) => _write((s) {
+    if (s.presets.any((p) => p.id == id && p.isDefault)) return s;
+    return PromptPresetsState(presets: [...s.presets.where((p) => p.id != id)]);
+  });
 
   /// 批量导入(web 备份迁移用):**按 id upsert** —— 与 web `restoreBackup` 的
   /// 「相同 ID 覆盖、其余保留」同语义,重复导入同一份备份是幂等的。
   /// 沿用来源 id 而非 [add] 那样新发 —— 后者按毫秒发号,一次导入多条会撞 id。
-  /// 内置三档的 id 一律跳过(app 侧恒用内置文本)。返回写入条数。
+  /// 内置档的 id 一律跳过(app 侧恒用内置文本)。返回写入条数。
   /// [activeId](备份里用着的那一档)命中已有预设时,当前画布顺带换过去;命中
   /// 不了就不动。
   Future<int> importPresets(
     List<PromptPreset> incoming, {
     String? activeId,
+    bool requirePersistence = false,
   }) async {
     final canvasId = ref.read(canvasWorkspaceProvider).activeId;
-    final s = await future;
-    final byId = {for (final p in s.presets) p.id: p};
-    var n = 0;
-    for (final p in incoming) {
-      if (kDefaultPromptPresets.any((d) => d.id == p.id)) continue;
-      byId[p.id] = p;
-      n++;
-    }
-    // byId 的插入序 = 当前显示顺序:覆盖已有档就地不动,新档缀在末尾 ——
-    // 导入不该把用户拖出来的顺序重排掉。
-    final merged = byId.values.toList();
-    if (n > 0) await _write(PromptPresetsState(presets: merged));
-    if (activeId != null && merged.any((p) => p.id == activeId)) {
+    final custom = [
+      for (final p in incoming)
+        if (!kDefaultPromptPresets.any((d) => d.id == p.id)) p,
+    ];
+    await _write((s) {
+      if (custom.isEmpty) return s;
+      // 同编号的预设就地更新，新预设追加到末尾，保留用户排好的顺序。
+      final byId = {for (final p in s.presets) p.id: p};
+      for (final p in custom) {
+        byId[p.id] = p;
+      }
+      return PromptPresetsState(presets: byId.values.toList());
+    }, requirePersistence: requirePersistence);
+    if (activeId != null &&
+        ref.mounted &&
+        state.requireValue.presets.any((p) => p.id == activeId)) {
       ref
           .read(canvasWorkspaceProvider.notifier)
           .updatePrompts(canvasId, (p) => p.copyWith(promptPresetId: activeId));
     }
-    return n;
+    return custom.length;
   }
 }
 

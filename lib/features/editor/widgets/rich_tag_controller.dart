@@ -105,6 +105,7 @@ class RichTagController extends TextEditingController {
   /// 折叠表(名字 → 折叠体),由页面随编辑器状态灌入。
   /// 只用于判定哪些 `<#x>` 是真占位符(挂了号才染色/热区),不参与布局。
   Map<String, String> foldBodies = const {};
+  Map<String, IconData> foldIcons = const {};
 
   /// 文本没变但外部数据到了(翻译缓存灌注完成)时手动触发重建/重绘。
   void refresh() => notifyListeners();
@@ -121,6 +122,10 @@ class RichTagController extends TextEditingController {
     final spans = <WeightSpan>[];
     final toks = parseToks(t, weightSpans: spans);
     final refs = parseFoldRefs(t, foldBodies);
+    final disabledFolds = {
+      for (final r in refs)
+        if (foldBodyDisabled(foldBodies[r.name]!)) r.name,
+    };
     final spacing = showTrans
         ? tagExtraSpacing(t, MediaQuery.textScalerOf(context), base: base)
         : const <int, double>{};
@@ -153,14 +158,7 @@ class RichTagController extends TextEditingController {
 
     // 折叠占位符 `<#名字>`:`#名字` 全彩 primary 当标题读,两侧尖括号淡一档。
     // 占位符是货真价实的正文字符,只着色、零布局技巧。
-    Color? foldColor(int k) {
-      for (final r in refs) {
-        if (k < r.start || k >= r.end) continue;
-        final edge = k == r.start || k == r.end - 1;
-        return edge ? scheme.primary.withValues(alpha: .40) : scheme.primary;
-      }
-      return null;
-    }
+    var foldIndex = 0;
 
     // 逐字符着色:token 内=正文色(记号淡一档),token 外=分隔色
     final children = <InlineSpan>[];
@@ -194,9 +192,20 @@ class RichTagController extends TextEditingController {
           ti < toks.length && k >= toks[ti].segStart && k < toks[ti].segEnd;
       Color c;
       var strike = false;
-      final fc = foldColor(k);
-      if (fc != null) {
-        c = fc;
+      while (foldIndex < refs.length && refs[foldIndex].end <= k) {
+        foldIndex++;
+      }
+      if (foldIndex < refs.length && refs[foldIndex].start <= k) {
+        final fold = refs[foldIndex];
+        strike = disabledFolds.contains(fold.name);
+        final color = strike ? scheme.outline : scheme.primary;
+        c = k == fold.start || k == fold.end - 1
+            ? color.withValues(alpha: .4)
+            : color;
+        if (k == fold.start + 2 && foldIcons.containsKey(fold.name)) {
+          // The fold painter fills this glyph's measured box with the chosen icon.
+          c = Colors.transparent;
+        }
       } else if (!inTok) {
         // 逗号/空隙灰;组权重记号沿用词条内的中性前景色
         c = groupMarkColor(k) ?? scheme.outline;

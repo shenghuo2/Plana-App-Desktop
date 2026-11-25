@@ -462,7 +462,10 @@ class GenerationNotifier extends Notifier<GenPool> {
   /// 用户取消一条:摘掉它(不弹错误)。池子空了才撤通知 —— 还有别的在跑时
   /// 通知得留着,批量流程的收尾仍归其控制器。
   GenOutcome _cancelled(String jobId) {
-    logi('[gen] cancelled job=$jobId → 剩 ${state.jobs.length - 1} 条');
+    logi(
+      '[gen] cancelled job=$jobId → 剩 ${state.jobs.length - 1} 条',
+      diagnosticEvent: 'generation-cancelled',
+    );
     _remove(jobId);
     if (state.jobs.isEmpty && !_inFlow) LiveProgress.instance.stop();
     return GenOutcome.cancelled;
@@ -1319,7 +1322,10 @@ class GenerationNotifier extends Notifier<GenPool> {
           attempt429++;
           continue;
         }
-        logi('[gen/bot] 失败: ${e.message} (submitted=$submitted)');
+        logi(
+          '[gen/bot] 失败: ${e.message} (submitted=$submitted)',
+          diagnosticEvent: 'bot-generation-failed',
+        );
         // 任务已提交成功(拿到 taskId)之后再失败,服务端很可能已经开跑并计费。
         // 例外是额度类拒绝:服务端会把预扣退回去,而且退了也白搭 —— 交给 _botFail。
         return _botFail(
@@ -1331,7 +1337,10 @@ class GenerationNotifier extends Notifier<GenPool> {
         );
       } catch (e) {
         if (abort.aborted) return _cancelled(jobId);
-        logi('[gen/bot] 失败: $e (submitted=$submitted)');
+        logi(
+          '[gen/bot] 失败: $e (submitted=$submitted)',
+          diagnosticEvent: 'bot-generation-failed',
+        );
         return _botFail(
           jobId,
           '生成失败:$e',

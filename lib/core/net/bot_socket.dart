@@ -165,7 +165,7 @@ class BotSocket {
     } catch (e) {
       client.close(force: true);
       if (generation != _generation) return;
-      logi('[bot-ws] 连接失败: $e');
+      logi('[bot-ws] 连接失败: $e', diagnosticEvent: 'bot-connection-failed');
       _scheduleReconnect();
       return;
     }
@@ -196,7 +196,7 @@ class BotSocket {
     if (!isOpen) return;
     // 服务端每个心跳都回 heartbeat_ack,两轮多没收到任何消息就是连接失效
     if (DateTime.now().difference(_lastRx) > _heartbeatEvery * 2.4) {
-      logi('[bot-ws] 心跳无应答,重连');
+      logi('[bot-ws] 心跳无应答,重连', diagnosticEvent: 'bot-heartbeat-timeout');
       _restart();
       return;
     }

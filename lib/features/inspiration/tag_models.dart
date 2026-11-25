@@ -1,10 +1,12 @@
 import '../../l10n/l10n.dart';
-import 'dart:math';
 
 import 'package:flutter/material.dart' show IconData, Icons;
 
+import '../../core/ui/tag_category_icons.dart';
 import '../../core/util/prompt_tokens.dart';
 import '../editor/editor_models.dart';
+
+export '../../core/ui/tag_category_icons.dart' show kTagCategoryIcons;
 
 /// 灵感页(Tag 管理器)数据模型,对齐 web tag-manager 的注册表与条目结构。
 /// 内置四类的 id 沿用 web(character/artist-style/scene/other),云备份四类键
@@ -57,33 +59,7 @@ extension TagCardLayoutX on TagCardLayout {
   };
 }
 
-/// 自定义类别可选的图标。键名同 web 注册表的 lucide 图标名(`Shirt` 是 app 加的)。
-const kTagCategoryIcons = <String, IconData>{
-  'Shirt': Icons.checkroom_outlined,
-  'Sparkles': Icons.auto_awesome_outlined,
-  'Sun': Icons.wb_sunny_outlined,
-  'Moon': Icons.dark_mode_outlined,
-  'Heart': Icons.favorite_border,
-  'Star': Icons.star_outline,
-  'Camera': Icons.photo_camera_outlined,
-  'Flame': Icons.local_fire_department_outlined,
-  'Leaf': Icons.eco_outlined,
-  'Flower': Icons.local_florist_outlined,
-  'Crown': Icons.workspace_premium_outlined,
-  'Gem': Icons.diamond_outlined,
-  'Hand': Icons.back_hand_outlined,
-  'Eye': Icons.visibility_outlined,
-  'Smile': Icons.sentiment_satisfied_outlined,
-  'PersonStanding': Icons.accessibility_new,
-  'Music': Icons.music_note_outlined,
-  'Brush': Icons.brush_outlined,
-  'Wand': Icons.auto_fix_high_outlined,
-  'Zap': Icons.bolt_outlined,
-  'Cloud': Icons.cloud_outlined,
-  'Snowflake': Icons.ac_unit,
-  'Droplet': Icons.water_drop_outlined,
-  'Tag': Icons.sell_outlined,
-};
+const kInspirationPortraitCardAspect = .88;
 
 class TagCategoryDef {
   const TagCategoryDef(
@@ -231,7 +207,7 @@ const kTagCategoryDefs = <TagCategoryDef>[
   TagCategoryDef(
     TagCategory.other,
     'other',
-    '其他',
+    '其它',
     Icons.sell_outlined,
     searchHint: '搜索名称 / 提示词…',
     maxSelectable: 20,
@@ -347,6 +323,7 @@ class TagEntry {
     this.tags = const [],
     this.models = const [],
     this.origin = TagOrigin.local,
+    this.favorite,
     this.publicId,
     this.previews = const [],
     this.createdAt = 0,
@@ -376,6 +353,10 @@ class TagEntry {
   final List<String> models;
   final TagOrigin origin;
 
+  /// 老版本只用来源记录公共收藏；本机星标可以独立于来源和编辑权限切换。
+  final bool? favorite;
+  bool get isFavorite => favorite ?? (origin == TagOrigin.favorited);
+
   /// 对应公共库条目 id(favorited/created 时有,收藏去重依据)。
   final String? publicId;
 
@@ -399,6 +380,7 @@ class TagEntry {
   static const clearRecipe = Object();
 
   TagEntry copyWith({
+    String? id,
     String? name,
     String? positive,
     String? negative,
@@ -406,13 +388,14 @@ class TagEntry {
     List<String>? tags,
     List<String>? models,
     TagOrigin? origin,
+    bool? favorite,
     Object? publicId,
     List<String>? previews,
     String? createdBy,
     Object? recipe,
     bool? mosaic,
   }) => TagEntry(
-    id: id,
+    id: id ?? this.id,
     category: category,
     name: name ?? this.name,
     positive: positive ?? this.positive,
@@ -421,6 +404,7 @@ class TagEntry {
     tags: tags ?? this.tags,
     models: models ?? this.models,
     origin: origin ?? this.origin,
+    favorite: favorite ?? this.favorite,
     publicId: identical(publicId, clearPublicId)
         ? null
         : (publicId as String? ?? this.publicId),
@@ -444,6 +428,7 @@ class TagEntry {
     if (tags.isNotEmpty) 'tags': tags,
     if (models.isNotEmpty) 'models': models,
     'origin': origin.name,
+    if (favorite != null) 'favorite': favorite,
     if (publicId != null) 'publicId': publicId,
     if (previews.isNotEmpty) 'previews': previews,
     'createdAt': createdAt,
@@ -478,6 +463,7 @@ class TagEntry {
       tags: _strList(j['tags']),
       models: models,
       origin: TagOrigin.values.asNameMap()[j['origin']] ?? TagOrigin.local,
+      favorite: j['favorite'] is bool ? j['favorite'] as bool : null,
       publicId: j['publicId'] as String?,
       // 旧版单字段 previewUrl 迁入列表
       previews: j['previews'] is List
@@ -657,16 +643,22 @@ String appendTagNegatives(
   String negative,
   Iterable<TagEntry> entries, {
   String? present,
+  void Function(TagEntry entry, int start, String added)? onAdded,
 }) {
   var out = negative.trim();
   final have = tokenizeSet(present ?? out);
   for (final e in entries) {
+    final before = out.length;
     for (final piece in e.negative.split(RegExp(r'[，,]'))) {
       final raw = piece.trim();
       final t = cleanPromptToken(raw);
       if (raw.isEmpty || t.isEmpty || have.contains(t)) continue;
       have.add(t);
       out = out.isEmpty ? raw : '$out, $raw';
+    }
+    if (onAdded != null && before != out.length) {
+      final start = before == 0 ? 0 : before + 2;
+      onAdded(e, start, out.substring(start));
     }
   }
   return out;
@@ -739,19 +731,13 @@ appendTagPromptsFolded({
       final piece = '<#$negName: $negBody$kFoldClose';
       negative = negative.isEmpty ? piece : '$negative, $piece';
     }
-    if (posName != null && negName != null) {
+    if (posName != null || negName != null) {
       paired.add(
-        PromptFoldLink(
-          id: List.generate(
-            16,
-            (_) => _foldImportRandom
-                .nextInt(256)
-                .toRadixString(16)
-                .padLeft(2, '0'),
-          ).join(),
-          positiveName: posName,
+        PromptFoldLink.forEntry(
+          entry.id,
+          positiveName: posName ?? '',
           positiveBody: posBody,
-          negativeName: negName,
+          negativeName: negName ?? '',
           negativeBody: negBody,
         ),
       );
@@ -768,8 +754,6 @@ foldTagEntry(TagEntry entry) => appendTagPromptsFolded(
   entries: [entry],
   deduplicate: false,
 );
-
-final _foldImportRandom = Random.secure();
 
 /// 编号自然序(A1 < A2 < A10,画风列表用):文本段不分大小写比较,
 /// 数字段按数值比较。
@@ -825,6 +809,7 @@ Map<String, dynamic> encodeBackupEntry(
   base['createdAt'] = e.createdAt;
   base['isLocal'] = true;
   base['origin'] = e.origin.name;
+  if (e.favorite != null) base['favorite'] = e.favorite;
   if (e.publicId != null) base['publicId'] = e.publicId;
   if (e.tags.isNotEmpty) base['tags'] = e.tags;
   final previews = portablePreviews(e.previews, refs);
@@ -906,6 +891,7 @@ TagEntry? decodeBackupEntry(TagCategory cat, Map<String, dynamic> j) {
         'models',
         'recipe',
         'origin',
+        'favorite',
         'publicId',
         'createdAt',
         'isLocal',
@@ -931,6 +917,7 @@ TagEntry? decodeBackupEntry(TagCategory cat, Map<String, dynamic> j) {
     tags: _strList(j['tags']),
     models: _strList(j['models']),
     origin: TagOrigin.values.asNameMap()[j['origin']] ?? TagOrigin.local,
+    favorite: j['favorite'] is bool ? j['favorite'] as bool : null,
     // 历史数据里 publicId/added_by 存在裸数字,宽松转字符串,别让恢复崩掉
     publicId: switch (j['publicId']) {
       final String s => s,

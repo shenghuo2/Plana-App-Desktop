@@ -139,6 +139,10 @@ class WorkspaceStore {
                 id: id,
                 name: name.isEmpty ? '画布 ${canvases.length + 1}' : name,
                 prompts: prompts,
+                collapsedPromptCards: {
+                  if (raw['collapsedPromptCards'] case final List cards)
+                    ...cards.whereType<String>(),
+                },
               ),
             );
             final m = _canvasNumRe.firstMatch(id);
@@ -272,7 +276,13 @@ class WorkspaceStore {
         for (final c in w.canvases) {
           final p = await _encodePrompts(c.prompts);
           refs.addAll(p.refs);
-          canvases.add({'id': c.id, 'name': c.name, 'prompts': p.json});
+          canvases.add({
+            'id': c.id,
+            'name': c.name,
+            'prompts': p.json,
+            if (c.collapsedPromptCards.isNotEmpty)
+              'collapsedPromptCards': c.collapsedPromptCards.toList(),
+          });
         }
         // 原子写:落盘时机就是退后台,不能留半截 JSON(见 atomic_file.dart)
         await writeStringAtomic(

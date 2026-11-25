@@ -12,7 +12,9 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import '../../../l10n/l10n.dart';
+import '../../../core/util/prompt_block.dart';
 import '../agent_trace.dart';
+import '../semantic_blocks.dart' show completePromptBlocks;
 import '../domain/agent_event.dart';
 import '../domain/agent_result.dart';
 import '../domain/turn_request.dart';
@@ -22,6 +24,7 @@ import '../presets/default_rules.dart';
 import '../presets/preset_rule.dart';
 import '../protocol/fenced_protocol.dart';
 import '../protocol/reply_parser.dart';
+import '../protocol/native_tool_markup.dart';
 import '../protocol/tool_protocol.dart';
 import '../tools/agent_tool.dart';
 import '../tools/my_library.dart';
@@ -111,7 +114,10 @@ class LocalAgentRuntime implements AgentRuntime {
         toolLayer: active.isEmpty ? '' : await protocol.conventions(),
         outputFormat: await outputFormatText(),
         toolList: await protocol.toolList(active),
-        notes: [for (final t in active) await t.systemNote(ctx)],
+        notes: [
+          req.importNote,
+          for (final t in active) await t.systemNote(ctx),
+        ],
       );
       final artistTokens = ctx.artistPlan.tokens;
       final ocTokens = ctx.ocPlan.tokens;
@@ -348,7 +354,9 @@ class _Turn {
       } on OutputFailure catch (e) {
         if (fixes >= _maxFixes) {
           throw AgentFailure(
-            _clip('${l10nNow.modelBadDraw('$_maxFixes')}\n${raw.trim()}'),
+            _clip(
+              '${l10nNow.modelBadDraw('$_maxFixes')}\n${nativeToolProse(raw).trim()}',
+            ),
           );
         }
         fixes++;
@@ -468,7 +476,13 @@ class _Turn {
       if (draw != parsed.draw) 'draw_expanded': draw,
       'resources': ledger,
     });
-    return _resultOf(reply, draw, ledger);
+    final blocks = !semanticBlocksEnabled(req.customRules, req.modeKeys)
+        ? const <PromptBlock>[]
+        : PromptBlock.fromDraw(parsed.draw, draw, (line) {
+            final text = expandArtistText(line, resolve).text;
+            return placeholders ? expandOcText(text, ctx.ocPlan) : text;
+          }, recoverWith: ledger);
+    return _resultOf(reply, draw, ledger, completePromptBlocks(blocks, draw));
   }
 }
 
@@ -501,11 +515,14 @@ AgentResult _resultOf(
   String reply,
   Map<String, dynamic>? draw,
   Map<String, Map<String, String>> resources,
+  List<PromptBlock> blocks,
 ) {
   final d = draw ?? const <String, dynamic>{};
   return AgentResult(
     // 只有出图块没有正文时空着,界面按有没有出图补一句
     replyText: reply,
+    section: assistantSectionName(d['section']),
+    blocks: blocks,
     positive: d['positive']?.toString() ?? '',
     negative: d['negative']?.toString() ?? '',
     characters: [

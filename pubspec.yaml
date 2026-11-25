@@ -120,6 +120,9 @@ flutter:
   # 多 10.9 MB,更重要的是那等于由本应用再分发授权条款不明的权重。
   assets:
     - examples/inspiration-previews/
+    - assets/assistant/providers/
+    - assets/user_manual/
+    - assets/user_manual/assets/
     # 离线词库索引,由 assets/danbooru.tsv 生成(dart run tool/build_tag_index.dart);
     # TSV 本身不进包。Android 端不压缩存,见 android/app/build.gradle.kts。
     - assets/danbooru.tagidx
@@ -128,6 +131,12 @@ flutter:
     # 连不上后端时兜底。由服务端 prompts.load_rules 生成,见 lib/features/assistant/preset_rules.dart。
     - assets/prompts/nai45.json
     - assets/prompts/nai5.json
+    - assets/prompts/semantic-nai45.yaml
+    - assets/prompts/semantic-nai5.yaml
+    - assets/prompts/nyako-semantic-nai45.yaml
+    - assets/prompts/nyako-semantic-nai5.yaml
+    - assets/prompts/plana-semantic-lite-nai45.yaml
+    - assets/prompts/plana-semantic-lite-nai5.yaml
     # AI 助手的工具层:怎么调工具、系统塞进来的数据块怎么读(tool_layer),以及自定义
     # 接口那条的出图代码块格式(output_format)。app 自己带,挂在用户选的任意预设上,
     # 用户写预设不必再抄工具说明。见 lib/features/assistant/preset_rules.dart。

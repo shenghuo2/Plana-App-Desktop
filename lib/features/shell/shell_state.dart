@@ -1,5 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/util/runtime_diagnostics.dart';
+
 /// 页面逻辑索引；入口顺序由导航栏映射，既有索引不随入口增减而移动。
 const kTabCreate = 0;
 const kTabGallery = 1;
@@ -18,5 +20,18 @@ class ShellIndexNotifier extends Notifier<int> {
   @override
   int build() => 0;
 
-  void select(int i) => state = i;
+  void select(int i) {
+    if (i == state) return;
+    final tab = switch (i) {
+      kTabCreate => 'create',
+      kTabGallery => 'gallery',
+      kTabAssistant => 'assistant',
+      kTabInspiration => 'inspiration',
+      kTabProfile => 'profile',
+      kTabTools => 'tools',
+      _ => 'unknown',
+    };
+    RuntimeDiagnostics.current?.event('tab-selected', tab);
+    state = i;
+  }
 }

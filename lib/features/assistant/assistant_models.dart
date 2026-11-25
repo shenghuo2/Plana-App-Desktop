@@ -8,14 +8,19 @@ import 'domain/image_gen.dart';
 
 import 'dart:convert';
 
+import '../../core/util/prompt_block.dart';
 import '../../core/net/backend_client.dart' show AgentCharacter;
 import '../generate/models.dart'
     show CharacterPrompt, CharTab, GenerateState, PromptSection;
 import '../generate/canvas_models.dart';
+import '../generate/prompt_import_binding.dart';
 import '../generate/state_codec.dart' show decodePromptSections;
 import '../editor/editor_models.dart' show PromptFoldLink;
 import 'assistant_mode.dart';
 import 'prompt_diff.dart';
+import 'semantic_blocks.dart';
+import 'protocol/draw_reply_prose.dart';
+import 'protocol/native_tool_markup.dart';
 
 enum MsgRole { user, ai, error }
 
@@ -182,6 +187,7 @@ class PromptSnapshot {
             'negativeRaw': s.negativeRaw,
             'enabled': s.enabled,
             'artist': s.artist,
+            if (s.sources.isNotEmpty) 'sources': s.sources,
             if (s.foldLinks.isNotEmpty)
               'foldLinks': [for (final l in s.foldLinks) l.toJson()],
           },
@@ -200,6 +206,7 @@ class PromptSnapshot {
             'foldLinks': [for (final l in c.foldLinks) l.toJson()],
           if (c.position != null) 'position': c.position,
           if (c.avatar != null) 'avatar': c.avatar,
+          if (c.source != null) 'source': c.source,
         },
     ],
   };
@@ -226,6 +233,7 @@ class PromptSnapshot {
             enabled: e['enabled'] != false,
             position: e['position'] as String?,
             activeTab: CharTab.positive,
+            source: e['source'] as String?,
             avatar: e['avatar'] as String?,
           ),
     ],
@@ -246,7 +254,16 @@ class PromptSnapshot {
 String replayText(AssistantMsg m) {
   final d = m.draw;
   if (d == null) return m.text;
-  return '${m.text}\n```nai_draw\n${jsonEncode(d.toJson())}\n```';
+  final labels = [
+    for (final b in d.blocks)
+      if (!b.negative || b.counterpartIn(d.blocks) == null)
+        '${b.character < 0 ? "" : "角色${b.character + 1}/"}${b.kind.label}·${b.name}${b.icon == null ? "" : "·${b.icon}"}',
+  ];
+  return [
+    m.text,
+    if (labels.isNotEmpty) '上一轮分块顺序：${labels.join("、")}',
+    '```nai_draw\n${jsonEncode(d.toJson(includeBlocks: false))}\n```',
+  ].join('\n');
 }
 
 /// `{kind: {名字: 内容}}` 的宽松解码。形状不对一律当空 —— 账本读坏了
@@ -367,31 +384,64 @@ String stripArtistMarkers(String s) => s.replaceAllMapped(
 /// 真正落到创作页时由 [GenerateNotifier.applyAgentCharacters] 补 id、给没摆位的挑空格。
 class DrawProposal {
   const DrawProposal({
+    this.section = '',
     this.positive = '',
     this.negative = '',
     this.characters = const [],
+    this.blocks = const [],
   });
 
+  final List<PromptBlock> blocks;
+  final String section;
   final String positive;
   final String negative;
   final List<AgentCharacter> characters;
 
   int get charCount => characters.length;
 
-  Map<String, dynamic> toJson() => {
+  Map<String, dynamic> toJson({bool includeBlocks = true}) => {
+    if (section.isNotEmpty) 'section': section,
+    if (includeBlocks && blocks.isNotEmpty)
+      'promptBlocks': [for (final b in blocks) b.toJson()],
     'positive': positive,
     'negative': negative,
     'characters': [for (final c in characters) c.toJson()],
   };
 
+  DrawProposal withValidatedBlocks(
+    List<PromptBlock> annotations, {
+    Map<String, Map<String, String>>? knownResources,
+  }) {
+    if (annotations.isEmpty && blocks.isEmpty && knownResources == null) {
+      return this;
+    }
+    final spec = toJson(includeBlocks: false);
+    var valid = completePromptBlocks(annotations, spec);
+    if (valid.isEmpty && knownResources != null) {
+      valid = completePromptBlocks(
+        PromptBlock.fromKnownParts(spec, knownResources),
+        spec,
+      );
+    }
+    if (valid.isEmpty && blocks.isEmpty) return this;
+    return DrawProposal(
+      section: section,
+      positive: positive,
+      negative: negative,
+      characters: characters,
+      blocks: valid,
+    );
+  }
+
   factory DrawProposal.fromJson(Map<String, dynamic> j) => DrawProposal(
+    section: assistantSectionName(j['section']),
     positive: j['positive']?.toString() ?? '',
     negative: j['negative']?.toString() ?? '',
     characters: [
       for (final e in (j['characters'] as List? ?? const []))
         if (e is Map<String, dynamic>) AgentCharacter.fromJson(e),
     ],
-  );
+  ).withValidatedBlocks(PromptBlock.decode(j['promptBlocks']));
 }
 
 /// 一次**已经落到创作页**的写回:改了什么 + 回滚要用的两份快照。
@@ -405,6 +455,8 @@ class AssistantChange {
     required this.after,
     this.undone = false,
     this.canvasId,
+    this.bindingBefore,
+    this.writeOrder = 0,
   });
 
   final PromptSnapshot before;
@@ -414,6 +466,10 @@ class AssistantChange {
   final String? canvasId;
 
   final bool undone;
+  final PromptImportBinding? bindingBefore;
+
+  /// Messages can be imported out of chat order. Zero denotes an older receipt.
+  final int writeOrder;
 
   /// 新增的 tag / 句子,按 [after] 里的顺序(怎么算见 [diffPrompt])。
   List<String> get added => [
@@ -444,9 +500,13 @@ class AssistantChange {
     after: after,
     undone: undone ?? this.undone,
     canvasId: canvasId,
+    bindingBefore: bindingBefore,
+    writeOrder: writeOrder,
   );
 
   Map<String, dynamic> toJson() => {
+    'bindingBefore': ?bindingBefore?.toJson(),
+    if (writeOrder > 0) 'writeOrder': writeOrder,
     'before': before.toJson(),
     'after': after.toJson(),
     if (undone) 'undone': true,
@@ -464,7 +524,11 @@ class AssistantChange {
           ? j['after'] as Map<String, dynamic>
           : const {},
     ),
+    bindingBefore: j['bindingBefore'] is Map
+        ? PromptImportBinding.fromJson(j['bindingBefore'])
+        : null,
     undone: j['undone'] == true,
+    writeOrder: j['writeOrder'] is int ? j['writeOrder'] as int : 0,
     canvasId: j['canvasId'] is String ? j['canvasId'] as String : null,
   );
 }
@@ -474,7 +538,7 @@ class AssistantMsg {
   const AssistantMsg({
     required this.id,
     required this.role,
-    required this.text,
+    required String text,
     required this.at,
     String? imageHash,
     List<String> imageHashes = const [],
@@ -490,7 +554,8 @@ class AssistantMsg {
     this.draw,
     this.change,
     this.errorKind,
-  }) : _legacyImageHash = imageHash,
+  }) : _rawText = text,
+       _legacyImageHash = imageHash,
        // Keep the public constructor argument while the getter adds legacy data.
        // ignore: prefer_initializing_formals
        _imageHashes = imageHashes;
@@ -499,7 +564,16 @@ class AssistantMsg {
   final MsgRole role;
 
   /// 正文。user = 用户输入;ai = `AgentResult.replyText`;error = 人话错误。
-  final String text;
+  String get text {
+    if (role != MsgRole.ai) return _rawText;
+    final prose = nativeToolProse(_rawText);
+    if (prose.isEmpty && _rawText.trim().isNotEmpty) {
+      return draw == null ? '这轮只收到了工具请求，没有收到最终回复。' : '绘图提案已就绪。';
+    }
+    return draw == null ? prose : drawReplyProse(prose);
+  }
+
+  final String _rawText;
 
   /// UNIX 毫秒。
   final int at;
@@ -586,7 +660,7 @@ class AssistantMsg {
   }) => AssistantMsg(
     id: id,
     role: role,
-    text: text ?? this.text,
+    text: text ?? _rawText,
     at: at,
     imageHashes: imageHashes,
     withCanvas: withCanvas,
@@ -606,7 +680,7 @@ class AssistantMsg {
   Map<String, dynamic> toJson() => {
     'id': id,
     'role': role.name,
-    'text': text,
+    'text': _rawText,
     'at': at,
     if (imageHash != null) 'imageHash': imageHash,
     if (imageHashes.isNotEmpty) 'imageHashes': imageHashes,
@@ -659,14 +733,23 @@ class AssistantMsg {
 }
 
 /// Current and archived conversations share stable identity and ordering metadata.
+Map<String, PromptImportBinding> _decodeBindings(Object? data) => {
+  if (data is Map)
+    for (final entry in data.entries)
+      if (entry.key is String && entry.value is Map)
+        entry.key as String: PromptImportBinding.fromJson(entry.value),
+};
+
 class ConversationMeta {
   const ConversationMeta({
     required this.id,
     required this.at,
     this.customTitle = '',
     this.pinnedAt = 0,
+    this.bindings = const {},
   });
 
+  final Map<String, PromptImportBinding> bindings;
   final int id;
 
   /// Last accepted user turn. Reading, renaming and image completion do not bump it.
@@ -676,22 +759,30 @@ class ConversationMeta {
   bool get pinned => pinnedAt > 0;
   int get orderAt => pinnedAt > at ? pinnedAt : at;
 
-  ConversationMeta copyWith({int? at, String? customTitle, int? pinnedAt}) =>
-      ConversationMeta(
-        id: id,
-        at: at ?? this.at,
-        customTitle: customTitle ?? this.customTitle,
-        pinnedAt: pinnedAt ?? this.pinnedAt,
-      );
+  ConversationMeta copyWith({
+    int? at,
+    String? customTitle,
+    int? pinnedAt,
+    Map<String, PromptImportBinding>? bindings,
+  }) => ConversationMeta(
+    id: id,
+    bindings: bindings ?? this.bindings,
+    at: at ?? this.at,
+    customTitle: customTitle ?? this.customTitle,
+    pinnedAt: pinnedAt ?? this.pinnedAt,
+  );
 
   Map<String, dynamic> toJson() => {
     'id': id,
     'at': at,
     if (customTitle.isNotEmpty) 'customTitle': customTitle,
     if (pinned) 'pinnedAt': pinnedAt,
+    if (bindings.isNotEmpty)
+      'bindings': {for (final e in bindings.entries) e.key: e.value.toJson()},
   };
 
   factory ConversationMeta.fromJson(Map<String, dynamic> j) => ConversationMeta(
+    bindings: _decodeBindings(j['bindings']),
     id: (j['id'] as num?)?.toInt() ?? 0,
     at: (j['at'] as num?)?.toInt() ?? 0,
     customTitle: (j['customTitle'] as String?) ?? '',
@@ -699,6 +790,7 @@ class ConversationMeta {
   );
 
   ArchivedSession withMessages(List<AssistantMsg> msgs) => ArchivedSession(
+    bindings: bindings,
     id: id,
     at: at,
     msgs: msgs,
@@ -724,7 +816,10 @@ class ArchivedSession {
     required this.at,
     this.customTitle = '',
     this.pinnedAt = 0,
+    this.bindings = const {},
   });
+
+  final Map<String, PromptImportBinding> bindings;
 
   /// Fixed when the first user turn is accepted; preserved across switching.
   final int id;
@@ -735,6 +830,7 @@ class ArchivedSession {
   final String customTitle;
   final int pinnedAt;
   ConversationMeta get meta => ConversationMeta(
+    bindings: bindings,
     id: id,
     at: at,
     customTitle: customTitle,
@@ -798,6 +894,7 @@ class ArchivedSession {
         if (e is Map<String, dynamic>) AssistantMsg.fromJson(e),
     ];
     return ArchivedSession(
+      bindings: _decodeBindings(j['bindings']),
       id: (j['id'] as num?)?.toInt() ?? 0,
       msgs: msgs,
       at: (j['at'] as num?)?.toInt() ?? (msgs.isEmpty ? 0 : msgs.last.at),

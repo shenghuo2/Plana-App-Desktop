@@ -1,23 +1,30 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:image/image.dart' as img;
 import 'package:plana_app/core/platform/desktop.dart';
 import 'package:plana_app/core/store/app_stores.dart';
 import 'package:plana_app/core/theme/app_theme.dart';
+import 'package:plana_app/core/theme/theme_settings.dart';
 import 'package:plana_app/features/generate/generate_state.dart';
 import 'package:plana_app/features/editor/data/tag_translation_service.dart';
+import 'package:plana_app/features/inspiration/codex/codex_history.dart';
 import 'package:plana_app/features/inspiration/codex/codex_models.dart';
 import 'package:plana_app/features/inspiration/codex/codex_providers.dart';
 import 'package:plana_app/features/inspiration/inspiration_page.dart';
 import 'package:plana_app/features/inspiration/public_tags.dart';
 import 'package:plana_app/features/inspiration/tag_library.dart';
 import 'package:plana_app/features/inspiration/tag_models.dart';
+import 'package:plana_app/features/inspiration/widgets/tag_card.dart';
+import 'package:plana_app/features/inspiration/widgets/inspiration_entry_card.dart';
 
 import 'support/desktop_capture.dart';
 import 'support/pump_until.dart';
@@ -34,6 +41,15 @@ void main() {
   late AppStores stores;
   late ProviderContainer container;
   final capture = GlobalKey();
+  final art = Platform.environment['PLANA_SIDEBAR_TEST_ART'];
+  const artNames = [
+    'lolita',
+    'maid-blue',
+    'water-blue',
+    'maid-pink',
+    'lilac',
+    'ribbon-pink',
+  ];
   final entries = [
     for (var i = 0; i < 8; i++)
       TagEntry(
@@ -60,6 +76,9 @@ void main() {
           'cat girl, night, stars',
         ][i],
         aliases: ['别名$i'],
+        previews: [
+          if (art != null) '$art/${artNames[i % artNames.length]}.webp',
+        ],
         tags: [if (i == 0) '白发'],
         createdAt: 10 - i,
       ),
@@ -83,6 +102,9 @@ void main() {
   setUpAll(loadDesktopCaptureFonts);
   setUp(() {
     maskPublic = false;
+    // File decodes from a previous widget test can still belong to its fake clock.
+    PaintingBinding.instance.imageCache.clear();
+    PaintingBinding.instance.imageCache.clearLiveImages();
     FlutterSecureStorage.setMockInitialValues({});
     temp = Directory.systemTemp.createTempSync('plana_inspiration_layout_');
     File('${temp.path}/tag_library.json').writeAsStringSync(
@@ -111,13 +133,21 @@ void main() {
               type: CodexType.string,
               title: '画风词典',
             ),
-            entries: [],
+            entries: [
+              CodexEntry(id: 'forest', title: '森林', tags: 'forest, sunlight'),
+              CodexEntry(id: 'sea', title: '海岸', tags: 'sea, sunset'),
+            ],
           ),
         ),
         codexTagZhProvider.overrideWith((ref, id) async => null),
         publicTagsProvider.overrideWith(
           (ref, cat) async => cat == TagCategory.character
-              ? [publicEntry.copyWith(mosaic: maskPublic)]
+              ? [
+                  publicEntry.copyWith(
+                    mosaic: maskPublic,
+                    previews: [File('assets/app_icon.png').absolute.path],
+                  ),
+                ]
               : [],
         ),
         tagAuthorNamesProvider.overrideWith((ref) async => {'10001': '示例作者'}),
@@ -136,6 +166,29 @@ void main() {
     temp.deleteSync(recursive: true);
   });
   Finder key(String name) => find.byKey(ValueKey(name));
+
+  Future<void> captureArt(
+    WidgetTester tester,
+    Finder region,
+    String name,
+  ) async {
+    if (art != null && Platform.environment['PLANA_DESKTOP_CAPTURE'] == '1') {
+      final images = find.descendant(
+        of: region,
+        matching: find.byType(RawImage),
+      );
+      await pumpUntil(
+        tester,
+        () =>
+            images.evaluate().isNotEmpty &&
+            tester
+                .widgetList<RawImage>(images)
+                .every((image) => image.image != null),
+      );
+      await tester.pumpAndSettle();
+    }
+    await captureDesktop(tester, capture, name);
+  }
 
   Future<void> mount(WidgetTester tester, {bool embedded = false}) async {
     tester.view.physicalSize = const Size(1500, 900);
@@ -399,48 +452,99 @@ void main() {
   );
 
   testWidgets(
-    'narrow embedded tag pools support long labels and anchored selection',
+    'scene and other use the managed category names and omit sample actions',
     (tester) async {
-      seedTagPools();
-      await mount(tester, embedded: true);
-      final filters = tester.getRect(key('inspiration-tag-filters-character'));
-      expect(
-        tester.getRect(key('inspiration-manage-tags')).right,
-        closeTo(filters.right, 0.01),
+      await mount(tester);
+      for (final category in [TagCategory.scene, TagCategory.other]) {
+        final tab = key('inspiration-category-${category.name}');
+        final label = tagCategoryDef(category).label;
+        if (category == TagCategory.other) expect(label, '其它');
+        expect(
+          find.descendant(of: tab, matching: find.text(label)),
+          findsOneWidget,
+        );
+        await tester.ensureVisible(tab);
+        await tester.tap(tab);
+        await tester.pumpAndSettle();
+        expect(find.text('新建$label'), findsOneWidget);
+        expect(find.text('添加预览示例'), findsNothing);
+      }
+      await finish(tester);
+    },
+  );
+
+  testWidgets(
+    'a tall character preview keeps the top of the source image in view',
+    (tester) async {
+      final portrait = img.Image(width: 80, height: 400);
+      img.fill(portrait, color: img.ColorRgb8(0, 0, 255));
+      img.fillRect(
+        portrait,
+        x1: 0,
+        y1: 0,
+        x2: 79,
+        y2: 79,
+        color: img.ColorRgb8(255, 0, 0),
       );
-      expect(
-        tester.getTopLeft(key('inspiration-all-tags')).dy,
-        greaterThan(
-          tester.getBottomLeft(find.widgetWithText(ChoiceChip, '全部')).dy,
+      final file = File('${temp.path}/portrait.png')
+        ..writeAsBytesSync(img.encodePng(portrait));
+      await mount(tester);
+      final preview = find.descendant(
+        of: key('inspiration-card-char0'),
+        matching: find.byType(TagCardPreview),
+      );
+      final size = tester.getSize(preview);
+      final config = tester.widget<TagCardPreview>(preview);
+      final frameKey = GlobalKey();
+      // Render the portrait with the grid's actual size and crop, independently
+      // of the asynchronous name badge that normally overlays it.
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Center(
+            child: RepaintBoundary(
+              key: frameKey,
+              child: SizedBox.fromSize(
+                size: size,
+                child: TagCardPreview(
+                  url: file.path,
+                  name: config.name,
+                  decodeWidth: config.decodeWidth,
+                  alignment: config.alignment,
+                ),
+              ),
+            ),
+          ),
         ),
       );
-      await tester.tap(key('inspiration-all-tags'));
-      await tester.pumpAndSettle();
-      final panel = tester.getRect(key('inspiration-tag-picker'));
-      expect(panel.right, lessThanOrEqualTo(1500));
-      expect(panel.width, 360);
-      await tester.enterText(key('inspiration-tag-search'), '非常长的标签名称');
-      await tester.testTextInput.receiveAction(TextInputAction.done);
-      await tester.pumpAndSettle();
-      final longChip = find.widgetWithText(
-        ChoiceChip,
-        '非常长的标签名称，用于验证窄侧栏里完整标签仍然可以选择和取消',
+      final image = find.descendant(
+        of: find.byKey(frameKey),
+        matching: find.byType(RawImage),
       );
-      expect(longChip.hitTestable(), findsOneWidget);
-      expect(tester.takeException(), isNull);
-      await captureDesktop(
+      await pumpUntil(
         tester,
-        capture,
-        'desktop-inspiration-embedded-tags',
+        () => tester.widgetList<RawImage>(image).any((w) => w.image != null),
       );
-      await tester.tap(longChip);
+      await tester.pump(const Duration(seconds: 1));
       await tester.pumpAndSettle();
-      await tester.tap(key('inspiration-manage-tags'));
-      await tester.pumpAndSettle();
-      expect(find.text('角色标签池'), findsOneWidget);
-      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
-      await tester.pumpAndSettle();
+      final point = Offset(size.width / 2, size.height * .2);
+      final boundary = tester.renderObject<RenderRepaintBoundary>(
+        find.byKey(frameKey),
+      );
+      await tester.runAsync(() async {
+        final frame = await boundary.toImage();
+        try {
+          final pixels = (await frame.toByteData(
+            format: ui.ImageByteFormat.rawRgba,
+          ))!;
+          final index = (point.dy.floor() * frame.width + point.dx.floor()) * 4;
+          expect(pixels.getUint8(index), greaterThan(240));
+          expect(pixels.getUint8(index + 2), lessThan(15));
+        } finally {
+          frame.dispose();
+        }
+      });
       await finish(tester);
+      PaintingBinding.instance.imageCache.clear();
     },
   );
 
@@ -449,6 +553,15 @@ void main() {
     (tester) async {
       await mount(tester);
       final search = key('tag-search-character');
+      AlignmentGeometry previewAlignment(String id) => tester
+          .widget<TagCardPreview>(
+            find.descendant(
+              of: key('inspiration-card-$id'),
+              matching: find.byType(TagCardPreview),
+            ),
+          )
+          .alignment;
+      expect(previewAlignment('char0'), Alignment.topCenter);
       expect(tester.getSize(search).width, 300);
       expect(
         tester.getCenter(search).dy,
@@ -467,18 +580,22 @@ void main() {
       );
       await captureDesktop(tester, capture, 'windows16-inspiration-wide');
 
-      await tester.tap(key('inspiration-detail-char0'));
+      await tester.tap(key('inspiration-menu-char0'));
       await tester.pumpAndSettle();
-      expect(key('inspiration-detail-dialog'), findsOneWidget);
+      await tester.tap(
+        find.widgetWithText(PopupMenuItem<InspirationEntryAction>, '查看提示词'),
+      );
+      await tester.pumpAndSettle();
+      expect(key('inspiration-prompt-detail'), findsOneWidget);
       expect(find.byType(BottomSheet), findsNothing);
       expect(
-        tester.getSize(key('inspiration-detail-dialog')).width,
+        tester.getSize(key('inspiration-prompt-detail')).width,
         lessThanOrEqualTo(1500),
       );
       await tester.sendKeyEvent(LogicalKeyboardKey.escape);
       await tester.pumpAndSettle();
       expect(
-        tester.widget<Checkbox>(key('inspiration-select-char0')).value,
+        tester.widget<InspirationEntryCard>(key('char0')).selected,
         isFalse,
       );
 
@@ -501,10 +618,192 @@ void main() {
       expect(key('inspiration-scope-mine'), findsNothing);
       expect(key('inspiration-scope-public'), findsNothing);
       expect(key('inspiration-card-scene0'), findsOneWidget);
+      expect(previewAlignment('scene0'), Alignment.center);
       await tester.tap(key('inspiration-category-other'));
       await tester.pumpAndSettle();
       expect(key('inspiration-scope-mine'), findsNothing);
       expect(key('inspiration-scope-public'), findsNothing);
+      await finish(tester);
+    },
+  );
+
+  testWidgets(
+    'detail arrows stay within visible entries and zoom returns to the same item',
+    (tester) async {
+      final file = File(
+        art == null ? 'assets/app_icon.png' : '$art/maid-blue.webp',
+      ).absolute;
+      File('${temp.path}/tag_library.json').writeAsStringSync(
+        jsonEncode({
+          'entries': [
+            for (final e in entries)
+              (e.id == 'char1' ? e.copyWith(previews: [file.path]) : e)
+                  .toJson(),
+          ],
+        }),
+      );
+      await mount(tester);
+      await tester.tap(key('inspiration-menu-char0'));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.widgetWithText(PopupMenuItem<InspirationEntryAction>, '查看提示词'),
+      );
+      await tester.pumpAndSettle();
+      final detail = key('inspiration-prompt-detail');
+      Finder page(String counter) =>
+          find.descendant(of: detail, matching: find.text(counter));
+      Future<void> press(LogicalKeyboardKey key) async {
+        await tester.sendKeyEvent(key);
+        await tester.pumpAndSettle();
+      }
+
+      expect(page('1 / 8'), findsOneWidget);
+      await press(LogicalKeyboardKey.arrowLeft);
+      expect(page('1 / 8'), findsOneWidget);
+      await captureArt(tester, detail, 'inspiration-main-detail');
+      await press(LogicalKeyboardKey.arrowRight);
+      expect(page('2 / 8'), findsOneWidget);
+      await tester.tap(key('inspiration-enlarge-image'));
+      await tester.pumpAndSettle();
+      expect(
+        tester.widget<Image>(key('reference-preview-image')).image,
+        FileImage(file),
+      );
+      final viewer = find.descendant(
+        of: key('reference-image-preview'),
+        matching: find.byType(InteractiveViewer),
+      );
+      await tester.sendEventToBinding(
+        PointerScrollEvent(
+          position: tester.getCenter(viewer),
+          scrollDelta: const Offset(0, -140),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<InteractiveViewer>(viewer)
+            .transformationController!
+            .value
+            .getMaxScaleOnAxis(),
+        greaterThan(1),
+      );
+      await press(LogicalKeyboardKey.arrowRight);
+      await press(LogicalKeyboardKey.escape);
+      expect(key('reference-image-preview'), findsNothing);
+      expect(page('2 / 8'), findsOneWidget);
+      for (var i = 0; i < 7; i++) {
+        await press(LogicalKeyboardKey.arrowRight);
+      }
+      expect(page('8 / 8'), findsOneWidget);
+      await press(LogicalKeyboardKey.arrowLeft);
+      expect(page('7 / 8'), findsOneWidget);
+      await press(LogicalKeyboardKey.escape);
+      await tester.enterText(key('tag-search-character'), '别名1');
+      await tester.pumpAndSettle();
+      await tester.tap(key('inspiration-menu-char1'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('查看提示词'));
+      await tester.pumpAndSettle();
+      await press(LogicalKeyboardKey.arrowRight);
+      expect(page('1 / 1'), findsOneWidget);
+      await tester.tap(key('inspiration-detail-select'));
+      await tester.pumpAndSettle();
+      expect(
+        tester.widget<InspirationEntryCard>(key('char1')).selected,
+        isTrue,
+      );
+      await finish(tester);
+    },
+  );
+
+  testWidgets(
+    'categories scroll within one row and snap one wheel step without moving the tools',
+    (tester) async {
+      await mount(tester);
+      final viewport = key('inspiration-category-viewport');
+      final search = key('tag-search-character');
+      final newButton = key('inspiration-new');
+      final originalSearch = tester.getRect(search);
+      final originalNew = tester.getRect(newButton);
+      final originalViewport = tester.getRect(viewport);
+      final added = <TagCategoryDef>[];
+      await tester.runAsync(() async {
+        for (var i = 1; i <= 24; i++) {
+          added.add(
+            await container
+                .read(tagLibraryProvider.notifier)
+                .addCategory(
+                  label: i == 24 ? '带有很长名称的自定义服装分类及造型参考' : '分类 $i',
+                  iconName: 'Shirt',
+                  layout: TagCardLayout.portrait,
+                ),
+          );
+        }
+      });
+      await tester.pumpAndSettle();
+      final last = key('inspiration-category-${added.last.key.name}');
+      final bar = tester.widget<Scrollbar>(
+        find.descendant(of: viewport, matching: find.byType(Scrollbar)),
+      );
+      final controller = bar.controller!;
+      final row = originalViewport.height;
+      Future<void> wheel(double delta) async {
+        await tester.sendEventToBinding(
+          PointerScrollEvent(
+            position: tester.getCenter(viewport),
+            scrollDelta: Offset(0, delta),
+          ),
+        );
+        await tester.pumpAndSettle();
+      }
+
+      expect(tester.getRect(search), originalSearch);
+      expect(tester.getRect(newButton), originalNew);
+      expect(tester.getRect(viewport), originalViewport);
+      expect(bar.thumbVisibility, isTrue);
+      expect(controller.position.maxScrollExtent, greaterThan(row * 2));
+      expect(last.hitTestable(), findsNothing);
+      expect(find.byTooltip('管理类别').hitTestable(), findsOneWidget);
+      await captureArt(
+        tester,
+        key('inspiration.character.mine'),
+        'inspiration-main-categories',
+      );
+      await wheel(12);
+      expect(controller.offset, closeTo(12, .1));
+      container
+          .read(themeSettingsProvider.notifier)
+          .patch((s) => s.copyWith(inspirationRowSnap: true));
+      await tester.pumpAndSettle();
+      expect(controller.offset, 0);
+      await wheel(500);
+      expect(controller.offset, closeTo(row, .1));
+      await wheel(2);
+      expect(controller.offset, closeTo(2 * row, .1));
+      await wheel(-500);
+      expect(controller.offset, closeTo(row, .1));
+      for (
+        var step = 0;
+        step <= (controller.position.maxScrollExtent / row).ceil();
+        step++
+      ) {
+        await wheel(120);
+      }
+      expect(controller.offset, controller.position.maxScrollExtent);
+      expect(key('inspiration-category-codex').hitTestable(), findsOneWidget);
+      // Depending on label width, Codex can occupy the row after the last custom tab.
+      if (last.hitTestable().evaluate().isEmpty) await wheel(-120);
+      expect(last.hitTestable(), findsOneWidget);
+      expect(tester.getRect(search), originalSearch);
+      await tester.tap(last);
+      await tester.pumpAndSettle();
+      expect(key('tag-search-${added.last.webId}'), findsOneWidget);
+      tester.view.physicalSize = const Size(760, 680);
+      await tester.pumpAndSettle();
+      expect(last.hitTestable(), findsOneWidget);
+      expect(tester.getSize(viewport).height, row);
+      expect(newButton.hitTestable(), findsOneWidget);
       await finish(tester);
     },
   );
@@ -520,7 +819,46 @@ void main() {
     await tester.tap(key('inspiration-category-codex'));
     await tester.pumpAndSettle();
     final button = key('codex-picker-button');
-    expect(tester.getSize(button).width, lessThan(200));
+    final query = key('desktop-codex-search');
+    final draw = key('codex-main-draw-toggle');
+    final manager = find.byTooltip('管理类别');
+    final fieldRect = tester.getRect(query);
+    expect(tester.getCenter(manager).dy, closeTo(fieldRect.center.dy, 1));
+    expect(tester.getRect(manager).right, lessThan(fieldRect.left));
+    expect(fieldRect.right, lessThan(tester.getRect(draw).left));
+    expect(tester.getCenter(draw).dy, closeTo(fieldRect.center.dy, 1));
+    expect(fieldRect.bottom, lessThan(tester.getRect(button).top));
+    expect(
+      find.descendant(of: draw, matching: find.text('随机灵感')),
+      findsOneWidget,
+    );
+
+    await captureDesktop(tester, capture, 'codex-main-search-header');
+    await tester.enterText(query, 'sunset');
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(key('desktop-codex-card-sea'), findsOneWidget);
+    expect(key('desktop-codex-card-forest'), findsNothing);
+    await tester.runAsync(() => container.read(codexHistoryProvider.future));
+    await tester.tap(draw);
+    await tester.pumpAndSettle();
+    expect(query.hitTestable(), findsOneWidget);
+    expect(find.text('1 候选'), findsOneWidget);
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyK);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+    await tester.pump();
+    expect(tester.widget<TextField>(query).focusNode!.hasFocus, isTrue);
+    await tester.enterText(query, 'missing');
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.text('0 候选'), findsOneWidget);
+    await tester.enterText(query, 'sunset');
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.tap(key('codex-random-history'));
+    await tester.pumpAndSettle();
+    expect(query.hitTestable(), findsOneWidget);
+    await tester.tap(draw);
+    await tester.pumpAndSettle();
+    expect(tester.widget<TextField>(query).controller!.text, 'sunset');
     final anchor = tester.getRect(button);
     await tester.tap(button);
     await tester.pumpAndSettle();
@@ -532,7 +870,11 @@ void main() {
     await tester.pumpAndSettle();
     tester.view.physicalSize = const Size(740, 700);
     await tester.pumpAndSettle();
-    expect(tester.getSize(button).width, lessThan(200));
+    expect(button.hitTestable(), findsOneWidget);
+    expect(query.hitTestable(), findsOneWidget);
+    expect(tester.getRect(query).bottom, lessThan(tester.getRect(button).top));
+    await tester.ensureVisible(key('inspiration-category-character'));
+    await tester.pumpAndSettle();
     await tester.tap(key('inspiration-category-character'));
     await tester.pumpAndSettle();
     expect(tester.widget<TextField>(search).controller!.text, '别名0');
@@ -559,12 +901,7 @@ void main() {
       await tester.tap(find.byTooltip('关闭编辑器'));
       await tester.pumpAndSettle();
       expect(key('tag-editor-dialog'), findsNothing);
-      await tester.tap(
-        find.descendant(
-          of: key('inspiration-card-char0'),
-          matching: find.byType(PopupMenuButton<String>),
-        ),
-      );
+      await tester.tap(key('inspiration-menu-char0'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('编辑'));
       await tester.pumpAndSettle();
@@ -575,7 +912,7 @@ void main() {
       await tester.tap(key('inspiration-select-char0'));
       await tester.pumpAndSettle();
       expect(
-        tester.widget<Checkbox>(key('inspiration-select-char0')).value,
+        tester.widget<InspirationEntryCard>(key('char0')).selected,
         isTrue,
       );
       await tester.tap(find.text('主提示词'));
@@ -600,7 +937,7 @@ void main() {
       expect(imported.name, '白发少女');
       expect(imported.positive, contains('white hair'));
       expect(
-        tester.widget<Checkbox>(key('inspiration-select-char0')).value,
+        tester.widget<InspirationEntryCard>(key('char0')).selected,
         isFalse,
       );
       await finish(tester);
@@ -639,11 +976,11 @@ void main() {
       await tester.pumpAndSettle();
       expect(key('desktop-inspiration-selection'), findsNothing);
       expect(
-        tester.widget<Checkbox>(key('inspiration-select-char0')).value,
+        tester.widget<InspirationEntryCard>(key('char0')).selected,
         isFalse,
       );
       expect(
-        tester.widget<Checkbox>(key('inspiration-select-char1')).value,
+        tester.widget<InspirationEntryCard>(key('char1')).selected,
         isFalse,
       );
       expect(
@@ -704,23 +1041,51 @@ void main() {
   testWidgets(
     'public collection appears under My favorites and search survives scope changes',
     (tester) async {
+      maskPublic = true;
       await mount(tester);
       await tester.tap(key('inspiration-scope-public'));
       await tester.pumpAndSettle();
       expect(key('inspiration-card-pub_cat'), findsOneWidget);
+      await tester.tap(key('inspiration-menu-pub_cat'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('查看提示词'));
+      await tester.pumpAndSettle();
+      final dialog = key('inspiration-prompt-detail');
+      expect(
+        find.descendant(of: dialog, matching: key('inspiration-enlarge-image')),
+        findsNothing,
+      );
+      await tester.tap(
+        find.descendant(
+          of: dialog,
+          matching: find.widgetWithText(FilledButton, '点击显示原图'),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(key('inspiration-enlarge-image').hitTestable(), findsOneWidget);
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
       await tester.enterText(key('tag-search-character'), '公共猫娘');
       await tester.pumpAndSettle();
-      await tester.runAsync(() async {
-        await tester.tap(
-          find.descendant(
-            of: key('inspiration-card-pub_cat'),
-            matching: find.byTooltip('收藏'),
-          ),
-        );
-        await Future<void>.delayed(const Duration(milliseconds: 150));
-      });
+      await tester.tap(key('inspiration-star-pub_cat'));
       await tester.pumpAndSettle();
-      expect(find.byTooltip('已收藏'), findsOneWidget);
+      await pumpUntilComplete(
+        tester,
+        container.read(tagLibraryProvider.notifier).settled,
+      );
+      await pumpUntil(
+        tester,
+        () => container
+            .read(tagLibraryProvider)
+            .requireValue
+            .entries
+            .any((e) => e.publicId == 'cat' && e.isFavorite),
+        reason: 'Collection must finish its file write before cleanup',
+      );
+      expect(
+        tester.widget<IconButton>(key('inspiration-star-pub_cat')).icon,
+        isA<Icon>().having((icon) => icon.icon, 'starred', Icons.star_rounded),
+      );
       await tester.tap(key('inspiration-scope-mine'));
       await tester.pumpAndSettle();
       await tester.tap(find.widgetWithText(ChoiceChip, '收藏'));
@@ -739,6 +1104,24 @@ void main() {
             .length,
         1,
       );
+      await tester.tap(key('inspiration-scope-public'));
+      await tester.pumpAndSettle();
+      await tester.tap(key('inspiration-star-pub_cat'));
+      await tester.pumpAndSettle();
+      await pumpUntil(
+        tester,
+        () => !container
+            .read(tagLibraryProvider)
+            .requireValue
+            .entries
+            .singleWhere((e) => e.publicId == 'cat')
+            .isFavorite,
+      );
+      expect(key('inspiration-card-pub_cat'), findsNothing);
+      await pumpUntilComplete(
+        tester,
+        container.read(tagLibraryProvider.notifier).settled,
+      );
       await finish(tester);
     },
   );
@@ -751,15 +1134,15 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byIcon(Icons.visibility_off_outlined), findsOneWidget);
       final card = key('inspiration-card-pub_cat');
-      final check = key('inspiration-select-pub_cat');
-      expect(tester.widget<Checkbox>(check).value, isFalse);
+      final entry = key('pub_cat');
+      expect(tester.widget<InspirationEntryCard>(entry).selected, isFalse);
       await tester.tap(card);
       await tester.pumpAndSettle();
       expect(find.byIcon(Icons.visibility_off_outlined), findsNothing);
-      expect(tester.widget<Checkbox>(check).value, isFalse);
+      expect(tester.widget<InspirationEntryCard>(entry).selected, isFalse);
       await tester.tap(card);
       await tester.pumpAndSettle();
-      expect(tester.widget<Checkbox>(check).value, isTrue);
+      expect(tester.widget<InspirationEntryCard>(entry).selected, isTrue);
       await tester.tap(key('inspiration-scope-mine'));
       await tester.pumpAndSettle();
       await tester.tap(key('inspiration-scope-public'));

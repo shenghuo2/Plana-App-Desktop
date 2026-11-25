@@ -35,7 +35,10 @@ void main() {
         RemoteImageStore.markChecked(url);
       });
 
-      Future<Size> decoded({required bool capHeight}) async {
+      Future<Size> decoded({
+        required bool capHeight,
+        BoxFit fit = BoxFit.contain,
+      }) async {
         await tester.pumpWidget(
           MaterialApp(
             home: Center(
@@ -44,9 +47,9 @@ void main() {
                 height: 200,
                 child: RemoteImage(
                   url,
-                  key: ValueKey(capHeight),
+                  key: ValueKey((capHeight, fit)),
                   decodeHeight: capHeight ? 200 : null,
-                  fit: BoxFit.contain,
+                  fit: fit,
                 ),
               ),
             ),
@@ -67,6 +70,11 @@ void main() {
 
       final widthOnly = await decoded(capHeight: false);
       final bounded = await decoded(capHeight: true);
+      final cover = await decoded(capHeight: true, fit: BoxFit.cover);
+      expect(cover.width, greaterThanOrEqualTo(600));
+      expect(cover.height, greaterThanOrEqualTo(400));
+      expect(cover.aspectRatio, closeTo(size.aspectRatio, .004));
+      expect(cover.width == 600 || cover.height == 400, isTrue);
       expect(bounded.width, lessThanOrEqualTo(600));
       expect(bounded.height, lessThanOrEqualTo(400));
       expect(bounded.aspectRatio, closeTo(size.aspectRatio, .003));

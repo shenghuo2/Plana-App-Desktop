@@ -59,6 +59,33 @@ void main() {
       expect(codexImageUrl(meta, e2, media), isNull);
       expect(e2.hasImage, isFalse);
     });
+
+    test('多图词条可用首图作封面，缺少原图时沿用缩略图地址', () {
+      const single = CodexEntry(
+        id: 'x',
+        title: '',
+        tags: '',
+        images: [CodexImage('a.jpg', null)],
+      );
+      final thumb = codexImageUrl(meta, single, media);
+      expect(
+        thumb,
+        'https://assets.quicktagcloud.com/images/composition_style/a.jpg',
+      );
+      expect(codexImageUrl(meta, single, media, original: true), isNull);
+      expect(codexImageItemUrl(meta, single, media, 0, original: true), thumb);
+      const multi = CodexEntry(
+        id: 'x',
+        title: '',
+        tags: '',
+        images: [CodexImage('a.jpg', 'a.png')],
+        assetRev: 'r1',
+      );
+      expect(
+        codexImageUrl(meta, multi, media, original: true),
+        'https://assets.quicktagcloud.com/originals/composition_style/a.png?v=r1',
+      );
+    });
   });
 
   group('图片 URL — relative 模式(每部自带 assetBaseUrl)', () {
@@ -229,7 +256,7 @@ void main() {
       expect(codexPathUnder(const ['OC杂项'], const ['OC杂项', '单机角色']), isFalse);
     });
 
-    test('effectiveTree:无 tree 时从词条 path 首级合成扁平树(带计数)', () {
+    test('effectiveTree:无 tree 时从完整词条路径合成分类树(带计数)', () {
       final d = CodexData.parse({
         'id': 'x',
         'type': 'codex',
@@ -258,6 +285,7 @@ void main() {
       final t = d.effectiveTree;
       expect(t.map((n) => n.name), ['甲', '乙']);
       expect(t.firstWhere((n) => n.name == '甲').count, 2);
+      expect(t.first.children.map((n) => n.name), ['子', '丑']);
     });
 
     test('tree 缺失时 topCategories 从词条 path 首级兜底', () {

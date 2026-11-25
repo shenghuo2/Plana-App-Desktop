@@ -472,6 +472,50 @@ void main() {
     },
   );
   testWidgets(
+    'Bot 4.5 zero price and server overrides are separate from V5 and key costs',
+    (tester) async {
+      Future<void> show(String model) async {
+        await mount(
+          tester,
+          Scaffold(
+            body: Center(child: GenerationCostPill(cost: 28, model: model)),
+          ),
+        );
+        await tester.pumpAndSettle();
+      }
+
+      backend.quota = NaiQuota.fromJson({
+        'shared_pool': false,
+        'relay_enabled': true,
+        'relay_price': .08,
+      });
+      await show('NAI 4.5 Full');
+      expect(find.text('免费'), findsOneWidget);
+      await show('NAI 5.0 Full');
+      expect(find.text('¥0.08/张'), findsOneWidget);
+      backend.quota = NaiQuota.fromJson({
+        'shared_pool': false,
+        'relay_enabled': true,
+        'relay_price_legacy': .003,
+      });
+      container.invalidate(naiQuotaProvider);
+      await show('NAI 4.5 Curated');
+      expect(find.text('¥0.003/张'), findsOneWidget);
+      backend.quota = NaiQuota.fromJson({
+        'shared_pool': false,
+        'relay_enabled': true,
+        'relay_price_legacy': 0,
+      });
+      container.invalidate(naiQuotaProvider);
+      await show('NAI 4.5 Curated');
+      expect(find.text('免费'), findsOneWidget);
+      await container.read(authModeProvider.notifier).set(AuthMode.token);
+      await tester.pumpAndSettle();
+      expect(find.text('28'), findsOneWidget);
+      await finish(tester);
+    },
+  );
+  testWidgets(
     'relay pricing never appears as free Anlas and leaves direct costs unchanged',
     (tester) async {
       backend.quota = const NaiQuota(

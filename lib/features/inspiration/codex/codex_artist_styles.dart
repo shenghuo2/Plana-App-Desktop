@@ -49,15 +49,16 @@ ArtistStyles? parseArtistStyles(Object? raw) {
   final prefix = raw['idPrefix'] is String ? raw['idPrefix'] as String : '';
   final groups = <({String name, int parent})>[];
   final parents = <({String name, List<int> groups})>[];
-  final artists = <
-    ({
-      String entryId,
-      List<String> otherIds,
-      String canonicalId,
-      int? post,
-      int group,
-    })
-  >[];
+  final artists =
+      <
+        ({
+          String entryId,
+          List<String> otherIds,
+          String canonicalId,
+          int? post,
+          int group,
+        })
+      >[];
   for (final g in raw['groups'] as List) {
     if (g is! Map || g['name'] is! String || g['parent'] is! int) return null;
     groups.add((name: g['name'] as String, parent: g['parent'] as int));
@@ -143,6 +144,7 @@ CodexData applyArtistStyles(CodexData d, ArtistStyles s) {
     entries.add(
       e.copyWith(
         path: groupPath(a.group),
+        postCount: a.post,
         title: byId[a.canonicalId]?.title ?? e.title,
       ),
     );
@@ -157,15 +159,11 @@ CodexData applyArtistStyles(CodexData d, ArtistStyles s) {
   final styleChildren = <CodexNode>[
     for (final p in s.parents)
       if (p.groups.any((g) => (perGroup[g] ?? 0) > 0))
-        CodexNode(
-          p.name,
-          p.groups.fold(0, (n, g) => n + (perGroup[g] ?? 0)),
-          [
-            for (final g in p.groups)
-              if ((perGroup[g] ?? 0) > 0)
-                CodexNode(s.groups[g].name, perGroup[g]!, const []),
-          ],
-        ),
+        CodexNode(p.name, p.groups.fold(0, (n, g) => n + (perGroup[g] ?? 0)), [
+          for (final g in p.groups)
+            if ((perGroup[g] ?? 0) > 0)
+              CodexNode(s.groups[g].name, perGroup[g]!, const []),
+        ]),
     if (unsorted > 0) CodexNode(_unsorted, unsorted, const []),
   ];
   final baseTree = d.effectiveTree;

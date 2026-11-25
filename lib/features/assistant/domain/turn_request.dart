@@ -14,9 +14,11 @@ class CanvasSnapshot {
     required this.positive,
     required this.negative,
     required this.characters,
+    this.blockSummary = '',
   });
 
   final String positive;
+  final String blockSummary;
   final String negative;
 
   /// `{name, positive, negative, position}`,只含启用的角色。
@@ -31,6 +33,7 @@ class AgentTurnRequest {
     this.history = const [],
     this.canvas,
     this.customRules,
+    this.importNote = '',
     this.modeKeys = const [],
     this.tools = const ToolSettings(),
     this.artists = const [],
@@ -44,6 +47,7 @@ class AgentTurnRequest {
   });
 
   final String userText;
+  final String importNote;
 
   /// 用户这轮附的图(原始字节)。
   final List<Uint8List> images;

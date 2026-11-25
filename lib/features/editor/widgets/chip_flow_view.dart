@@ -1,3 +1,4 @@
+import 'fold_icon.dart';
 import '../../../core/theme/app_skin.dart';
 import 'dart:async';
 import 'dart:math' as math;
@@ -904,10 +905,13 @@ class ChipFlowViewState extends State<ChipFlowView>
           };
     final Widget chip;
     if (u.isFold) {
+      final members = parseToks(widget.foldBodies[u.fold!.name] ?? '');
       chip = _FoldChip(
         key: chipKey,
         name: u.fold!.name,
-        count: _memberCount(u.fold!),
+        icon: widget.controller.foldIcons[u.fold!.name],
+        count: members.length,
+        disabled: allFoldMembersDisabled(members),
         onDoubleTap: widget.onFoldDoubleTap == null
             ? null
             : () => widget.onFoldDoubleTap!(i),
@@ -963,9 +967,6 @@ class ChipFlowViewState extends State<ChipFlowView>
       ),
     );
   }
-
-  int _memberCount(FoldRef f) =>
-      parseToks(widget.foldBodies[f.name] ?? '').length;
 
   /// 落位阶段里被选中的那几枚是**搬运物**:淡出读作「已拿起」,好让用户一眼
   /// 分清「要搬的」和「可以落在哪儿」。点击本身由 [_tapChip] 挡掉。
@@ -1232,7 +1233,9 @@ class _FoldChip extends StatefulWidget {
   const _FoldChip({
     super.key,
     required this.name,
+    required this.icon,
     required this.count,
+    required this.disabled,
     required this.fontSize,
     required this.primaryFontSize,
     required this.selected,
@@ -1242,7 +1245,9 @@ class _FoldChip extends StatefulWidget {
   });
 
   final String name;
+  final IconData? icon;
   final int count;
+  final bool disabled;
   final double fontSize;
   final double primaryFontSize;
   final bool selected;
@@ -1271,16 +1276,18 @@ class _FoldChipState extends State<_FoldChip> {
     final fontSize = widget.fontSize;
     final primaryFontSize = widget.primaryFontSize;
     final selected = widget.selected;
+    final tint = widget.disabled ? scheme.outline : scheme.primary;
+    final strike = widget.disabled ? TextDecoration.lineThrough : null;
     return Material(
-      color: selected
+      color: widget.disabled
+          ? scheme.onSurface.withValues(alpha: .12)
+          : selected
           ? scheme.primaryContainer
           : scheme.primary.withValues(alpha: .10),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(9),
         side: BorderSide(
-          color: selected
-              ? scheme.primary
-              : scheme.primary.withValues(alpha: .45),
+          color: selected ? scheme.primary : tint.withValues(alpha: .45),
           width: selected ? 1.6 : 1,
         ),
       ),
@@ -1308,18 +1315,22 @@ class _FoldChipState extends State<_FoldChip> {
                 style: TextStyle(
                   fontSize: primaryFontSize,
                   fontWeight: FontWeight.w700,
-                  color: scheme.primary,
+                  color: tint,
+                  decoration: strike,
                 ),
               ),
               const SizedBox(width: 3),
               Flexible(
-                child: Text(
-                  name,
+                child: Text.rich(
+                  foldLabelSpan(name, widget.icon),
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     fontSize: primaryFontSize,
                     fontWeight: FontWeight.w600,
-                    color: scheme.onSurface,
+                    color: widget.disabled ? tint : scheme.onSurface,
+                    decoration: strike,
+                    decorationColor: tint,
+                    decorationThickness: 2,
                   ),
                 ),
               ),
@@ -1330,7 +1341,7 @@ class _FoldChipState extends State<_FoldChip> {
                   context,
                   size: fontSize - _kTransDrop,
                   weight: FontWeight.w700,
-                ).copyWith(color: scheme.primary.withValues(alpha: .8)),
+                ).copyWith(color: tint.withValues(alpha: .8)),
               ),
             ],
           ),

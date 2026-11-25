@@ -18,8 +18,11 @@ import '../gallery/widgets/history_image_picker.dart';
 import '../generate/widgets/common.dart' show hintSnack, sharedAxisRoute;
 import '../import/image_metadata.dart';
 import '../import/metadata_detail_page.dart';
+import 'metadata_draft.dart';
 import 'metadata_export.dart';
 import 'metadata_processing.dart';
+import 'metadata_tool_link.dart';
+import 'metadata_sampler_field.dart';
 
 class DesktopMetadataProcessor extends ConsumerStatefulWidget {
   const DesktopMetadataProcessor({super.key});
@@ -32,22 +35,17 @@ class DesktopMetadataProcessor extends ConsumerStatefulWidget {
 class _DesktopMetadataProcessorState
     extends ConsumerState<DesktopMetadataProcessor> {
   final _input = TextEditingController();
-  final _output = TextEditingController();
+  late final TextEditingController _output;
   final _previewScroll = ScrollController();
   final _previewFocus = FocusNode(debugLabel: 'Metadata batch previews');
   static const _previewStride = 148.0;
-  final _fields = {
-    for (final entry in metadataComment(null).entries)
-      if (entry.value is! bool)
-        entry.key: TextEditingController(text: entry.value.toString()),
-  };
-  Map<String, dynamic> _original = metadataComment(null);
+  late final Map<String, TextEditingController> _fields;
   ImageMetadata? _meta;
   Uint8List? _bytes;
   String? _imagePath;
   String _imageName = '';
   int _tab = 0;
-  bool _sm = false, _smDyn = false;
+  bool _pickedNewImage = false;
   bool _strip = true, _subfolder = true;
   bool _loading = false, _choosing = false, _processing = false;
   final _files = <File>[];
@@ -61,6 +59,41 @@ class _DesktopMetadataProcessorState
   MetadataBatchResult? _result;
   bool get _busy => _loading || _choosing || _processing;
 
+  MetadataDraftNotifier get _drafts => ref.read(metadataDraftProvider.notifier);
+
+  @override
+  void initState() {
+    super.initState();
+    final draft = ref.read(metadataDraftProvider);
+    _fields = {
+      for (final entry in MetadataDraft.defaults.entries)
+        if (entry.value is! bool)
+          entry.key: TextEditingController(
+            text: draft.fields[entry.key]?.toString() ?? '',
+          ),
+    };
+    _output = TextEditingController(text: draft.outputDirectory);
+    if (draft.imagePath case final path?) _restorePreview(path);
+  }
+
+  Future<void> _restorePreview(String path) async {
+    try {
+      final bytes = await File(path).readAsBytes();
+      if (!mounted || _pickedNewImage) return;
+      final meta = await extractImageMetadata(bytes);
+      if (!mounted || _pickedNewImage) return;
+      // Reading the preview must preserve edits made after the file was opened.
+      setState(() {
+        _bytes = bytes;
+        _meta = meta;
+        _imagePath = path;
+        _imageName = p.basename(path);
+      });
+    } on FileSystemException {
+      // The file may have moved. Its editable parameters are still in the draft.
+    }
+  }
+
   @override
   void dispose() {
     _job?.cancel();
@@ -72,13 +105,6 @@ class _DesktopMetadataProcessorState
       field.dispose();
     }
     super.dispose();
-  }
-
-  String get _source {
-    final raw = _meta?.raw;
-    return _meta?.isNovelAI == true && raw is Map
-        ? raw['Source']?.toString() ?? 'NovelAI'
-        : 'Plana';
   }
 
   String? get _destination {
@@ -135,17 +161,17 @@ class _DesktopMetadataProcessorState
         final file = gallery.imageFileForPreview(item.id);
         final exists = await file.exists();
         if (!mounted) return;
-        await _readImage(bytes, '${item.id}.png', exists ? file.path : null);
+        await _readImage(
+          bytes,
+          '${item.id}.png',
+          exists ? file.path : null,
+          restorePath: file.path,
+        );
       } else {
         setState(() {
           for (final item in picked) {
             final file = gallery.imageFileForPreview(item.id);
-            if (!_files.any((existing) => p.equals(existing.path, file.path))) {
-              _files.add(file);
-            }
-            _historyFiles.add(file.path);
-            _selected.add(file.path);
-            if (item.bytes != null) _memoryImages[file.path] = item.bytes!;
+            _addBatchImage(file, keepOnRefresh: true, bytes: item.bytes);
           }
         });
         _focusPreviews();
@@ -177,12 +203,11 @@ class _DesktopMetadataProcessorState
           for (var i = 0; i < images.length; i++) {
             final path = pathAt(i);
             if (path == null) continue;
-            if (!_files.any((file) => p.equals(file.path, path))) {
-              _files.add(File(path));
-            }
-            _memoryImages[path] = images[i].bytes;
-            _historyFiles.add(path);
-            _selected.add(path);
+            _addBatchImage(
+              File(path),
+              keepOnRefresh: true,
+              bytes: images[i].bytes,
+            );
           }
         });
         _focusPreviews();
@@ -192,25 +217,54 @@ class _DesktopMetadataProcessorState
     }
   }
 
+  void _addBatchImage(
+    File file, {
+    bool keepOnRefresh = false,
+    Uint8List? bytes,
+  }) {
+    final existing = _files
+        .where((f) => p.equals(f.path, file.path))
+        .firstOrNull;
+    if (existing == null) _files.add(file);
+    final path = (existing ?? file).path;
+    _selected.add(path);
+    if (keepOnRefresh) _historyFiles.add(path);
+    if (bytes != null) _memoryImages[path] = bytes;
+  }
+
+  void _removeBatchImage(File file) {
+    setState(() {
+      _files.remove(file);
+      _selected.remove(file.path);
+      _historyFiles.remove(file.path);
+      _memoryImages.remove(file.path);
+    });
+  }
+
   void _keepHistoryImages() {
     _files.removeWhere((file) => !_historyFiles.contains(file.path));
     _selected.retainWhere(_historyFiles.contains);
   }
 
-  Future<void> _readImage(Uint8List bytes, String name, String? path) async {
+  Future<void> _readImage(
+    Uint8List bytes,
+    String name,
+    String? path, {
+    String? restorePath,
+  }) async {
+    _pickedNewImage = true;
     final meta = await extractImageMetadata(bytes);
     if (!mounted) return;
+    _drafts.readImage(meta, restorePath ?? path);
+    final fields = ref.read(metadataDraftProvider).fields;
     setState(() {
       _bytes = bytes;
       _imagePath = path;
       _imageName = name;
       _meta = meta;
-      _original = metadataComment(meta);
       for (final entry in _fields.entries) {
-        entry.value.text = _original[entry.key].toString();
+        entry.value.text = fields[entry.key].toString();
       }
-      _sm = _original['sm'] == true;
-      _smDyn = _original['sm_dyn'] == true;
       _errors.clear();
     });
   }
@@ -218,10 +272,11 @@ class _DesktopMetadataProcessorState
   Future<void> _reread() async {
     setState(() => _loading = true);
     try {
+      final restorePath = ref.read(metadataDraftProvider).imagePath;
       final bytes = _imagePath == null
           ? _bytes!
           : await File(_imagePath!).readAsBytes();
-      await _readImage(bytes, _imageName, _imagePath);
+      await _readImage(bytes, _imageName, _imagePath, restorePath: restorePath);
       if (mounted) hintSnack(context, l10nNow.desktopImageSettingsReloaded);
     } catch (error) {
       if (mounted) hintSnack(context, '读取失败：$error');
@@ -239,6 +294,7 @@ class _DesktopMetadataProcessorState
       );
       if (!mounted || chosen == null) return;
       setState(() => (input ? _input : _output).text = chosen!);
+      if (!input) _drafts.setOutputDirectory(chosen);
     } catch (error) {
       if (mounted) hintSnack(context, '无法选择文件夹：$error');
     } finally {
@@ -258,11 +314,8 @@ class _DesktopMetadataProcessorState
       if (!mounted) return;
       setState(() {
         for (final file in files) {
-          if (!_files.any((existing) => p.equals(existing.path, file.path))) {
-            _files.add(file);
-          }
+          _addBatchImage(file);
         }
-        _selected.addAll(files.map((f) => f.path));
       });
       _focusPreviews();
     } catch (error) {
@@ -272,48 +325,22 @@ class _DesktopMetadataProcessorState
     }
   }
 
-  Map<String, dynamic>? _snapshot() {
-    final values = <String, dynamic>{'sm': _sm, 'sm_dyn': _sm && _smDyn};
+  Map<String, dynamic>? _snapshot(MetadataDraft draft) {
     _errors.clear();
-    for (final entry in _fields.entries) {
-      final text = entry.value.text.trim();
-      if (const {
-        'prompt',
-        'uc',
-        'sampler',
-        'noise_schedule',
-      }.contains(entry.key)) {
-        values[entry.key] = text;
-        if (text.isEmpty &&
-            (entry.key == 'sampler' || entry.key == 'noise_schedule')) {
-          _errors[entry.key] = '请填写此项';
-        }
-        continue;
-      }
-      final integer = entry.key == 'steps' || entry.key == 'seed';
-      final num? value = integer ? int.tryParse(text) : double.tryParse(text);
-      final min = entry.key == 'steps'
-          ? 1
-          : entry.key == 'seed'
-          ? -1
-          : 0;
-      if (value == null || !value.isFinite || value < min) {
-        _errors[entry.key] = integer ? '请输入不小于 $min 的整数' : '请输入有效的非负数';
-      } else {
-        values[entry.key] = value;
-      }
-    }
-    if (_errors.isNotEmpty) {
+    try {
+      return draft.buildComment();
+    } on MetadataFieldErrors catch (error) {
+      _errors.addAll(error.fields);
       setState(() => _tab = 0);
       hintSnack(context, l10nNow.desktopCheckTheHighlightedGenerationSettings);
       return null;
     }
-    return updateMetadataComment(_original, values);
   }
 
   Future<void> _saveSingle({required bool strip}) async {
     if (_bytes == null || _busy) return;
-    final comment = strip ? null : _snapshot();
+    final draft = ref.read(metadataDraftProvider);
+    final comment = strip ? null : _snapshot(draft);
     if (!strip && comment == null) return;
     if (_destination == null) await _browse(input: false);
     if (!mounted || _destination == null) return;
@@ -330,7 +357,7 @@ class _DesktopMetadataProcessorState
         sourceName: _imageName,
         bytes: _bytes!,
         comment: comment,
-        source: _source,
+        source: draft.source,
       );
       if (!mounted) return;
       setState(() {
@@ -347,7 +374,8 @@ class _DesktopMetadataProcessorState
 
   Future<void> _startBatch() async {
     if (_busy || _selected.isEmpty) return;
-    final comment = _strip ? null : _snapshot();
+    final draft = ref.read(metadataDraftProvider);
+    final comment = _strip ? null : _snapshot(draft);
     if (!_strip && comment == null) return;
     if (_destination == null) await _browse(input: false);
     if (!mounted || _destination == null) return;
@@ -357,7 +385,7 @@ class _DesktopMetadataProcessorState
       directory: Directory(destination),
       comment: comment,
       memoryImages: _memoryImages,
-      source: _source,
+      source: draft.source,
     );
     setState(() {
       _job = job;
@@ -410,65 +438,70 @@ class _DesktopMetadataProcessorState
   }
 
   @override
-  Widget build(BuildContext context) => ImageDropRegion(
-    label: _tab == 0 ? '读取图片元数据' : '加入批量处理',
-    enabled: !_busy,
-    multiple: _tab == 1,
-    onDrop: _dropImages,
-    child: Column(
-      key: const ValueKey('desktop-metadata-tool'),
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        LayoutBuilder(
-          builder: (context, constraints) {
-            final description = Text(
-              l10nNow.desktopReadAndEditGenerationSettingsThenExportThe,
-              style: context.texts.bodySmall!.copyWith(
-                color: context.scheme.onSurfaceVariant,
-              ),
-            );
-            final modes = SegmentedButton<int>(
-              segments: [
-                ButtonSegment(
-                  value: 0,
-                  icon: Icon(Icons.image_outlined, size: 18),
-                  label: Text(l10nNow.desktopSingleImage),
+  Widget build(BuildContext context) {
+    ref.listen(singleMetadataRequestProvider, (_, _) {
+      if (_tab != 0) setState(() => _tab = 0);
+    });
+    return ImageDropRegion(
+      label: _tab == 0 ? '读取图片元数据' : '加入批量处理',
+      enabled: !_busy,
+      multiple: _tab == 1,
+      onDrop: _dropImages,
+      child: Column(
+        key: const ValueKey('desktop-metadata-tool'),
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final description = Text(
+                l10nNow.desktopReadAndEditGenerationSettingsThenExportThe,
+                style: context.texts.bodySmall!.copyWith(
+                  color: context.scheme.onSurfaceVariant,
                 ),
-                ButtonSegment(
-                  value: 1,
-                  icon: Icon(Icons.photo_library_outlined, size: 18),
-                  label: Text(l10nNow.desktopBatchProcessing),
-                ),
-              ],
-              selected: {_tab},
-              showSelectedIcon: false,
-              onSelectionChanged: _busy
-                  ? null
-                  : (s) => setState(() => _tab = s.first),
-            );
-            final scale = MediaQuery.textScalerOf(context).scale(14) / 14;
-            if (constraints.maxWidth >= 760 * scale) {
-              return Row(
-                children: [
-                  Expanded(child: description),
-                  const SizedBox(width: 16),
-                  modes,
-                ],
               );
-            }
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [description, const SizedBox(height: 12), modes],
-            );
-          },
-        ),
-        const SizedBox(height: 16),
-        if (_loading) const LinearProgressIndicator(),
-        if (_tab == 0) _single() else _batch(),
-        if (_status != null) ...[const SizedBox(height: 14), _results()],
-      ],
-    ),
-  );
+              final modes = SegmentedButton<int>(
+                segments: [
+                  ButtonSegment(
+                    value: 0,
+                    icon: Icon(Icons.image_outlined, size: 18),
+                    label: Text(l10nNow.desktopSingleImage),
+                  ),
+                  ButtonSegment(
+                    value: 1,
+                    icon: Icon(Icons.photo_library_outlined, size: 18),
+                    label: Text(l10nNow.desktopBatchProcessing),
+                  ),
+                ],
+                selected: {_tab},
+                showSelectedIcon: false,
+                onSelectionChanged: _busy
+                    ? null
+                    : (s) => setState(() => _tab = s.first),
+              );
+              final scale = MediaQuery.textScalerOf(context).scale(14) / 14;
+              if (constraints.maxWidth >= 760 * scale) {
+                return Row(
+                  children: [
+                    Expanded(child: description),
+                    const SizedBox(width: 16),
+                    modes,
+                  ],
+                );
+              }
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [description, const SizedBox(height: 12), modes],
+              );
+            },
+          ),
+          const SizedBox(height: 16),
+          if (_loading) const LinearProgressIndicator(),
+          if (_tab == 0) _single() else _batch(),
+          if (_status != null) ...[const SizedBox(height: 14), _results()],
+        ],
+      ),
+    );
+  }
 
   Widget _card(String title, Widget child, {Key? key, Widget? action}) =>
       Padding(
@@ -498,245 +531,277 @@ class _DesktopMetadataProcessorState
         ),
       );
 
-  Widget _single() => Column(
-    crossAxisAlignment: CrossAxisAlignment.stretch,
-    children: [
-      _card(
-        '当前图片',
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            SelectableText(
-              _imagePath ??
-                  (_imageName.isEmpty
-                      ? '尚未选择图片 · PNG / JPEG / WebP'
-                      : _imageName),
-            ),
-            const SizedBox(height: 10),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                FilledButton.tonalIcon(
-                  key: const ValueKey('metadata-select-image'),
-                  onPressed: _busy ? null : _pickImage,
-                  icon: const Icon(
-                    Icons.add_photo_alternate_outlined,
-                    size: 18,
+  Widget _single() {
+    final parameters = _editor();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _card(
+          '当前图片',
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              SelectableText(
+                _imagePath ??
+                    (_imageName.isEmpty
+                        ? '尚未选择图片 · PNG / JPEG / WebP'
+                        : _imageName),
+              ),
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  FilledButton.tonalIcon(
+                    key: const ValueKey('metadata-select-image'),
+                    onPressed: _busy ? null : _pickImage,
+                    icon: const Icon(
+                      Icons.add_photo_alternate_outlined,
+                      size: 18,
+                    ),
+                    label: Text(l10nNow.selectImage),
                   ),
-                  label: Text(l10nNow.selectImage),
-                ),
-                OutlinedButton.icon(
-                  key: const ValueKey('metadata-history-single'),
-                  onPressed: _busy ? null : () => _pickHistory(multiple: false),
-                  icon: const Icon(Icons.history, size: 18),
-                  label: Text(l10nNow.desktopChooseFromHistory),
-                ),
-                OutlinedButton.icon(
-                  onPressed: _busy || _bytes == null ? null : _reread,
-                  icon: const Icon(Icons.refresh, size: 18),
-                  label: Text(l10nNow.desktopReloadMetadata),
-                ),
-                if (_meta != null)
-                  TextButton(
+                  OutlinedButton.icon(
+                    key: const ValueKey('metadata-history-single'),
                     onPressed: _busy
                         ? null
-                        : () => Navigator.of(context).push(
-                            sharedAxisRoute(
-                              MetadataDetailPage(
-                                meta: _meta!,
-                                bytes: _bytes!,
-                                fileName: _imageName,
-                                standalone: true,
+                        : () => _pickHistory(multiple: false),
+                    icon: const Icon(Icons.history, size: 18),
+                    label: Text(l10nNow.desktopChooseFromHistory),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: _busy || _bytes == null ? null : _reread,
+                    icon: const Icon(Icons.refresh, size: 18),
+                    label: Text(l10nNow.desktopReloadMetadata),
+                  ),
+                  if (_meta != null)
+                    TextButton(
+                      onPressed: _busy
+                          ? null
+                          : () => Navigator.of(context).push(
+                              sharedAxisRoute(
+                                MetadataDetailPage(
+                                  meta: _meta!,
+                                  bytes: _bytes!,
+                                  fileName: _imageName,
+                                  standalone: true,
+                                ),
                               ),
                             ),
-                          ),
-                    child: Text(l10nNow.desktopViewDetailsAndImport),
-                  ),
-              ],
-            ),
-          ],
+                      child: Text(l10nNow.desktopViewDetailsAndImport),
+                    ),
+                ],
+              ),
+            ],
+          ),
         ),
-      ),
-      LayoutBuilder(
-        builder: (context, constraints) {
-          final preview = _card(
-            '图片预览',
-            Column(
-              children: [
-                SizedBox(
-                  height: 350,
-                  width: double.infinity,
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(12),
-                    child: ColoredBox(
-                      color: context.scheme.surfaceContainer,
-                      child: _bytes == null
-                          ? const Center(
-                              child: Icon(Icons.image_outlined, size: 52),
-                            )
-                          : Image.memory(
-                              _bytes!,
-                              fit: BoxFit.contain,
-                              cacheWidth: 700,
-                              errorBuilder: (_, _, _) =>
-                                  Center(child: Text(l10nNow.desktopCouldNotDecodeImage)),
-                            ),
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final preview = _card(
+              '图片预览',
+              Column(
+                children: [
+                  SizedBox(
+                    height: 350,
+                    width: double.infinity,
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: ColoredBox(
+                        color: context.scheme.surfaceContainer,
+                        child: _bytes == null
+                            ? const Center(
+                                child: Icon(Icons.image_outlined, size: 52),
+                              )
+                            : Image.memory(
+                                _bytes!,
+                                fit: BoxFit.contain,
+                                cacheWidth: 700,
+                                errorBuilder: (_, _, _) => Center(
+                                  child: Text(
+                                    l10nNow.desktopCouldNotDecodeImage,
+                                  ),
+                                ),
+                              ),
+                      ),
                     ),
                   ),
-                ),
-                const SizedBox(height: 10),
-                Text(
-                  _bytes == null
-                      ? '选择图片后显示预览'
-                      : _meta == null
-                      ? '未检测到生成参数，可以直接填写新参数'
-                      : '已读取 ${_meta!.source} 的生成参数',
-                  style: context.texts.bodySmall,
-                ),
-              ],
-            ),
-          );
-          final editor = _card('生成参数', _editor());
-          if (constraints.maxWidth < 700) {
-            return Column(children: [preview, editor]);
-          }
-          return Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              SizedBox(width: constraints.maxWidth * .34, child: preview),
-              const SizedBox(width: 16),
-              Expanded(child: editor),
-            ],
-          );
-        },
-      ),
-      _card(
-        '导出图片',
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            _directoryField(input: false),
-            const SizedBox(height: 10),
-            Text(l10nNow.desktopExportAPNGCopyAndKeepTheOriginal),
-            const SizedBox(height: 12),
-            Wrap(
-              alignment: WrapAlignment.end,
-              spacing: 10,
-              runSpacing: 8,
+                  const SizedBox(height: 10),
+                  Text(
+                    _bytes == null
+                        ? '选择图片后显示预览'
+                        : _meta == null
+                        ? '未检测到生成参数，可以直接填写新参数'
+                        : '已读取 ${_meta!.source} 的生成参数',
+                    style: context.texts.bodySmall,
+                  ),
+                ],
+              ),
+            );
+            final editor = _card('生成参数', parameters);
+            if (constraints.maxWidth < 700) {
+              return Column(children: [preview, editor]);
+            }
+            return Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                OutlinedButton.icon(
-                  key: const ValueKey('metadata-strip-single'),
-                  onPressed: _busy || _bytes == null
-                      ? null
-                      : () => _saveSingle(strip: true),
-                  icon: const Icon(Icons.cleaning_services_outlined, size: 18),
-                  label: Text(l10nNow.desktopRemoveMetadataAndExport),
-                ),
-                FilledButton.icon(
-                  key: const ValueKey('metadata-write-single'),
-                  onPressed: _busy || _bytes == null
-                      ? null
-                      : () => _saveSingle(strip: false),
-                  icon: const Icon(Icons.save_alt, size: 18),
-                  label: Text(l10nNow.desktopWriteMetadataAndExport),
-                ),
+                SizedBox(width: constraints.maxWidth * .34, child: preview),
+                const SizedBox(width: 16),
+                Expanded(child: editor),
               ],
-            ),
-          ],
+            );
+          },
         ),
-      ),
-    ],
-  );
+        _card(
+          '导出图片',
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _directoryField(input: false),
+              const SizedBox(height: 10),
+              Text(l10nNow.desktopExportAPNGCopyAndKeepTheOriginal),
+              const SizedBox(height: 12),
+              Wrap(
+                alignment: WrapAlignment.end,
+                spacing: 10,
+                runSpacing: 8,
+                children: [
+                  OutlinedButton.icon(
+                    key: const ValueKey('metadata-strip-single'),
+                    onPressed: _busy || _bytes == null
+                        ? null
+                        : () => _saveSingle(strip: true),
+                    icon: const Icon(
+                      Icons.cleaning_services_outlined,
+                      size: 18,
+                    ),
+                    label: Text(l10nNow.desktopRemoveMetadataAndExport),
+                  ),
+                  FilledButton.icon(
+                    key: const ValueKey('metadata-write-single'),
+                    onPressed: _busy || _bytes == null
+                        ? null
+                        : () => _saveSingle(strip: false),
+                    icon: const Icon(Icons.save_alt, size: 18),
+                    label: Text(l10nNow.desktopWriteMetadataAndExport),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
 
-  Widget _field(String name, String label, {int lines = 1}) => TextField(
-    key: ValueKey('metadata-field-$name'),
-    controller: _fields[name],
-    enabled: !_busy,
-    minLines: lines,
-    maxLines: lines == 1 ? 1 : lines + 3,
-    decoration: InputDecoration(
+  Widget _field(String name, String label, {int lines = 1}) {
+    final decoration = InputDecoration(
       labelText: label,
       errorText: _errors[name],
       border: const OutlineInputBorder(),
       isDense: true,
-    ),
-    onChanged: (_) {
+    );
+    void onChanged(String value) {
+      _drafts.editFields({name: value});
       if (_errors.containsKey(name)) setState(() => _errors.remove(name));
-    },
-  );
+    }
 
-  Widget _editor() => Column(
-    crossAxisAlignment: CrossAxisAlignment.stretch,
-    children: [
-      _field('prompt', '正向提示词', lines: 4),
-      const SizedBox(height: 16),
-      _field('uc', '负向提示词', lines: 3),
-      const SizedBox(height: 16),
-      LayoutBuilder(
-        builder: (context, constraints) {
-          final width = (constraints.maxWidth - 12) / 2;
-          return Wrap(
-            spacing: 12,
-            runSpacing: 16,
-            children: [
-              for (final entry in const {
-                'steps': '步数',
-                'scale': '引导强度',
-                'seed': '种子',
-                'sampler': '采样器',
-              }.entries)
-                SizedBox(width: width, child: _field(entry.key, entry.value)),
-            ],
-          );
-        },
+    if (name == 'sampler') {
+      return MetadataSamplerField(
+        controller: _fields[name]!,
+        enabled: !_busy,
+        decoration: decoration,
+        onChanged: onChanged,
+      );
+    }
+    return TextField(
+      key: ValueKey('metadata-field-$name'),
+      controller: _fields[name],
+      enabled: !_busy,
+      minLines: lines,
+      maxLines: lines == 1 ? 1 : lines + 3,
+      decoration: decoration,
+      onChanged: onChanged,
+    );
+  }
+
+  Widget _editor() {
+    final (sm, smDyn, advanced) = ref.watch(
+      metadataDraftProvider.select(
+        (d) => (d.fields['sm'] == true, d.fields['sm_dyn'] == true, d.advanced),
       ),
-      const SizedBox(height: 8),
-      Wrap(
-        spacing: 8,
-        children: [
-          FilterChip(
-            label: const Text('SMEA'),
-            selected: _sm,
-            onSelected: _busy
-                ? null
-                : (v) => setState(() {
-                    _sm = v;
-                    if (!v) _smDyn = false;
-                  }),
-          ),
-          FilterChip(
-            label: const Text('SMEA Dynamic'),
-            selected: _sm && _smDyn,
-            onSelected: _busy || !_sm
-                ? null
-                : (v) => setState(() => _smDyn = v),
-          ),
-        ],
-      ),
-      ExpansionTile(
-        key: const PageStorageKey('metadata-advanced-parameters'),
-        tilePadding: EdgeInsets.zero,
-        title: Text(l10nNow.desktopMoreSettings),
-        childrenPadding: const EdgeInsets.only(top: 8, bottom: 8),
-        children: [
-          for (final entry in const {
-            'noise_schedule': '噪声调度',
-            'cfg_rescale': 'CFG Rescale',
-            'strength': '重绘强度',
-            'noise': '噪声强度',
-          }.entries)
-            Padding(
-              // EditableText restores its own horizontal scroll offset. It must
-              // not read the bool stored under the parent ExpansionTile key.
-              key: PageStorageKey('metadata-parameter-${entry.key}'),
-              padding: const EdgeInsets.only(bottom: 14),
-              child: _field(entry.key, entry.value),
+    );
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _field('prompt', '正向提示词', lines: 4),
+        const SizedBox(height: 16),
+        _field('uc', '负向提示词', lines: 3),
+        const SizedBox(height: 16),
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final width = (constraints.maxWidth - 12) / 2;
+            return Wrap(
+              spacing: 12,
+              runSpacing: 16,
+              children: [
+                for (final entry in {
+                  'steps': '步数',
+                  'scale': '引导强度',
+                  'seed': '种子',
+                  'sampler': context.l10n.desktopSampler,
+                }.entries)
+                  SizedBox(width: width, child: _field(entry.key, entry.value)),
+              ],
+            );
+          },
+        ),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          children: [
+            FilterChip(
+              label: const Text('SMEA'),
+              selected: sm,
+              onSelected: _busy
+                  ? null
+                  : (v) =>
+                        _drafts.editFields({'sm': v, if (!v) 'sm_dyn': false}),
             ),
-        ],
-      ),
-    ],
-  );
+            FilterChip(
+              label: const Text('SMEA Dynamic'),
+              selected: sm && smDyn,
+              onSelected: _busy || !sm
+                  ? null
+                  : (v) => _drafts.editFields({'sm_dyn': v}),
+            ),
+          ],
+        ),
+        ExpansionTile(
+          key: const PageStorageKey('metadata-advanced-parameters'),
+          initiallyExpanded: advanced,
+          onExpansionChanged: _drafts.setAdvanced,
+          tilePadding: EdgeInsets.zero,
+          title: Text(l10nNow.desktopMoreSettings),
+          childrenPadding: const EdgeInsets.only(top: 8, bottom: 8),
+          children: [
+            for (final entry in const {
+              'noise_schedule': '噪声调度',
+              'cfg_rescale': 'CFG Rescale',
+              'strength': '重绘强度',
+              'noise': '噪声强度',
+            }.entries)
+              Padding(
+                // EditableText restores its own horizontal scroll offset. It must
+                // not read the bool stored under the parent ExpansionTile key.
+                key: PageStorageKey('metadata-parameter-${entry.key}'),
+                padding: const EdgeInsets.only(bottom: 14),
+                child: _field(entry.key, entry.value),
+              ),
+          ],
+        ),
+      ],
+    );
+  }
 
   Widget _directoryField({required bool input}) => Row(
     children: [
@@ -758,9 +823,11 @@ class _DesktopMetadataProcessorState
             border: const OutlineInputBorder(),
           ),
           onSubmitted: input ? (_) => _scan() : null,
-          onChanged: (_) => setState(() {
+          onChanged: (value) => setState(() {
             if (input) {
               _keepHistoryImages();
+            } else {
+              _drafts.setOutputDirectory(value);
             }
           }),
         ),
@@ -850,7 +917,10 @@ class _DesktopMetadataProcessorState
                 ),
               ),
             const SizedBox(height: 8),
-            Text(l10nNow.desktopExportPNGCopiesDuplicateFilenamesAreNumberedAutomatically),
+            Text(
+              l10nNow
+                  .desktopExportPNGCopiesDuplicateFilenamesAreNumberedAutomatically,
+            ),
           ],
         ),
       ),
@@ -1085,6 +1155,32 @@ class _DesktopMetadataProcessorState
                                                 _selected.remove(file.path);
                                               }
                                             }),
+                                    ),
+                                  ),
+                                  Positioned(
+                                    top: 4,
+                                    right: 4,
+                                    child: IconButton.filledTonal(
+                                      tooltip: context.l10n
+                                          .metadataRemoveBatchImage(
+                                            p.basename(file.path),
+                                          ),
+                                      onPressed: _busy
+                                          ? null
+                                          : () => _removeBatchImage(file),
+                                      style: IconButton.styleFrom(
+                                        backgroundColor: context.scheme.surface,
+                                        foregroundColor: context.scheme.error,
+                                        fixedSize: const Size.square(32),
+                                        minimumSize: const Size.square(32),
+                                        padding: EdgeInsets.zero,
+                                        tapTargetSize:
+                                            MaterialTapTargetSize.shrinkWrap,
+                                      ),
+                                      icon: const Icon(
+                                        Icons.delete_outline,
+                                        size: 18,
+                                      ),
                                     ),
                                   ),
                                 ],

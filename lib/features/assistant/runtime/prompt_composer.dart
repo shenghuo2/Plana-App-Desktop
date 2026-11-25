@@ -2,6 +2,7 @@
 /// 各工具按选项补的说明。
 library;
 
+import '../../../core/ui/tag_category_icons.dart';
 import '../domain/turn_request.dart';
 import '../presets/preset_rule.dart';
 
@@ -34,6 +35,10 @@ String composeSystemPrompt({
 }) => [
   renderRules(withToolLayer(rules, toolLayer), modes),
   outputFormat.trim(),
+  if (semanticBlocksEnabled(rules, modes))
+    '已启用语义分块。遵循当前预设的分组与标签规则，在对应提示词对象的 blocks 中按非空行顺序标注。同一个块确有正负两面时，两侧使用相同的类别和短名。'
+        '可以在“类别·短名”末尾追加一个贴切的显示图标，如“场景·月下庭院·Moon”。'
+        '图标可省略，只能从 ${kTagCategoryIcons.keys.join(', ')} 中选，不写入生图提示词。',
   toolList.trim(),
   for (final n in notes) n.trim(),
 ].where((s) => s.isNotEmpty).join('\n\n');
@@ -43,6 +48,7 @@ String canvasBlockOf(CanvasSnapshot c, String intro) {
   final lines = <String>[
     intro,
     '[当前画面提示词]',
+    if (c.blockSummary.isNotEmpty) c.blockSummary,
     'positive: ${c.positive.trim().isEmpty ? "(空)" : c.positive}',
     'negative: ${c.negative.trim().isEmpty ? "(空)" : c.negative}',
   ];

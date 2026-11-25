@@ -346,6 +346,53 @@ void main() {
     },
   );
 
+  testWidgets('a slow offscreen decode keeps its slot until a frame or error', (
+    tester,
+  ) async {
+    await prepare(tester);
+    final pending = <int, Completer<ImageInfo>>{};
+    for (var i = 0; i < loading.maxConcurrent; i++) {
+      pending[i] = Completer<ImageInfo>();
+    }
+    final visible = Row(
+      children: [
+        for (final entry in pending.entries)
+          thumbnail(
+            'slow${entry.key}',
+            source: provider(
+              'slow${entry.key}',
+              frame: () => entry.value.future,
+            ),
+          ),
+      ],
+    );
+    await tester.pumpWidget(page(images: false, extra: visible));
+    await tester.pumpAndSettle();
+    expect(getStarts(), loading.maxConcurrent);
+    // All old cards unmount. Their actual decodes still occupy the slots.
+    await tester.pumpWidget(
+      page(
+        images: false,
+        extra: Row(children: [thumbnail('next'), thumbnail('after-error')]),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(starts['next'], isNull);
+    expect(loading.pendingCount, 2);
+    pending[0]!.completeError(StateError('offline fixture'));
+    // The fast replacements each finish in the slot released by the error.
+    await tester.pump();
+    await tester.pumpAndSettle();
+    expect(starts['next'], 1);
+    expect(starts['after-error'], 1);
+    for (final decode in pending.values.skip(1)) {
+      decode.complete(ImageInfo(image: pixels.clone()));
+    }
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+  });
+
   testWidgets(
     'late key callbacks and controller disposal cannot restart old work',
     (tester) async {

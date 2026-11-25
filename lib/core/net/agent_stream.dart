@@ -130,6 +130,7 @@ Stream<AgentEvent> streamAgentPrompt({
   required String userRequest,
   String model = '',
   String imageModel = '',
+  bool recoverBlocks = false,
   String? imageB64,
   List<Map<String, String>> history = const [],
   int historyTurns = 20,
@@ -285,7 +286,9 @@ Stream<AgentEvent> streamAgentPrompt({
                 : 'AI 这轮没跑起来',
           );
         case 'final':
-          yield AgentDone(AgentResult.fromJson(map));
+          yield AgentDone(
+            AgentResult.fromJson(map, recoverBlocks: recoverBlocks),
+          );
           return; // final 之后服务端就关流了,不必再等
       }
     }

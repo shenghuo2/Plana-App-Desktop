@@ -1,3 +1,4 @@
+import '../../editor/widgets/fold_icon.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -13,12 +14,14 @@ class CollapsedPromptPreview extends ConsumerWidget {
     super.key,
     required this.draft,
     this.enabled = true,
+    this.links = const [],
     this.maxLines = 1,
     this.style,
     this.emptyText = '点击编辑…',
   });
 
   final String draft;
+  final List<PromptFoldLink> links;
   final bool enabled;
   final int maxLines;
   final TextStyle? style;
@@ -41,6 +44,11 @@ class CollapsedPromptPreview extends ConsumerWidget {
     );
     final (text, bodies) = collapseFolds(draft);
     final folds = parseFoldRefs(text, bodies);
+    final icons = foldIconsOf(links);
+    final disabledFolds = {
+      for (final f in folds)
+        if (foldBodyDisabled(bodies[f.name]!)) f.name,
+    };
     final weights = <WeightSpan>[];
     final tokens = parseToks(text, weightSpans: weights);
     final boundaries = {
@@ -60,7 +68,10 @@ class CollapsedPromptPreview extends ConsumerWidget {
           final tok = tokens.where(
             (t) => t.segStart <= start && start < t.segEnd,
           );
-          final disabled = !enabled || tok.any((t) => t.disabled);
+          final disabled =
+              !enabled ||
+              tok.any((t) => t.disabled) ||
+              fold.any((f) => disabledFolds.contains(f.name));
           final foreground = disabled
               ? base.copyWith(
                   color: scheme.outline,
@@ -86,8 +97,8 @@ class CollapsedPromptPreview extends ConsumerWidget {
                         : scheme.primary.withValues(alpha: .16),
                     borderRadius: BorderRadius.circular(5),
                   ),
-                  child: Text(
-                    '#${f.name}',
+                  child: Text.rich(
+                    foldLabelSpan(f.name, icons[f.name], hash: true),
                     // WidgetSpan scales its child with the surrounding text.
                     textScaler: TextScaler.noScaling,
                     maxLines: 1,

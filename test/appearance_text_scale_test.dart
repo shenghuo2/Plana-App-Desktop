@@ -12,11 +12,13 @@ import 'package:plana_app/core/theme/theme_settings.dart';
 import 'package:plana_app/features/profile/appearance_page.dart';
 import 'package:plana_app/main.dart';
 
+import 'support/desktop_capture.dart';
 import 'support/pump_until.dart';
 
 /// Use the production app's theme and builder with a small settings route.
 class _App extends ConsumerWidget {
-  const _App({this.systemScaler});
+  const _App({this.systemScaler, this.home = const _Page()});
+  final Widget home;
 
   final TextScaler? systemScaler;
 
@@ -35,7 +37,7 @@ class _App extends ConsumerWidget {
                 builder: (context) => app.builder!(context, child),
               ),
             ),
-      home: const _Page(),
+      home: home,
     );
   }
 }
@@ -83,6 +85,8 @@ class _SystemScaler extends TextScaler {
 }
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+  setUpAll(loadDesktopCaptureFonts);
   late AppStores stores;
   late ProviderContainer container;
 
@@ -122,7 +126,11 @@ void main() {
     }))!;
   }
 
-  Future<void> mount(WidgetTester tester, {TextScaler? systemScaler}) async {
+  Future<void> mount(
+    WidgetTester tester, {
+    TextScaler? systemScaler,
+    Widget home = const _Page(),
+  }) async {
     tester.view.physicalSize = const Size(700, 1000);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
@@ -130,7 +138,7 @@ void main() {
     await tester.pumpWidget(
       UncontrolledProviderScope(
         container: container,
-        child: _App(systemScaler: systemScaler),
+        child: _App(systemScaler: systemScaler, home: home),
       ),
     );
     await tester.pumpAndSettle();
@@ -240,6 +248,164 @@ void main() {
       expect((await reloadTheme(tester)).textScale, 1);
       await tester.pumpWidget(const SizedBox());
       expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'inspiration category row snapping can be enabled and disabled across restarts',
+    (tester) async {
+      await mount(tester);
+      final setting = key('appearance-inspiration-row-snap');
+      await tester.scrollUntilVisible(
+        setting,
+        300,
+        scrollable: find
+            .descendant(
+              of: find.byType(AppearancePage),
+              matching: find.byType(Scrollable),
+            )
+            .first,
+      );
+      await tester.pumpAndSettle();
+      final toggle = find.descendant(
+        of: setting,
+        matching: find.byType(Switch),
+      );
+      expect(tester.widget<Switch>(toggle).value, isFalse);
+      await tester.tap(toggle);
+      await tester.pumpAndSettle();
+      expect(tester.widget<Switch>(toggle).value, isTrue);
+      expect((await reloadTheme(tester)).inspirationRowSnap, isTrue);
+      await tester.tap(toggle);
+      await tester.pumpAndSettle();
+      expect((await reloadTheme(tester)).inspirationRowSnap, isFalse);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
+  testWidgets(
+    'auto-fold after saving an inspiration persists from the creation settings',
+    (tester) async {
+      await mount(tester);
+      final setting = key('appearance-fold-after-inspiration-save');
+      await tester.scrollUntilVisible(
+        setting,
+        300,
+        scrollable: find
+            .descendant(
+              of: find.byType(AppearancePage),
+              matching: find.byType(Scrollable),
+            )
+            .first,
+      );
+      await tester.pumpAndSettle();
+      final toggle = find.descendant(
+        of: setting,
+        matching: find.byType(Switch),
+      );
+      expect(tester.widget<Switch>(toggle).value, isTrue);
+      await tester.tap(toggle);
+      await tester.pumpAndSettle();
+      expect((await reloadTheme(tester)).foldAfterInspirationSave, isFalse);
+      await tester.tap(toggle);
+      await tester.pumpAndSettle();
+      expect((await reloadTheme(tester)).foldAfterInspirationSave, isTrue);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
+  testWidgets(
+    'album drag settings align with adjacent rows and keep their control usable when narrow',
+    (tester) async {
+      final capture = GlobalKey();
+      await mount(
+        tester,
+        home: RepaintBoundary(
+          key: capture,
+          child: Builder(
+            builder: (context) {
+              final theme = Theme.of(context);
+              return Theme(
+                data: theme.copyWith(
+                  textTheme: theme.textTheme.apply(
+                    fontFamily: 'Microsoft YaHei',
+                  ),
+                ),
+                child: const AppearancePage(),
+              );
+            },
+          ),
+        ),
+      );
+      final controls = key('gallery-drag-feel');
+      Future<void> revealControl() async {
+        await tester.scrollUntilVisible(
+          controls,
+          250,
+          scrollable: find
+              .descendant(
+                of: find.byType(AppearancePage),
+                matching: find.byType(Scrollable),
+              )
+              .first,
+        );
+        await tester.pumpAndSettle();
+      }
+
+      await revealControl();
+      final title = find.text('拖动跟手曲线');
+      final hint = find.text('调整拖动图库卡片时相邻卡片让位、松手后卡片归位的动画。');
+      final otherTitle = find.text('保存后自动合并成块');
+      final otherHint = find.text('把选中的提示词存入灵感库后，在原位置合并为一个命名块。');
+      final otherIcon = find
+          .descendant(
+            of: key('appearance-fold-after-inspiration-save'),
+            matching: find.byType(Icon),
+          )
+          .first;
+      expect(tester.getTopLeft(title).dx, tester.getTopLeft(otherTitle).dx);
+      expect(tester.getTopLeft(hint).dx, tester.getTopLeft(otherHint).dx);
+      expect(
+        tester.widget<Text>(title).style,
+        tester.widget<Text>(otherTitle).style,
+      );
+      expect(
+        tester.widget<Text>(hint).style,
+        tester.widget<Text>(otherHint).style,
+      );
+      final icon = find.byIcon(Icons.open_with);
+      expect(tester.getTopLeft(icon).dx, tester.getTopLeft(otherIcon).dx);
+      expect(
+        tester.widget<Icon>(icon).size,
+        tester.widget<Icon>(otherIcon).size,
+      );
+      expect(
+        tester.getTopLeft(controls).dx,
+        greaterThan(tester.getTopRight(title).dx),
+      );
+      await Scrollable.ensureVisible(tester.element(controls), alignment: .55);
+      await tester.pumpAndSettle();
+      await captureDesktop(tester, capture, 'gallery-appearance-controls');
+      await tester.tap(find.text('微弹'));
+      await tester.pumpAndSettle();
+      expect(
+        (await reloadTheme(tester)).galleryDragFeel,
+        GalleryDragFeel.bouncy,
+      );
+
+      tester.view.physicalSize = const Size(360, 700);
+      container
+          .read(themeSettingsProvider.notifier)
+          .patch((s) => s.copyWith(textScale: 1.4));
+      await tester.pumpAndSettle();
+      await revealControl();
+      expect(
+        tester.getTopLeft(controls).dy,
+        greaterThan(tester.getBottomLeft(hint).dy),
+      );
+      expect(tester.takeException(), isNull);
+      await settlePrefs(tester);
+      await tester.pumpWidget(const SizedBox());
     },
   );
 

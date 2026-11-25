@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../../../core/net/remote_image.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/ui/fade_in_once.dart';
+import '../tag_models.dart' show kInspirationPortraitCardAspect;
 import 'codex_image_loading.dart';
 import 'codex_card_interactions.dart';
 import 'codex_models.dart';
@@ -42,16 +43,19 @@ class CodexCard extends StatelessWidget {
     this.fixedAspect,
     this.decodeWidth,
     this.desktop = false,
+    this.embedded = false,
     this.favorite = false,
     this.onFavorite,
     this.imageLoading,
+    this.compactFooter = false,
+    this.showCategory = true,
   });
 
   final CodexMeta codex;
   final CodexEntry entry;
   final CodexMedia media;
   final VoidCallback onTap;
-  final bool desktop, favorite;
+  final bool desktop, embedded, favorite, compactFooter, showCategory;
   final VoidCallback? onFavorite;
   final CodexImageLoadController? imageLoading;
 
@@ -62,24 +66,63 @@ class CodexCard extends StatelessWidget {
   /// 换档过渡途中不变 —— 按实时格宽解码的话,那几百毫秒里每一帧都是一路新解码。
   final double? decodeWidth;
 
+  /// Browsing and random-draw history share the same tile and image dimensions.
+  static ({double width, SliverGridDelegateWithFixedCrossAxisCount delegate})
+  desktopGrid(
+    BuildContext context,
+    double contentWidth, {
+    required bool embedded,
+    double targetWidth = 230,
+    double? previewAspectRatio,
+  }) {
+    final gap = embedded ? 10.0 : 16.0;
+    final columns = embedded
+        ? 2
+        : ((contentWidth + gap) / targetWidth).floor().clamp(1, 10);
+    final width = ((contentWidth - gap * (columns - 1)) / columns).clamp(
+      0.0,
+      double.infinity,
+    );
+    final height = embedded
+        ? width / kInspirationPortraitCardAspect +
+              16 +
+              MediaQuery.textScalerOf(context).scale(36)
+        : previewAspectRatio == null
+        ? 330.0
+        : width / previewAspectRatio +
+              29 +
+              MediaQuery.textScalerOf(context).scale(36);
+    return (
+      width: width,
+      delegate: SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: columns,
+        crossAxisSpacing: gap,
+        mainAxisSpacing: gap,
+        mainAxisExtent: height,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) => LayoutBuilder(
     // 捏到三四列以后卡片很窄:标题收成一行、小一号,不然两行字的渐变条能把
     // 横图整张盖住。按宽度判,同一屏卡片的字号一致。
     builder: (context, c) => desktop
-        ? _desktopCard(context)
+        ? _desktopCard(context, c.maxWidth)
         : _card(context, compact: c.maxWidth < 130),
   );
 
-  Widget _desktopCard(BuildContext context) {
+  Widget _desktopCard(BuildContext context, double width) {
     final scheme = context.scheme;
     final url = codexImageUrl(codex, entry, media);
+    final inset = embedded ? 5.0 : 8.0;
+    final favoriteSize = (width * .19).clamp(28.0, 40.0);
     return CodexCardInteractions(
       codex: codex,
       entry: entry,
       media: media,
       onOpen: onTap,
-      builder: (context, actions, preview, open) => Material(
+      builder: (context, actions, hoverImage, open) => Material(
         color: scheme.surfaceContainerLowest,
         clipBehavior: Clip.antiAlias,
         shape: RoundedRectangleBorder(
@@ -95,23 +138,25 @@ class CodexCard extends StatelessWidget {
                 child: Stack(
                   fit: StackFit.expand,
                   children: [
-                    ColoredBox(
-                      color: scheme.surfaceContainerLow,
-                      child: url == null
-                          ? _placeholder(context)
-                          : LayoutBuilder(
-                              builder: (context, bounds) => _desktopPreview(
-                                context,
-                                url,
-                                bounds.maxHeight,
+                    hoverImage(
+                      ColoredBox(
+                        color: scheme.surfaceContainerLow,
+                        child: url == null
+                            ? _placeholder(context)
+                            : LayoutBuilder(
+                                builder: (context, bounds) => _desktopPreview(
+                                  context,
+                                  url,
+                                  bounds.maxHeight,
+                                ),
                               ),
-                            ),
+                      ),
                     ),
-                    if (entry.path.isNotEmpty || entry.isNew)
+                    if ((showCategory && entry.path.isNotEmpty) || entry.isNew)
                       Positioned(
-                        left: 10,
-                        top: 10,
-                        right: 54,
+                        left: inset + 2,
+                        top: inset + 2,
+                        right: embedded ? inset + favoriteSize + 4 : 54,
                         child: Align(
                           alignment: Alignment.topLeft,
                           child: Container(
@@ -133,40 +178,40 @@ class CodexCard extends StatelessWidget {
                         ),
                       ),
                     Positioned(
-                      right: 8,
-                      top: 8,
+                      right: inset,
+                      top: inset,
                       child: IconButton.filledTonal(
                         tooltip: favorite ? '取消收藏' : '收藏',
                         onPressed: onFavorite,
+                        style: embedded
+                            ? IconButton.styleFrom(
+                                fixedSize: Size.square(favoriteSize),
+                                minimumSize: Size.zero,
+                                padding: EdgeInsets.zero,
+                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              )
+                            : null,
                         icon: Icon(
                           favorite ? Icons.star_rounded : Icons.star_outline,
-                          size: 20,
+                          size: embedded ? favoriteSize * .54 : 20,
                         ),
                       ),
                     ),
-                    Positioned.fill(
-                      left: 8,
-                      right: 8,
-                      top: 8,
-                      bottom: 8,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          Expanded(
-                            child: Padding(
-                              padding: const EdgeInsets.fromLTRB(4, 48, 4, 4),
-                              child: Center(child: preview),
-                            ),
-                          ),
-                          actions,
-                        ],
-                      ),
+                    Positioned(
+                      left: inset,
+                      right: inset,
+                      bottom: inset,
+                      child: embedded || compactFooter
+                          ? FittedBox(fit: BoxFit.scaleDown, child: actions)
+                          : actions,
                     ),
                   ],
                 ),
               ),
               Padding(
-                padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+                padding: embedded
+                    ? const EdgeInsets.symmetric(horizontal: 9, vertical: 7)
+                    : const EdgeInsets.fromLTRB(14, 12, 14, 12),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
@@ -178,10 +223,10 @@ class CodexCard extends StatelessWidget {
                         fontWeight: FontWeight.w700,
                       ),
                     ),
-                    const SizedBox(height: 5),
+                    SizedBox(height: embedded ? 2 : 5),
                     Text(
                       entry.fullText.replaceAll(RegExp(r'\s+'), ' '),
-                      maxLines: 2,
+                      maxLines: embedded || compactFooter ? 1 : 2,
                       overflow: TextOverflow.ellipsis,
                       style: context.texts.bodySmall!.copyWith(
                         color: scheme.onSurfaceVariant,
@@ -201,7 +246,8 @@ class CodexCard extends StatelessWidget {
     final scheme = context.scheme;
     Widget preview(RemoteImageProviderDecorator? decorator) => RemoteImage(
       url,
-      fit: BoxFit.contain,
+      fit: embedded ? BoxFit.cover : BoxFit.contain,
+      alignment: embedded ? Alignment.topCenter : Alignment.center,
       decodeWidth: decodeWidth,
       decodeHeight: height,
       providerDecorator: decorator,

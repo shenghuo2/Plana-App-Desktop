@@ -310,24 +310,32 @@ class SettingNavRow extends StatelessWidget {
       onTap: onTap,
       child: Padding(
         padding: const EdgeInsets.fromLTRB(20, 8, 10, 8),
-        child: Row(
-          children: [
-            Icon(icon, size: 20, color: scheme.primary),
-            const SizedBox(width: 14),
-            Expanded(
-              child: SettingRowTexts(title: title, desc: desc),
-            ),
-            const SizedBox(width: 8),
-            Text(
-              value,
-              style: context.texts.labelLarge!.copyWith(
-                color: scheme.primary,
-                fontWeight: FontWeight.w700,
+        child: LayoutBuilder(
+          builder: (context, bounds) => Row(
+            children: [
+              Icon(icon, size: 20, color: scheme.primary),
+              const SizedBox(width: 14),
+              Expanded(
+                child: SettingRowTexts(title: title, desc: desc),
               ),
-            ),
-            const SizedBox(width: 2),
-            Icon(Icons.chevron_right, size: 20, color: scheme.outline),
-          ],
+              const SizedBox(width: 8),
+              ConstrainedBox(
+                constraints: BoxConstraints(maxWidth: bounds.maxWidth / 2),
+                child: Text(
+                  value,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.end,
+                  style: context.texts.labelLarge!.copyWith(
+                    color: scheme.primary,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 2),
+              Icon(Icons.chevron_right, size: 20, color: scheme.outline),
+            ],
+          ),
         ),
       ),
     );

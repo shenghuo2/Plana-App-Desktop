@@ -4,6 +4,20 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:plana_app/core/theme/theme_settings.dart';
 
 void main() {
+  test(
+    'desktop album drag defaults to smooth and restores all three curves',
+    () {
+      expect(
+        ThemeSettings.fromJson({'galleryDragFeel': 'future'}).galleryDragFeel,
+        GalleryDragFeel.smooth,
+      );
+      for (final feel in GalleryDragFeel.values) {
+        final changed = const ThemeSettings().copyWith(galleryDragFeel: feel);
+        expect(ThemeSettings.fromJson(changed.toJson()), changed);
+      }
+    },
+  );
+
   test('法典预览默认开启，关闭后随外观设置持久化', () {
     expect(ThemeSettings.fromJson({}).codexHoverPreview, isTrue);
     final off = const ThemeSettings().copyWith(codexHoverPreview: false);
