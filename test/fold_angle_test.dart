@@ -26,6 +26,24 @@ void main() {
       expect(expandFolds(text, bodies), d);
     });
 
+    test('句内引用保存后保留两个独立折叠及原有权重', () {
+      const oc = '1.35::pink ears, silver hair::, {ribbon}, [gloves]';
+      const outfit = 'blue dress, high heels';
+      const draft = 'The girl with <#OC: $oc#> wears <#衣服: $outfit#>.';
+      final (display, bodies) = collapseFolds(draft);
+      expect(
+        display,
+        'The girl with ${foldRefLiteral('OC')} wears ${foldRefLiteral('衣服')}.',
+      );
+      expect(bodies, {'OC': oc, '衣服': outfit});
+      expect(expandFolds(display, bodies), draft);
+      expect(outputOf(draft), 'The girl with $oc wears $outfit.');
+      final tokens = parseToks(draft);
+      expect(tokens.singleWhere((t) => t.name == 'silver hair').effMult, 1.35);
+      expect(tokens.singleWhere((t) => t.name == 'wears').effMult, 1);
+      expect(parseFolds('A literal <#note: still typing'), isEmpty);
+    });
+
     // 这三样在裸 `>` 下都是雷:孤零零的 `<`、SD 的 `<lora:…>`、颜文字。
     // 新记号根本不看尖括号,一律无感。
     test('孤零零的 < / <lora:x:1> / 颜文字都不影响尾部判定', () {

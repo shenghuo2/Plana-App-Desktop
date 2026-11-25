@@ -41,6 +41,111 @@ List<WeightSpan> _weights(String text) {
 bool _crossesWeight(List<WeightSpan> spans, int a, int b) =>
     spans.any((s) => s.start < a && a < s.end || s.start < b && b < s.end);
 
+/// Locate the surviving contents of old folds in the actual revised text.
+/// Both ungrouped terms and terms from other folds are ownership boundaries.
+Map<PromptBlock, (int, String)> revisedNegativeSpans(
+  String previous,
+  Iterable<PromptBlock> previousBlocks,
+  String revised, {
+  bool libraryFallback = false,
+}) {
+  final blocks =
+      previousBlocks.where((b) => b.character == -1 && b.negative).toList()
+        ..sort((a, b) => a.start.compareTo(b.start));
+  if (blocks.isEmpty || revised.isEmpty) return {};
+  if (!libraryFallback && previous == revised) {
+    return {for (final b in blocks) b: (b.start, b.text)};
+  }
+  final old = parseToks(previous);
+  final weights = <WeightSpan>[];
+  final next = parseToks(revised, weightSpans: weights);
+  final owners = <PromptBlock?>[];
+  final byName = <String, Set<PromptBlock?>>{};
+  final occurrences = <String, int>{};
+  var index = 0;
+  for (final token in old) {
+    while (index < blocks.length &&
+        blocks[index].start + blocks[index].text.length <= token.nameStart) {
+      index++;
+    }
+    final owner =
+        index < blocks.length &&
+            blocks[index].start <= token.nameStart &&
+            token.nameEnd <= blocks[index].start + blocks[index].text.length
+        ? blocks[index]
+        : null;
+    owners.add(owner);
+    byName.putIfAbsent(token.name, () => {}).add(owner);
+    occurrences.update(token.name, (n) => n + 1, ifAbsent: () => 1);
+  }
+  // Shared terms in an unchanged prefix/suffix keep their positional owner.
+  // Inside an edit, use only names attributable to a single original owner.
+  var prefix = 0;
+  while (!libraryFallback &&
+      prefix < old.length &&
+      prefix < next.length &&
+      old[prefix].name == next[prefix].name) {
+    prefix++;
+  }
+  var tail = next.length, oldTail = old.length;
+  while (!libraryFallback &&
+      tail > prefix &&
+      oldTail > prefix &&
+      old[oldTail - 1].name == next[tail - 1].name) {
+    tail--;
+    oldTail--;
+  }
+  final nextCounts = <String, int>{};
+  for (final t in next) {
+    nextCounts.update(t.name, (n) => n + 1, ifAbsent: () => 1);
+  }
+  final indices = <PromptBlock, List<int>>{};
+  for (var i = 0; i < next.length; i++) {
+    final key = next[i].name;
+    final owner = i < prefix
+        ? owners[i]
+        : i >= tail
+        ? owners[oldTail + i - tail]
+        : nextCounts[key] == occurrences[key]
+        ? byName[key]?.singleOrNull
+        : null;
+    if (owner != null) indices.putIfAbsent(owner, () => []).add(i);
+  }
+  final result = <PromptBlock, (int, String)>{};
+  for (final entry in indices.entries) {
+    final hits = entry.value;
+    final first = hits.first, last = hits.last;
+    // For legacy proposals without recorded ownership, require multiple
+    // distinct library terms in one uninterrupted run.
+    if (libraryFallback &&
+        (hits.length != last - first + 1 ||
+            hits.map((i) => next[i].name).toSet().length < 2)) {
+      continue;
+    }
+    // New terms between two surviving anchors belong to the edited block.
+    // A known but unassigned term (shared, duplicated or bare) is ambiguous.
+    if (next
+            .getRange(first, last + 1)
+            .where((t) => byName.containsKey(t.name))
+            .length !=
+        hits.length) {
+      continue;
+    }
+    final left = next[first], right = next[last];
+    var start = left.segStart, end = right.segEnd;
+    for (final w in weights) {
+      if (w.start < start && left.nameStart < w.end) start = w.start;
+      if (w.end > end && w.start < right.nameEnd) end = w.end;
+    }
+    if ((first > 0 && next[first - 1].nameEnd > start) ||
+        (last + 1 < next.length && next[last + 1].nameStart < end)) {
+      continue;
+    }
+    result[entry.key] = (start, revised.substring(start, end));
+  }
+  return result;
+}
+
 /// Decorate the selected row before it is placed at its actual destination.
 PromptSection decorateProposalRow(
   PromptSection row,
@@ -123,7 +228,9 @@ List<CharacterPrompt> decorateProposalCharacters(
     final pieces = StringBuffer();
     final added = <PromptBlock, PromptFoldLink>{};
     var cursor = 0;
-    for (final block in blocks.where((b) => b.negative == negative)) {
+    final side = blocks.where((b) => b.negative == negative).toList()
+      ..sort((a, b) => a.start.compareTo(b.start));
+    for (final block in side) {
       final body = retained?.call(block) ?? block.text;
       if (body.isEmpty || body.contains('<#') || body.contains(kFoldClose)) {
         continue;
@@ -174,7 +281,39 @@ List<CharacterPrompt> decorateProposalCharacters(
   for (final entry in placed.entries) {
     final partner = placed[entry.key.counterpartIn(blocks)];
     if (partner == null) {
-      links.add(entry.value);
+      // In replace-main mode one side may already be an intact editor draft.
+      // Reconnect its original link when only the other side was rewritten.
+      final block = entry.key;
+      final other = block.counterpartIn(blocks);
+      final base = sanitizeFoldName(
+        block.negative ? block.foldTitle : '${block.foldTitle}·排除',
+      );
+      final kept = previous.where((link) {
+        if (link.paired || link.temporaryCategory != block.kind.libraryId) {
+          return false;
+        }
+        final name = block.negative ? link.positiveName : link.negativeName;
+        final body = block.negative ? link.positiveBody : link.negativeBody;
+        return (name == base ||
+                name.replaceFirst(RegExp(r' \d+$'), '') == base) &&
+            (other == null || body == (retained?.call(other) ?? other.text));
+      }).singleOrNull;
+      final fresh = entry.value;
+      if (kept == null || !links.remove(kept)) {
+        links.add(fresh);
+      } else {
+        links.add(
+          block.negative
+              ? kept.copyWith(
+                  negativeName: fresh.negativeName,
+                  negativeBody: fresh.negativeBody,
+                )
+              : kept.copyWith(
+                  positiveName: fresh.positiveName,
+                  positiveBody: fresh.positiveBody,
+                ),
+        );
+      }
     } else if (!entry.key.negative) {
       links.add(
         entry.value.copyWith(

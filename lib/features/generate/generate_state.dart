@@ -38,19 +38,19 @@ class GenerateNotifier extends Notifier<GenerateState> {
     listenSelf((_, next) {
       ref.read(canvasWorkspaceProvider.notifier).record(next, idSeq: _idSeq);
     });
-    return ws.initial ?? GenerateState.initial();
+    return _pauseMediumRefs(ws.initial ?? GenerateState.initial());
   }
 
   /// 换上另一张画布的那组内容;张数、循环档、面板开合等全局设置原样不动。
   void applyCanvas(CanvasPrompts prompts, {bool force = false}) {
     if (!force && CanvasPrompts.of(state).sameAs(prompts)) return;
-    state = prompts.applyTo(state);
+    state = _pauseMediumRefs(prompts.applyTo(state));
   }
 
   /// 把全局设置整份换回 [s],当前画布的内容不动(撤销一次整体写入时用,
   /// 画布内容由 [CanvasWorkspaceNotifier.undoWrite] 另行还给原画布)。
   void restoreGlobals(GenerateState s) =>
-      state = CanvasPrompts.of(state).applyTo(s);
+      state = _pauseMediumRefs(CanvasPrompts.of(state).applyTo(s));
 
   void setPromptPreset(String id) => state = state.copyWith(promptPresetId: id);
 
@@ -443,6 +443,20 @@ class GenerateNotifier extends Notifier<GenerateState> {
       state = state.copyWith(vibes: vibes);
 
   // ---- 角色参考 ----
+  GenerateState _pauseMediumRefs(GenerateState next) {
+    if (!next.params.isNaiMedium || next.enabledCharRefs == 0) return next;
+    return next.copyWith(
+      charRefs: [
+        for (final item in next.charRefs)
+          if (item.enabled) item.copyWith(enabled: false) else item,
+      ],
+    );
+  }
+
+  GenParams get _refParams => state.params.isNaiMedium
+      ? state.params.copyWith(model: 'NAI 5.0 Full')
+      : state.params;
+
   String addCharRef({
     required Uint8List image,
     required String name,
@@ -450,6 +464,7 @@ class GenerateNotifier extends Notifier<GenerateState> {
   }) {
     final id = _newId();
     state = state.copyWith(
+      params: _refParams,
       charRefs: [
         ...state.charRefs,
         CharRefItem(id: id, name: name, image: image, imageHash: imageHash),
@@ -463,6 +478,7 @@ class GenerateNotifier extends Notifier<GenerateState> {
   void updateCharRef(
     String id, {
     CharRefMode? mode,
+    bool? preferSameOutfit,
     double? strength,
     double? infoExtracted,
   }) {
@@ -472,6 +488,7 @@ class GenerateNotifier extends Notifier<GenerateState> {
           if (r.id == id)
             r.copyWith(
               mode: mode,
+              preferSameOutfit: preferSameOutfit,
               strength: strength,
               infoExtracted: infoExtracted,
             )
@@ -488,7 +505,9 @@ class GenerateNotifier extends Notifier<GenerateState> {
   }
 
   void setCharRefEnabled(String id, bool enabled) {
+    if (!state.charRefs.any((item) => item.id == id)) return;
     state = state.copyWith(
+      params: enabled ? _refParams : null,
       charRefs: [
         for (final r in state.charRefs)
           if (r.id == id) r.copyWith(enabled: enabled) else r,
@@ -501,7 +520,7 @@ class GenerateNotifier extends Notifier<GenerateState> {
   /// 整体替换角色参考列表(角色参考图库 / Vibe 管理器按**返回键**还原进入前
   /// 快照用 —— 两边互斥,还原一方必须连另一方一起还)。
   void restoreCharRefs(List<CharRefItem> refs) =>
-      state = state.copyWith(charRefs: refs);
+      state = _pauseMediumRefs(state.copyWith(charRefs: refs));
 
   // ---- 风格参考(krea 专属) ----
 
@@ -1027,7 +1046,8 @@ class GenerateNotifier extends Notifier<GenerateState> {
   }
 
   // ---- 参数 ----
-  void applyParams(GenParams params) => state = state.copyWith(params: params);
+  void applyParams(GenParams params) =>
+      state = _pauseMediumRefs(state.copyWith(params: params));
 
   /// 参数导入:按元数据回填生成参数(仅传入非空字段生效,copyWith 忽略 null)。
   /// 元数据导入落地。只传要改的字段,null = 保持不动。
@@ -1066,6 +1086,7 @@ class GenerateNotifier extends Notifier<GenerateState> {
     }
     final medium = isNai5MediumModel(model ?? cur.model);
     state = base.copyWith(
+      charRefs: medium ? _charRefsDisabled() : null,
       // 导入面板勾了模型这一项时也可能把槽位换小,同 setModel 一样收口。
       // 角色是在这之前落地的(导入面板先加角色再落设置),所以得在这儿再过一遍。
       characters: _capEnabled(state.characters, model ?? cur.model),
@@ -1118,6 +1139,7 @@ class GenerateNotifier extends Notifier<GenerateState> {
         .withLoraBaseOf(model)
         .copyWith(
           params: p,
+          charRefs: p.isNaiMedium ? _charRefsDisabled() : null,
           // 5 → 4/4.5 槽位从 32 掉到 6,超出的尾巴就地停用(见 [_capEnabled])
           characters: _capEnabled(state.characters, model),
         );

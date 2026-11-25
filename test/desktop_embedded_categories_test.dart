@@ -10,9 +10,14 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:plana_app/core/platform/desktop.dart';
 import 'package:plana_app/core/store/app_stores.dart';
 import 'package:plana_app/core/theme/app_theme.dart';
+import 'package:plana_app/core/theme/theme_settings.dart';
+import 'package:plana_app/features/generate/generate_state.dart';
+import 'package:plana_app/features/inspiration/external/oc_sources.dart';
 import 'package:plana_app/features/editor/data/tag_translation_service.dart';
 import 'package:plana_app/features/inspiration/inspiration_page.dart';
 import 'package:plana_app/features/inspiration/public_tags.dart';
+import 'package:plana_app/features/inspiration/public_tag_blocks.dart';
+import 'package:plana_app/features/profile/appearance_page.dart';
 import 'package:plana_app/features/inspiration/tag_library.dart';
 import 'package:plana_app/features/inspiration/tag_models.dart';
 import 'package:plana_app/features/inspiration/widgets/inspiration_entry_card.dart';
@@ -83,6 +88,7 @@ void main() {
     double scale = 1,
     bool dark = false,
     FloatAccent? floatAccent,
+    Widget page = const InspirationPage(embedded: true),
   }) async {
     tester.view.physicalSize = const Size(1100, 850);
     tester.view.devicePixelRatio = 1;
@@ -114,10 +120,7 @@ void main() {
                       size: Size(width, 850),
                       textScaler: TextScaler.linear(scale),
                     ),
-                    child: RepaintBoundary(
-                      key: sidebarCapture,
-                      child: const InspirationPage(embedded: true),
-                    ),
+                    child: RepaintBoundary(key: sidebarCapture, child: page),
                   ),
                 ),
               ),
@@ -153,8 +156,14 @@ void main() {
 
   Finder key(String value) => find.byKey(ValueKey(value));
 
-  Future<void> waitForArt(WidgetTester tester, Finder region) async {
-    if (Platform.environment['PLANA_SIDEBAR_TEST_ART'] == null) return;
+  Future<void> waitForArt(
+    WidgetTester tester,
+    Finder region, {
+    bool bundled = false,
+  }) async {
+    if (!bundled && Platform.environment['PLANA_SIDEBAR_TEST_ART'] == null) {
+      return;
+    }
     final images = find.descendant(of: region, matching: find.byType(RawImage));
     await pumpUntil(
       tester,
@@ -192,6 +201,719 @@ void main() {
       }
     });
   }
+
+  for (final embedded in [true, false]) {
+    testWidgets(
+      'tag intersections, favorites and mouse sweep (sidebar=$embedded)',
+      (tester) => runSidebarTest(tester, () async {
+        await seedSidebar(tester);
+        await mount(
+          tester,
+          width: embedded ? 400 : 1100,
+          page: InspirationPage(embedded: embedded),
+        );
+        Future<void> tap(Finder target) async {
+          await tester.tap(target);
+          await tester.pumpAndSettle();
+        }
+
+        final first = tester.getCenter(key('inspiration-card-a0'));
+        final last = tester.getCenter(key('inspiration-card-a1'));
+        final drag = await tester.startGesture(
+          first,
+          kind: PointerDeviceKind.mouse,
+        );
+        await drag.moveTo(last);
+        await tester.pump();
+        await drag.up();
+        await tester.pumpAndSettle();
+        for (final id in ['a0', 'a1']) {
+          expect(tester.widget<InspirationEntryCard>(key(id)).selected, isTrue);
+        }
+        for (final id in ['a0', 'a1']) {
+          await tap(key('inspiration-select-$id'));
+        }
+        final fav = embedded
+            ? key('sidebar-favorites-filter')
+            : find.widgetWithText(ChoiceChip, '收藏');
+        final clear = key(
+          embedded ? 'sidebar-clear-tags' : 'inspiration-clear-tags',
+        );
+        Future<void> pick(String label) async {
+          if (embedded) {
+            await tap(key('sidebar-tag-filter'));
+            await tap(find.widgetWithText(ListTile, label));
+            await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+            await tester.pumpAndSettle();
+          } else {
+            final chip = find.widgetWithText(ChoiceChip, label);
+            await tester.ensureVisible(chip);
+            await tap(chip);
+          }
+        }
+
+        await pick('粉发');
+        expect(clear, findsNothing);
+        await pick('女仆装');
+        expect(clear, findsOneWidget);
+        if (embedded) {
+          await waitForArt(tester, find.byKey(sidebarCapture));
+          await captureDesktop(
+            tester,
+            sidebarCapture,
+            'inspiration-sidebar-selected-tags',
+          );
+        }
+        expect(key('inspiration-card-a3'), findsOneWidget);
+        expect(key('inspiration-card-a0'), findsNothing);
+        await tap(fav);
+        expect(key('inspiration-card-a3'), findsNothing);
+        expect(key('inspiration-card-a1'), findsNothing);
+        c
+            .read(themeSettingsProvider.notifier)
+            .patch((s) => s.copyWith(inspirationMatchAnyTag: true));
+        await tester.pumpAndSettle();
+        expect(key('inspiration-card-a1'), findsOneWidget);
+        expect(key('inspiration-card-a3'), findsNothing);
+        await tap(fav);
+        expect(key('inspiration-card-a3'), findsOneWidget);
+        await tap(fav);
+        c
+            .read(themeSettingsProvider.notifier)
+            .patch((s) => s.copyWith(inspirationMatchAnyTag: false));
+        await tester.pumpAndSettle();
+        if (embedded) {
+          final chip = tester.widget<InputChip>(
+            find.widgetWithText(InputChip, '粉发'),
+          );
+          chip.onDeleted!();
+          await tester.pumpAndSettle();
+        } else {
+          await pick('粉发');
+        }
+        expect(clear, findsNothing);
+        expect(key('inspiration-card-a1'), findsOneWidget);
+        expect(key('inspiration-card-a3'), findsNothing);
+      }),
+    );
+  }
+
+  testWidgets(
+    'appearance saves the tag match mode',
+    (tester) => runSidebarTest(tester, () async {
+      await mount(tester, width: 1100, page: const AppearancePage());
+      final setting = key('appearance-tag-match');
+      await tester.scrollUntilVisible(
+        setting,
+        320,
+        scrollable: find
+            .descendant(
+              of: find.byType(AppearancePage),
+              matching: find.byType(Scrollable),
+            )
+            .first,
+      );
+      expect(c.read(themeSettingsProvider).inspirationMatchAnyTag, isFalse);
+      await tester.tap(find.descendant(of: setting, matching: find.text('并集')));
+      await tester.pumpAndSettle();
+      final saved = c.read(themeSettingsProvider);
+      expect(
+        ThemeSettings.fromJson(saved.toJson()).inspirationMatchAnyTag,
+        isTrue,
+      );
+    }),
+  );
+
+  for (final embedded in [false, true]) {
+    testWidgets(
+      'external sorting, continuous scrolling and author filters work on both browsers (sidebar=$embedded)',
+      (tester) => runSidebarTest(tester, () async {
+        final file = File('${temp.path}/sorted.json');
+        file.writeAsStringSync(
+          jsonEncode({
+            'characters': [
+              for (var i = 0; i < 37; i++)
+                {
+                  'name': 'Entry $i',
+                  'owner': i == 3 ? 'Other' : 'Studio',
+                  if (i == 7)
+                    'forms': [
+                      {'name': 'Day', 'prompt': 'sun'},
+                      {'name': 'Morning', 'prompt': 'sun'},
+                      {'name': 'Night', 'prompt': 'moon'},
+                    ],
+                  'prompt': 'style $i',
+                  'updatedAt': 1700000000 + i,
+                  'tags': [i.isEven ? 'even' : 'odd'],
+                },
+            ],
+          }),
+        );
+        final source = await tester.runAsync(
+          () =>
+              c.read(ocRepositoryProvider).connect(file.uri, label: 'Imported'),
+        );
+        await tester.runAsync(() => c.read(ocSourcesProvider.future));
+        await mount(
+          tester,
+          width: embedded ? 390 : 1100,
+          page: InspirationPage(embedded: embedded),
+        );
+        Future<void> tap(Finder f) async {
+          await tester.tap(f);
+          await tester.pumpAndSettle();
+        }
+
+        if (embedded) {
+          await tap(key('sidebar-remote-picker'));
+          expect(find.text('Imported'), findsOneWidget);
+        } else {
+          final external = tester.widget<ChoiceChip>(
+            key('inspiration-source-${source!.id}'),
+          );
+          final public = tester.widget<ChoiceChip>(
+            key('inspiration-scope-public'),
+          );
+          expect(external.labelStyle, public.labelStyle);
+          expect(external.padding, public.padding);
+          expect(find.text('Impor…'), findsOneWidget);
+        }
+        await tap(
+          key(
+            embedded ? 'sidebar-scope-3' : 'inspiration-source-${source!.id}',
+          ),
+        );
+        final list = key('external-library-list');
+        final scroll = tester.widget<ListView>(list).controller!;
+        await pumpUntil(
+          tester,
+          () => find.text('Entry 36').evaluate().isNotEmpty,
+        );
+        expect(find.text('Entry 0'), findsNothing);
+        scroll.jumpTo(scroll.position.maxScrollExtent);
+        await tester.pump(const Duration(milliseconds: 150));
+        await tester.pumpAndSettle();
+        expect(find.text('Entry 0'), findsOneWidget);
+        expect(find.text('Entry 36'), findsNothing);
+        final beforeRefresh = scroll.offset;
+        await tester.runAsync(() async {
+          final raw = jsonDecode(await file.readAsString()) as Map;
+          (raw['characters'] as List).add({
+            'name': 'New entry',
+            'owner': 'Studio',
+            'prompt': 'new style',
+            'updatedAt': 1800000000,
+          });
+          await file.writeAsString(jsonEncode(raw));
+          await c
+              .read(ocRepositoryProvider)
+              .connect(file.uri, label: 'Imported');
+          await c.read(ocSourcesProvider.future);
+        });
+        await tester.pumpAndSettle();
+        expect(scroll.offset, closeTo(beforeRefresh, 1));
+        await tap(find.byTooltip('排序:最新'));
+        await tap(find.text('作者'));
+        expect(scroll.offset, 0);
+        expect(find.text('Studio'), findsOneWidget);
+        await tap(find.byTooltip('筛选'));
+        // 37 Studio character records after refresh, 38 distinct prompt cards.
+        await pumpUntil(tester, () => find.text('38').evaluate().isNotEmpty);
+        expect(find.text('37'), findsNothing);
+        await tap(find.text('Other'));
+        expect(find.text('Entry 3'), findsOneWidget);
+        expect(find.text('Entry 36'), findsNothing);
+        if (embedded) {
+          expect(
+            find.descendant(
+              of: key('sidebar-remote-picker'),
+              matching: find.text('全部外部库'),
+            ),
+            findsOneWidget,
+          );
+          await tap(key('sidebar-scope-0'));
+          expect(
+            find.descendant(
+              of: key('sidebar-remote-picker'),
+              matching: find.text('全部外部库'),
+            ),
+            findsOneWidget,
+          );
+          await tap(key('sidebar-remote-picker'));
+          await tap(key('sidebar-scope-2'));
+          expect(
+            find.descendant(
+              of: key('sidebar-remote-picker'),
+              matching: find.text('Impor…'),
+            ),
+            findsOneWidget,
+          );
+        }
+      }),
+    );
+  }
+
+  for (final embedded in [false, true]) {
+    testWidgets(
+      'external OC selection, prompt viewer and local-only editor (sidebar=$embedded)',
+      (tester) => runSidebarTest(tester, () async {
+        final jsonFile = File('${temp.path}/catalog.json');
+        String art(String name) => File('${temp.path}/$name.png').absolute.path;
+        for (final name in [
+          'coastal-station',
+          'greenhouse',
+          'moonlit-waterfall',
+        ]) {
+          File('examples/inspiration-previews/$name.png').copySync(art(name));
+        }
+        jsonFile.writeAsStringSync(
+          jsonEncode({
+            'characters': [
+              {
+                'name': 'Iris',
+                'author': 'Studio',
+                'forms': [
+                  {
+                    'name': 'Day',
+                    'prompt': 'green eyes',
+                    'negative': 'fog',
+                    'image': art('coastal-station'),
+                  },
+                  {
+                    'name': 'Morning',
+                    'prompt': 'green eyes',
+                    'negative': 'fog',
+                    'image': art('greenhouse'),
+                  },
+                  {
+                    'name': 'Night',
+                    'prompt': 'blue eyes',
+                    'image': art('moonlit-waterfall'),
+                  },
+                ],
+              },
+            ],
+          }),
+        );
+        final source = await tester.runAsync(
+          () => c
+              .read(ocRepositoryProvider)
+              .connect(jsonFile.uri, label: 'Fixture OC'),
+        );
+        await tester.runAsync(() => c.read(ocSourcesProvider.future));
+        await mount(
+          tester,
+          width: embedded ? 415 : 1100,
+          page: InspirationPage(embedded: embedded),
+        );
+        if (embedded) {
+          await tester.tap(key('sidebar-remote-picker'));
+          await tester.pumpAndSettle();
+        }
+        final sourceBtn = key(
+          embedded ? 'sidebar-scope-2' : 'inspiration-source-${source!.id}',
+        );
+        await tester.ensureVisible(sourceBtn);
+        await tester.tap(sourceBtn);
+        await pumpUntil(
+          tester,
+          () => find
+              .byWidgetPredicate(
+                (w) =>
+                    w is InspirationEntryCard && w.entry.name == 'Iris · Day',
+              )
+              .evaluate()
+              .isNotEmpty,
+        );
+        expect(find.text('Iris · Night'), findsOneWidget);
+        await waitForArt(tester, key('external-library-list'), bundled: true);
+        if (embedded) {
+          await captureDesktop(
+            tester,
+            sidebarCapture,
+            'external-library-sidebar',
+          );
+        }
+        final searchBox = key('tag-search-character');
+        await tester.enterText(searchBox, 'Morning');
+        await tester.pumpAndSettle();
+        expect(find.text('Iris · Day'), findsOneWidget);
+        expect(find.text('Iris · Night'), findsNothing);
+        await tester.enterText(searchBox, 'Night');
+        await tester.pumpAndSettle();
+        expect(find.text('Iris · Day'), findsNothing);
+        expect(find.text('Iris · Night'), findsOneWidget);
+        await tester.enterText(searchBox, '');
+        await tester.pumpAndSettle();
+        final cards = tester.widgetList<InspirationEntryCard>(
+          find.byType(InspirationEntryCard),
+        );
+        final id = cards
+            .singleWhere((c) => c.entry.name == 'Iris · Day')
+            .entry
+            .id;
+        final card = key('inspiration-card-$id');
+        final viewer = key('inspiration-prompt-detail');
+        await tester.tap(card);
+        await tester.pumpAndSettle();
+        expect(viewer, findsNothing);
+        expect(find.text('已选 1 项'), embedded ? findsNothing : findsOneWidget);
+        expect(key('inspiration-selection-menu'), findsNothing);
+        expect(
+          find.widgetWithText(OutlinedButton, '取消选择'),
+          embedded ? findsOneWidget : findsNothing,
+        );
+        await tester.tap(find.text('Iris · Night'));
+        await tester.pumpAndSettle();
+        if (!embedded) expect(find.text('已选 2 项'), findsOneWidget);
+        await captureDesktop(
+          tester,
+          sidebarCapture,
+          embedded ? 'oc-selection-sidebar' : 'oc-selection-home',
+        );
+        await tester.tap(find.text('取消选择'));
+        await tester.pumpAndSettle();
+        expect(find.text('取消选择'), findsNothing);
+
+        Future<void> editCard() async {
+          await tester.tap(key('inspiration-menu-$id'));
+          await tester.pumpAndSettle();
+          await tester.tap(
+            find.widgetWithText(PopupMenuItem<InspirationEntryAction>, '编辑'),
+          );
+          await tester.pumpAndSettle();
+          expect(key('tag-editor-dialog'), findsOneWidget);
+        }
+
+        final library = c.read(tagLibraryProvider.notifier);
+        await pumpUntilComplete(
+          tester,
+          library.addPoolTag(TagCategory.character, '本机标签'),
+        );
+        await editCard();
+        final fields = tester.widgetList<TextField>(
+          find.descendant(
+            of: key('tag-editor-dialog'),
+            matching: find.byType(TextField),
+          ),
+        );
+        expect(
+          fields
+              .where((field) => field.controller?.text == 'green eyes')
+              .single
+              .readOnly,
+          isTrue,
+        );
+        expect(
+          fields
+              .where((field) => field.controller?.text == 'Iris · Day')
+              .single
+              .readOnly,
+          isTrue,
+        );
+        expect(find.text('作者 · Studio'), findsOneWidget);
+        final detailsList = find.descendant(
+          of: key('tag-editor-details'),
+          matching: find.byType(ListView),
+        );
+        Future<void> showActions() async {
+          await tester.drag(detailsList, const Offset(0, -420));
+          await tester.pumpAndSettle();
+        }
+
+        await showActions();
+        final del = find.descendant(
+          of: key('tag-editor-details'),
+          matching: find.text('删除'),
+        );
+        final deleteButton = find.ancestor(
+          of: del,
+          matching: find.byWidgetPredicate((w) => w is OutlinedButton),
+        );
+        expect(tester.widget<OutlinedButton>(deleteButton).onPressed, isNull);
+        final tag = find.text('#本机标签');
+        await tester.ensureVisible(tag);
+        await tester.tap(tag);
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('保存标签修改'));
+        await pumpUntil(
+          tester,
+          () => key('tag-editor-dialog').evaluate().isEmpty,
+        );
+        await tester.pumpAndSettle();
+        expect(c.read(tagLibraryProvider).requireValue.externalTags[id], [
+          '本机标签',
+        ]);
+        expect(c.read(tagLibraryProvider).requireValue.entries, isEmpty);
+        await tester.enterText(searchBox, '本机标签');
+        await tester.pumpAndSettle();
+        expect(card, findsOneWidget);
+        expect(find.text('Iris · Night'), findsNothing);
+        await tester.enterText(searchBox, '');
+        await tester.pumpAndSettle();
+
+        await editCard();
+        await showActions();
+        final fork = find.text('另存为本地副本');
+        await tester.ensureVisible(fork);
+        await tester.tap(fork);
+        await pumpUntil(
+          tester,
+          () => key('tag-editor-dialog').evaluate().isEmpty,
+        );
+        final copy = c
+            .read(tagLibraryProvider)
+            .requireValue
+            .externalCopies(id)
+            .single;
+        expect(copy.origin, TagOrigin.local);
+        expect(copy.publicId, isNull);
+        expect(copy.tags, ['本机标签']);
+        expect(copy.negative, 'fog');
+        expect(copy.previews, hasLength(2));
+        expect(copy.previews.every((p) => p.contains('tag_previews')), isTrue);
+        expect(copy.previews.every((p) => File(p).existsSync()), isTrue);
+        await tester.pumpAndSettle();
+        await editCard();
+        await showActions();
+        await tester.ensureVisible(del);
+        await tester.tap(del);
+        await tester.pumpAndSettle();
+        await tester.tap(find.widgetWithText(FilledButton, '删除'));
+        await pumpUntil(
+          tester,
+          () => key('tag-editor-dialog').evaluate().isEmpty,
+        );
+        expect(
+          c.read(tagLibraryProvider).requireValue.externalCopies(id),
+          isEmpty,
+        );
+        expect(c.read(tagLibraryProvider).requireValue.externalTags[id], [
+          '本机标签',
+        ]);
+        expect(File(art('coastal-station')).existsSync(), isTrue);
+        expect(File(art('greenhouse')).existsSync(), isTrue);
+        expect(File(copy.previews.first).existsSync(), isFalse);
+        await tester.pumpAndSettle();
+
+        await tester.longPress(card);
+        await tester.pumpAndSettle();
+        expect(viewer, findsOneWidget);
+        final imageNavigation = find
+            .ancestor(of: key('oc-next-image'), matching: find.byType(Row))
+            .first;
+        Finder imageCount(String value) =>
+            find.descendant(of: imageNavigation, matching: find.text(value));
+        expect(imageCount('1 / 2'), findsOneWidget);
+        await tester.tap(key('oc-next-image'));
+        await tester.pumpAndSettle();
+        expect(imageCount('2 / 2'), findsOneWidget);
+        await tester.tap(key('inspiration-detail-select'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('加入角色'));
+        await tester.pumpAndSettle();
+        final character = c.read(generateProvider).characters.last;
+        expect(character.positive, contains('green eyes'));
+        expect(character.negative, contains('fog'));
+        expect(character.name, 'Iris · Day');
+        expect(
+          c
+              .read(tagLibraryProvider)
+              .requireValue
+              .entries
+              .where((e) => e.id == id),
+          isEmpty,
+        );
+      }),
+    );
+  }
+
+  test(
+    'local external edits survive reload and deleting a copy is scoped to its source',
+    () async {
+      const source = TagEntry(
+        id: 'ext:one:a:b',
+        name: 'Iris',
+        category: TagCategory.character,
+        positive: 'green eyes',
+        tags: ['原始'],
+      );
+      final other = source.copyWith(id: 'ext:two:a:b');
+      final library = c.read(tagLibraryProvider.notifier);
+      await library.saveExternalTags(source, []);
+      final first = await library.saveExternalCopy(source, []);
+      final next = await library.saveExternalCopy(source, ['二']);
+      final otherCopy = await library.saveExternalCopy(other, ['三']);
+      expect({first.name, next.name, otherCopy.name}, hasLength(3));
+      c.invalidate(tagLibraryProvider);
+      final restored = await c.read(tagLibraryProvider.future);
+      expect(restored.externalTags[source.id], isEmpty);
+      expect(restored.externalTags.containsKey(source.id), isTrue);
+      expect(restored.externalCopies(source.id).map((e) => e.id), [
+        first.id,
+        next.id,
+      ]);
+      final reopened = c.read(tagLibraryProvider.notifier);
+      await reopened.removeExternalLocalData(source.id, copyId: otherCopy.id);
+      await reopened.removeExternalLocalData(source.id, copyId: first.id);
+      await reopened.removeExternalLocalData(source.id);
+      final saved = c.read(tagLibraryProvider).requireValue;
+      expect(saved.entries.map((e) => e.id), [next.id, otherCopy.id]);
+      expect(saved.externalTags, isEmpty);
+    },
+  );
+
+  testWidgets(
+    'blocklist stages independent author and item rules and updates both public views',
+    (tester) => runSidebarTest(tester, () async {
+      for (final cat in [TagCategory.character, TagCategory.artist]) {
+        for (var i = 0; i < 3; i++) {
+          publicEntries.add(
+            TagEntry(
+              id: 'pub_$i',
+              publicId: '$i',
+              name: ['海边车站', '温室', '月下瀑布'][i],
+              category: cat,
+              previews: [
+                File(
+                  'examples/inspiration-previews/${['coastal-station', 'greenhouse', 'moonlit-waterfall'][i]}.png',
+                ).absolute.path,
+              ],
+              mosaic: i == 0 && cat == TagCategory.character,
+              createdBy: i < 2 ? 'author' : 'other',
+              createdAt: 3 - i,
+            ),
+          );
+        }
+      }
+      await mount(tester, width: 1100, page: const AppearancePage());
+      final open = key('appearance-public-blocklist');
+      Future<void> edit() async {
+        await tester.scrollUntilVisible(
+          open,
+          360,
+          scrollable: find
+              .descendant(
+                of: find.byType(AppearancePage),
+                matching: find.byType(Scrollable),
+              )
+              .first,
+        );
+        await tester.tap(open);
+        await tester.pumpAndSettle();
+      }
+
+      Future<void> tap(Finder f) async {
+        await tester.tap(f);
+        await tester.pumpAndSettle();
+      }
+
+      await edit();
+      final eye = key('inspiration-reveal-pub_0');
+      expect(eye, findsOneWidget);
+      await tester.tapAt(
+        tester.getTopLeft(key('pub_0')) + const Offset(65, 65),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        tester.widget<InspirationEntryCard>(key('pub_0')).selected,
+        isTrue,
+      );
+      expect(eye, findsOneWidget);
+      await tap(eye);
+      expect(eye, findsNothing);
+      expect(
+        tester.widget<InspirationEntryCard>(key('pub_0')).selected,
+        isTrue,
+      );
+      await tap(key('inspiration-select-pub_0'));
+      await tap(key('block-author-author'));
+      expect(
+        tester.widget<InspirationEntryCard>(key('pub_0')).selected,
+        isTrue,
+      );
+      await tap(key('blocklist-cancel'));
+      expect(c.read(publicTagBlocksProvider), isEmpty);
+      await edit();
+      await tap(key('block-author-author'));
+      await tap(key('inspiration-select-pub_1'));
+      await tap(find.text('画风'));
+      expect(
+        tester.widget<InspirationEntryCard>(key('pub_0')).selected,
+        isFalse,
+      );
+      final drag = await tester.startGesture(
+        tester.getCenter(key('pub_0')),
+        kind: PointerDeviceKind.mouse,
+      );
+      await drag.moveTo(tester.getCenter(key('pub_1')));
+      await tester.pump();
+      await drag.up();
+      await tester.pumpAndSettle();
+      expect(
+        tester.widget<InspirationEntryCard>(key('pub_1')).selected,
+        isTrue,
+      );
+      await tap(key('inspiration-select-pub_0'));
+      await waitForArt(tester, find.byKey(capture), bundled: true);
+      await captureDesktop(tester, capture, 'inspiration-public-blocklist');
+      await tester.tap(key('blocklist-confirm'));
+      await pumpUntil(
+        tester,
+        () => key('blocklist-confirm').evaluate().isEmpty,
+      );
+      final rules = c.read(publicTagBlocksProvider);
+      expect(rules[TagCategory.character]!.authors['author'], {'1'});
+      expect(rules[TagCategory.artist]!.items, {'1'});
+      c.invalidate(publicTagBlocksProvider);
+      expect(
+        c
+            .read(publicTagBlocksProvider)[TagCategory.character]!
+            .authors['author'],
+        {'1'},
+      );
+      for (final cat in [TagCategory.character, TagCategory.artist]) {
+        publicEntries.add(
+          TagEntry(
+            id: 'pub_new',
+            publicId: 'new',
+            category: cat,
+            name: '新作',
+            createdBy: 'author',
+          ),
+        );
+        c.invalidate(publicTagsProvider(cat));
+        await c.read(publicTagsProvider(cat).future);
+      }
+      expect(
+        c
+            .read(visiblePublicTagsProvider(TagCategory.character))
+            .requireValue
+            .map((e) => e.id),
+        ['pub_1', 'pub_2'],
+      );
+      expect(
+        c
+            .read(visiblePublicTagsProvider(TagCategory.artist))
+            .requireValue
+            .map((e) => e.id),
+        ['pub_0', 'pub_2', 'pub_new'],
+      );
+      for (final embedded in [true, false]) {
+        await mount(
+          tester,
+          width: embedded ? 400 : 1100,
+          page: InspirationPage(embedded: embedded),
+        );
+        await tap(
+          key(embedded ? 'sidebar-scope-1' : 'inspiration-scope-public'),
+        );
+        expect(key('inspiration-card-pub_0'), findsNothing);
+        expect(key('inspiration-card-pub_1'), findsOneWidget);
+        expect(key('inspiration-card-pub_new'), findsNothing);
+      }
+    }),
+  );
 
   for (final (name, width, scale, dark) in [
     ('light', 400.0, 1.0, false),

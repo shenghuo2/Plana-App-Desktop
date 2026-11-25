@@ -99,6 +99,9 @@ void main() {
 
   Future<void> finish(WidgetTester tester) async {
     await tester.pumpWidget(const SizedBox());
+    await tester.pump(const Duration(seconds: 1));
+    stores.flushNow();
+    await pumpUntilComplete(tester, stores.gallery.idle);
     container.dispose();
     disposed = true;
     var done = false;

@@ -637,7 +637,32 @@ String appendTagPositivesFolded(String draft, Iterable<TagEntry> entries) {
   return out;
 }
 
-/// 追加负面:逗号拆词、与现有去重后逐词追加(对齐 web appendArtistNegatives)。
+String _newTagBody(String prompt, Set<String> have, {bool deduplicate = true}) {
+  var body = stripFolds(prompt).trim();
+  if (!deduplicate) return body;
+  // Reparse after deletion: the editor's deleteTok repairs shared numeric
+  // and bracket weights, so offsets from the previous parse are not reused.
+  while (true) {
+    final seen = {...have};
+    Tok? duplicate;
+    for (final token in parseToks(body)) {
+      if (token.disabled) continue;
+      final name = cleanPromptToken(token.name);
+      if (name.isNotEmpty && !seen.add(name)) {
+        duplicate = token;
+        break;
+      }
+    }
+    if (duplicate == null) break;
+    final next = deleteTok(body, duplicate).$1.trim();
+    if (next == body) break;
+    body = next;
+  }
+  have.addAll(tokenizeSet(outputOf(body)));
+  return body;
+}
+
+/// 追加尚未出现的负面词，保留跨词权重组及其闭合符号。
 /// 给了 [present] 就按它判重,不给按 [negative] 自己。
 String appendTagNegatives(
   String negative,
@@ -648,18 +673,19 @@ String appendTagNegatives(
   var out = negative.trim();
   final have = tokenizeSet(present ?? out);
   for (final e in entries) {
-    final before = out.length;
-    for (final piece in e.negative.split(RegExp(r'[，,]'))) {
-      final raw = piece.trim();
-      final t = cleanPromptToken(raw);
-      if (raw.isEmpty || t.isEmpty || have.contains(t)) continue;
-      have.add(t);
-      out = out.isEmpty ? raw : '$out, $raw';
-    }
-    if (onAdded != null && before != out.length) {
-      final start = before == 0 ? 0 : before + 2;
-      onAdded(e, start, out.substring(start));
-    }
+    final body = _newTagBody(
+      e.negative,
+      have,
+    ).replaceAll(RegExp(r'^[,，\s]+|[,，\s]+$'), '');
+    if (body.isEmpty) continue;
+    final separator = out.isEmpty
+        ? ''
+        : RegExp(r'[,，]$').hasMatch(out)
+        ? ' '
+        : ', ';
+    final start = out.length + separator.length;
+    out += '$separator$body';
+    onAdded?.call(e, start, body);
   }
   return out;
 }
@@ -693,34 +719,17 @@ appendTagPromptsFolded({
     return name;
   }
 
-  String newBody(String prompt, Set<String> have) {
-    var body = stripFolds(prompt).trim();
-    if (!deduplicate) return body;
-    // Reparse after deletion: the editor's deleteTok repairs shared numeric
-    // and bracket weights, so offsets from the previous parse are not reused.
-    while (true) {
-      final seen = {...have};
-      Tok? duplicate;
-      for (final token in parseToks(body)) {
-        if (token.disabled) continue;
-        final name = cleanPromptToken(token.name);
-        if (name.isNotEmpty && !seen.add(name)) {
-          duplicate = token;
-          break;
-        }
-      }
-      if (duplicate == null) break;
-      final next = deleteTok(body, duplicate).$1.trim();
-      if (next == body) break;
-      body = next;
-    }
-    have.addAll(tokenizeSet(outputOf(body)));
-    return body;
-  }
-
   for (final entry in entries) {
-    final posBody = newBody(entry.positive, havePositive);
-    final negBody = newBody(entry.negative, haveNegative);
+    final posBody = _newTagBody(
+      entry.positive,
+      havePositive,
+      deduplicate: deduplicate,
+    );
+    final negBody = _newTagBody(
+      entry.negative,
+      haveNegative,
+      deduplicate: deduplicate,
+    );
     final posName = posBody.isEmpty ? null : newName(entry.name);
     final negName = negBody.isEmpty ? null : newName('${entry.name}·排除');
     if (posName != null) {
@@ -758,18 +767,30 @@ foldTagEntry(TagEntry entry) => appendTagPromptsFolded(
 /// 编号自然序(A1 < A2 < A10,画风列表用):文本段不分大小写比较,
 /// 数字段按数值比较。
 int naturalCompare(String a, String b) {
-  final re = RegExp(r'(\d+|\D+)');
-  final xa = re.allMatches(a.toLowerCase()).map((m) => m[0]!).toList();
-  final xb = re.allMatches(b.toLowerCase()).map((m) => m[0]!).toList();
+  final xa = _naturalKey(a);
+  final xb = _naturalKey(b);
   for (var i = 0; i < xa.length && i < xb.length; i++) {
-    final na = int.tryParse(xa[i]);
-    final nb = int.tryParse(xb[i]);
-    final c = na != null && nb != null
-        ? na.compareTo(nb)
-        : xa[i].compareTo(xb[i]);
+    final (sa, na) = xa[i];
+    final (sb, nb) = xb[i];
+    final c = na != null && nb != null ? na.compareTo(nb) : sa.compareTo(sb);
     if (c != 0) return c;
   }
   return xa.length.compareTo(xb.length);
+}
+
+final _naturalRe = RegExp(r'(\d+|\D+)');
+
+/// 切好的比较键(排序时每个名字要比好多次,切一次记下来)。
+final _naturalKeys = <String, List<(String, int?)>>{};
+
+List<(String, int?)> _naturalKey(String s) {
+  final hit = _naturalKeys[s];
+  if (hit != null) return hit;
+  if (_naturalKeys.length > 20000) _naturalKeys.clear();
+  return _naturalKeys[s] = [
+    for (final m in _naturalRe.allMatches(s.toLowerCase()))
+      (m[0]!, int.tryParse(m[0]!)),
+  ];
 }
 
 /// 画师串「获取编号」:A1..A99 → B1..,取首个空位(gap-filling,

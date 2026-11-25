@@ -30,6 +30,7 @@ class TagCardPreview extends StatelessWidget {
     this.overlay,
     this.hold = false,
     this.onShown,
+    this.providerDecorator,
   });
 
   final String? url;
@@ -57,6 +58,21 @@ class TagCardPreview extends StatelessWidget {
 
   /// 图头一回出帧(见 [FadeInOnce.onShown])。
   final VoidCallback? onShown;
+  final RemoteImageProviderDecorator? providerDecorator;
+
+  ImageProvider<Object> localProvider(String path, double dpr) {
+    final width = mosaic
+        ? _kMosaicCells
+        : decodeWidth == null
+        ? null
+        : (decodeWidth! * dpr).round();
+    final provider = ResizeImage.resizeIfNeeded(
+      width,
+      null,
+      FileImage(File(path)),
+    );
+    return providerDecorator?.call(provider) ?? provider;
+  }
 
   Widget get _empty => _over(placeholder ?? _HueStripes(name: name));
 
@@ -86,22 +102,17 @@ class TagCardPreview extends StatelessWidget {
                   u,
                   fit: fit,
                   alignment: alignment,
+                  providerDecorator: providerDecorator,
                   decodeWidth: mosaic ? _kMosaicCells / dpr : decodeWidth,
                   filterQuality: quality,
                   gaplessPlayback: true,
                   frameBuilder: frame,
                   errorBuilder: _stripes,
                 )
-              : Image.file(
-                  File(u),
+              : Image(
+                  image: localProvider(u, dpr),
                   fit: fit,
                   alignment: alignment,
-                  cacheWidth: mosaic
-                      ? _kMosaicCells
-                      : switch (decodeWidth) {
-                          null => null,
-                          final w => (w * dpr).round(),
-                        },
                   filterQuality: quality,
                   gaplessPlayback: true,
                   frameBuilder: frame,

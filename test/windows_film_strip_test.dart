@@ -38,8 +38,9 @@ void main() {
 
   Finder thumb(String id) => find.byKey(ValueKey('history-thumb-$id'));
   Finder close(String id) => find.byKey(ValueKey('history-delete-$id'));
-  ScrollController scroll(WidgetTester tester) =>
-      tester.widget<ListView>(find.byType(ListView)).controller!;
+  ScrollController scroll(WidgetTester tester) => tester
+      .widget<CustomScrollView>(find.byType(CustomScrollView))
+      .controller!;
   Future<void> mount(WidgetTester tester) async {
     tester.view.physicalSize = const Size(500, 600);
     tester.view.devicePixelRatio = 1;
@@ -189,7 +190,7 @@ void main() {
         selected = null;
       });
       await tester.pumpAndSettle();
-      expect(find.byType(ListView), findsOneWidget);
+      expect(find.byType(CustomScrollView), findsOneWidget);
       expect(thumb('gen1'), findsNothing);
       expect(scroll(tester).offset, 0);
       expect(tester.takeException(), isNull);

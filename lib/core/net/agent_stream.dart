@@ -131,6 +131,7 @@ Stream<AgentEvent> streamAgentPrompt({
   String model = '',
   String imageModel = '',
   bool recoverBlocks = false,
+  AgentResult Function(Map<String, dynamic>)? decodeFinal,
   String? imageB64,
   List<Map<String, String>> history = const [],
   int historyTurns = 20,
@@ -287,7 +288,8 @@ Stream<AgentEvent> streamAgentPrompt({
           );
         case 'final':
           yield AgentDone(
-            AgentResult.fromJson(map, recoverBlocks: recoverBlocks),
+            decodeFinal?.call(map) ??
+                AgentResult.fromJson(map, recoverBlocks: recoverBlocks),
           );
           return; // final 之后服务端就关流了,不必再等
       }

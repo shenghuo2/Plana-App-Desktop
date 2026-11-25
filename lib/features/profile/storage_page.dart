@@ -40,9 +40,12 @@ class _CatSpec {
   String get id => keys.first;
 }
 
-/// 免费重建的那几样:导入临时文件、在线图缓存、法典缓存、孤儿参考图快照。
-/// 合成一行 —— 没人需要知道它们在磁盘上分了四个目录。
-const _kCacheKeys = ['temp', 'imgCache', 'codexCache', 'blobs'];
+/// 免费重建的那几样:导入临时文件、在线图缓存、法典缓存。合成一行 ——
+/// 没人需要知道它们在磁盘上分了几个目录。清理时顺带回收没人引用的参考图。
+const _kCacheKeys = ['temp', 'imgCache', 'codexCache'];
+
+/// 参考图仓绝大部分是作品参数快照引用的,算在图库那行:清空图库才放得掉。
+const _kGalleryKeys = ['gallery', 'blobs'];
 
 /// 「可清理」只此一组。合并看的是**重建代价**,不是目录结构:
 /// - 头一行全是删了自动重建、不花钱也不花流量的,合成一条即可;
@@ -55,13 +58,13 @@ const _cleanable = <_CatSpec>[
   _CatSpec(['vibeEnc'], Icons.bolt_outlined),
   _CatSpec(['models'], Icons.hd_outlined),
   _CatSpec(['tagPrev'], Icons.lightbulb_outline),
-  _CatSpec(['gallery'], Icons.photo_library_outlined),
+  _CatSpec(_kGalleryKeys, Icons.photo_library_outlined),
   _CatSpec(['vibeLib'], Icons.palette_outlined),
   _CatSpec(['charLib'], Icons.person_outline),
 ];
 
 class _StoragePageState extends ConsumerState<StoragePage> {
-  StorageReport? _report;
+  StorageReport? _report = lastStorageReport;
   String? _busy; // 正在清理的分类 key
   bool _scanning = false;
   InpaintHistoryUsage? _inpaintHistory;
@@ -181,7 +184,7 @@ class _StoragePageState extends ConsumerState<StoragePage> {
         await _clearInpaintHistory();
       // 合并行「缓存文件」:四样一起清。全是免费重建的,不必确认。
       case 'temp':
-        await _run(_kCacheKeys, () async {
+        await _run(const [..._kCacheKeys, 'blobs'], () async {
           await sweepPickerCache(minAge: Duration.zero);
           await RemoteImageStore.clear();
           await ref.read(codexServiceProvider).clearCache();
@@ -213,7 +216,7 @@ class _StoragePageState extends ConsumerState<StoragePage> {
         );
         if (!ok) return;
         // 快照没了,顺手清孤儿参考图;释放量把这部分也算进去
-        await _run(const ['gallery', 'blobs'], () async {
+        await _run(_kGalleryKeys, () async {
           await ref.read(galleryProvider.notifier).clearAll();
           await stores.gallery.idle;
           await stores.albums.idle;
@@ -412,7 +415,8 @@ class _TotalCard extends StatelessWidget {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      l10nNow.desktopIncludesPlanaDataCacheAndAutomaticallySavedImages,
+                      l10nNow
+                          .desktopIncludesPlanaDataCacheAndAutomaticallySavedImages,
                       style: context.texts.bodySmall!.copyWith(
                         color: scheme.onSurfaceVariant,
                       ),
@@ -656,7 +660,8 @@ class _CleanRow extends StatelessWidget {
 
 String _catLabel(AppLocalizations l, _CatSpec spec) => switch (spec.id) {
   'temp' => l.catCache,
-  'inpaintHistory' => l.localeName == 'en' ? 'Inpaint originals and masks' : '历史重绘原图与蒙版',
+  'inpaintHistory' =>
+    l.localeName == 'en' ? 'Inpaint originals and masks' : '历史重绘原图与蒙版',
   'vibeEnc' => l.catVibeEnc,
   'models' => l.catModels,
   'tagPrev' => l.catTagPrev,

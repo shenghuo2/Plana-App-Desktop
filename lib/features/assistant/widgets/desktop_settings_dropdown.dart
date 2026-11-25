@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 /// A flat settings field with a menu anchored below its full width.
-class DesktopSettingsDropdown<T> extends StatefulWidget {
+class DesktopSettingsDropdown<T> extends StatelessWidget {
   const DesktopSettingsDropdown({
     super.key,
     required this.id,
@@ -29,12 +29,73 @@ class DesktopSettingsDropdown<T> extends StatefulWidget {
   final String? Function(T)? optionNote;
 
   @override
-  State<DesktopSettingsDropdown<T>> createState() =>
-      _DesktopSettingsDropdownState<T>();
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final textStyle = Theme.of(
+      context,
+    ).textTheme.bodyMedium!.copyWith(fontSize: 13, color: scheme.onSurface);
+    return DesktopSettingsMenu(
+      id: id,
+      label: label,
+      summary: labelOf(value),
+      enabled: enabled,
+      menu: (_) => [
+        for (final option in options)
+          MenuItemButton(
+            key: ValueKey('$id-option-$option'),
+            autofocus: option == value,
+            onPressed: (optionEnabled?.call(option) ?? true)
+                ? () {
+                    if (enabled && option != value) {
+                      onChanged(option);
+                    }
+                  }
+                : null,
+            style: ButtonStyle(
+              minimumSize: const WidgetStatePropertyAll(Size(0, 44)),
+              visualDensity: VisualDensity.standard,
+              backgroundColor: option == value
+                  ? WidgetStatePropertyAll(
+                      scheme.primary.withValues(alpha: .08),
+                    )
+                  : null,
+              textStyle: WidgetStatePropertyAll(textStyle),
+            ),
+            trailingIcon: option == value
+                ? Icon(Icons.check, size: 18, color: scheme.primary)
+                : const SizedBox(width: 18),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(labelOf(option)),
+                if (optionNote?.call(option) case final String note)
+                  Text(note, style: const TextStyle(fontSize: 11)),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
 }
 
-class _DesktopSettingsDropdownState<T>
-    extends State<DesktopSettingsDropdown<T>> {
+class DesktopSettingsMenu extends StatefulWidget {
+  const DesktopSettingsMenu({
+    super.key,
+    required this.id,
+    required this.label,
+    required this.summary,
+    required this.menu,
+    this.enabled = true,
+  });
+  final String id, label, summary;
+  final List<Widget> Function(double availableHeight) menu;
+  final bool enabled;
+  @override
+  State<DesktopSettingsMenu> createState() => _DesktopSettingsMenuState();
+}
+
+class _DesktopSettingsMenuState extends State<DesktopSettingsMenu> {
   final _menu = MenuController();
   final _focus = FocusNode();
   final _anchor = GlobalKey();
@@ -95,42 +156,7 @@ class _DesktopSettingsDropdownState<T>
             RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
           ),
         ),
-        menuChildren: [
-          for (final option in widget.options)
-            MenuItemButton(
-              key: ValueKey('${widget.id}-option-$option'),
-              autofocus: option == widget.value,
-              onPressed: (widget.optionEnabled?.call(option) ?? true)
-                  ? () {
-                      if (widget.enabled && option != widget.value) {
-                        widget.onChanged(option);
-                      }
-                    }
-                  : null,
-              style: ButtonStyle(
-                minimumSize: const WidgetStatePropertyAll(Size(0, 44)),
-                visualDensity: VisualDensity.standard,
-                backgroundColor: option == widget.value
-                    ? WidgetStatePropertyAll(
-                        scheme.primary.withValues(alpha: .08),
-                      )
-                    : null,
-                textStyle: WidgetStatePropertyAll(textStyle),
-              ),
-              trailingIcon: option == widget.value
-                  ? Icon(Icons.check, size: 18, color: scheme.primary)
-                  : const SizedBox(width: 18),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(widget.labelOf(option)),
-                  if (widget.optionNote?.call(option) case final String note)
-                    Text(note, style: const TextStyle(fontSize: 11)),
-                ],
-              ),
-            ),
-        ],
+        menuChildren: widget.menu(_menuHeight - 8),
         builder: (context, controller, _) => Focus(
           onKeyEvent: (_, event) {
             if (widget.enabled &&
@@ -172,7 +198,13 @@ class _DesktopSettingsDropdownState<T>
                 label: widget.label,
                 child: Row(
                   children: [
-                    Expanded(child: Text(widget.labelOf(widget.value))),
+                    Expanded(
+                      child: Text(
+                        widget.summary,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
                     const SizedBox(width: 12),
                     const Icon(Icons.expand_more, size: 20),
                   ],

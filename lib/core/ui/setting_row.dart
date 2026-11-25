@@ -350,22 +350,27 @@ class SettingRowTexts extends StatelessWidget {
   final String desc;
 
   @override
-  Widget build(BuildContext context) => Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      Text(
-        title,
-        style: context.texts.bodyLarge!.copyWith(fontWeight: FontWeight.w600),
-      ),
-      const SizedBox(height: 2),
-      Text(
-        desc,
-        style: context.texts.labelSmall!.copyWith(
-          color: context.scheme.outline,
+  Widget build(BuildContext context) {
+    final theme = ListTileTheme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title,
+          style:
+              theme.titleTextStyle ??
+              context.texts.bodyLarge!.copyWith(fontWeight: FontWeight.w600),
         ),
-      ),
-    ],
-  );
+        const SizedBox(height: 2),
+        Text(
+          desc,
+          style:
+              theme.subtitleTextStyle ??
+              context.texts.labelSmall!.copyWith(color: context.scheme.outline),
+        ),
+      ],
+    );
+  }
 }
 
 /// 设置弹层的外壳:自带抓手 + 标题栏 + 右上角关闭,正文可滚。

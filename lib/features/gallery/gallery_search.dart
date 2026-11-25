@@ -7,6 +7,11 @@
 /// 抽取只碰快照里的明文字段,不走 decodeGenerateState(那要解参考图 blob)。
 library;
 
+import 'dart:convert';
+import 'dart:io';
+import 'dart:isolate';
+import 'dart:math' as math;
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/store/app_stores.dart';
@@ -161,6 +166,9 @@ final gallerySearchProvider =
     );
 
 class GallerySearchNotifier extends Notifier<GallerySearchState> {
+  Set<String>? _changedDuringLoad = {};
+  int _epoch = 0;
+
   GalleryStore get _store => ref.read(appStoresProvider).gallery;
 
   @override
@@ -170,69 +178,115 @@ class GallerySearchNotifier extends Notifier<GallerySearchState> {
   }
 
   Future<void> _init() async {
-    if (!ref.mounted) return;
+    if (!ref.mounted || _changedDuringLoad == null) return;
+    final epoch = _epoch;
     final loaded = await _store.readSearchIndex();
-    if (!ref.mounted) return;
+    if (!ref.mounted || epoch != _epoch) return;
     // 已 put 的新图优先(_init 前生成的),盘上旧值不回退它
-    state = state.copyWith(byId: {...loaded, ...state.byId});
-    await _backfill();
+    state = state.copyWith(
+      byId: {
+        for (final entry in loaded.entries)
+          if (!_changedDuringLoad!.contains(entry.key)) entry.key: entry.value,
+        ...state.byId,
+      },
+    );
+    try {
+      await _backfill(epoch);
+    } finally {
+      if (epoch == _epoch) _changedDuringLoad = null;
+    }
   }
 
-  /// 老图回填:盘上有快照但索引缺的,逐张轻量抽取;顺带清掉快照已不在的
-  /// 陈条(崩溃残留)。逐文件 await 让路 UI,每 25 张刷一次进度。
-  Future<void> _backfill() async {
+  /// 每批回填的快照数。
+  static const _batch = 200;
+
+  /// 老图回填:盘上有快照但索引缺的,分批在后台 isolate 里读快照、抽取;每批
+  /// 做完就落盘,中途被杀下次接着补。顺带清掉快照已不在的陈条(崩溃残留)。
+  Future<void> _backfill(int epoch) async {
     final ids = await _store.listInputIds();
-    if (!ref.mounted) return;
+    if (!ref.mounted || epoch != _epoch) return;
     final live = ids.toSet();
     final missing = [
       for (final id in ids)
-        if (!state.byId.containsKey(id)) id,
+        if (!state.byId.containsKey(id) && !_changedDuringLoad!.contains(id))
+          id,
     ];
-    final hasStale = state.byId.keys.any((id) => !live.contains(id));
-    if (missing.isEmpty && !hasStale) return;
+    final stale = [
+      for (final id in state.byId.keys)
+        if (!live.contains(id)) id,
+    ];
+    if (missing.isEmpty && stale.isEmpty) return;
 
     if (missing.isNotEmpty) {
       state = state.copyWith(building: true, done: 0, total: missing.length);
     }
-    final add = <String, GallerySearchMeta>{};
-    var done = 0;
-    for (final id in missing) {
-      final raw = await _store.readInputRaw(id);
-      if (!ref.mounted) return;
-      final m = raw == null ? null : metaOfSnapshotJson(raw);
-      if (m != null) add[id] = m;
-      done++;
-      if (done % 25 == 0) {
-        state = state.copyWith(byId: {...state.byId, ...add}, done: done);
-      }
+    for (var i = 0; i < missing.length; i += _batch) {
+      final add = await _metasInIsolate([
+        for (final id in missing.skip(i).take(_batch))
+          (id: id, path: _store.inputPathOf(id)),
+      ]);
+      if (!ref.mounted || epoch != _epoch) return;
+      add.removeWhere((id, _) => _changedDuringLoad!.contains(id));
+      state = state.copyWith(
+        byId: {...state.byId, ...add},
+        done: math.min(i + _batch, missing.length),
+      );
+      _store.appendSearch(add);
     }
-    final next = {...state.byId, ...add}
-      ..removeWhere((id, _) => !live.contains(id));
+    final removed = stale
+        .where((id) => !_changedDuringLoad!.contains(id))
+        .toSet();
+    final next = {...state.byId}..removeWhere((id, _) => removed.contains(id));
     state = GallerySearchState(byId: next);
-    _persist();
+    _store.appendSearchRemovals(removed.toList());
   }
 
   /// 新结果入索引(addResult 同帧调,input 在内存,零 IO)。
   void put(String id, GenerateState input) {
-    state = state.copyWith(byId: {...state.byId, id: metaOfInput(input)});
-    _persist();
+    final m = metaOfInput(input);
+    _changedDuringLoad?.add(id);
+    state = state.copyWith(byId: {...state.byId, id: m});
+    _store.appendSearch({id: m});
   }
 
   /// 删除/裁剪联动。
   void removeAll(Iterable<String> ids) {
-    final drop = ids.toSet();
-    if (!state.byId.keys.any(drop.contains)) return;
+    final drop = ids
+        .toSet()
+        .where((id) => _changedDuringLoad != null || state.byId.containsKey(id))
+        .toList();
+    _changedDuringLoad?.addAll(drop);
+    if (drop.isEmpty) return;
+    final gone = drop.toSet();
     state = state.copyWith(
-      byId: {...state.byId}..removeWhere((id, _) => drop.contains(id)),
+      byId: {...state.byId}..removeWhere((id, _) => gone.contains(id)),
     );
-    _persist();
+    _store.appendSearchRemovals(drop);
   }
 
   void clear() {
-    if (state.byId.isEmpty) return;
-    state = state.copyWith(byId: const {});
-    _persist();
+    _epoch++;
+    _changedDuringLoad = null;
+    state = const GallerySearchState();
+    _store.clearSearch();
   }
+}
 
-  void _persist() => _store.writeSearchIndex(state.byId);
+Future<Map<String, GallerySearchMeta>> _metasInIsolate(
+  List<({String id, String path})> files,
+) => Isolate.run(() => _metasOfSnapshots(files));
+
+/// 后台 isolate:逐个读快照抽元数据。读不出 / 认不出的不进结果。
+Map<String, GallerySearchMeta> _metasOfSnapshots(
+  List<({String id, String path})> files,
+) {
+  final out = <String, GallerySearchMeta>{};
+  for (final f in files) {
+    try {
+      final j = jsonDecode(File(f.path).readAsStringSync());
+      if (j is! Map<String, dynamic>) continue;
+      if (metaOfSnapshotJson(j) case final m?) out[f.id] = m;
+    } catch (_) {}
+  }
+  return out;
 }

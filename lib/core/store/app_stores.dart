@@ -159,21 +159,23 @@ class AppStores {
       root,
       onSaveError: (_) => saveError.value = '设置保存失败，修改仍在内存，请检查磁盘后重试',
     );
-    await workspace.load();
-    await gallery.load();
+    final transCache = TransCacheStore(
+      root,
+      onSaveError: (_) => saveError.value = '译名缓存保存失败，修改仍在内存，请检查磁盘后重试',
+    );
+    await Future.wait([
+      workspace.load(),
+      gallery.load(),
+      ledger.load(),
+      assistant.load(),
+      transCache.load(),
+    ]);
     await albums.load(
       liveImages: {
         for (final r in gallery.initialResults) r.id,
         for (final t in gallery.initialTrash) t.image.id,
       },
     );
-    await ledger.load();
-    await assistant.load();
-    final transCache = TransCacheStore(
-      root,
-      onSaveError: (_) => saveError.value = '译名缓存保存失败，修改仍在内存，请检查磁盘后重试',
-    );
-    await transCache.load();
     Directory outputRoot = Directory('${root.path}/outputs');
     final legacyOutputRoots = <Directory>[];
     final outputLocationIssues = <String>[];

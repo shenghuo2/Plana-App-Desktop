@@ -192,8 +192,11 @@ void main() {
     await tester.enterText(find.byType(TextField), '');
     await tester.tap(find.widgetWithText(ChoiceChip, '收藏'));
     await tester.pumpAndSettle();
-    expect(_card('favorite'), findsOneWidget);
+    expect(_card('favorite'), findsNothing);
     expect(_card('mine'), findsNothing);
+    await tester.tap(find.widgetWithText(ChoiceChip, '常用'));
+    await tester.pumpAndSettle();
+    expect(_card('favorite'), findsOneWidget);
     await tester.tap(find.widgetWithText(ChoiceChip, '全部'));
     await tester.pumpAndSettle();
     expect(_card('mine'), findsOneWidget);
@@ -207,8 +210,8 @@ void main() {
     harness.library.removeFilterTag();
     await tester.pumpAndSettle();
     expect(
-      tester.widget<TagFilterChips>(find.byType(TagFilterChips)).filter,
-      isNull,
+      tester.widget<TagFilterChips>(find.byType(TagFilterChips)).filter.active,
+      isFalse,
     );
     expect(_card('favorite'), findsOneWidget);
     expect(_card('mine'), findsOneWidget);

@@ -3,13 +3,18 @@ import 'dart:convert';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:plana_app/features/assistant/assistant_models.dart';
+import 'package:plana_app/features/assistant/agent_trace.dart' show AgentTrace;
 import 'package:plana_app/features/assistant/assistant_state.dart'
-    show proposalSendState, proposalWithArtistNegatives;
+    show
+        assistantCanvasBlockContext,
+        proposalSendState,
+        proposalWithArtistNegatives;
 import 'package:plana_app/features/inspiration/tag_models.dart'
     show TagEntry, TagCategory;
 import 'package:plana_app/features/editor/editor_models.dart' show outputOf;
 import 'package:plana_app/features/generate/models.dart';
 import 'package:plana_app/features/generate/prompt_sections.dart';
+import 'package:plana_app/features/generate/prompt_import_binding.dart';
 import 'package:plana_app/features/generate/nai_request.dart';
 import 'package:plana_app/features/generate/bot_request.dart';
 import 'package:plana_app/core/util/prompt_block.dart';
@@ -29,6 +34,11 @@ import 'package:plana_app/features/assistant/llm/llm_provider.dart';
 import 'package:plana_app/features/assistant/llm/plana_channel_provider.dart';
 import 'package:plana_app/features/assistant/presets/rules_file.dart';
 import 'package:plana_app/features/assistant/runtime/local_runtime.dart';
+import 'package:plana_app/features/assistant/runtime/library_reply.dart';
+import 'package:plana_app/features/assistant/tools/artist_tool.dart';
+import 'package:plana_app/features/assistant/tools/oc_tool.dart';
+import 'package:plana_app/features/assistant/tools/tool_context.dart';
+import 'package:plana_app/features/assistant/tools/tool_settings.dart';
 
 class _Replies implements LlmProvider {
   _Replies(this.next);
@@ -55,6 +65,161 @@ class _Replies implements LlmProvider {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  for (final modelId in ['nai_v45_full', 'nai5']) {
+    test(
+      'old $modelId preset imports library spans and leaves new tags loose',
+      () async {
+        const fence = '\u0060\u0060\u0060';
+        const oc = '1.35::pink ears, silver hair::, {ribbon}, [gloves]';
+        const style = '1.2::artist:fixture::, soft edges';
+        final search = modelId == 'nai5';
+        const entry = {
+          'zh_name': '礼服猫',
+          'zh_aliases': ['小礼'],
+          'tag_group': oc,
+        };
+        final drawing = {
+          'positive': search
+              ? '__ARTIST_D33__, garden'
+              : '__ARTIST_D33__, __OC_礼服猫__, garden',
+          'blocks': {
+            'positive': ['场景·整张图'],
+          },
+          if (search)
+            'characters': [
+              {'name': '主角', 'positive': 'The girl with __OC_礼服猫__ waves.'},
+              {'name': '路人', 'positive': 'walking'},
+            ],
+        };
+        final model = _Replies([
+          if (search)
+            '${fence}tool_call\n{"name":"search_oc","arguments":{"query":"小礼"}}\n$fence',
+          '${fence}nai_draw\n${jsonEncode(drawing)}\n$fence',
+        ]);
+        final events =
+            await LocalAgentRuntime(
+                  provider: model,
+                  tools: const [SearchArtistTool(), SearchOcTool()],
+                )
+                .run(
+                  AgentTurnRequest(
+                    userText: search ? '用 D33 查角色库' : '用 D33 画小礼',
+                    imageModel: modelId,
+                    artists: const [
+                      {'id': 'D33', 'name': 'D33', 'prompt': style},
+                    ],
+                    ocs: search ? const [] : const [entry],
+                    searchOcLibrary: (_) async => [entry],
+                  ),
+                )
+                .toList();
+        expect(model.calls.last.last.content, contains('__OC_礼服猫__'));
+        expect(model.calls.last.last.content, contains(oc));
+        final result = events.whereType<AgentDone>().single.result;
+        expect(result.resources.containsKey('oc'), isFalse);
+        expect(result.blocks.map((b) => (b.name, b.character, b.text)), [
+          ('D33', -1, style),
+          ('礼服猫', search ? 0 : -1, oc),
+        ]);
+        final proposal = DrawProposal.fromJson(
+          DrawProposal(
+            positive: result.positive,
+            characters: result.characters,
+            blocks: result.blocks,
+          ).toJson(),
+        );
+        var seq = 0;
+        final canvas = proposalSendState(
+          GenerateState.initial(),
+          proposal,
+          SectionImport.aiSection,
+          newId: () => 'id${seq++}',
+        );
+        final row = canvas.sections.last;
+        expect(row.foldLinks.first.positiveBody, style);
+        expect(row.positiveRaw, endsWith('garden'));
+        if (search) {
+          final role = canvas.characters.first;
+          expect(role.foldLinks.single.positiveBody, oc);
+          expect(outputOf(role.positiveRaw), 'The girl with $oc waves.');
+          expect(role.positiveRaw, endsWith(' waves.'));
+          expect(canvas.characters.last.foldLinks, isEmpty);
+        } else {
+          expect(row.foldLinks.last.positiveBody, oc);
+          expect(outputOf(row.positiveRaw), '$style, $oc, garden');
+        }
+      },
+    );
+  }
+
+  test('library spans keep whole weight groups and reject fragments', () {
+    final parts = {
+      'oc': {'银发': 'silver hair, ribbon,'},
+    };
+    final wire = {
+      'positive': '1.5::{silver hair,ribbon}::, meadow',
+      'characters': [
+        {'positive': '1.3::hat, silver hair, ribbon, glasses::'},
+        {'positive': 'silver hair, red ribbon'},
+      ],
+    };
+    final blocks = completePromptBlocks(
+      PromptBlock.fromLibraryParts(wire, parts),
+      wire,
+    );
+    expect(blocks.map((b) => (b.character, b.text)), [
+      (-1, '1.5::{silver hair,ribbon}::'),
+    ]);
+  });
+
+  test('older servers retain saved labels after resolving a library token', () {
+    const token = '__OC_礼服猫__';
+    const tags = '1.3::silver hair, eyes::, {ribbon}';
+    final ctx = ToolContext(
+      userText: '',
+      settings: const ToolSettings(),
+      texts: const PromptTexts({}),
+    );
+    ctx.ocPlan.add('礼服猫', tags);
+    final wire = {
+      'characters': [
+        {'positive': '$token, waving'},
+      ],
+      'promptBlocks': [
+        {
+          'kind': 'character',
+          'name': '人物',
+          'text': token,
+          'start': 0,
+          'character': 0,
+        },
+        {
+          'kind': 'other',
+          'name': '动作',
+          'text': 'waving',
+          'start': token.length + 2,
+          'character': 0,
+        },
+      ],
+      'thinking': '完成 $token',
+      'reasoning': 'saved reasoning',
+      'resources': {
+        'oc': {'礼服猫': token},
+      },
+    };
+    final semantic = legacyLibraryReply(wire, ctx, {}, useBlocks: true);
+    expect(semantic.blocks.map((b) => (b.name, b.text, b.start)), [
+      ('人物', tags, 0),
+      ('动作', 'waving', tags.length + 2),
+    ]);
+    expect(semantic.replyText, '完成 礼服猫');
+    expect(semantic.reasoning, 'saved reasoning');
+    expect(semantic.resources['oc'], {'礼服猫': tags});
+    final plain = legacyLibraryReply(wire, ctx, {}, useBlocks: false);
+    expect(plain.blocks.single.name, '礼服猫');
+    expect(plain.blocks.single.text, tags);
+  });
 
   test(
     'channel keeps separate image payloads and sends incremental turns',
@@ -100,6 +265,28 @@ void main() {
           )
           .single;
       expect(out.text, 'done');
+    },
+  );
+
+  test(
+    'custom APIs and Plana channels receive the supplement as ordinary user text',
+    () async {
+      for (final route in [AgentTrace.routeCustom, AgentTrace.routeBackend]) {
+        final model = _Replies(['done']);
+        await LocalAgentRuntime(provider: model, route: route, tools: const [])
+            .run(
+              const AgentTurnRequest(
+                userText: 'draw a skyline',
+                imageModel: 'nai_v45_full',
+                customRules: [],
+                apiSupplement: 'Use a limited palette.',
+              ),
+            )
+            .drain<void>();
+        final message = model.calls.single.single;
+        expect(message.role, 'user');
+        expect(message.content, endsWith('Use a limited palette.'));
+      }
     },
   );
 
@@ -469,7 +656,186 @@ void main() {
   );
 
   test(
-    'library contributes only its newly added negative tags to the matched style block',
+    'flat negative edits retain fold ownership, weights and independent additions',
+    () {
+      const style = TagEntry(
+        id: 'd',
+        name: 'D33',
+        category: TagCategory.artist,
+        positive: 'artist:one',
+        negative: '2::dolls, extra fingers, chibi::, 5::mouse ears::',
+      );
+      final first = proposalWithArtistNegatives(
+        const DrawProposal(
+          positive: 'artist:one',
+          negative: 'watermark',
+          blocks: [
+            PromptBlock(
+              kind: PromptBlockKind.other,
+              name: '杂项',
+              text: 'watermark',
+              start: 0,
+              negative: true,
+            ),
+          ],
+        ),
+        [style],
+      );
+      const edit = 'watermark, 1.4::dolls, chibi::, multiple people';
+      final malformed = AgentResult.fromJson({
+        'positive': 'artist:one',
+        'negative': edit,
+        'blocks': {
+          'negative': ['其它·杂项', '画风·D33', '其它·额外排除'],
+        },
+      }, recoverBlocks: true);
+      final revised = proposalWithArtistNegatives(
+        DrawProposal(
+          positive: malformed.positive,
+          negative: malformed.negative,
+          blocks: malformed.blocks,
+        ),
+        [style],
+        previousDraw: DrawProposal.fromJson(first.toJson()),
+      );
+      final copied = DrawProposal.fromJson(revised.toJson());
+      expect(copied.negative, edit);
+      final styleBlock = copied.blocks.singleWhere((b) => !b.negative);
+      expect(
+        styleBlock.counterpartIn(copied.blocks)?.text,
+        '1.4::dolls, chibi::',
+      );
+      expect(
+        copied.blocks.singleWhere((b) => b.name == '杂项').text,
+        'watermark',
+      );
+      final replay = replayText(
+        AssistantMsg(id: '1', role: MsgRole.ai, text: '', at: 1, draw: copied),
+      );
+      final wire = jsonDecode(
+        replay.split('```nai_draw\n').last.split('\n```').first,
+      );
+      expect(wire['blocks']['negative'], ['其它·杂项', startsWith('画风·D33'), '']);
+      expect(
+        wire['negative'],
+        'watermark,\n1.4::dolls, chibi::,\nmultiple people',
+      );
+      for (final mode in SectionImport.values) {
+        var seq = 0;
+        var binding = const PromptImportBinding();
+        GenerateState apply(GenerateState canvas, DrawProposal draw) =>
+            proposalSendState(
+              canvas,
+              draw,
+              mode,
+              binding: binding,
+              allowEditNegative: true,
+              newId: () => 'r${seq++}',
+              onBinding: (next) => binding = next,
+            );
+        final canvas = apply(apply(GenerateState.initial(), first), copied);
+        final section = [
+          SectionImport.newSection,
+          SectionImport.aiSection,
+        ].contains(mode);
+        final row = section ? canvas.sections.last : null;
+        final raw = row?.negativeRaw ?? canvas.negativePromptRaw;
+        final links = row?.foldLinks ?? canvas.promptFoldLinks;
+        if (mode == SectionImport.newSection) {
+          // This mode adds a separate row and removes terms already provided by the first.
+          expect(outputOf(raw), isNot(contains('mouse ears')));
+        } else {
+          expect(outputOf(raw), edit, reason: mode.name);
+          expect(raw, endsWith('#>, multiple people'), reason: mode.name);
+          expect(
+            links.singleWhere((l) => l.paired).negativeBody,
+            '1.4::dolls, chibi::',
+            reason: mode.name,
+          );
+        }
+        if (mode != SectionImport.newSection) {
+          final context = assistantCanvasBlockContext(canvas, binding, mode);
+          expect(
+            context.summary,
+            contains('D33 · 画风·排除 → "1.4::dolls, chibi::"'),
+          );
+          expect(context.summary, contains('杂项 · 其它 → "watermark"'));
+          final next = proposalWithArtistNegatives(
+            const DrawProposal(
+              positive: 'artist:one',
+              negative: 'watermark, [chibi], multiple people',
+            ),
+            const [],
+            previousDraw: context.source!,
+          );
+          final pair = next.blocks
+              .singleWhere((b) => !b.negative)
+              .counterpartIn(next.blocks);
+          expect(pair?.text, '[chibi]', reason: mode.name);
+        }
+      }
+    },
+  );
+
+  test(
+    'legacy artist recovery requires an unambiguous span and respects explicit labels and clear',
+    () {
+      const style = TagEntry(
+        id: 'd',
+        name: 'D33',
+        category: TagCategory.artist,
+        positive: 'artist:one',
+        negative: '2::bad hands, watermark::, mouse ears',
+      );
+      DrawProposal edit(
+        String negative, {
+        List<PromptBlock> blocks = const [],
+      }) => proposalWithArtistNegatives(
+        DrawProposal(
+          positive: 'artist:one',
+          negative: negative,
+          blocks: blocks,
+        ),
+        [style],
+        previousPositives: [style.positive],
+      );
+      final partial = edit('grain, 1.2::bad hands, watermark::, extra');
+      expect(
+        partial.blocks.singleWhere((b) => b.negative).text,
+        '1.2::bad hands, watermark::',
+      );
+      for (final line in [
+        'grain, watermark',
+        '1.2::grain, bad hands, watermark::, extra',
+      ]) {
+        expect(edit(line).blocks.where((b) => b.negative), isEmpty);
+      }
+      final labelled = edit(
+        'bad hands, watermark',
+        blocks: const [
+          PromptBlock(
+            kind: PromptBlockKind.other,
+            name: '手部',
+            text: 'bad hands',
+            start: 0,
+            negative: true,
+          ),
+        ],
+      );
+      expect(labelled.blocks.singleWhere((b) => b.negative).name, '手部');
+      expect(
+        proposalWithArtistNegatives(
+          const DrawProposal(positive: 'artist:one', clearNegative: true),
+          [style],
+          previousDraw: partial,
+        ).negative,
+        isEmpty,
+      );
+    },
+  );
+
+  test(
+    'library pairs appended or fully echoed style negatives and preserves other exclusions',
     () {
       const style = PromptBlock(
         kind: PromptBlockKind.style,
@@ -509,7 +875,7 @@ void main() {
       expect(outputOf(gen.negativePromptRaw), draw.negative);
       expect(gen.negativePromptRaw, startsWith('lowres, watermark, <#'));
 
-      // An existing unlabelled negative was not contributed by the library.
+      // The model can echo the complete source before the local addition runs.
       final existing = proposalWithArtistNegatives(
         DrawProposal(
           positive: r.positive,
@@ -518,15 +884,55 @@ void main() {
         ),
         [entry],
       );
-      expect(existing.blocks.single, style);
-      expect(style.counterpartIn(existing.blocks), isNull);
+      expect(style.counterpartIn(existing.blocks)?.text, entry.negative);
+      expect(existing.negative, entry.negative);
       expect(
         proposalWithArtistNegatives(
           const DrawProposal(positive: 'artist:one'),
           [entry],
-        ).blocks,
-        isEmpty,
+        ).blocks.map((b) => b.negative),
+        [false, true],
       );
+
+      const grouped = TagEntry(
+        id: 'art',
+        category: TagCategory.artist,
+        name: 'D33',
+        positive: 'artist:one， ',
+        negative: '2::blurry, watermark::, grain,',
+      );
+      final appended = proposalWithArtistNegatives(
+        const DrawProposal(
+          positive: 'artist:one,',
+          negative: 'custom, watermark',
+          blocks: [style],
+        ),
+        [grouped],
+      );
+      final pair = style.counterpartIn(appended.blocks)!;
+      expect(pair.text, '2::blurry::, grain');
+      expect(appended.negative, 'custom, watermark, 2::blurry::, grain');
+      final echoed = proposalWithArtistNegatives(
+        const DrawProposal(
+          positive: 'artist:one,',
+          negative: 'custom, 2::blurry,watermark::, grain, extra',
+          blocks: [style],
+        ),
+        [grouped],
+      );
+      final projection = proposalSendState(
+        GenerateState.initial(),
+        DrawProposal.fromJson(echoed.toJson()),
+        SectionImport.aiSection,
+        allowEditNegative: true,
+        newId: () => 'p${seq++}',
+      );
+      final row = projection.sections.last;
+      expect(row.foldLinks.single.paired, true);
+      expect(row.foldLinks.single.negativeBody, '2::blurry,watermark::, grain');
+      expect(outputOf(row.negativeRaw), echoed.negative);
+      expect(row.negativeRaw, startsWith('custom, <#'));
+      expect(row.negativeRaw, endsWith('#>, extra'));
     },
   );
 

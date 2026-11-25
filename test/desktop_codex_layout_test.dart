@@ -112,7 +112,7 @@ void main() {
         appStoresProvider.overrideWithValue(stores),
         desktopModeProvider.overrideWith((ref) => desktop),
         codexIntroProvider.overrideWith(_Acknowledged.new),
-        codexIndexProvider.overrideWith((ref) async => index),
+        codexIndexProvider.overrideWithBuild((ref, _) async => index),
         codexMediaProvider.overrideWith((ref) async => CodexMedia.fallback),
         codexDataProvider.overrideWith(
           (ref, id) async => id == meta.id
@@ -155,7 +155,7 @@ void main() {
         await temp.delete(recursive: true);
         break;
       } on PathAccessException catch (error) {
-        if (error.osError?.errorCode != 32 || attempt >= 6) rethrow;
+        if (error.osError?.errorCode != 32 || attempt >= 20) rethrow;
         await Future<void>.delayed(const Duration(milliseconds: 40));
       }
     }
@@ -164,6 +164,7 @@ void main() {
   Future<void> finish(WidgetTester tester) async {
     // Let local thumbnail reads complete within the test's fake-async zone
     // before removing its Windows cache directory.
+    await pumpUntilComplete(tester, stores.flushForExit());
     await pumpUntil(
       tester,
       () => PaintingBinding.instance.imageCache.pendingImageCount == 0,

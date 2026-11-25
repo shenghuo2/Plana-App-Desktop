@@ -1,3 +1,4 @@
+import '../../../core/ui/prefix_extent_list.dart';
 import '../../../l10n/l10n.dart';
 import 'dart:async';
 
@@ -208,13 +209,32 @@ class _FilmStripState extends State<FilmStrip>
     return true;
   }
 
+  // 历史图那部分条目按列表对象缓存:任务卡每个进度帧都在变,历史图不变
+  List<ResultImage>? _resultsCached;
+  List<_Entry> _resultEntries = const [];
+  Map<String, int> _resultIndex = const {};
+
+  List<_Entry> _resultEntriesOf() {
+    if (!identical(_resultsCached, widget.results)) {
+      _resultsCached = widget.results;
+      _resultEntries = [
+        for (final r in widget.results)
+          _Entry('r:${r.id}', _thumbSlotW(_resultAspect(r)), result: r),
+      ];
+      _resultIndex = {
+        for (var i = 0; i < _resultEntries.length; i++)
+          _resultEntries[i].key: i,
+      };
+    }
+    return _resultEntries;
+  }
+
   /// 要排的条目:任务在前、历史图在后,影子插回它原来的位置。
   List<_Entry> _entries() {
     final items = [
       for (final j in widget.jobs)
         _Entry('j:${j.id}', _thumbSlotW(_aspectOf(j.width, j.height)), job: j),
-      for (final r in widget.results)
-        _Entry('r:${r.id}', _thumbSlotW(_resultAspect(r)), result: r),
+      ..._resultEntriesOf(),
     ];
     if (_leaving.isEmpty) return items;
     final waiting = <String?, List<_Entry>>{};
@@ -496,7 +516,9 @@ class _FilmStripState extends State<FilmStrip>
     Haptics.medium();
     _vacated.add('r:$id');
     widget.onDelete(id);
-    if (mounted) hintSnack(context, l10nNow.deletedLabel, icon: Icons.delete_outline);
+    if (mounted) {
+      hintSnack(context, l10nNow.deletedLabel, icon: Icons.delete_outline);
+    }
   }
 
   /// 把选中缩略图滚到**视野中央**。位置按渲染同款公式推算(缩略图宽 +
@@ -598,7 +620,30 @@ class _FilmStripState extends State<FilmStrip>
   Widget build(BuildContext context) {
     final scheme = context.scheme;
     final display = _display = _entries();
-    final index = {for (var i = 0; i < display.length; i++) display[i].key: i};
+    // 没有进出动画时排布就是「任务 + 历史图」,下标直接查缓存
+    final Map<String, int>? fullIndex = _leaving.isEmpty
+        ? null
+        : {for (var i = 0; i < display.length; i++) display[i].key: i};
+    final jobs = widget.jobs.length;
+    int? indexOf(String key) {
+      if (fullIndex != null) return fullIndex[key];
+      if (key.startsWith('j:')) {
+        for (var i = 0; i < jobs; i++) {
+          if (display[i].key == key) return i;
+        }
+        return null;
+      }
+      final i = _resultIndex[key];
+      return i == null ? null : i + jobs;
+    }
+
+    final animating = _entering.isNotEmpty || _leaving.isNotEmpty;
+    final offsets = List<double>.filled(display.length + 1, 0);
+    for (var i = 0; i < display.length; i++) {
+      offsets[i + 1] =
+          offsets[i] +
+          (animating ? _extentOf(display[i]) : display[i].slot + _thumbGap);
+    }
     return Material(
       color: scheme.surface,
       child: Padding(
@@ -612,54 +657,62 @@ class _FilmStripState extends State<FilmStrip>
                 // 补回滚动位置的位移和 _reveal 算的落点才对得上实际布局
                 child: _withScrollbar(
                   context,
-                  ListView.builder(
+                  CustomScrollView(
                     controller: _sc,
                     scrollDirection: Axis.horizontal,
-                    // 每条的宽里带着后面那道分隔,右边距相应减掉
-                    padding: const EdgeInsets.only(
-                      left: _stripPadH,
-                      right: _stripPadH - _thumbGap,
-                    ),
-                    itemCount: display.length,
-                    itemExtentBuilder: (i, _) =>
-                        i < display.length ? _extentOf(display[i]) : null,
-                    findChildIndexCallback: (key) =>
-                        index[(key as ValueKey<String>).value],
-                    itemBuilder: (context, i) {
-                      final e = display[i];
-                      final job = e.job;
-                      final Widget thumb = job != null
-                          ? _GenThumb(
-                              job: job,
-                              active:
-                                  !e.ghost && job.id == widget.selectedJobId,
-                              onTap: () => widget.onSelectJob?.call(job.id),
-                            )
-                          : _resultThumb(e, scheme);
-                      // 进出时按比例裁宽、淡入淡出。结构不随状态变,影子与原条目
-                      // 同一个键,条目内部状态(选中环过渡、拖拽)不会被重建打断
-                      return ClipRect(
-                        key: ValueKey(e.key),
-                        child: Align(
-                          alignment: Alignment.centerLeft,
-                          child: Opacity(
-                            opacity: _factor(e.key).clamp(0.0, 1.0),
-                            child: IgnorePointer(
-                              ignoring: e.ghost,
-                              child: ExcludeFocus(
-                                excluding: e.ghost,
-                                child: Padding(
-                                  padding: const EdgeInsets.only(
-                                    right: _thumbGap,
+                    slivers: [
+                      SliverPadding(
+                        padding: const EdgeInsets.only(
+                          left: _stripPadH,
+                          right: _stripPadH - _thumbGap,
+                        ),
+                        sliver: SliverPrefixExtentList(
+                          offsets: offsets,
+                          delegate: SliverChildBuilderDelegate(
+                            (context, i) {
+                              final e = display[i];
+                              final job = e.job;
+                              final Widget thumb = job != null
+                                  ? _GenThumb(
+                                      job: job,
+                                      active:
+                                          !e.ghost &&
+                                          job.id == widget.selectedJobId,
+                                      onTap: () =>
+                                          widget.onSelectJob?.call(job.id),
+                                    )
+                                  : _resultThumb(e, scheme);
+                              // 进出时按比例裁宽、淡入淡出。结构不随状态变,影子与原条目
+                              // 同一个键,条目内部状态(选中环过渡、拖拽)不会被重建打断
+                              return ClipRect(
+                                key: ValueKey(e.key),
+                                child: Align(
+                                  alignment: Alignment.centerLeft,
+                                  child: Opacity(
+                                    opacity: _factor(e.key).clamp(0.0, 1.0),
+                                    child: IgnorePointer(
+                                      ignoring: e.ghost,
+                                      child: ExcludeFocus(
+                                        excluding: e.ghost,
+                                        child: Padding(
+                                          padding: const EdgeInsets.only(
+                                            right: _thumbGap,
+                                          ),
+                                          child: thumb,
+                                        ),
+                                      ),
+                                    ),
                                   ),
-                                  child: thumb,
                                 ),
-                              ),
-                            ),
+                              );
+                            },
+                            childCount: display.length,
+                            findChildIndexCallback: (key) =>
+                                indexOf((key as ValueKey<String>).value),
                           ),
                         ),
-                      );
-                    },
+                      ),
+                    ],
                   ),
                 ),
               ),

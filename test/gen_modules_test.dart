@@ -123,9 +123,13 @@ void main() {
     });
   });
 
-  test('crSupportsModel 仅 4.5 系为真', () {
+  test('精确参考按模型与重绘模式判断', () {
     expect(crSupportsModel('NAI 4.5 Full'), isTrue);
     expect(crSupportsModel('NAI 4.5 Curated'), isTrue);
+    for (final model in nai5Models) {
+      expect(crSupportsModel(model), isTrue);
+      expect(crSupportsModel(model, inpaint: true), isFalse);
+    }
     expect(crSupportsModel('NAI 4.0 Full'), isFalse);
     expect(crSupportsModel('NAI 4.0 Curated'), isFalse);
   });

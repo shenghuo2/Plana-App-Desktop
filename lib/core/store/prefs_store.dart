@@ -27,6 +27,7 @@ class PrefsStore {
   Object? _error;
 
   final File _file;
+  Directory get supportDirectory => _file.parent;
   final Map<String, String> _map;
 
   Future<void> _chain = Future.value();

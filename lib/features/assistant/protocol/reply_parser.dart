@@ -272,7 +272,13 @@ Map<String, dynamic> checkDraw(
     var extraKeys = false;
     for (final (i, c) in chars.cast<Map<String, dynamic>>().indexed) {
       final name = c['name']?.toString() ?? '';
-      final cpos = _tagString(c['positive']);
+      // Some models return the character's complete prompt as a description.
+      final description = c['description'];
+      final useDescription =
+          !c.containsKey('positive') &&
+          description is String &&
+          description.trim().isNotEmpty;
+      final cpos = _tagString(useDescription ? description : c['positive']);
       if (cpos == null || cpos.trim().isEmpty) {
         throw OutputFailure(
           texts.get('draw_character_no_positive', {
@@ -281,6 +287,7 @@ Map<String, dynamic> checkDraw(
           }),
         );
       }
+      if (useDescription) repairs.add('characters[$i].description 已用作角色正向提示词');
       final item = <String, dynamic>{
         'name': name,
         'positive': cpos,

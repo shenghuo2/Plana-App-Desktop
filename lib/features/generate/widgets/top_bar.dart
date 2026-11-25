@@ -54,7 +54,18 @@ class GenerateTopBar extends ConsumerWidget {
         ),
       ),
     );
-    if (picked != null) ref.read(generateProvider.notifier).setModel(picked);
+    if (picked != null) {
+      if (m.isNai5MediumModel(picked) &&
+          ref.read(generateProvider).enabledCharRefs > 0 &&
+          context.mounted) {
+        hintSnack(
+          context,
+          context.l10n.mediumPausesPreciseRefs,
+          icon: Icons.swap_horiz,
+        );
+      }
+      ref.read(generateProvider.notifier).setModel(picked);
+    }
   }
 
   @override
@@ -487,8 +498,17 @@ class _DesktopModelDropdown extends ConsumerWidget {
           for (final value in m.modelsOf(group, nai5: true))
             MenuItemButton(
               autofocus: value == model,
-              onPressed: () =>
-                  ref.read(generateProvider.notifier).setModel(value),
+              onPressed: () {
+                if (m.isNai5MediumModel(value) &&
+                    ref.read(generateProvider).enabledCharRefs > 0) {
+                  hintSnack(
+                    context,
+                    context.l10n.mediumPausesPreciseRefs,
+                    icon: Icons.swap_horiz,
+                  );
+                }
+                ref.read(generateProvider.notifier).setModel(value);
+              },
               trailingIcon: value == model
                   ? const Icon(Icons.check, size: 16)
                   : null,

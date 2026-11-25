@@ -212,15 +212,44 @@ void main() {
   });
 
   group('图像模型', () {
-    test('接口的出图模型单独存;只有出图模型也能出图,Claude 格式不出图', () {
+    test('接口独立保存出图模型，中转可分别使用 Messages 对话和 Images 出图', () async {
       final back = CustomEndpoint.fromJson(_openai.toJson())!;
       expect(back.imageModels, ['gpt-image-1']);
       expect(back.canDraw, isTrue);
       expect(back.usable, isFalse);
-      expect(
-        _openai.copyWith(format: AgentApiFormat.anthropic).canDraw,
-        isFalse,
+      final relay = _openai.copyWith(format: AgentApiFormat.anthropic);
+      final claude = relay.copyWith(baseUrl: '', imageModels: []);
+      expect(claude.preset?.label, 'Claude');
+      expect(claude.canDraw, isFalse);
+      final choices = imageModelChoices(
+        (channels: [], authorized: false),
+        [relay],
       );
+      final client = imageGenClientFor(
+        choices.single,
+        backendBase: '',
+        sessionId: '',
+      );
+      expect(relay.route, EndpointRoute.messages);
+      late http.Request seen;
+      final bytes = await client.generate(
+        _input(),
+        client: MockClient((r) async {
+          seen = r;
+          return http.Response(
+            jsonEncode({
+              'data': [
+                {'b64_json': _png},
+              ],
+            }),
+            200,
+            headers: _json,
+          );
+        }),
+      );
+      expect(seen.url.toString(), 'https://img.test/v1/images/generations');
+      expect(jsonDecode(seen.body)['model'], 'gpt-image-1');
+      expect(bytes, base64Decode(_png));
       expect(_openai.copyWith(apiKey: '').canDraw, isFalse);
     });
 

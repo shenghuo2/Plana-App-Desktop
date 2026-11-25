@@ -28,11 +28,17 @@ import 'rules_preset_detail_page.dart';
 import 'widgets/rule_card_drag_target.dart';
 import '../../l10n/l10n.dart';
 
-class RulesPresetPage extends ConsumerWidget {
+class RulesPresetPage extends ConsumerStatefulWidget {
   const RulesPresetPage({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<RulesPresetPage> createState() => _RulesPresetPageState();
+}
+
+class _RulesPresetPageState extends ConsumerState<RulesPresetPage> {
+  final _collapsed = <bool>{};
+  @override
+  Widget build(BuildContext context) {
     final library = ref.watch(rulesLibraryProvider).value;
     final presets = library?.all;
     return ImageDropRegion.files(
@@ -57,35 +63,86 @@ class RulesPresetPage extends ConsumerWidget {
         ),
         body: presets == null
             ? const Center(child: CircularProgressIndicator())
-            : ReorderableListView(
-                padding: const EdgeInsets.fromLTRB(14, 8, 14, 24),
-                buildDefaultDragHandles: false,
-                onReorderItem: (from, to) => ref
-                    .read(rulesLibraryProvider.notifier)
-                    .move(presets[from].id, presets[to].id),
-                proxyDecorator: (child, _, _) => Material(
-                  color: Colors.transparent,
-                  elevation: 3,
-                  borderRadius: BorderRadius.circular(16),
-                  child: child,
-                ),
-                children: [
-                  for (final (index, p) in presets.indexed)
-                    Padding(
-                      key: ValueKey(p.id),
-                      padding: const EdgeInsets.only(bottom: 10),
-                      child: _card(
-                        context,
-                        ref,
-                        p,
-                        index,
-                        library!.enabledFor(p.id),
-                      ),
+            : CustomScrollView(
+                key: const ValueKey('rules-preset-groups'),
+                slivers: [
+                  for (final local in [false, true])
+                    ..._group(
+                      context,
+                      library!,
+                      presets.where((p) => p.localOnly == local).toList(),
+                      local,
                     ),
+                  const SliverToBoxAdapter(child: SizedBox(height: 24)),
                 ],
               ),
       ),
     );
+  }
+
+  List<Widget> _group(
+    BuildContext context,
+    RulesLibrary library,
+    List<RulesPreset> items,
+    bool local,
+  ) {
+    final expanded = !_collapsed.contains(local);
+    final label = local
+        ? context.l10n.rulesLocalGroup
+        : context.l10n.rulePresets;
+    return [
+      SliverToBoxAdapter(
+        child: Semantics(
+          expanded: expanded,
+          child: ListTile(
+            dense: true,
+            title: Text('$label（${items.length}）'),
+            trailing: Icon(expanded ? Icons.expand_less : Icons.expand_more),
+            onTap: () => setState(() {
+              if (expanded) {
+                _collapsed.add(local);
+              } else {
+                _collapsed.remove(local);
+              }
+            }),
+          ),
+        ),
+      ),
+      if (expanded && local)
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+            child: Text(
+              context.l10n.rulesLocalOnly,
+              style: context.texts.bodySmall,
+            ),
+          ),
+        ),
+      if (expanded)
+        SliverPadding(
+          padding: const EdgeInsets.symmetric(horizontal: 14),
+          sliver: SliverReorderableList(
+            itemCount: items.length,
+            onReorderItem: (from, to) => ref
+                .read(rulesLibraryProvider.notifier)
+                .move(items[from].id, items[to].id),
+            proxyDecorator: (child, _, _) => Material(
+              color: Colors.transparent,
+              elevation: 3,
+              borderRadius: BorderRadius.circular(16),
+              child: child,
+            ),
+            itemBuilder: (context, index) {
+              final p = items[index];
+              return Padding(
+                key: ValueKey(p.id),
+                padding: const EdgeInsets.only(bottom: 10),
+                child: _card(context, ref, p, index, library.enabledFor(p.id)),
+              );
+            },
+          ),
+        ),
+    ];
   }
 
   Widget _card(
@@ -145,6 +202,7 @@ class RulesPresetPage extends ConsumerWidget {
         author: p.author,
         models: p.models,
         rules: p.rules,
+        localOnly: p.localOnly,
         fileName: 'plana-rules-${_safe(p.name)}.yaml',
       ),
       onDelete: p.isDefault ? null : () => _delete(context, ref, p),
@@ -178,7 +236,13 @@ class RulesPresetPage extends ConsumerWidget {
         .copyNameOf(base);
     await ref
         .read(rulesLibraryProvider.notifier)
-        .add(name: name, author: author, models: models, rules: rules);
+        .add(
+          name: name,
+          author: author,
+          models: models,
+          rules: rules,
+          localOnly: p.localOnly,
+        );
     if (context.mounted) {
       hintSnack(
         context,
@@ -273,6 +337,7 @@ class RulesPresetPage extends ConsumerWidget {
         name: file.name,
         author: file.author,
         models: file.models,
+        localOnly: file.localOnly,
       ),
     );
     if (meta == null || !context.mounted) return;
@@ -282,6 +347,7 @@ class RulesPresetPage extends ConsumerWidget {
           name: meta.name,
           author: meta.author,
           models: meta.models,
+          localOnly: meta.localOnly,
           rules: file.rules,
         );
     if (context.mounted) {
@@ -354,6 +420,7 @@ class RulesPresetPage extends ConsumerWidget {
         author: p.author,
         models: p.models,
         rules: p.rules,
+        localOnly: p.localOnly,
       ),
     );
     if (file == null) return;
@@ -365,6 +432,7 @@ class RulesPresetPage extends ConsumerWidget {
           author: file.author,
           models: file.models,
           rules: file.rules,
+          localOnly: p.localOnly || file.localOnly,
         );
     if (context.mounted) {
       hintSnack(
@@ -382,6 +450,7 @@ class RulesPresetPage extends ConsumerWidget {
     required Set<RulesFamily> models,
     required List<PresetRule> rules,
     required String fileName,
+    bool localOnly = false,
   }) async {
     try {
       final path = await FilePicker.platform.saveFile(
@@ -392,6 +461,7 @@ class RulesPresetPage extends ConsumerWidget {
             author: author,
             models: models,
             rules: rules,
+            localOnly: localOnly,
           ),
         ),
       );
@@ -458,7 +528,7 @@ class _PresetCard extends StatelessWidget {
 
   final VoidCallback onOpen;
   final Set<RulesFamily> enabled;
-  final VoidCallback onToggle;
+  final VoidCallback? onToggle;
   final VoidCallback onCopy;
   final VoidCallback onExport;
 
@@ -540,24 +610,25 @@ class _PresetCard extends StatelessWidget {
                     ),
                     // 副本、导出、删除直接摆出来,不收进菜单
                     const SizedBox(width: 4),
-                    IconButton(
-                      tooltip: enabled.isEmpty
-                          ? context.l10n.enable
-                          : context.l10n.disableKeepConfig,
-                      visualDensity: VisualDensity.compact,
-                      isSelected: enabled.isNotEmpty,
-                      onPressed: onToggle,
-                      icon: Icon(
-                        Icons.power_settings_new,
-                        size: 19,
-                        color: scheme.outline,
+                    if (onToggle != null)
+                      IconButton(
+                        tooltip: enabled.isEmpty
+                            ? context.l10n.enable
+                            : context.l10n.disableKeepConfig,
+                        visualDensity: VisualDensity.compact,
+                        isSelected: enabled.isNotEmpty,
+                        onPressed: onToggle,
+                        icon: Icon(
+                          Icons.power_settings_new,
+                          size: 19,
+                          color: scheme.outline,
+                        ),
+                        selectedIcon: Icon(
+                          Icons.power_settings_new,
+                          size: 19,
+                          color: scheme.primary,
+                        ),
                       ),
-                      selectedIcon: Icon(
-                        Icons.power_settings_new,
-                        size: 19,
-                        color: scheme.primary,
-                      ),
-                    ),
                     if (onEditYaml != null)
                       btn(
                         Icons.code,
@@ -596,7 +667,12 @@ class _PresetCard extends StatelessWidget {
 }
 
 /// 标题后面那几枚小标签:默认、支持的模型。
-typedef _PresetMeta = ({String name, String author, Set<RulesFamily> models});
+typedef _PresetMeta = ({
+  String name,
+  String author,
+  Set<RulesFamily> models,
+  bool localOnly,
+});
 
 /// 导入前核对文件里的名字、作者和支持的模型。
 class _PresetMetaSheet extends StatefulWidget {
@@ -607,8 +683,10 @@ class _PresetMetaSheet extends StatefulWidget {
     required this.name,
     required this.author,
     required this.models,
+    required this.localOnly,
   });
 
+  final bool localOnly;
   final String title;
 
   /// 底下那颗按钮的字。
@@ -625,6 +703,7 @@ class _PresetMetaSheet extends StatefulWidget {
 class _PresetMetaSheetState extends State<_PresetMetaSheet> {
   late final _name = TextEditingController(text: widget.name);
   late final _author = TextEditingController(text: widget.author);
+  late bool _localOnly = widget.localOnly;
   late final Set<RulesFamily> _models = {...widget.models};
 
   @override
@@ -639,7 +718,7 @@ class _PresetMetaSheetState extends State<_PresetMetaSheet> {
   @override
   Widget build(BuildContext context) {
     final scheme = context.scheme;
-    return Padding(
+    return SingleChildScrollView(
       padding: EdgeInsets.fromLTRB(
         20,
         16,
@@ -700,13 +779,19 @@ class _PresetMetaSheetState extends State<_PresetMetaSheet> {
                 ),
             ],
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 12),
+          RulesGroupSelector(
+            localOnly: _localOnly,
+            onChanged: (v) => setState(() => _localOnly = v),
+          ),
+          const SizedBox(height: 12),
           FilledButton(
             onPressed: _ok
                 ? () => Navigator.pop(context, (
                     name: _name.text.trim(),
                     author: _author.text.trim(),
                     models: {..._models},
+                    localOnly: _localOnly,
                   ))
                 : null,
             child: Text(widget.action),

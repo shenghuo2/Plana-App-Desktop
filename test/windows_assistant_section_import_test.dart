@@ -16,6 +16,7 @@ import 'package:plana_app/features/generate/canvas_state.dart';
 import 'package:plana_app/features/generate/generate_state.dart';
 import 'package:plana_app/features/generate/models.dart';
 import 'package:plana_app/features/generate/prompt_sections.dart';
+import 'package:plana_app/features/generate/prompt_import_binding.dart';
 import 'package:plana_app/features/generate/gen_modules.dart';
 import 'package:plana_app/features/inspiration/tag_models.dart';
 import 'package:plana_app/features/inspiration/tag_library.dart';
@@ -38,6 +39,12 @@ class _Library extends TagLibrary {
   @override
   Future<TagLibraryState> build() async => const TagLibraryState(
     entries: [
+      TagEntry(
+        id: 'cat',
+        category: TagCategory.character,
+        name: '礼服猫',
+        positive: '1.4::blue hair, silver eyes::, {ribbon}, [boots]',
+      ),
       TagEntry(
         id: 'a',
         name: 'A',
@@ -80,7 +87,16 @@ class _SemanticRules extends RulesLibraryNotifier {
   @override
   Future<RulesLibrary> build() async => const RulesLibrary(
     active: {RulesFamily.nai45: 'test', RulesFamily.nai5: 'test'},
+    apiSupplements: {RulesFamily.nai45: 'palette', RulesFamily.nai5: 'palette'},
     presets: [
+      RulesPreset(
+        id: 'palette',
+        name: '色彩',
+        author: '',
+        models: {RulesFamily.nai45, RulesFamily.nai5},
+        localOnly: true,
+        rules: [PresetRule(name: 'palette', content: '画面偏暖色')],
+      ),
       RulesPreset(
         id: 'test',
         name: '测试',
@@ -94,6 +110,105 @@ class _SemanticRules extends RulesLibraryNotifier {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  for (final legacy in [false, true]) {
+    test(
+      'Bot backend honors OC placeholders and imports only library spans (legacy: $legacy)',
+      () async {
+        const oc = '1.4::blue hair, silver eyes::, {ribbon}, [boots]';
+        final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+        final payloads = <String>[];
+        server.listen((req) async {
+          final channel = req.uri.path == '/api/agent/channel';
+          if (legacy && channel) {
+            req.response.statusCode = HttpStatus.notFound;
+          } else {
+            payloads.add(await utf8.decoder.bind(req).join());
+            final drawing = {
+              'positive': channel
+                  ? 'garden'
+                  : '<<artist:A:artist:foo>>, garden',
+              'characters': [
+                {'name': '主角', 'positive': 'standing, __OC_礼服猫__, waving'},
+              ],
+              'blocks': {
+                'positive': ['场景·整张图'],
+              },
+              if (!channel)
+                'resources': {
+                  'artist': {'A': 'artist:foo'},
+                },
+            };
+            final result = channel
+                ? {'text': '```nai_draw\n${jsonEncode(drawing)}\n```'}
+                : drawing;
+            req.response.headers.contentType = ContentType(
+              'text',
+              'event-stream',
+              charset: 'utf-8',
+            );
+            req.response.write('event: final\ndata: ${jsonEncode(result)}\n\n');
+          }
+          await req.response.close();
+        });
+        final stores = AppStores.ephemeral();
+        final c = ProviderContainer(
+          overrides: [
+            appStoresProvider.overrideWithValue(stores),
+            botSessionProvider.overrideWith(_Session.new),
+            backendBaseProvider.overrideWith(
+              () => _Backend('http://127.0.0.1:${server.port}'),
+            ),
+            assistantEndpointProvider.overrideWithValue(null),
+            agentModelsProvider.overrideWith(
+              (_) async => const AgentModelList(),
+            ),
+            rulesLibraryProvider.overrideWith(_Rules.new),
+            tagLibraryProvider.overrideWith(_Library.new),
+          ],
+        );
+        try {
+          await c.read(backendBaseProvider.future);
+          await c.read(assistantSettingsProvider.future);
+          await c
+              .read(assistantSettingsProvider.notifier)
+              .patch(
+                (s) => s.copyWith(
+                  libraryScope: LibraryScope.local,
+                  autoImport: true,
+                  autoGenerate: false,
+                  ocPlaceholders: true,
+                  allowEditNegative: false,
+                ),
+              );
+          final done = Completer<void>();
+          final sub = c.listen(assistantProvider, (before, after) {
+            if (before?.running == true &&
+                !after.running &&
+                !done.isCompleted) {
+              done.complete();
+            }
+          });
+          await HttpOverrides.runWithHttpOverrides(
+            () => c.read(assistantProvider.notifier).send('用礼服猫'),
+            _LocalHttp(),
+          );
+          await done.future.timeout(const Duration(seconds: 10));
+          sub.close();
+          expect(payloads.single, contains('__OC_礼服猫__'));
+          expect(payloads.single, isNot(contains('silver eyes')));
+          final draw = c.read(assistantProvider).msgs.last.draw!;
+          expect(draw.blocks.map((b) => b.name), [if (legacy) 'A', '礼服猫']);
+          final role = c.read(generateProvider).characters.single;
+          expect(role.foldLinks.single.positiveBody, oc);
+          expect(role.positive, 'standing, $oc, waving');
+        } finally {
+          c.dispose();
+          await stores.flushForExit();
+          await server.close(force: true);
+        }
+      },
+    );
+  }
   for (final mode in [SectionImport.aiSection, SectionImport.appendMain]) {
     test(
       'automatic and manual turns share the persisted destination and quoted labels in $mode',
@@ -183,6 +298,11 @@ void main() {
             reason: 'locked imports skip the artist supplement',
           );
           expect(requests.first['user_request'], contains('全局负面提示词已锁定'));
+          expect(requests.first['user_request'], endsWith('画面偏暖色'));
+          expect(
+            requests.first['preset_rules'].toString(),
+            isNot(contains('画面偏暖色')),
+          );
           final original = c.read(generateProvider);
           expect(composeSections(original).negativePrompt, 'fixed exclusion');
           if (mode == SectionImport.aiSection) {
@@ -379,6 +499,211 @@ void main() {
         ),
         'blurry',
       );
+    },
+  );
+
+  test(
+    'first use seeds intact weighted defaults and revisions keep deletions',
+    () {
+      const style = TagEntry(
+        id: 'style',
+        name: 'Style',
+        category: TagCategory.artist,
+        positive: 'artist:sample',
+        negative: '2::little dolls, extra fingers, chibi::, 5::mouse ears::',
+      );
+      final initial = proposalWithArtistNegatives(
+        const DrawProposal(positive: 'artist:sample', negative: 'chibi'),
+        [style],
+      );
+      expect(
+        initial.negative,
+        'chibi, 2::little dolls, extra fingers::, 5::mouse ears::',
+      );
+      final revision = proposalWithArtistNegatives(
+        const DrawProposal(
+          positive: 'artist:sample',
+          negative: '2::little dolls, extra fingers::, cat tail',
+        ),
+        [style],
+        previousPositives: [initial.positive],
+      );
+      expect(revision.negative, '2::little dolls, extra fingers::, cat tail');
+      const newStyle = TagEntry(
+        id: 'other',
+        name: 'Other',
+        category: TagCategory.artist,
+        positive: 'artist:other',
+        negative: 'watermark',
+      );
+      expect(
+        proposalWithArtistNegatives(
+          const DrawProposal(positive: 'artist:sample, artist:other'),
+          [style, newStyle],
+          previousPositives: [revision.positive],
+        ).negative,
+        'watermark',
+      );
+    },
+  );
+
+  test(
+    'explicit empty revision removes only the owned negative and survives reopening',
+    () {
+      const prior = DrawProposal(positive: 'portrait', negative: 'cat tail');
+      final empty = DrawProposal.fromJson(
+        const DrawProposal(positive: 'portrait', clearNegative: true).toJson(),
+      );
+      for (final mode in [SectionImport.aiSection, SectionImport.appendMain]) {
+        var i = 0;
+        String nextId() => 'test${i++}';
+        var binding = const PromptImportBinding();
+        final c = GenerateState.initial().copyWith(
+          negativePrompt: 'handwritten',
+        );
+        final first = proposalSendState(
+          c,
+          prior,
+          mode,
+          newId: nextId,
+          allowEditNegative: true,
+          onBinding: (value) => binding = value,
+        );
+        final keep = proposalSendState(
+          first,
+          const DrawProposal(positive: 'portrait'),
+          mode,
+          binding: binding,
+          newId: nextId,
+          allowEditNegative: true,
+        );
+        expect(composeSections(keep).negativePrompt, contains('cat tail'));
+        final locked = proposalSendState(
+          first,
+          empty,
+          mode,
+          binding: binding,
+          newId: nextId,
+        );
+        expect(composeSections(locked).negativePrompt, contains('cat tail'));
+        final cleared = proposalSendState(
+          first,
+          empty,
+          mode,
+          binding: binding,
+          newId: nextId,
+          allowEditNegative: true,
+        );
+        expect(composeSections(cleared).negativePrompt, 'handwritten');
+      }
+    },
+  );
+
+  test(
+    'assistant can edit and then clear the same artist across actual turns',
+    () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      final replies = [
+        {'positive': 'artist:foo'},
+        {
+          'positive': 'artist:foo',
+          'negative': '2::local negative::, new exclusion',
+        },
+        {'positive': 'artist:foo, portrait'},
+        {'positive': 'artist:foo', 'negative': 'cat tail'},
+        {'positive': 'artist:foo', 'negative': ''},
+      ].iterator;
+      server.listen((request) async {
+        if (request.uri.path == '/api/agent/channel') {
+          request.response.statusCode = HttpStatus.notFound;
+        } else {
+          await request.drain<void>();
+          if (!replies.moveNext()) {
+            throw StateError('unexpected assistant request');
+          }
+          request.response.headers.contentType = ContentType(
+            'text',
+            'event-stream',
+            charset: 'utf-8',
+          );
+          request.response.write(
+            'event: final\ndata: ${jsonEncode(replies.current)}\n\n',
+          );
+        }
+        await request.response.close();
+      });
+      final stores = AppStores.ephemeral();
+      final c = ProviderContainer(
+        overrides: [
+          appStoresProvider.overrideWithValue(stores),
+          botSessionProvider.overrideWith(_Session.new),
+          backendBaseProvider.overrideWith(
+            () => _Backend('http://127.0.0.1:${server.port}'),
+          ),
+          assistantEndpointProvider.overrideWithValue(null),
+          agentModelsProvider.overrideWith((_) async => const AgentModelList()),
+          rulesLibraryProvider.overrideWith(_Rules.new),
+          tagLibraryProvider.overrideWith(_Library.new),
+        ],
+      );
+      try {
+        await c.read(backendBaseProvider.future);
+        await c.read(assistantSettingsProvider.future);
+        await c
+            .read(assistantSettingsProvider.notifier)
+            .patch(
+              (s) => s.copyWith(
+                libraryScope: LibraryScope.local,
+                importTo: SectionImport.aiSection,
+                allowEditNegative: true,
+                autoImport: false,
+                stream: false,
+              ),
+            );
+        for (final (question, expected) in [
+          ('use A', 'local negative'),
+          (
+            'change the weight and add an exclusion',
+            '2::local negative::, new exclusion',
+          ),
+          ('only edit the positive', '2::local negative::, new exclusion'),
+          ('replace its exclusion', 'cat tail'),
+          ('remove the last exclusion', ''),
+        ]) {
+          final done = Completer<void>();
+          final sub = c.listen(assistantProvider, (before, after) {
+            if (before?.running == true &&
+                !after.running &&
+                !done.isCompleted) {
+              done.complete();
+            }
+          });
+          try {
+            await HttpOverrides.runWithHttpOverrides(
+              () => c.read(assistantProvider.notifier).send(question),
+              _LocalHttp(),
+            );
+            await done.future.timeout(const Duration(seconds: 10));
+            final reply = c.read(assistantProvider).msgs.last;
+            expect(reply.draw?.negative, expected, reason: reply.text);
+            expect(reply.draw!.clearNegative, expected.isEmpty);
+            if (expected.startsWith('2::')) {
+              final draw = reply.draw!;
+              final owner = draw.blocks.singleWhere((b) => !b.negative);
+              expect(
+                owner.counterpartIn(draw.blocks)?.text,
+                '2::local negative::',
+              );
+            }
+          } finally {
+            sub.close();
+          }
+        }
+      } finally {
+        c.dispose();
+        await stores.assistant.idle;
+        await server.close(force: true);
+      }
     },
   );
 

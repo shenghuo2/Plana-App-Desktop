@@ -2,6 +2,8 @@ import '../../core/util/log.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
@@ -112,7 +114,7 @@ class GalleryStore {
         await _rebuildFromDisk(); // 索引缺失但图还在(如首次升级/被误删)
         return;
       }
-      final j = jsonDecode(await _indexFile.readAsString());
+      final j = await _readIndexInBackground(_indexFile.path);
       if (j is! Map) {
         await _rebuildFromDisk();
         return;
@@ -147,6 +149,17 @@ class GalleryStore {
         }
       }
       initialResults = List.unmodifiable(await _backfillCreatedAt(items));
+      final saved = _selectionFile;
+      if (await saved.exists()) {
+        try {
+          final id = (await saved.readAsString()).trim();
+          if (id.isEmpty || initialResults.any((item) => item.id == id)) {
+            initialSelectedId = id.isEmpty ? null : id;
+          }
+        } on FileSystemException {
+          // The main index still carries the last structural selection.
+        }
+      }
       await _includeUnindexedImages();
     } catch (e) {
       logd('[gallery-store] 索引载入失败,改从目录重建: $e');
@@ -369,7 +382,7 @@ class GalleryStore {
   }
 
   /// 写入队列排空(存储管理在清空后等它,再做 GC/重扫)。
-  Future<void> get idle => _chain;
+  Future<void> get idle => Future.wait([_chain, _searchChain]).then((_) {});
 
   Future<T> _enqueue<T>(Future<T> Function() job) {
     final work = _chain.then((_) => job());
@@ -416,6 +429,8 @@ class GalleryStore {
   List<ResultImage>? _idxItems;
   List<TrashedImage> _idxTrash = const [];
   int _idxRevision = 0;
+  bool _selectionPending = false;
+  File get _selectionFile => File('${_root.path}/selected.txt');
   String? _idxSelected;
   int _idxSeq = 0;
   Future<void> _indexWrite = Future.value();
@@ -433,11 +448,15 @@ class GalleryStore {
     ]);
     _idxTrash = initialTrash;
     _idxRevision++;
-    initialSelectedId = selectedId;
     this.seq = seq;
     _idxItems = initialResults;
-    _idxSelected = selectedId;
     _idxSeq = seq;
+    scheduleSelection(selectedId);
+  }
+
+  void scheduleSelection(String? id) {
+    initialSelectedId = _idxSelected = id;
+    _selectionPending = true;
     _idxTimer?.cancel();
     _idxTimer = Timer(const Duration(milliseconds: 400), flushIndex);
   }
@@ -445,8 +464,9 @@ class GalleryStore {
   /// 立即写索引(前后台切换时由 AppStores.flushNow 调用)。
   Future<void> flushIndex() {
     final items = _idxItems;
-    if (items == null) return _indexWrite;
+    if (items == null && !_selectionPending) return _indexWrite;
     _idxItems = null;
+    _selectionPending = false;
     _idxTimer?.cancel();
     final selected = _idxSelected;
     final seq = _idxSeq;
@@ -454,13 +474,16 @@ class GalleryStore {
     final revision = _idxRevision;
     final work = _enqueue(() async {
       try {
-        await _writeIndex(items, selected, seq, trash: trash);
+        if (items != null) {
+          await _writeIndex(items, selected, seq, trash: trash);
+        }
+        await writeStringAtomic(_selectionFile, selected ?? '');
       } catch (_) {
         // Retain a failed snapshot only if a newer edit has not superseded it.
         if (_idxRevision == revision && _idxItems == null) {
           _idxItems = items;
           _idxTrash = trash;
-          _idxSelected = selected;
+          _selectionPending = true;
           _idxSeq = seq;
         }
         rethrow;
@@ -482,9 +505,8 @@ class GalleryStore {
     String? selected,
     int seq, {
     List<TrashedImage>? trash,
-  }) => writeStringAtomic(
-    _indexFile,
-    jsonEncode({
+  }) async {
+    final index = <String, Object?>{
       'v': 1,
       'seq': seq,
       'selectedId': ?selected,
@@ -499,8 +521,15 @@ class GalleryStore {
             'after': ?t.afterId,
           },
       ],
-    }),
-  );
+    };
+    // Small libraries can be encoded within a frame; avoid starting a worker
+    // for each edit in a fresh gallery.
+    final count = items.length + (trash ?? initialTrash).length;
+    final text = count < 256
+        ? jsonEncode(index)
+        : await _encodeIndexInBackground(index);
+    await writeStringAtomic(_indexFile, text);
+  }
 
   /// 删除若干条结果的文件(上限裁剪用):原图/缩略图/快照一并删。
   /// 索引由调用方随后 scheduleIndex 重写。
@@ -596,6 +625,7 @@ class GalleryStore {
     _idxItems = null;
     _idxTrash = const [];
     _idxRevision++;
+    _selectionPending = false;
     _idxTimer?.cancel();
     return _indexWrite = _enqueue(() async {
       for (final d in [_imagesDir, _thumbsDir, _inputsDir]) {
@@ -611,6 +641,7 @@ class GalleryStore {
         _indexFile,
         jsonEncode({'v': 1, 'seq': seq, 'items': const <Object>[]}),
       );
+      await writeStringAtomic(_selectionFile, '');
     });
   }
 
@@ -859,69 +890,93 @@ class GalleryStore {
   ///   2 → 3:多存来源(灵感库条目 id、角色卡名、折叠组名);换行算分隔。
   static const _searchVersion = 3;
 
-  /// 检索索引读入;空/坏/**版本不对** → 空表(回填会重扫快照补齐)。
+  /// 增量日志:每行一条新增(`p`)或一批删除(`d`),读时在 search.json 之上重放;
+  /// 攒多了在后台并回 search.json。文件名带版本,换版本后旧日志自然作废。
+  File get _searchLog => File('${_root.path}/search.v$_searchVersion.log');
+
+  Future<void> _searchChain = Future.value();
+  int _searchLogLines = 0;
+  int _searchBaseCount = 0;
+
+  Future<void> _enqueueSearch(Future<void> Function() job) {
+    final work = _searchChain.then((_) => job());
+    _searchChain = work.catchError((Object e) {
+      logd('[gallery-store] 检索索引写入失败: $e');
+    });
+    return work;
+  }
+
+  /// 检索索引读入(后台 isolate);空/坏/**版本不对** → 空表(回填会重扫快照补齐)。
   Future<Map<String, GallerySearchMeta>> readSearchIndex() async {
+    final base = _searchFile.path;
+    final log = _searchLog.path;
+    await _searchChain;
     try {
-      if (!await _searchFile.exists()) return const {};
-      final j = jsonDecode(await _searchFile.readAsString());
-      if (j is! Map || j['v'] != _searchVersion || j['items'] is! Map) {
-        return const {};
-      }
-      List<String> strs(Object? v) => v is List
-          ? [
-              for (final x in v)
-                if (x is String) x,
-            ]
-          : const [];
-      return {
-        for (final e in (j['items'] as Map).entries)
-          if (e.key is String &&
-              e.value is Map &&
-              (e.value as Map)['t'] is String)
-            e.key as String: (
-              model: ((e.value as Map)['m'] as String?) ?? '',
-              text: (e.value as Map)['t'] as String,
-              ids: strs((e.value as Map)['i']),
-              cards: strs((e.value as Map)['c']),
-              folds: strs((e.value as Map)['f']),
-            ),
-      };
+      final r = await _readSearchInIsolate(base, log);
+      _searchBaseCount = r.baseCount;
+      _searchLogLines = r.logLines;
+      return r.items;
     } catch (_) {
       return const {};
     }
   }
 
-  // 检索索引防抖写(与主索引同节奏)。窗口内被杀 → 下次启动回填重建,无妨。
-  Timer? _searchTimer;
-  Map<String, GallerySearchMeta>? _searchPending;
+  /// 追加若干条(新图 / 回填一批)。
+  void appendSearch(Map<String, GallerySearchMeta> puts) {
+    if (puts.isEmpty) return;
+    final b = StringBuffer();
+    for (final e in puts.entries) {
+      b
+        ..write(jsonEncode({'p': e.key, ..._searchItemJson(e.value)}))
+        ..write('\n');
+    }
+    _appendSearchLines(b.toString(), puts.length);
+  }
 
-  void writeSearchIndex(Map<String, GallerySearchMeta> byId) {
-    _searchPending = byId;
-    _searchTimer?.cancel();
-    _searchTimer = Timer(const Duration(milliseconds: 400), () {
-      final m = _searchPending;
-      _searchPending = null;
-      if (m == null) return;
-      _enqueue(() async {
-        await writeStringAtomic(
-          _searchFile,
-          jsonEncode({
-            'v': _searchVersion,
-            'items': {
-              for (final e in m.entries)
-                e.key: {
-                  'm': e.value.model,
-                  't': e.value.text,
-                  if (e.value.ids.isNotEmpty) 'i': e.value.ids,
-                  if (e.value.cards.isNotEmpty) 'c': e.value.cards,
-                  if (e.value.folds.isNotEmpty) 'f': e.value.folds,
-                },
-            },
-          }),
-        );
-      });
+  /// 追加一批删除。
+  void appendSearchRemovals(List<String> ids) {
+    if (ids.isEmpty) return;
+    _appendSearchLines('${jsonEncode({'d': ids})}\n', 1);
+  }
+
+  void _appendSearchLines(String text, int n) {
+    _searchLogLines += n;
+    final log = _searchLog;
+    _enqueueSearch(() async {
+      await log.parent.create(recursive: true);
+      await log.writeAsString(text, mode: FileMode.append);
+    });
+    if (_searchLogLines >= math.max(2000, _searchBaseCount)) {
+      unawaited(compactSearch());
+    }
+  }
+
+  /// 把日志并回 search.json(后台 isolate)。
+  Future<void> compactSearch() {
+    _searchLogLines = 0;
+    final base = _searchFile.path;
+    final log = _searchLog.path;
+    return _enqueueSearch(() async {
+      _searchBaseCount = await _compactSearchInIsolate(base, log);
     });
   }
+
+  /// 清空检索索引。
+  Future<void> clearSearch() {
+    _searchLogLines = 0;
+    _searchBaseCount = 0;
+    final log = _searchLog;
+    return _enqueueSearch(() async {
+      await writeStringAtomic(
+        _searchFile,
+        jsonEncode({'v': _searchVersion, 'items': const <String, Object>{}}),
+      );
+      if (await log.exists()) await log.delete();
+    });
+  }
+
+  /// 某张图参数快照的文件路径(检索索引回填在后台 isolate 里自己读)。
+  String inputPathOf(String id) => _inputFile(id).path;
 
   /// 有参数快照的全部 id(检索索引回填清单)。
   Future<List<String>> listInputIds() async {
@@ -993,3 +1048,101 @@ class GalleryStore {
     return out;
   }
 }
+
+Map<String, Object> _searchItemJson(GallerySearchMeta m) => {
+  'm': m.model,
+  't': m.text,
+  if (m.ids.isNotEmpty) 'i': m.ids,
+  if (m.cards.isNotEmpty) 'c': m.cards,
+  if (m.folds.isNotEmpty) 'f': m.folds,
+};
+
+GallerySearchMeta? _searchMetaOf(Object? v) {
+  if (v is! Map || v['t'] is! String) return null;
+  List<String> strs(Object? x) => x is List
+      ? [
+          for (final y in x)
+            if (y is String) y,
+        ]
+      : const [];
+  return (
+    model: (v['m'] as String?) ?? '',
+    text: v['t'] as String,
+    ids: strs(v['i']),
+    cards: strs(v['c']),
+    folds: strs(v['f']),
+  );
+}
+
+Future<({Map<String, GallerySearchMeta> items, int baseCount, int logLines})>
+_readSearchInIsolate(String base, String log) =>
+    Isolate.run(() => _readSearch(base, log));
+
+Future<int> _compactSearchInIsolate(String base, String log) =>
+    Isolate.run(() => _compactSearch(base, log));
+
+/// 后台 isolate:search.json(版本对得上才用)+ 日志重放。坏行跳过。
+({Map<String, GallerySearchMeta> items, int baseCount, int logLines})
+_readSearch(String basePath, String logPath) {
+  final out = <String, GallerySearchMeta>{};
+  try {
+    final base = File(basePath);
+    if (base.existsSync()) {
+      final j = jsonDecode(base.readAsStringSync());
+      if (j is Map &&
+          j['v'] == GalleryStore._searchVersion &&
+          j['items'] is Map) {
+        for (final e in (j['items'] as Map).entries) {
+          if (e.key is! String) continue;
+          if (_searchMetaOf(e.value) case final m?) out[e.key as String] = m;
+        }
+      }
+    }
+  } catch (_) {}
+  final baseCount = out.length;
+  var lines = 0;
+  try {
+    final log = File(logPath);
+    if (log.existsSync()) {
+      for (final line in log.readAsLinesSync()) {
+        if (line.isEmpty) continue;
+        lines++;
+        try {
+          final j = jsonDecode(line);
+          if (j is! Map) continue;
+          if (j['p'] is String) {
+            if (_searchMetaOf(j) case final m?) out[j['p'] as String] = m;
+          } else if (j['d'] is List) {
+            for (final id in j['d'] as List) {
+              out.remove(id);
+            }
+          }
+        } catch (_) {}
+      }
+    }
+  } catch (_) {}
+  return (items: out, baseCount: baseCount, logLines: lines);
+}
+
+/// 后台 isolate:日志并回 search.json,删日志。返回并完的条数。
+int _compactSearch(String basePath, String logPath) {
+  final items = _readSearch(basePath, logPath).items;
+  final tmp = File('$basePath.tmp');
+  tmp.writeAsStringSync(
+    jsonEncode({
+      'v': GalleryStore._searchVersion,
+      'items': {for (final e in items.entries) e.key: _searchItemJson(e.value)},
+    }),
+    flush: true,
+  );
+  tmp.renameSync(basePath);
+  try {
+    File(logPath).deleteSync();
+  } catch (_) {}
+  return items.length;
+}
+
+Future<Object?> _readIndexInBackground(String path) =>
+    Isolate.run(() => jsonDecode(File(path).readAsStringSync()));
+Future<String> _encodeIndexInBackground(Map<String, Object?> index) =>
+    Isolate.run(() => jsonEncode(index));

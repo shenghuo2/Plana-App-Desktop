@@ -259,10 +259,47 @@ String replayText(AssistantMsg m) {
       if (!b.negative || b.counterpartIn(d.blocks) == null)
         '${b.character < 0 ? "" : "角色${b.character + 1}/"}${b.kind.label}·${b.name}${b.icon == null ? "" : "·${b.icon}"}',
   ];
+  final wire = d.toJson(includeBlocks: false);
+  void replayNegative(Map<String, dynamic> field, int character) {
+    final blocks =
+        d.blocks.where((b) => b.negative && b.character == character).toList()
+          ..sort((a, b) => a.start.compareTo(b.start));
+    if (blocks.isEmpty) return;
+    final text = field['negative'] as String;
+    final lines = <String>[], names = <String>[];
+    void add(String piece, String label) {
+      final body = piece.replaceAll(RegExp(r'^[,，\s]+|[,，\s]+$'), '');
+      if (body.isEmpty) return;
+      lines.add(body.replaceAll(RegExp(r'[,，\s]*\n[,，\s]*'), ', '));
+      names.add(label);
+    }
+
+    var cursor = 0;
+    for (final b in blocks) {
+      if (b.start < cursor || !text.startsWith(b.text, b.start)) continue;
+      add(text.substring(cursor, b.start), '');
+      add(
+        b.text,
+        '${b.kind.label}·${b.name}${b.icon == null ? "" : "·${b.icon}"}',
+      );
+      cursor = b.start + b.text.length;
+    }
+    if (cursor == 0) return;
+    add(text.substring(cursor), '');
+    // This line-labelled copy goes to the model only. Stored/generation text
+    // keeps its exact separators, and each exclusion is sent just once.
+    field['negative'] = lines.join(',\n');
+    field['blocks'] = {'negative': names};
+  }
+
+  replayNegative(wire, -1);
+  for (final (i, field) in (wire['characters'] as List).indexed) {
+    replayNegative(field as Map<String, dynamic>, i);
+  }
   return [
     m.text,
     if (labels.isNotEmpty) '上一轮分块顺序：${labels.join("、")}',
-    '```nai_draw\n${jsonEncode(d.toJson(includeBlocks: false))}\n```',
+    '```nai_draw\n${jsonEncode(wire)}\n```',
   ].join('\n');
 }
 
@@ -389,12 +426,14 @@ class DrawProposal {
     this.negative = '',
     this.characters = const [],
     this.blocks = const [],
+    this.clearNegative = false,
   });
 
   final List<PromptBlock> blocks;
   final String section;
   final String positive;
   final String negative;
+  final bool clearNegative;
   final List<AgentCharacter> characters;
 
   int get charCount => characters.length;
@@ -403,6 +442,7 @@ class DrawProposal {
     if (section.isNotEmpty) 'section': section,
     if (includeBlocks && blocks.isNotEmpty)
       'promptBlocks': [for (final b in blocks) b.toJson()],
+    if (includeBlocks && clearNegative) 'clearNegative': true,
     'positive': positive,
     'negative': negative,
     'characters': [for (final c in characters) c.toJson()],
@@ -430,11 +470,13 @@ class DrawProposal {
       negative: negative,
       characters: characters,
       blocks: valid,
+      clearNegative: clearNegative,
     );
   }
 
   factory DrawProposal.fromJson(Map<String, dynamic> j) => DrawProposal(
     section: assistantSectionName(j['section']),
+    clearNegative: j['clearNegative'] == true,
     positive: j['positive']?.toString() ?? '',
     negative: j['negative']?.toString() ?? '',
     characters: [
@@ -636,6 +678,14 @@ class AssistantMsg {
   /// 不跟着变样。
   bool get promptAsText => role == MsgRole.ai && draw != null && noDraw;
 
+  bool get canRecoverDraw =>
+      role == MsgRole.ai &&
+      draw == null &&
+      !noDraw &&
+      imageGen == null &&
+      _rawText.contains('"positive"') &&
+      (_rawText.contains('"characters"') || _rawText.contains('```nai_draw'));
+
   /// 这一轮查了哪些资料。仅 [MsgRole.ai]。
   final List<ToolTrace> tools;
 
@@ -653,6 +703,7 @@ class AssistantMsg {
 
   AssistantMsg copyWith({
     String? text,
+    DrawProposal? draw,
     List<ToolTrace>? tools,
     AssistantChange? change,
     List<String>? imageIds,
@@ -672,7 +723,7 @@ class AssistantMsg {
     imageModel: imageModel,
     resources: resources,
     tools: tools ?? this.tools,
-    draw: draw,
+    draw: draw ?? this.draw,
     change: change ?? this.change,
     errorKind: errorKind,
   );

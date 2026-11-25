@@ -66,6 +66,7 @@ class _FixedAnlas extends AnlasNotifier {
     isOpus: true,
     tier: 3,
     usage: (
+      purchasedPercent: 0.0,
       percent: 100.0,
       isNegative: false,
       secondsToNextPct: 6000,

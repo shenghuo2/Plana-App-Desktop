@@ -1,5 +1,6 @@
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 /// A desktop chip row with a separate, draggable track below its controls.
 class HorizontalScrollStrip extends StatelessWidget {
@@ -8,6 +9,7 @@ class HorizontalScrollStrip extends StatelessWidget {
     required this.controller,
     required this.child,
     this.showTrack = true,
+    this.shiftWheelOnly = false,
   }) : _hasScrollView = false;
 
   /// Wraps a lazy horizontal scroll view that already owns [controller].
@@ -16,6 +18,7 @@ class HorizontalScrollStrip extends StatelessWidget {
     required this.controller,
     required this.child,
     this.showTrack = true,
+    this.shiftWheelOnly = false,
   }) : _hasScrollView = true;
 
   static const dragAreaHeight = 18.0;
@@ -23,11 +26,13 @@ class HorizontalScrollStrip extends StatelessWidget {
   final ScrollController controller;
   final Widget child;
   final bool showTrack;
+  final bool shiftWheelOnly;
   final bool _hasScrollView;
 
   void _onWheel(PointerSignalEvent event) {
     if (event is! PointerScrollEvent ||
         event.kind != PointerDeviceKind.mouse ||
+        (shiftWheelOnly && !HardwareKeyboard.instance.isShiftPressed) ||
         event.scrollDelta.dx != 0 ||
         event.scrollDelta.dy == 0 ||
         !controller.hasClients) {
@@ -52,7 +57,9 @@ class HorizontalScrollStrip extends StatelessWidget {
     final theme = ScrollbarTheme.of(context);
     return ScrollConfiguration(
       behavior: behavior.copyWith(
-        dragDevices: {...behavior.dragDevices, PointerDeviceKind.mouse},
+        dragDevices: shiftWheelOnly
+            ? (Set.of(behavior.dragDevices)..remove(PointerDeviceKind.mouse))
+            : {...behavior.dragDevices, PointerDeviceKind.mouse},
         scrollbars: false,
       ),
       child: Listener(

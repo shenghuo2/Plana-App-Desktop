@@ -1277,10 +1277,9 @@ void main() {
     });
 
     test('OC 认中文名、别名和去掉 OC_ 的键名,命中的名字越长越靠前', () {
-      // DeepSeek 8 个字排在「小小纺」3 个字前面;同一个 OC 命中的名字按库里的顺序连起来
       expect(matchOcs('阿纺、小小纺和 deep seek', ocs), [
         ('DeepSeek', 'blue hair'),
-        ('小小纺、阿纺', 'silver hair, twin braids'),
+        ('小小纺', 'silver hair, twin braids'),
       ]);
     });
 

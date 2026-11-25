@@ -25,11 +25,13 @@ class InspirationPromptDialog extends StatefulWidget {
     required this.previewOf,
     required this.isMasked,
     required this.reveal,
+    this.browseImages = false,
   });
 
   final List<TagEntry> entries;
   final TagEntry initialEntry;
   final String scope, categoryLabel;
+  final bool browseImages;
   final Set<String> selected;
   final String? Function(TagEntry) previewOf;
   final bool Function(TagEntry) isMasked;
@@ -45,23 +47,29 @@ class _InspirationPromptDialogState extends State<InspirationPromptDialog> {
     (e) => e.id == widget.initialEntry.id,
   );
 
+  int imageIndex = 0;
+
   void _move(int step) {
     final next = index + step;
     if (next >= 0 && next < widget.entries.length) {
-      setState(() => index = next);
+      setState(() {
+        index = next;
+        imageIndex = 0;
+      });
     }
   }
 
   Widget _art(TagEntry entry) {
     final masked = widget.isMasked(entry);
-    final url = widget.previewOf(entry);
+    final images = widget.browseImages ? entry.previews : const <String>[];
+    final url = images.isEmpty ? widget.previewOf(entry) : images[imageIndex];
     final preview = TagCardPreview(
       url: url,
       name: entry.name,
       mosaic: masked,
       fit: BoxFit.contain,
     );
-    return ColoredBox(
+    final art = ColoredBox(
       color: context.scheme.surfaceContainerLow,
       child: Stack(
         fit: StackFit.expand,
@@ -100,6 +108,34 @@ class _InspirationPromptDialogState extends State<InspirationPromptDialog> {
             ),
         ],
       ),
+    );
+    if (images.length <= 1) return art;
+    return Column(
+      children: [
+        Expanded(child: SizedBox.expand(child: art)),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            IconButton(
+              key: const ValueKey('oc-prev-image'),
+              tooltip: MaterialLocalizations.of(context).previousPageTooltip,
+              onPressed: imageIndex == 0
+                  ? null
+                  : () => setState(() => imageIndex--),
+              icon: const Icon(Icons.chevron_left),
+            ),
+            Text('${imageIndex + 1} / ${images.length}'),
+            IconButton(
+              key: const ValueKey('oc-next-image'),
+              tooltip: MaterialLocalizations.of(context).nextPageTooltip,
+              onPressed: imageIndex + 1 == images.length
+                  ? null
+                  : () => setState(() => imageIndex++),
+              icon: const Icon(Icons.chevron_right),
+            ),
+          ],
+        ),
+      ],
     );
   }
 
@@ -290,16 +326,20 @@ class InspirationEntryCard extends StatelessWidget {
     required this.selected,
     required this.masked,
     required this.onSelect,
-    required this.onFavorite,
-    required this.onMenu,
+    this.onFavorite,
+    this.onReveal,
+    this.providerDecorator,
+    this.onMenu,
     this.onSecondaryTapDown,
   });
   final TagEntry entry;
   final String? preview;
   final double width;
   final bool selected, masked;
-  final VoidCallback onSelect, onFavorite;
-  final ValueChanged<InspirationEntryAction> onMenu;
+  final VoidCallback onSelect;
+  final VoidCallback? onFavorite, onReveal;
+  final RemoteImageProviderDecorator? providerDecorator;
+  final ValueChanged<InspirationEntryAction>? onMenu;
   final GestureTapDownCallback? onSecondaryTapDown;
 
   static double extent(
@@ -347,7 +387,9 @@ class InspirationEntryCard extends StatelessWidget {
       child: InkWell(
         onTap: onSelect,
         onSecondaryTapDown: onSecondaryTapDown,
-        onLongPress: () => onMenu(InspirationEntryAction.view),
+        onLongPress: onMenu == null
+            ? null
+            : () => onMenu!(InspirationEntryAction.view),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -364,6 +406,7 @@ class InspirationEntryCard extends StatelessWidget {
                           ? Alignment.topCenter
                           : Alignment.center,
                       decodeWidth: width,
+                      providerDecorator: providerDecorator,
                     )
                   else
                     TagTextPreview(
@@ -374,7 +417,9 @@ class InspirationEntryCard extends StatelessWidget {
                     Center(
                       child: Tooltip(
                         message: context.l10n.desktopClickToShowOriginal,
-                        child: Chip(
+                        child: ActionChip(
+                          key: ValueKey('inspiration-reveal-${entry.id}'),
+                          onPressed: onReveal ?? onSelect,
                           label: const Icon(
                             Icons.visibility_off_outlined,
                             size: 18,
@@ -428,34 +473,35 @@ class InspirationEntryCard extends StatelessWidget {
                       ),
                     ),
                   ),
-                  Positioned(
-                    top: 6,
-                    right: 6,
-                    child: IconButton(
-                      key: ValueKey('inspiration-star-${entry.id}'),
-                      tooltip: entry.isFavorite
-                          ? context.l10n.unfavorite
-                          : context.l10n.favorites,
-                      onPressed: onFavorite,
-                      style: IconButton.styleFrom(
-                        backgroundColor: scheme.surfaceContainerLowest
-                            .withValues(alpha: .94),
-                        foregroundColor: entry.isFavorite
-                            ? scheme.primary
-                            : scheme.onSurfaceVariant,
-                        fixedSize: const Size.square(27),
-                        minimumSize: Size.zero,
-                        padding: EdgeInsets.zero,
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      ),
-                      icon: Icon(
-                        entry.isFavorite
-                            ? Icons.star_rounded
-                            : Icons.star_border_rounded,
-                        size: 18,
+                  if (onFavorite != null)
+                    Positioned(
+                      top: 6,
+                      right: 6,
+                      child: IconButton(
+                        key: ValueKey('inspiration-star-${entry.id}'),
+                        tooltip: entry.isFavorite
+                            ? context.l10n.unfavorite
+                            : context.l10n.favorites,
+                        onPressed: onFavorite,
+                        style: IconButton.styleFrom(
+                          backgroundColor: scheme.surfaceContainerLowest
+                              .withValues(alpha: .94),
+                          foregroundColor: entry.isFavorite
+                              ? scheme.primary
+                              : scheme.onSurfaceVariant,
+                          fixedSize: const Size.square(27),
+                          minimumSize: Size.zero,
+                          padding: EdgeInsets.zero,
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        ),
+                        icon: Icon(
+                          entry.isFavorite
+                              ? Icons.star_rounded
+                              : Icons.star_border_rounded,
+                          size: 18,
+                        ),
                       ),
                     ),
-                  ),
                 ],
               ),
             ),
@@ -490,53 +536,54 @@ class InspirationEntryCard extends StatelessWidget {
                                 ),
                               ),
                       ),
-                      PopupMenuButton<InspirationEntryAction>(
-                        key: ValueKey('inspiration-menu-${entry.id}'),
-                        tooltip: context.l10n.sidebarEntryMenu,
-                        position: PopupMenuPosition.under,
-                        onSelected: onMenu,
-                        itemBuilder: (_) => [
-                          for (final (action, icon, label) in actions)
-                            PopupMenuItem(
-                              value: action,
-                              height: 40,
-                              child: Row(
-                                children: [
-                                  Icon(
-                                    icon,
-                                    size: 18,
-                                    color: scheme.onSurfaceVariant,
-                                  ),
-                                  const SizedBox(width: 10),
-                                  Text(label),
-                                ],
-                              ),
-                            ),
-                        ],
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 3,
-                            vertical: 4,
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              if (width >= 100)
-                                Text(
-                                  context.l10n.sidebarEntryMenu,
-                                  style: context.texts.labelSmall?.copyWith(
-                                    color: scheme.primary,
-                                  ),
+                      if (onMenu != null)
+                        PopupMenuButton<InspirationEntryAction>(
+                          key: ValueKey('inspiration-menu-${entry.id}'),
+                          tooltip: context.l10n.sidebarEntryMenu,
+                          position: PopupMenuPosition.under,
+                          onSelected: onMenu,
+                          itemBuilder: (_) => [
+                            for (final (action, icon, label) in actions)
+                              PopupMenuItem(
+                                value: action,
+                                height: 40,
+                                child: Row(
+                                  children: [
+                                    Icon(
+                                      icon,
+                                      size: 18,
+                                      color: scheme.onSurfaceVariant,
+                                    ),
+                                    const SizedBox(width: 10),
+                                    Text(label),
+                                  ],
                                 ),
-                              Icon(
-                                Icons.expand_more,
-                                size: 15,
-                                color: scheme.primary,
                               ),
-                            ],
+                          ],
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 3,
+                              vertical: 4,
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                if (width >= 100)
+                                  Text(
+                                    context.l10n.sidebarEntryMenu,
+                                    style: context.texts.labelSmall?.copyWith(
+                                      color: scheme.primary,
+                                    ),
+                                  ),
+                                Icon(
+                                  Icons.expand_more,
+                                  size: 15,
+                                  color: scheme.primary,
+                                ),
+                              ],
+                            ),
                           ),
                         ),
-                      ),
                     ],
                   ),
                 ],

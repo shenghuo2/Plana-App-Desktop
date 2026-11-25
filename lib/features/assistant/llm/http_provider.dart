@@ -10,6 +10,8 @@ import 'package:http/http.dart' as http;
 import '../../../l10n/l10n.dart';
 import '../assistant_settings.dart' show ThinkLevel;
 import '../custom_endpoint.dart';
+import '../model_catalog.dart'
+    show ModelDirectory, ModelDirectoryCache, declaredKind;
 import '../domain/agent_event.dart' show AgentFailure;
 import 'anthropic_provider.dart';
 import 'gemini_provider.dart';
@@ -194,13 +196,31 @@ abstract class HttpLlmProvider implements LlmProvider {
 
   Future<Map<String, EndpointModelKind>> modelCatalog({
     http.Client? client,
+  }) async =>
+      (await discoverModels(client: client)).map((k, v) => MapEntry(k, v.kind));
+
+  Future<Map<String, CatalogModel>> discoverModels({
+    http.Client? client,
+    Future<ModelDirectory> Function(http.Client)? loadDirectory,
   }) async {
     final own = client == null;
     final c = client ?? http.Client();
     try {
-      final out = <String, EndpointModelKind>{};
+      final rowsById = <String, Map>{};
+      final out = <String, CatalogModel>{};
+      final transportHints = <String, EndpointModelKind>{};
+      final preset = endpoint.preset?.label;
       final seen = <Uri>{};
-      Uri? next = modelsUri;
+      final firstPage = preset == 'OpenRouter'
+          ? modelsUri.replace(
+              path: '${modelsUri.path}/user',
+              queryParameters: {
+                ...modelsUri.queryParameters,
+                'output_modalities': 'all',
+              },
+            )
+          : modelsUri;
+      Uri? next = firstPage;
       while (next != null && seen.add(next)) {
         final page = await _catalogPage(c, next);
         final rows = page['data'] ?? page['models'];
@@ -213,42 +233,181 @@ abstract class HttpLlmProvider implements LlmProvider {
               ): row,
         };
         for (final id in parseModels(page)) {
-          out[id] = modelKind(id, details[id]);
+          final row = details[id] ?? {};
+          rowsById[id] = row;
+          final kind = declaredKind(row, anthropic: preset == 'Claude');
+          out[id] = kind == EndpointModelKind.unknown
+              ? CatalogModel.unknown
+              : CatalogModel(kind, ModelEvidence.provider);
         }
+        final current = next;
         final token = page['nextPageToken'];
         final last = page['last_id'];
         next = token is String && token.isNotEmpty
-            ? modelsUri.replace(
+            ? firstPage.replace(
                 queryParameters: {
-                  ...modelsUri.queryParameters,
+                  ...firstPage.queryParameters,
                   'pageToken': token,
                 },
               )
             : page['has_more'] == true && last is String && last.isNotEmpty
-            ? modelsUri.replace(
+            ? firstPage.replace(
                 queryParameters: {
-                  ...modelsUri.queryParameters,
+                  ...firstPage.queryParameters,
                   'after_id': last,
                 },
               )
             : null;
+        final links = page['links'];
+        if (next == null && links is Map && links['next'] is String) {
+          final more = current.resolve(links['next'] as String);
+          if (more.isScheme(current.scheme) &&
+              more.host == current.host &&
+              more.port == current.port &&
+              more.path == firstPage.path &&
+              more.userInfo.isEmpty) {
+            next = more;
+          }
+        }
       }
-      if (endpoint.preset?.label == 'OpenRouter') {
+      if (preset == 'OpenRouter') {
         try {
           final imagePage = await _catalogPage(
             c,
             endpoint.uriForPath('/images/models'),
           );
           for (final id in modelIdsOf(imagePage['data'])) {
-            out[id] = EndpointModelKind.image;
+            // The global image directory may include models excluded by this key.
+            final prior = out[id]?.kind;
+            if (prior == null) continue;
+            out[id] = CatalogModel(
+              prior.supports(false)
+                  ? EndpointModelKind.chatAndImage
+                  : EndpointModelKind.image,
+              ModelEvidence.provider,
+            );
           }
-        } on AgentFailure catch (error) {
-          if (out.isEmpty || (error.status != 404 && error.status != 405)) {
-            rethrow;
-          }
+        } on AgentFailure {
+          if (out.isEmpty) rethrow;
         }
       }
       if (out.isEmpty) throw AgentFailure(l10nNow.epNoModels);
+      if (endpoint.route == EndpointRoute.ollama) {
+        final ids = out.keys
+            .where((id) => out[id]!.kind == EndpointModelKind.unknown)
+            .toList();
+        for (var start = 0; start < ids.length; start += 6) {
+          await Future.wait(
+            ids.skip(start).take(6).map((id) async {
+              try {
+                final resp = await c
+                    .post(
+                      modelsUri.resolve('show'),
+                      headers: endpoint.withHeaders({
+                        'Content-Type': 'application/json',
+                        ...authHeaders,
+                      }),
+                      body: jsonEncode({'model': id}),
+                    )
+                    .timeout(const Duration(seconds: 5));
+                if (resp.statusCode != 200) return;
+                final data = _tryJson(utf8.decode(resp.bodyBytes));
+                if (data is! Map) return;
+                final kind = declaredKind(data);
+                if (kind != EndpointModelKind.unknown) {
+                  out[id] = CatalogModel(kind, ModelEvidence.provider);
+                }
+              } on Exception {
+                /* Older servers may omit model details. */
+              }
+            }),
+          );
+        }
+      } else if (preset == null &&
+          out.values.any((v) => v.kind == EndpointModelKind.unknown)) {
+        // Optional New API metadata is public on some relays. Never send the user's key or URL query.
+        final base = Uri.parse(endpoint.effectiveBase);
+        final prefix = base.path
+            .replaceFirst(RegExp(r'/(?:v\d+(?:beta|alpha)?|api)/?$'), '')
+            .replaceFirst(RegExp(r'/$'), '');
+        final pricing = Uri(
+          scheme: base.scheme,
+          host: base.host,
+          port: base.hasPort ? base.port : null,
+          path: '$prefix/api/pricing',
+        );
+        try {
+          final response = await c
+              .get(pricing)
+              .timeout(const Duration(seconds: 4));
+          final body = response.statusCode == 200
+              ? _tryJson(utf8.decode(response.bodyBytes))
+              : null;
+          final rows = body is Map ? body['data'] : null;
+          final definitions = body is Map ? body['supported_endpoint'] : null;
+          if (rows is List) {
+            for (final row in rows.whereType<Map>()) {
+              final id = row['model_name'];
+              if (id is! String || out[id]?.kind != EndpointModelKind.unknown) {
+                continue;
+              }
+              final types = row['supported_endpoint_types'];
+              final enriched = {
+                ...row,
+                if (types is List && definitions is Map)
+                  'supported_endpoint_types': [
+                    ...types,
+                    for (final t in types)
+                      if (definitions['$t'] case {'path': final String path})
+                        path,
+                  ],
+              };
+              final kind = declaredKind(enriched);
+              if (kind == EndpointModelKind.chat && types is List) {
+                // A chat-compatible transport may also carry image output.
+                transportHints[id] = kind;
+                continue;
+              }
+              if (kind != EndpointModelKind.unknown) {
+                out[id] = CatalogModel(kind, ModelEvidence.provider);
+              }
+            }
+          }
+        } on Exception {
+          /* Normal for stations that only implement /models. */
+        }
+      }
+      final missing = out.keys
+          .where((id) => out[id]!.kind == EndpointModelKind.unknown)
+          .toList();
+      if (missing.isNotEmpty) {
+        final directory =
+            await (loadDirectory ?? ModelDirectoryCache.shared.load)(c);
+        final vendor = switch (preset) {
+          'OpenAI' => 'openai',
+          'Gemini' => 'google',
+          'Claude' => 'anthropic',
+          'DeepSeek' => 'deepseek',
+          _ => null,
+        };
+        for (final id in missing) {
+          final row = rowsById[id] ?? {};
+          final kind = directory.lookup(
+            id,
+            vendor: vendor ?? row['owned_by']?.toString(),
+            canonical:
+                (row['canonical_slug'] ??
+                        row['canonical_id'] ??
+                        row['upstream_model'])
+                    ?.toString(),
+          );
+          if (kind != EndpointModelKind.unknown) {
+            out[id] = CatalogModel(kind, ModelEvidence.directory);
+          } else if (transportHints[id] case final hint?) {
+            out[id] = CatalogModel(hint, ModelEvidence.provider);
+          }
+        }
+      }
       return Map.fromEntries(
         out.entries.toList()..sort((a, b) => a.key.compareTo(b.key)),
       );

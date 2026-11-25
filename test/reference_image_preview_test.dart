@@ -72,6 +72,89 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  testWidgets(
+    'V5 precise controls follow the selected mode and restore 4.5 controls',
+    (tester) async {
+      final initial = GenerateState.initial().copyWith(
+        params: const GenParams().copyWith(model: 'NAI 5.0 Full'),
+        charRefs: [CharRefItem(id: 'one', image: png)],
+        openPanels: {Panel.charRef},
+      );
+      final container = ProviderContainer(
+        overrides: [
+          appStoresProvider.overrideWithValue(AppStores.ephemeral()),
+          desktopModeProvider.overrideWithValue(true),
+          generateProvider.overrideWith(() => _MemoryGenerate(initial)),
+        ],
+      );
+      addTearDown(container.dispose);
+      await mount(
+        tester,
+        const SingleChildScrollView(child: CharRefCard()),
+        container: container,
+      );
+      expect(find.text('精确参考'), findsOneWidget);
+      expect(
+        tester.widget<LiveParamSlider>(find.byType(LiveParamSlider)).max,
+        5,
+      );
+      final preference = find.byType(CheckboxListTile);
+      expect(tester.widget<CheckboxListTile>(preference).value, true);
+      await tester.tap(preference);
+      await tester.pumpAndSettle();
+      expect(
+        container
+            .read(generateProvider)
+            .charRefs
+            .single
+            .captionFor('NAI 5.0 Full'),
+        'character&style_anyoutfit',
+      );
+      final menu = find.byKey(const ValueKey('reference-mode-menu'));
+      await tester.tap(menu);
+      await tester.pumpAndSettle();
+      expect(
+        tester.getTopLeft(find.byKey(const ValueKey(CharRefMode.both))).dy,
+        greaterThanOrEqualTo(tester.getBottomLeft(menu).dy),
+      );
+      await tester.tap(find.byKey(const ValueKey(CharRefMode.outfit)));
+      await tester.pumpAndSettle();
+      expect(
+        container.read(generateProvider).charRefs.single.mode,
+        CharRefMode.outfit,
+      );
+      expect(preference, findsNothing);
+      expect(find.byType(LiveParamSlider), findsOneWidget);
+      container.read(generateProvider.notifier).setModel('NAI 4.5 Full');
+      await tester.pumpAndSettle();
+      expect(find.text('角色参考'), findsOneWidget);
+      expect(find.byType(LiveParamSlider), findsNWidgets(2));
+      expect(
+        tester.widget<LiveParamSlider>(find.byType(LiveParamSlider).first).max,
+        1,
+      );
+      expect(container.read(generateProvider).usableCharRefs(), isEmpty);
+      await tester.tap(menu);
+      await tester.pumpAndSettle();
+      final legacyOutfit = find.byKey(const ValueKey(CharRefMode.outfit));
+      expect(tester.widget<MenuItemButton>(legacyOutfit).onPressed, isNull);
+      await tester.tap(find.byKey(const ValueKey(CharRefMode.style)));
+      await tester.pumpAndSettle();
+      expect(
+        container.read(generateProvider).charRefs.single.mode,
+        CharRefMode.style,
+      );
+      expect(legacyOutfit, findsNothing);
+      final trigger = tester.widget<TextButton>(menu);
+      expect(
+        trigger.style!.overlayColor!.resolve({WidgetState.focused}),
+        Colors.transparent,
+      );
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
   for (final vibe in [true, false]) {
     testWidgets(
       '${vibe ? 'Vibe' : 'character'} double-click previews original disabled image without altering generation',

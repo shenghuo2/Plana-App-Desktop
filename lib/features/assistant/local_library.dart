@@ -15,19 +15,14 @@
 /// 改一边记得改另一边。
 library;
 
-import 'dart:collection';
 import 'dart:math';
 
 import 'package:unorm_dart/unorm_dart.dart' as unorm;
 
-// ---- 规范化 ----
-
-final _punctOrSpace = RegExp(r'[\p{P}\s]', unicode: true);
-
-/// 名字比对用的规范化:NFKC、小写、去掉标点和空白(服务端 `normalize_oc_text`)。
-/// 库里存 DeepSeek,用户写 deepseek、deep seek 都要对得上。
-String normalizeName(String s) =>
-    unorm.nfkc(s).toLowerCase().replaceAll(_punctOrSpace, '');
+import '../../../core/util/name_query.dart';
+import 'tools/my_library.dart' show LibOc, matchOcs;
+export '../../../core/util/name_query.dart' show normalizeName;
+export 'tools/my_library.dart' show LibOc, libOcsOf, matchOcs;
 
 /// 按码点数长度 —— 与服务端 `len()` 同口径,名字里带表情时和 UTF-16 长度不一样。
 int _len(String s) => s.runes.length;
@@ -56,21 +51,6 @@ class LibArtist {
 
   /// 块里、占位符里用的名字:有编号用编号。
   String get label => id.isNotEmpty ? id : name;
-}
-
-/// 本地库里的一个 OC。
-class LibOc {
-  const LibOc({
-    required this.enName,
-    required this.zhName,
-    required this.aliases,
-    required this.tagGroup,
-  });
-
-  final String enName;
-  final String zhName;
-  final List<String> aliases;
-  final String tagGroup;
 }
 
 String _field(Map<String, dynamic> m, List<String> keys) {
@@ -102,39 +82,6 @@ List<LibArtist> libArtistsOf(List<Map<String, dynamic>> raw) {
   }
   return out;
 }
-
-/// 助手页拼好的 OC 库(`{'en_name','zh_name','zh_aliases','tag_group'}`)→ 条目
-/// (服务端 `_load_ocs_from_web` + `_dedupe_ocs`)。
-List<LibOc> libOcsOf(List<Map<String, dynamic>> raw) {
-  final seen = <String>{};
-  final out = <LibOc>[];
-  for (final m in raw) {
-    final name = _field(m, const ['name', 'zh_name', 'id']);
-    final en = _field(m, const ['en_name', 'id']);
-    final zh = _field(m, const ['zh_name', 'zhName']);
-    final tags = _field(m, const ['tag_group', 'positive']);
-    final enName = en.isNotEmpty ? en : name;
-    final zhName = zh.isNotEmpty ? zh : name;
-    if ((enName.isEmpty && zhName.isEmpty) || tags.isEmpty) continue;
-    final rawAliases = m['zh_aliases'] ?? m['aliases'];
-    final oc = LibOc(
-      enName: enName,
-      zhName: zhName,
-      aliases: [
-        if (rawAliases is List)
-          for (final a in rawAliases)
-            if (a != null && '$a'.trim().isNotEmpty) '$a',
-      ],
-      tagGroup: tags,
-    );
-    if (seen.add('${oc.enName.toLowerCase()}|${oc.zhName}|${oc.tagGroup}')) {
-      out.add(oc);
-    }
-  }
-  return out;
-}
-
-// ---- 预匹配 ----
 
 final _artistIdRe = RegExp(r'(?<![A-Za-z])([A-Za-z])(\d{1,2})(?!\d)');
 
@@ -178,41 +125,6 @@ List<(String, String)> matchArtists(
     if (!seen.contains(a.label.toUpperCase())) out.add((a.label, a.prompt));
   }
   return out.take(_kBlockMax).toList();
-}
-
-/// 这句话点到的 OC → [(命中的名字、以顿号连起来, tag 组)]。中文名、别名、去掉 `OC_`
-/// 的键名都认,命中的名字越长越靠前,最多 10 个。
-List<(String, String)> matchOcs(String text, List<LibOc> ocs) {
-  final textNorm = normalizeName(text);
-  final hits = <(int, String, String)>[];
-  for (final oc in ocs) {
-    final bare = oc.enName.toLowerCase().startsWith('oc_')
-        ? oc.enName.substring(3)
-        : oc.enName;
-    final names = [
-      for (final n in [oc.zhName, ...oc.aliases, bare])
-        if (n.trim().isNotEmpty) n.trim(),
-    ];
-    final hit = [
-      for (final n in names)
-        if (normalizeName(n) case final k
-            when k.isNotEmpty && textNorm.contains(k))
-          n,
-    ];
-    if (hit.isEmpty) continue;
-    hits.add((
-      hit.map(_len).reduce(max),
-      LinkedHashSet.of(hit).join('、'),
-      oc.tagGroup,
-    ));
-  }
-  return [
-    for (final (_, label, tags) in _largestFirst(
-      hits,
-      (e) => e.$1,
-    ).take(_kBlockMax))
-      (label, tags),
-  ];
 }
 
 // ---- 资料块 ----

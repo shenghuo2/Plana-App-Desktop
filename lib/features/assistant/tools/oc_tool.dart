@@ -6,6 +6,8 @@ import 'my_library.dart';
 import 'tool_context.dart';
 
 const kOcBlock = '[OC 角色]';
+const _ocCopyNote =
+    '原样导入指定的库内角色时，在对应的正向提示词中使用提供的占位符，客户端会还原整段原文和权重。新增动作、表情和场景写在占位符外。需要修改原设时可编辑原词，保留其余特征的原始权重。';
 
 /// 使用角色库:用户 OC 库里的角色,按名字 / 别名关键词匹配。开着 OC 占位符时只给模型占位符。
 class SearchOcTool extends AgentTool {
@@ -36,7 +38,9 @@ class SearchOcTool extends AgentTool {
 
   @override
   Future<String> systemNote(ToolContext ctx) async =>
-      ctx.settings.ocPlaceholders ? ctx.texts.get('oc_placeholder_mode') : '';
+      ctx.settings.ocPlaceholders
+      ? ctx.texts.get('oc_placeholder_mode')
+      : _ocCopyNote;
 
   /// 原话里点到的 OC → [OC 角色] 块。OC 默认只活在点到它的那一轮;开着占位符时同画师串,
   /// 这轮没点到就补账本里记着的。
@@ -46,11 +50,7 @@ class SearchOcTool extends AgentTool {
     if (placeholders) {
       // 库里的 OC 都进映射:模型写了哪个占位符都认得出来
       for (final oc in ctx.ocs) {
-        ctx.ocPlan.add(oc.enName, oc.tagGroup);
-        if (oc.zhName.isNotEmpty) ctx.ocPlan.add(oc.zhName, oc.tagGroup);
-      }
-      for (final e in (ctx.remembered['oc'] ?? const {}).entries) {
-        ctx.ocPlan.add(e.key, e.value);
+        ctx.ocPlan.addOc(oc);
       }
     }
     final hits = matchOcs(ctx.userText, ctx.ocs);
@@ -62,9 +62,14 @@ class SearchOcTool extends AgentTool {
         : hits;
     final lines = [
       for (final (name, tags) in shown)
-        if (name.isNotEmpty && tags.isNotEmpty)
-          '$name → ${placeholders ? ctx.ocPlan.add(name, tags) : tags}',
+        if (name.isNotEmpty && tags.isNotEmpty) ...[
+          '$name → ${ctx.ocPlan.add(name, tags)}',
+          if (!placeholders) '参考原词：$tags',
+        ],
     ];
+    for (final e in (ctx.remembered['oc'] ?? const {}).entries) {
+      ctx.ocPlan.add(e.key, e.value);
+    }
     if (lines.isEmpty) return null;
     return ToolBlock(
       [
@@ -81,7 +86,9 @@ class SearchOcTool extends AgentTool {
   @override
   Future<ToolOutcome> call(ToolContext ctx, Map<String, dynamic> args) async {
     final placeholders = ctx.settings.ocPlaceholders;
-    final found = searchOcs(ctx.ocs, '${args['query'] ?? ''}');
+    final query = '${args['query'] ?? ''}';
+    final entries = await ctx.searchOcLibrary?.call(query) ?? ctx.ocs;
+    final found = searchOcs(entries, query);
     return ToolOutcome(
       [
         for (final oc in found)
@@ -91,16 +98,13 @@ class SearchOcTool extends AgentTool {
               for (final a in [oc.zhName, ...oc.aliases])
                 if (a.isNotEmpty && a != oc.label) a,
             ],
-            'tags': placeholders
-                ? ctx.ocPlan.add(oc.label, oc.tagGroup)
-                : oc.tagGroup,
+            'tags': placeholders ? ctx.ocPlan.addOc(oc) : oc.tagGroup,
+            if (!placeholders) 'placeholder': ctx.ocPlan.addOc(oc),
           },
       ],
-      resources: placeholders
-          ? {
-              'oc': {for (final oc in found) oc.label: oc.tagGroup},
-            }
-          : const {},
+      resources: {
+        'oc': {for (final oc in found) oc.label: oc.tagGroup},
+      },
     );
   }
 }

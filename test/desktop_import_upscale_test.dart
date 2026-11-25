@@ -1,3 +1,6 @@
+import 'package:plana_app/features/generate/gen_jobs.dart';
+import 'package:plana_app/features/generate/generation_controller.dart';
+import 'package:plana_app/core/net/gen_abort.dart' show GenAbort;
 import 'dart:async';
 import 'dart:typed_data';
 
@@ -42,6 +45,7 @@ class _Upscaler {
     required int width,
     required int height,
     void Function(String stage)? onStage,
+    GenAbort? abort,
   }) {
     calls.add((bytes: bytes, width: width, height: height));
     onStage?.call('上传 NAI…');
@@ -164,7 +168,11 @@ void main() {
       expect((submitted.width, submitted.height), (64, 96));
       final decoded = img.decodePng(submitted.bytes)!;
       expect((decoded.width, decoded.height), (64, 96));
-      expect(key('upscale-progress'), findsOneWidget);
+      expect(key('upscale-progress'), findsNothing);
+      expect(
+        container.read(generationProvider).jobs.single.kind,
+        GenJobKind.upscale,
+      );
       expect(key('upscale-parameters'), findsNothing);
       expect(
         tester.widget<OutlinedButton>(key('desktop-import-upscale')).onPressed,
@@ -175,7 +183,7 @@ void main() {
         tester,
         () =>
             container.read(galleryProvider).results.isNotEmpty &&
-            key('upscale-progress').evaluate().isEmpty,
+            container.read(generationProvider).jobs.isEmpty,
       );
       final result = container.read(galleryProvider).results.single;
       expect(result.badge, ResultBadge.upscaled2x);
@@ -224,7 +232,10 @@ void main() {
       container.read(desktopLibraryProvider.notifier).choose(albumB);
       container.read(galleryProvider.notifier).select(source.id);
       upscale.pending.complete((png: output, width: 128, height: 192));
-      await drain(tester, () => key('upscale-progress').evaluate().isEmpty);
+      await drain(
+        tester,
+        () => container.read(generationProvider).jobs.isEmpty,
+      );
       final result = container.read(galleryProvider).results.first;
       expect(result.badge, ResultBadge.upscaled2x);
       expect(result.seed, 54321);
@@ -259,13 +270,13 @@ void main() {
       await drain(
         tester,
         () =>
-            key('upscale-progress').evaluate().isEmpty &&
+            container.read(generationProvider).jobs.isEmpty &&
             tester
                     .widget<OutlinedButton>(key('desktop-import-upscale'))
                     .onPressed !=
                 null,
       );
-      expect(find.textContaining('服务暂不可用'), findsOneWidget);
+      expect(container.read(generationProvider).error, contains('服务暂不可用'));
       expect(container.read(galleryProvider).results, isEmpty);
       expect(
         tester.widget<OutlinedButton>(key('desktop-import-upscale')).onPressed,
@@ -275,7 +286,10 @@ void main() {
       await tester.tap(key('desktop-import-upscale'));
       await drain(tester, () => upscale.calls.length == 2);
       upscale.pending.complete((png: output, width: 128, height: 192));
-      await drain(tester, () => key('upscale-progress').evaluate().isEmpty);
+      await drain(
+        tester,
+        () => container.read(generationProvider).jobs.isEmpty,
+      );
       expect(container.read(galleryProvider).results, hasLength(1));
       await finish(tester);
     },

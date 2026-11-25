@@ -9,6 +9,157 @@ class AppLocalizationsEn extends AppLocalizations {
   AppLocalizationsEn([String locale = 'en']) : super(locale);
 
   @override
+  String get downloadWindowsPackage => 'Download for Windows';
+
+  @override
+  String get preciseRefUsesHigh =>
+      'Precise references switched the effort to High.';
+
+  @override
+  String get mediumPausesPreciseRefs =>
+      'Medium paused your precise references.';
+
+  @override
+  String get catalogAll => 'Show all types';
+
+  @override
+  String get catalogBoth => 'Chat and image generation';
+
+  @override
+  String get catalogEmbedding => 'Embeddings';
+
+  @override
+  String get catalogTranscription => 'Speech recognition';
+
+  @override
+  String get catalogSpeech => 'Speech synthesis';
+
+  @override
+  String get catalogAuto => 'Use automatic classification';
+
+  @override
+  String get catalogOther => 'Other uses';
+
+  @override
+  String get catalogAssign => 'Assign model use';
+
+  @override
+  String get planHub => 'Endpoints & subscriptions';
+
+  @override
+  String get planManageHub => 'Manage endpoints and subscriptions';
+
+  @override
+  String get planSources => 'Subscriptions';
+
+  @override
+  String get planQuickSwitch => 'Switch subscription account';
+
+  @override
+  String get planMenuPreview => 'Assistant model menu preview';
+
+  @override
+  String get planWorkspaces => 'Accounts and workspaces';
+
+  @override
+  String get planActive => 'Active';
+
+  @override
+  String get planUsageShort => 'Manage usage';
+
+  @override
+  String get planSelectedModels => 'Selected models';
+
+  @override
+  String get planNoSelected => 'Use Refresh models to choose your models.';
+
+  @override
+  String get planNoAccounts => 'No signed-in subscription accounts';
+
+  @override
+  String get planCachedModels => 'Using the last saved model list';
+
+  @override
+  String get planSection => 'ChatGPT plan';
+
+  @override
+  String get planLogin => 'Continue with ChatGPT';
+
+  @override
+  String get planManage => 'Manage accounts and workspaces';
+
+  @override
+  String get planAdd => 'Add an account or workspace';
+
+  @override
+  String get planNotice => 'Using your ChatGPT plan';
+
+  @override
+  String get planDisclosure =>
+      'You will sign in on OpenAI’s website, choose an account and workspace, and authorize Plana. OpenAI receives your messages, conversation history, attachments, any canvas you choose to share, and style identifiers and character references matched according to your library settings. Eligible requests use that workspace’s plan allowance or approved credits. Sign-in credentials are encrypted on this device. You can sign out at any time and revoke access in ChatGPT settings.';
+
+  @override
+  String get planConduct =>
+      'Follow the OpenAI Usage Policies and sign-in terms. Do not use presets or prompts intended to bypass safeguards. Plana sends the active drawing rules to OpenAI as creative preferences and displays model refusals directly. The service selected on the creation canvas generates the image.';
+
+  @override
+  String get recoverDrawProposal => 'Use as drawing proposal';
+
+  @override
+  String get invalidDrawProposal =>
+      'This reply does not contain a complete drawing proposal.';
+
+  @override
+  String get planTerms => 'Sign-in terms';
+
+  @override
+  String get planPolicy => 'Usage policies';
+
+  @override
+  String get planConfirm => 'I have read and understood';
+
+  @override
+  String get planUsage => 'Manage ChatGPT usage';
+
+  @override
+  String get planWaiting => 'Complete authorization in your browser';
+
+  @override
+  String get planReady =>
+      'Eligible assistant requests now use the selected ChatGPT workspace’s plan. Review or manage usage in ChatGPT settings.';
+
+  @override
+  String get planRelogin => 'Sign in again';
+
+  @override
+  String get planLogout => 'Sign out of this workspace';
+
+  @override
+  String get planRevocation =>
+      'Signed out locally. Remote revocation was not confirmed. Disconnect Plana in ChatGPT settings.';
+
+  @override
+  String get planEmpty => 'No selectable models in this workspace';
+
+  @override
+  String get planAccountLabel => 'Workspace display name';
+
+  @override
+  String get catalogUnknown => 'Unclassified · select to assign this use';
+
+  @override
+  String get catalogAssigned => 'Manually assigned';
+
+  @override
+  String get catalogRemote => 'Provider metadata';
+
+  @override
+  String get catalogDirectory => 'Model directory match';
+
+  @override
+  String get catalogRefresh => 'Refresh model catalog';
+
+  @override
   String get language => 'Language';
 
   @override
@@ -208,6 +359,29 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get refStyle => 'Style';
+
+  @override
+  String get v5PreciseReference => 'Precise Reference';
+
+  @override
+  String get refOutfit => 'Outfit';
+
+  @override
+  String get refPreferSameOutfit => 'Prefer same outfit';
+
+  @override
+  String get v5ReferenceInpaint =>
+      'Precise Reference is paused during NAI 5 inpainting.';
+
+  @override
+  String get outfitNeedsV5 => 'Outfit references require NAI 5.';
+
+  @override
+  String get rulesLocalGroup => 'Restricted presets';
+
+  @override
+  String get rulesLocalOnly =>
+      'When enabled for a model, these notes follow the regular rules on Plana channels and custom APIs. Subscription connections such as Codex and Antigravity skip this section.';
 
   @override
   String get refCharacterStyle => 'Char & Style';
@@ -667,6 +841,83 @@ class AppLocalizationsEn extends AppLocalizations {
   String get clearPromptAndSections => 'Clear Prompt and Sections';
 
   @override
+  String get inspirationTagMatch => 'Inspiration tag matching';
+
+  @override
+  String get inspirationTagMatchHint =>
+      'Favorites always limits results to starred entries.';
+
+  @override
+  String get tagIntersection => 'Match all';
+
+  @override
+  String get tagUnion => 'Match any';
+
+  @override
+  String get librarySelectionOff => 'Do not use libraries';
+
+  @override
+  String get librarySourcePriority =>
+      'Drag to reorder. Sources at the top take priority.';
+
+  @override
+  String get allExternalLibraries => 'All external libraries';
+
+  @override
+  String get selectLibrarySource => 'Switch libraries';
+
+  @override
+  String get externalOcResetTags =>
+      'Remove your local tag changes and show the tags from the source again.';
+
+  @override
+  String get externalOcLibraries => 'External libraries';
+
+  @override
+  String get externalOcImportHint =>
+      'Add a character library from a URL or a local JSON file';
+
+  @override
+  String get externalOcUrl => 'Library URL';
+
+  @override
+  String get externalOcFile => 'Local JSON file';
+
+  @override
+  String get externalOcName => 'Display name (optional)';
+
+  @override
+  String get externalOcPassword => 'Visitor password (if required)';
+
+  @override
+  String get externalOcConnect => 'Connect';
+
+  @override
+  String get externalOcRefresh => 'Update connection';
+
+  @override
+  String get externalOcRemove => 'Remove source';
+
+  @override
+  String get externalOcSearch => 'Search characters, authors, forms or tags';
+
+  @override
+  String get externalOcImages => 'Form images';
+
+  @override
+  String get publicLibraryBlocklist => 'Public library blocklist';
+
+  @override
+  String get publicLibraryBlocklistHint =>
+      'Block characters and styles separately, by author or individual entry.';
+
+  @override
+  String get blockPublicAuthor => 'Block all entries by this author';
+
+  @override
+  String get searchPublicEntries => 'Search authors, names or IDs';
+
+  @override
   String get inspirationLibrary => 'Inspiration Library';
 
   @override
@@ -864,10 +1115,6 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get importCharRef => 'Import Reference Image';
-
-  @override
-  String get charRefOnly45 =>
-      'Precise Reference only works with 4.5 models and won\'t be sent with the current model.';
 
   @override
   String filesImportFailed(int n) {
@@ -7302,6 +7549,11 @@ class AppLocalizationsEn extends AppLocalizations {
   String get desktopSavedAndSynced => 'Saved and synced';
 
   @override
+  String tagSavedLocallySyncFailed(String reason) {
+    return 'Saved on this device. Public library sync failed ($reason).';
+  }
+
+  @override
   String get desktopSavedAsALocalCopy => 'Saved as a local copy';
 
   @override
@@ -8631,4 +8883,118 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get diagnosticExpired => 'Expired';
+
+  @override
+  String get compareImages => 'Compare';
+
+  @override
+  String get swapAB => 'Swap A / B';
+
+  @override
+  String get onlyInA => 'A only';
+
+  @override
+  String get onlyInB => 'B only';
+
+  @override
+  String get weightChanged => 'Weight';
+
+  @override
+  String get orderChanged => 'Moved';
+
+  @override
+  String get identical => 'Same';
+
+  @override
+  String identicalN(int n) {
+    return '$n same';
+  }
+
+  @override
+  String differentN(int n) {
+    return '$n different';
+  }
+
+  @override
+  String get retryStripImage => 'Drop images on last retry';
+
+  @override
+  String get retryStripImageDesc => 'Omit attached images on the final retry';
+
+  @override
+  String get compareSideBySide => 'Side by side';
+
+  @override
+  String get compareContain => 'Fit';
+
+  @override
+  String get compareCover => 'Fill';
+
+  @override
+  String get compareResetView => 'Reset view';
+
+  @override
+  String get compareClear => 'Clear slots';
+
+  @override
+  String get compareOpenFile => 'Open local file';
+
+  @override
+  String get comparePickGallery => 'Choose from gallery';
+
+  @override
+  String compareDrop(String slot) {
+    return 'Drop an image in slot $slot';
+  }
+
+  @override
+  String get comparePairHint => 'Choose two files to fill A and B together';
+
+  @override
+  String compareEmptySlot(String slot) {
+    return 'No image in $slot';
+  }
+
+  @override
+  String get compareEmpty => 'Choose two images with generation metadata';
+
+  @override
+  String get compareInspectHint =>
+      'Compare parameters, prompts, weights and character positions.';
+
+  @override
+  String get compareAllChanges => 'All changes';
+
+  @override
+  String get compareDiffOnly => 'Changed tags only';
+
+  @override
+  String get compareNoMatches => 'No differences of this type';
+
+  @override
+  String compareUseSide(String slot) {
+    return 'Import $slot parameters';
+  }
+
+  @override
+  String get compareCopyReport => 'Copy differences';
+
+  @override
+  String get compareOriginals => 'View A / B originals';
+
+  @override
+  String get compareReady => 'Both images ready';
+
+  @override
+  String get compareZoomIn => 'Zoom in';
+
+  @override
+  String get compareZoomOut => 'Zoom out';
+
+  @override
+  String get compareTagPosition => 'Position';
+
+  @override
+  String get compareMetadataHint =>
+      'Use an original with metadata to compare its prompts';
 }

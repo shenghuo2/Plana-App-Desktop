@@ -44,6 +44,7 @@ class GalleryGridSelection {
   }
 
   void retainVisible(Iterable<ResultImage> images) {
+    if (picked.isEmpty) return;
     final visible = {for (final image in images) image.id};
     picked.removeWhere((id) => !visible.contains(id));
   }

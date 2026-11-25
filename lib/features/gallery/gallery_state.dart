@@ -180,7 +180,7 @@ class GalleryNotifier extends Notifier<GalleryState> {
     ref.read(galleryResultPreviewProvider.notifier).clear();
     if (id == state.selectedId) return;
     state = state.copyWith(selectedId: id, clearSelection: id == null);
-    _persistIndex();
+    ref.read(appStoresProvider).gallery.scheduleSelection(id);
   }
 
   void toggleFavorite(String id) {
@@ -300,18 +300,20 @@ class GalleryNotifier extends Notifier<GalleryState> {
         !state.results.any((image) => image.id == retryResult.id)) {
       throw StateError('待保存的图片已被移除');
     }
-    final r = retryResult ?? addResult(
-      bytes: bytes,
-      width: width,
-      height: height,
-      seed: seed,
-      badge: badge,
-      input: input,
-      operation: operation,
-      inpaintFrom: inpaintFrom,
-      batchIndex: batchIndex,
-      select: false,
-    );
+    final r =
+        retryResult ??
+        addResult(
+          bytes: bytes,
+          width: width,
+          height: height,
+          seed: seed,
+          badge: badge,
+          input: input,
+          operation: operation,
+          inpaintFrom: inpaintFrom,
+          batchIndex: batchIndex,
+          select: false,
+        );
     final store = ref.read(appStoresProvider).gallery;
     if (retryResult != null) {
       _writes[r.id] = store.persistResult(r);

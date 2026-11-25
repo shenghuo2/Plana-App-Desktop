@@ -67,6 +67,7 @@ dependencies:
   # AI 助手规则文件的导入导出。写法与服务端预设 yaml 一致,两边的段能直接互相复制。
   yaml: ^3.1.3
   flutter_onnxruntime: ^1.8.4
+  jose: ^0.3.5+2
 
 dev_dependencies:
   flutter_test:

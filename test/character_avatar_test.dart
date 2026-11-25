@@ -3,6 +3,8 @@
 // 容易坏的几处:存档往返丢了头像(重启后卡上只剩占位);点头像换人时旧的
 // 编辑器草稿没清(那份草稿对的是上一个人的提示词);新条目没有预览图时
 // 头像没清 —— 新名字挂着上一个人的脸。
+import 'dart:io';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -129,12 +131,16 @@ void main() {
     expect(c.positive, 'b');
   });
 
-  test('预览优先用公共库的 http,公共库里没有才用条目自带的', () {
+  test('自己的本机封面优先，只有收藏、旧网址或缺失文件才回退到公共封面', () {
+    final temp = Directory.systemTemp.createTempSync('plana_tag_cover_');
+    addTearDown(() => temp.deleteSync(recursive: true));
+    final file = File('${temp.path}/new.png')..writeAsBytesSync([1]);
     const fav = TagEntry(
       id: 'l1',
       category: TagCategory.character,
       name: '初音',
       publicId: 'miku',
+      origin: TagOrigin.favorited,
       previews: ['/local/miku.png'],
     );
     const local = TagEntry(
@@ -150,9 +156,26 @@ void main() {
       publicId: 'miku',
       previews: ['https://example.com/miku.png'],
     );
-    final map = publicPreviewsOf(const [pub]);
+    final own = fav.copyWith(origin: TagOrigin.created, previews: [file.path]);
+    Map<String, String> forCopy(TagEntry copy) =>
+        publicPreviewsOf(const [pub], local: [copy]);
+    final map = forCopy(fav.copyWith(previews: [file.path]));
     expect(tagPreviewOf(fav, map), 'https://example.com/miku.png');
     expect(tagPreviewOf(local, map), '/local/own.png');
-    expect(tagPreviewOf(fav, publicPreviewsOf(null)), '/local/miku.png');
+    expect(
+      tagPreviewOf(fav, publicPreviewsOf(null, local: [fav])),
+      '/local/miku.png',
+    );
+    expect(tagPreviewOf(own, forCopy(own)), file.path);
+    expect(tagPreviewOf(pub, forCopy(own)), file.path);
+    expect(
+      tagPreviewOf(
+        pub,
+        forCopy(own.copyWith(previews: ['https://old/miku.png'])),
+      ),
+      pub.previewUrl,
+    );
+    file.deleteSync();
+    expect(tagPreviewOf(own, forCopy(own)), pub.previewUrl);
   });
 }

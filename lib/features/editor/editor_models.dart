@@ -554,6 +554,26 @@ List<Tok> parseToks(
 /// 数值权重的数字写法,与 [_numGroupRe] 同口径(不认 `+1`、`.5`、`1e3`)
 final _numLiteralRe = RegExp(r'^-?\d+(?:\.\d+)?$');
 
+final _explicitFoldMarker = RegExp(r'<#[^<>:,，\r\n]+:(?= |[\r\n])|#>');
+
+/// An exact library copy can sit inside a sentence. Its explicit markers give
+/// us token boundaries without inserting commas into the generated prompt.
+Set<int> _inlineFoldBoundaries(String text) {
+  if (!text.contains('<#') || !text.contains(kFoldClose)) return const {};
+  final edges = <int>{};
+  int? open;
+  for (final marker in _explicitFoldMarker.allMatches(text)) {
+    if (text[marker.start] == '<') {
+      open = marker.start;
+    } else if (open != null) {
+      edges.add(open);
+      edges.add(marker.end);
+      open = null;
+    }
+  }
+  return edges;
+}
+
 List<Tok> _parse(
   String text, {
   List<WeightSpan>? weightSpans,
@@ -1051,7 +1071,12 @@ List<Tok> _parse(
     }
   }
 
+  final foldEdges = _inlineFoldBoundaries(text);
   for (var k = 0; k < text.length; k++) {
+    if (k > start && foldEdges.contains(k)) {
+      span(start, k);
+      start = k;
+    }
     final c = text[k];
     // 换行也是分隔:回车开新行即下一枚标签(名字里不留 \n,翻译反查才有命中)
     if (c == ',' || c == '，' || c == '\n') {
@@ -1973,47 +1998,59 @@ String uniqueFoldName(String name, String body, Map<String, String> taken) {
 }
 
 /// (正文, 折叠表)→ 草稿(完整语法)。按占位符所处的逗号段分三种情况:
-/// - 段恰为占位符自身 → 还原完整折叠 `<#名字: 内容#>`(下次载入原样收回);
+/// - 独立占位符或句内未加权的占位符 → 还原完整折叠(下次载入原样收回);
 /// - 段为 `~<#名字>~`(折叠被整只禁用)→ 内容逐成员套 `~`(折叠随之解散);
 /// - 其余(被 `{}` / `N::` 组语法包住等)→ 内容裸铺进去(组权重照常作用于
 ///   成员,折叠解散)——完整语法塞在组记号里会错位解析不出,宁可降级也
 ///   绝不让记号漏给 NAI。
 String expandFolds(String text, Map<String, String> bodies) {
   final refs = parseFoldRefs(text, bodies);
+  List<WeightSpan>? weights;
+  List<Tok>? tokens;
+  bool hasOuterModifier(FoldRef ref) {
+    weights ??= [];
+    tokens ??= parseToks(text, weightSpans: weights);
+    return weights!.any((w) => w.start < ref.start && ref.start < w.end) ||
+        tokens!.any(
+          (t) => t.disabled && t.segStart <= ref.start && ref.start < t.segEnd,
+        );
+  }
+
   var out = text;
   for (final r in refs.reversed) {
     final body = bodies[r.name]!;
     // 占位符所处逗号段
     var a = r.start;
     while (a > 0 &&
-        out[a - 1] != ',' &&
-        out[a - 1] != '，' &&
-        out[a - 1] != '\n') {
+        text[a - 1] != ',' &&
+        text[a - 1] != '，' &&
+        text[a - 1] != '\n') {
       a--;
     }
     var b = r.end;
-    while (b < out.length && out[b] != ',' && out[b] != '，' && out[b] != '\n') {
+    while (b < text.length &&
+        text[b] != ',' &&
+        text[b] != '，' &&
+        text[b] != '\n') {
       b++;
     }
-    final seg = out.substring(a, b).trim();
-    final String ins;
-    if (seg == foldRefLiteral(r.name)) {
-      ins = '<#${r.name}: $body$kFoldClose';
-    } else if (seg == '~${foldRefLiteral(r.name)}~') {
+    final seg = text.substring(a, b).trim();
+    if (seg == '~${foldRefLiteral(r.name)}~') {
       final toks = parseToks(body);
-      ins = toks.isEmpty
+      final disabled = toks.isEmpty
           ? ''
           : batchSetDisabled(body, 0, toks.length - 1, true);
       // 替换含两侧 ~(整段重写)
       out = out.replaceRange(
         out.indexOf('~', a),
         out.indexOf('~', r.end) + 1,
-        ins,
+        disabled,
       );
       continue;
-    } else {
-      ins = body;
     }
+    final ins = seg == foldRefLiteral(r.name) || !hasOuterModifier(r)
+        ? '<#${r.name}: $body$kFoldClose'
+        : body;
     out = out.replaceRange(r.start, r.end, ins);
   }
   return out;

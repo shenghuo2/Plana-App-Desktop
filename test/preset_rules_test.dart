@@ -412,6 +412,88 @@ sections:
       );
     });
 
+    test(
+      'custom API supplements activate independently and stale regular selections never expose them',
+      () async {
+        final stores = await AppStores.open(rootOverride: _tempRoot());
+        final c = ProviderContainer(
+          overrides: [appStoresProvider.overrideWithValue(stores)],
+        );
+        addTearDown(c.dispose);
+        await c.read(rulesLibraryProvider.future);
+        final n = c.read(rulesLibraryProvider.notifier);
+        const rules = [PresetRule(name: 'draft', content: 'local marker')];
+        const models = {RulesFamily.nai5};
+        final id = await n.add(
+          name: 'Draft',
+          author: '',
+          models: models,
+          rules: rules,
+          enableFor: RulesFamily.nai5,
+        );
+        await n.replace(
+          id,
+          name: 'Draft',
+          author: '',
+          models: models,
+          rules: rules,
+          localOnly: true,
+        );
+        // Moving an old preset into this section requires a fresh selection.
+        expect(
+          c
+              .read(rulesLibraryProvider)
+              .requireValue
+              .supplementFor(RulesFamily.nai5),
+          isNull,
+        );
+        await n.use(RulesFamily.nai5, id);
+        expect(
+          c.read(rulesLibraryProvider).requireValue.enabledFor(id),
+          isEmpty,
+        );
+        await n.togglePreset(id);
+        final lib = c.read(rulesLibraryProvider).requireValue;
+        expect(lib.enabledFor(id), {RulesFamily.nai5});
+        expect(lib.supplementFor(RulesFamily.nai45), isNull);
+        expect(lib.customRulesFor(RulesFamily.nai5), isNull);
+        final back = RulesLibrary.fromJson({
+          ...lib.toJson(),
+          'active': {'nai5': id},
+        });
+        expect(back.presets.single.rules.single.content, 'local marker');
+        expect(back.supplementFor(RulesFamily.nai5)?.id, id);
+        await n.use(RulesFamily.nai5, null, supplement: true);
+        expect(
+          c.read(rulesLibraryProvider).requireValue.enabledFor(id),
+          isEmpty,
+        );
+        expect(back.activeFor(RulesFamily.nai5)?.isDefault, true);
+        final file = decodeRulesFile(
+          encodeRulesFile(
+            name: 'Draft',
+            author: '',
+            models: models,
+            rules: rules,
+            localOnly: true,
+          ),
+        );
+        expect(file.localOnly, true);
+        expect(file.rules.single.content, 'local marker');
+        expect(
+          decodeRulesFile(
+            encodeRulesFile(
+              name: 'Old',
+              author: '',
+              models: models,
+              rules: rules,
+            ),
+          ).localOnly,
+          false,
+        );
+      },
+    );
+
     test('上一版每个模型一份无名规则:迁成预设,并且照旧在用', () async {
       final stores = await AppStores.open(rootOverride: _tempRoot());
       await stores.prefs.write(

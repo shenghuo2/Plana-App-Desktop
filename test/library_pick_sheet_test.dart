@@ -85,7 +85,7 @@ Future<({ProviderContainer c, LibraryPicks? Function() result})> _open(
         publicTagsProvider(cat).overrideWith((_) async => const []),
       tagAuthorNamesProvider.overrideWith((_) async => const {}),
       codexFavoritesProvider.overrideWith(_Favorites.new),
-      codexIndexProvider.overrideWith((_) async => const []),
+      codexIndexProvider.overrideWithBuild((_, _) async => const []),
       codexMediaProvider.overrideWith((_) async => CodexMedia.fallback),
       tagTranslationServiceProvider.overrideWith((ref) {
         final service = TagTranslationService(enabled: false, baseUrl: '');

@@ -163,6 +163,46 @@ void main() {
   );
 
   testWidgets(
+    'a held thumb and queued external reads resume only at the settled viewport',
+    (tester) async {
+      await prepare(tester);
+      await tester.pumpWidget(page());
+      await tester.pumpAndSettle();
+      final before = getStarts();
+      final bar = tester.getRect(keyed('codex-scrollbar'));
+      final gesture = await tester.startGesture(
+        Offset(bar.right - 6, bar.top + 9),
+        kind: PointerDeviceKind.mouse,
+      );
+      await gesture.moveBy(const Offset(0, 90));
+      await tester.pump();
+      var reads = 0;
+      final ticket = loading.ticket();
+      final read = ticket.run(() async => ++reads);
+      await tester.pump(const Duration(seconds: 2));
+      await gesture.moveBy(const Offset(0, 90));
+      await tester.pump(const Duration(milliseconds: 2999));
+      expect(reads, 0);
+      expect(getStarts(), before);
+      await tester.pump(const Duration(milliseconds: 2));
+      await tester.pumpAndSettle();
+      expect(await read, 1);
+      expect(scroll.position.isScrollingNotifier.value, isTrue);
+      expect(getStarts(), greaterThan(before));
+      final second = getStarts();
+      await gesture.moveBy(const Offset(0, 90));
+      await tester.pump(const Duration(seconds: 2));
+      expect(getStarts(), second);
+      await gesture.up();
+      await tester.pump(const Duration(milliseconds: 141));
+      await tester.pumpAndSettle();
+      expect(getStarts(), greaterThan(second));
+      ticket.cancel();
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
+  testWidgets(
     'wheel bursts and jumpTo postpone starts until the last quiet period',
     (tester) async {
       await prepare(tester);

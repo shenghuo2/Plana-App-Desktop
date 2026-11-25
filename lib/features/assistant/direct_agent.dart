@@ -482,6 +482,7 @@ AgentResult _toResult(
     section: assistantSectionName(d['section']),
     positive: d['positive']?.toString() ?? '',
     negative: d['negative']?.toString() ?? '',
+    specifiedNegative: d['negative'] is String,
     characters: [
       for (final c in (d['characters'] as List? ?? const []))
         if (c is Map<String, dynamic>) AgentCharacter.fromJson(c),

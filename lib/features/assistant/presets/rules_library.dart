@@ -30,6 +30,7 @@ class RulesPreset {
     required this.models,
     required this.rules,
     this.kind = RulesPresetKind.custom,
+    this.localOnly = false,
   });
 
   final String id;
@@ -44,6 +45,8 @@ class RulesPreset {
   final List<PresetRule> rules;
 
   final RulesPresetKind kind;
+  // The persisted flag identifies the optional API supplement section.
+  final bool localOnly;
   bool get isDefault => kind != RulesPresetKind.custom;
 
   String get settingsLabel => switch (kind) {
@@ -55,6 +58,7 @@ class RulesPreset {
 
   Map<String, dynamic> toJson() => {
     'id': id,
+    if (localOnly) 'localOnly': true,
     'name': name,
     'author': author,
     'models': [
@@ -82,6 +86,7 @@ class RulesPreset {
       id: id,
       name: name,
       author: '${j['author'] ?? ''}'.trim(),
+      localOnly: j['localOnly'] == true,
       models: models,
       rules: rules,
     );
@@ -109,6 +114,7 @@ class RulesLibrary {
     this.presets = const [],
     this.bundled = const [],
     this.active = const {},
+    this.apiSupplements = const {},
     this.order = const [],
   });
 
@@ -120,6 +126,7 @@ class RulesLibrary {
 
   /// 缺少键沿用默认预设，值为 null 表示用户关闭了这个模型的预设。
   final Map<RulesFamily, String?> active;
+  final Map<RulesFamily, String> apiSupplements;
 
   /// 列表的显示顺序，包含内置预设的 ID。旧存档从两份内置预设开始。
   final List<String> order;
@@ -139,11 +146,13 @@ class RulesLibrary {
   RulesLibrary copyWith({
     List<RulesPreset>? presets,
     Map<RulesFamily, String?>? active,
+    Map<RulesFamily, String>? apiSupplements,
     List<String>? order,
   }) => RulesLibrary(
     presets: presets ?? this.presets,
     bundled: bundled,
     active: active ?? this.active,
+    apiSupplements: apiSupplements ?? this.apiSupplements,
     order: order ?? this.order,
   );
 
@@ -152,14 +161,20 @@ class RulesLibrary {
     final id = active[f];
     if (id == null) return active.containsKey(f) ? null : defaultPresetOf(f);
     for (final p in bundled.followedBy(presets)) {
-      if (p.id == id && p.models.contains(f)) return p;
+      if (p.id == id && !p.localOnly && p.models.contains(f)) return p;
     }
     return defaultPresetOf(f);
   }
 
+  RulesPreset? supplementFor(RulesFamily f) => presets
+      .where(
+        (p) => p.id == apiSupplements[f] && p.localOnly && p.models.contains(f),
+      )
+      .firstOrNull;
+
   Set<RulesFamily> enabledFor(String id) => {
     for (final f in RulesFamily.values)
-      if (activeFor(f)?.id == id) f,
+      if (activeFor(f)?.id == id || supplementFor(f)?.id == id) f,
   };
 
   /// 副本的名字:「原名 (副本)」,重名再往后加数字。
@@ -184,6 +199,10 @@ class RulesLibrary {
   Map<String, dynamic> toJson() => {
     'presets': [for (final p in presets) p.toJson()],
     'active': {for (final e in active.entries) e.key.name: e.value},
+    if (apiSupplements.isNotEmpty)
+      'apiSupplements': {
+        for (final e in apiSupplements.entries) e.key.name: e.value,
+      },
     if (order.isNotEmpty) 'order': order,
     // An older client should not reinstall its editable starter presets.
     'semanticPresetsInstalled': true,
@@ -208,11 +227,21 @@ class RulesLibrary {
         }
       });
     }
+    final selectedSupplements = j['apiSupplements'];
     final order = j['order'];
     final library = RulesLibrary(
       presets: presets,
       bundled: bundled,
       active: active,
+      apiSupplements: {
+        if (selectedSupplements is Map)
+          for (final f in RulesFamily.values)
+            if (selectedSupplements[f.name] case final String id)
+              if (presets.any(
+                (p) => p.id == id && p.localOnly && p.models.contains(f),
+              ))
+                f: id,
+      },
       order: order is List ? order.whereType<String>().toList() : const [],
     );
     return j['bundledSemanticPresets'] == true
@@ -248,7 +277,8 @@ class RulesLibrary {
 
   static bool _matchesOriginal(RulesPreset p, RulesPreset original) {
     final family = original.models.single;
-    if (p.models.length != 1 ||
+    if (p.localOnly ||
+        p.models.length != 1 ||
         !p.models.contains(family) ||
         p.rules.length != original.rules.length) {
       return false;
@@ -386,6 +416,7 @@ class RulesLibraryNotifier extends AsyncNotifier<RulesLibrary> {
     required Set<RulesFamily> models,
     required List<PresetRule> rules,
     RulesFamily? enableFor,
+    bool localOnly = false,
   }) async {
     final id = _newId();
     await replace(
@@ -395,6 +426,7 @@ class RulesLibraryNotifier extends AsyncNotifier<RulesLibrary> {
       models: models,
       rules: rules,
       insertIfMissing: true,
+      localOnly: localOnly,
       enableFor: enableFor,
     );
     return id;
@@ -409,6 +441,7 @@ class RulesLibraryNotifier extends AsyncNotifier<RulesLibrary> {
     required Set<RulesFamily> models,
     required List<PresetRule> rules,
     bool insertIfMissing = false,
+    bool? localOnly,
     RulesFamily? enableFor,
   }) async {
     if (id.startsWith('default')) return;
@@ -421,6 +454,7 @@ class RulesLibraryNotifier extends AsyncNotifier<RulesLibrary> {
       author: author,
       models: Set.unmodifiable(models),
       rules: List.unmodifiable(rules),
+      localOnly: localOnly ?? (index >= 0 && presets[index].localOnly),
     );
     if (index < 0) {
       presets.add(edited);
@@ -428,9 +462,27 @@ class RulesLibraryNotifier extends AsyncNotifier<RulesLibrary> {
       presets[index] = edited;
     }
     final active = {..._lib.active}
-      ..removeWhere((f, v) => v == id && !models.contains(f));
-    if (enableFor != null && models.contains(enableFor)) active[enableFor] = id;
-    await _save(_lib.copyWith(presets: presets, active: active));
+      ..removeWhere(
+        (f, v) => v == id && (edited.localOnly || !models.contains(f)),
+      );
+    final apiSupplements = {..._lib.apiSupplements}
+      ..removeWhere(
+        (f, v) => v == id && (!edited.localOnly || !models.contains(f)),
+      );
+    if (enableFor != null && models.contains(enableFor)) {
+      if (edited.localOnly) {
+        apiSupplements[enableFor] = id;
+      } else {
+        active[enableFor] = id;
+      }
+    }
+    await _save(
+      _lib.copyWith(
+        presets: presets,
+        active: active,
+        apiSupplements: apiSupplements,
+      ),
+    );
   }
 
   /// 按 ID 移动到目标卡的位置，拖动期间增删的其他卡片仍沿用最新存档。
@@ -454,13 +506,16 @@ class RulesLibraryNotifier extends AsyncNotifier<RulesLibrary> {
             if (p.id != id) p,
         ],
         active: {..._lib.active}..removeWhere((_, v) => v == id),
+        apiSupplements: {..._lib.apiSupplements}
+          ..removeWhere((_, v) => v == id),
         order: [..._lib.order]..removeWhere((value) => value == id),
       ),
     );
   }
 
   /// A null selection explicitly disables this family's writing preset.
-  Future<void> use(RulesFamily f, String? id) => _select([f], id);
+  Future<void> use(RulesFamily f, String? id, {bool supplement = false}) =>
+      _select([f], id, supplement: supplement);
 
   Future<void> togglePreset(String id) async {
     final preset = _lib.all.where((p) => p.id == id).firstOrNull;
@@ -469,10 +524,31 @@ class RulesLibraryNotifier extends AsyncNotifier<RulesLibrary> {
     await _select(
       enabled.isEmpty ? preset.models : enabled,
       enabled.isEmpty ? id : null,
+      supplement: preset.localOnly,
     );
   }
 
-  Future<void> _select(Iterable<RulesFamily> models, String? id) {
+  Future<void> _select(
+    Iterable<RulesFamily> models,
+    String? id, {
+    required bool supplement,
+  }) {
+    if (supplement) {
+      final selected = {..._lib.apiSupplements};
+      for (final family in models) {
+        if (id == null) {
+          selected.remove(family);
+        } else if (_lib.presets.any(
+          (p) => p.id == id && p.localOnly && p.models.contains(family),
+        )) {
+          selected[family] = id;
+        }
+      }
+      return _save(_lib.copyWith(apiSupplements: selected));
+    }
+    if (_lib.presets.any((p) => p.id == id && p.localOnly)) {
+      return Future.value();
+    }
     final active = {..._lib.active};
     for (final f in models) {
       if (id == defaultPresetOf(f).id) {

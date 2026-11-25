@@ -37,10 +37,17 @@ class SearchArtistTool extends AgentTool {
             for (final e in (ctx.remembered['artist'] ?? const {}).entries)
               (e.key, e.value),
           ];
+    final negatives = {
+      for (final a in ctx.artists) (a.label, a.prompt): a.negative,
+    };
     final lines = [
       for (final (name, content) in shown)
-        if (name.isNotEmpty && content.isNotEmpty)
+        if (name.isNotEmpty && content.isNotEmpty) ...[
           '$name → ${ctx.artistPlan.add(name, content)}',
+          if (negatives[(name, content)] case final String neg
+              when neg.isNotEmpty)
+            '$name 初始负面 → $neg',
+        ],
     ];
     if (lines.isEmpty) return null;
     return ToolBlock(

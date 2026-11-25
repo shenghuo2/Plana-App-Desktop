@@ -12,6 +12,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import '../../core/auth/secure_storage.dart';
+import 'model_catalog.dart';
+export 'model_catalog.dart' show CatalogModel, ModelEvidence, EndpointModelKind;
 
 const _key = 'assistant_endpoints';
 
@@ -90,29 +92,9 @@ enum EndpointRoute {
   }
 }
 
-enum EndpointModelKind { chat, image, other, unknown }
-
-EndpointModelKind modelKind(String id, [Map? details]) {
-  final arch = details?['architecture'];
-  final output =
-      details?['output_modalities'] ??
-      details?['outputModalities'] ??
-      (arch is Map ? arch['output_modalities'] : null);
-  if (output is List && output.isNotEmpty) {
-    final values = output.map((s) => '$s'.toLowerCase()).toSet();
-    if (values.contains('image')) return EndpointModelKind.image;
-    return values.contains('text')
-        ? EndpointModelKind.chat
-        : EndpointModelKind.other;
-  }
+// Only old, untyped saved lists used naming rules. New discovery uses remote data.
+EndpointModelKind _legacyModelKind(String id) {
   final name = id.toLowerCase().split('/').last;
-  final methods = details?['supportedGenerationMethods'];
-  if (methods is List &&
-      methods.isNotEmpty &&
-      !methods.contains('generateContent') &&
-      !methods.contains('predict')) {
-    return EndpointModelKind.other;
-  }
   if (RegExp(
     r'^(gpt-image|chatgpt-image|dall-e|imagen[-0-9]|flux[-.0-9]|stable-(diffusion|image)|seedream|qwen-image|nano-banana)|^gemini-.*(?:-image(?:-|$)|-banana)',
   ).hasMatch(name)) {
@@ -217,6 +199,7 @@ class CustomEndpoint {
     required this.model,
     this.models = const [],
     this.imageModels = const [],
+    this.modelOverrides = const {},
     this.apiPath = '',
     this.enabled = true,
     this.customService = false,
@@ -235,6 +218,7 @@ class CustomEndpoint {
       customService ? null : endpointPresetOf(format, baseUrl);
   bool get offersImages =>
       customService ||
+      imageModels.isNotEmpty ||
       (preset?.offersImages ?? format != AgentApiFormat.anthropic);
   bool get hasCredentials {
     if (apiKey.trim().isNotEmpty) return true;
@@ -262,6 +246,7 @@ class CustomEndpoint {
 
   /// Models explicitly assigned to image generation.
   final List<String> imageModels;
+  final Map<String, EndpointModelKind> modelOverrides;
 
   /// 这个接口能不能出图:格式支持、填了 Key、有出图模型。
   bool get usesGoogleImages =>
@@ -394,6 +379,7 @@ class CustomEndpoint {
     String? model,
     List<String>? models,
     List<String>? imageModels,
+    Map<String, EndpointModelKind>? modelOverrides,
     String? apiPath,
     Map<String, String>? headers,
   }) => CustomEndpoint(
@@ -408,6 +394,7 @@ class CustomEndpoint {
     model: model ?? this.model,
     models: models ?? this.models,
     imageModels: imageModels ?? this.imageModels,
+    modelOverrides: modelOverrides ?? this.modelOverrides,
     apiPath: apiPath ?? this.apiPath,
     headers: headers ?? this.headers,
   );
@@ -425,6 +412,7 @@ class CustomEndpoint {
     'model': allModels.firstOrNull ?? '',
     'models': allModels,
     if (imageModels.isNotEmpty) 'imageModels': imageModels,
+    'modelOverrides': modelOverrides.map((k, v) => MapEntry(k, v.name)),
     if (apiPath.isNotEmpty) 'apiPath': apiPath,
     if (headers.isNotEmpty) 'headers': headers,
   };
@@ -449,8 +437,14 @@ class CustomEndpoint {
     final assigned = <String>{};
     final typed = e['typedModels'] == true;
     void assign(String id, {required bool image}) {
-      if (id.isEmpty || !assigned.add(id.toLowerCase())) return;
-      final kind = typed ? EndpointModelKind.unknown : modelKind(id);
+      if (id.isEmpty) return;
+      if (typed) {
+        final group = image ? images : chats;
+        if (!group.contains(id)) group.add(id);
+        return;
+      }
+      if (!assigned.add(id.toLowerCase())) return;
+      final kind = _legacyModelKind(id);
       if (kind == EndpointModelKind.other) return;
       if (kind == EndpointModelKind.image ||
           (kind == EndpointModelKind.unknown && image)) {
@@ -482,6 +476,20 @@ class CustomEndpoint {
       model: chats.firstOrNull ?? '',
       models: chats,
       imageModels: images.toList(),
+      modelOverrides: {
+        if (typed && !e.containsKey('modelOverrides')) ...{
+          for (final m in chats)
+            m: images.contains(m)
+                ? EndpointModelKind.chatAndImage
+                : EndpointModelKind.chat,
+          for (final m in images)
+            if (!chats.contains(m)) m: EndpointModelKind.image,
+        },
+        if (e['modelOverrides'] case final Map saved)
+          for (final entry in saved.entries)
+            entry.key.toString(): ?EndpointModelKind.values
+                .asNameMap()[entry.value],
+      },
       apiPath: e['apiPath']?.toString() ?? '',
       headers: switch (e['headers']) {
         final Map h => {

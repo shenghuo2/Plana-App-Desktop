@@ -9,6 +9,154 @@ class AppLocalizationsJa extends AppLocalizations {
   AppLocalizationsJa([String locale = 'ja']) : super(locale);
 
   @override
+  String get downloadWindowsPackage => 'Windows 版をダウンロード';
+
+  @override
+  String get preciseRefUsesHigh => '精密参照を使うため High に切り替えました。';
+
+  @override
+  String get mediumPausesPreciseRefs => 'Medium では精密参照を一時停止します。';
+
+  @override
+  String get catalogAll => 'すべての種類を表示';
+
+  @override
+  String get catalogBoth => 'チャット・画像生成';
+
+  @override
+  String get catalogEmbedding => '埋め込みベクトル';
+
+  @override
+  String get catalogTranscription => '音声認識';
+
+  @override
+  String get catalogSpeech => '音声合成';
+
+  @override
+  String get catalogAuto => '自動判定に戻す';
+
+  @override
+  String get catalogOther => 'その他';
+
+  @override
+  String get catalogAssign => 'モデルの用途を指定';
+
+  @override
+  String get planHub => '接続先とサブスクリプション';
+
+  @override
+  String get planManageHub => '接続先とサブスクリプションを管理';
+
+  @override
+  String get planSources => 'サブスクリプション';
+
+  @override
+  String get planQuickSwitch => 'サブスクリプションアカウントを切り替え';
+
+  @override
+  String get planMenuPreview => 'アシスタントのモデルメニューのプレビュー';
+
+  @override
+  String get planWorkspaces => 'アカウントとワークスペース';
+
+  @override
+  String get planActive => '使用中';
+
+  @override
+  String get planUsageShort => '使用量を管理';
+
+  @override
+  String get planSelectedModels => '選択したモデル';
+
+  @override
+  String get planNoSelected => '「モデルを再取得」から使用するモデルを選んでください。';
+
+  @override
+  String get planNoAccounts => 'ログイン中のアカウントはありません';
+
+  @override
+  String get planCachedModels => '前回取得したモデル一覧を使用します';
+
+  @override
+  String get planSection => 'ChatGPT プラン';
+
+  @override
+  String get planLogin => 'ChatGPT で続ける';
+
+  @override
+  String get planManage => 'アカウントとワークスペースを管理';
+
+  @override
+  String get planAdd => 'アカウントまたはワークスペースを追加';
+
+  @override
+  String get planNotice => 'ChatGPT プランのご利用について';
+
+  @override
+  String get planDisclosure =>
+      'OpenAI の公式サイトでアカウントとワークスペースを選び、Plana を承認します。OpenAI にはメッセージ、会話履歴、添付画像、共有を選んだキャンバスに加え、ライブラリ設定に応じて一致した画風の識別子とキャラクター資料が送信されます。対象のリクエストはワークスペースのプラン利用枠または承認済みクレジットを使用します。認証情報は端末上に暗号化して保存されます。いつでもログアウトでき、ChatGPT の設定で連携を解除できます。';
+
+  @override
+  String get planConduct =>
+      'OpenAI の利用ポリシーとログイン規約に従い、安全対策の回避を意図したプリセットやプロンプトは使用しないでください。有効な作画ルールは創作の参考として OpenAI に送信され、モデルの拒否応答はそのまま表示されます。画像は創作画面で選んだサービスが生成します。';
+
+  @override
+  String get recoverDrawProposal => '作画案として読み込む';
+
+  @override
+  String get invalidDrawProposal => 'この返信には完全な作画案がありません。';
+
+  @override
+  String get planTerms => 'ログイン規約';
+
+  @override
+  String get planPolicy => '利用ポリシー';
+
+  @override
+  String get planConfirm => '内容を確認しました';
+
+  @override
+  String get planUsage => 'ChatGPT の使用量を管理';
+
+  @override
+  String get planWaiting => 'ブラウザーで OpenAI の認証を完了してください';
+
+  @override
+  String get planReady =>
+      '対象のリクエストには選択した ChatGPT ワークスペースのプランが使われます。ChatGPT の設定で使用量を確認・管理できます。';
+
+  @override
+  String get planRelogin => '再ログイン';
+
+  @override
+  String get planLogout => 'このワークスペースからログアウト';
+
+  @override
+  String get planRevocation =>
+      '端末からログアウトしました。リモートでの取り消しは未確認です。ChatGPT の設定から Plana を解除できます。';
+
+  @override
+  String get planEmpty => 'このワークスペースに選択可能なモデルはありません';
+
+  @override
+  String get planAccountLabel => 'ワークスペースの表示名';
+
+  @override
+  String get catalogUnknown => '未分類 · 選択して用途を指定';
+
+  @override
+  String get catalogAssigned => '手動で指定済み';
+
+  @override
+  String get catalogRemote => 'プロバイダーの情報';
+
+  @override
+  String get catalogDirectory => 'モデル一覧と一致';
+
+  @override
+  String get catalogRefresh => 'モデル一覧を再取得';
+
+  @override
   String get language => '言語';
 
   @override
@@ -208,6 +356,28 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get refStyle => '絵柄';
+
+  @override
+  String get v5PreciseReference => '精密参照';
+
+  @override
+  String get refOutfit => '衣装';
+
+  @override
+  String get refPreferSameOutfit => '同じ衣装を優先';
+
+  @override
+  String get v5ReferenceInpaint => 'NAI 5 のインペイント中は精密参照を一時停止します。';
+
+  @override
+  String get outfitNeedsV5 => '衣装参照は NAI 5 で使用できます。';
+
+  @override
+  String get rulesLocalGroup => '制限付きプリセット';
+
+  @override
+  String get rulesLocalOnly =>
+      'モデルで有効にすると、Plana のチャンネルとカスタム API では通常のルールに続けて補足を送信します。Codex や Antigravity などのサブスクリプションではこのセクションを除外します。';
 
   @override
   String get refCharacterStyle => 'キャラクター&絵柄';
@@ -640,6 +810,78 @@ class AppLocalizationsJa extends AppLocalizations {
   String get clearPromptAndSections => '清空提示词和分区';
 
   @override
+  String get inspirationTagMatch => 'インスピレーションのタグ条件';
+
+  @override
+  String get inspirationTagMatchHint => 'お気に入りは常にスター付きの項目に絞り込みます。';
+
+  @override
+  String get tagIntersection => 'すべて一致';
+
+  @override
+  String get tagUnion => 'いずれか一致';
+
+  @override
+  String get librarySelectionOff => '使用しない';
+
+  @override
+  String get librarySourcePriority => 'ドラッグで順番を変更できます。上のライブラリを優先します。';
+
+  @override
+  String get allExternalLibraries => 'すべての外部ライブラリ';
+
+  @override
+  String get selectLibrarySource => 'ライブラリを切り替え';
+
+  @override
+  String get externalOcResetTags => 'この項目のローカルタグ変更を削除し、元のタグを表示します。';
+
+  @override
+  String get externalOcLibraries => '外部ライブラリ';
+
+  @override
+  String get externalOcImportHint => 'URL またはローカル JSON からキャラクターライブラリを追加';
+
+  @override
+  String get externalOcUrl => 'ライブラリ URL';
+
+  @override
+  String get externalOcFile => 'ローカル JSON ファイル';
+
+  @override
+  String get externalOcName => '表示名（任意）';
+
+  @override
+  String get externalOcPassword => '閲覧パスワード（必要な場合）';
+
+  @override
+  String get externalOcConnect => '接続';
+
+  @override
+  String get externalOcRefresh => '接続を更新';
+
+  @override
+  String get externalOcRemove => 'このソースを削除';
+
+  @override
+  String get externalOcSearch => 'キャラクター・作者・形態・タグを検索';
+
+  @override
+  String get externalOcImages => '形態の画像';
+
+  @override
+  String get publicLibraryBlocklist => '公開ライブラリのブロックリスト';
+
+  @override
+  String get publicLibraryBlocklistHint => 'キャラクターと画風を別々に、作者単位または個別にブロックできます。';
+
+  @override
+  String get blockPublicAuthor => 'この作者の全項目をブロック';
+
+  @override
+  String get searchPublicEntries => '作者・名前・IDを検索';
+
+  @override
   String get inspirationLibrary => '灵感库';
 
   @override
@@ -822,9 +1064,6 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get importCharRef => '导入角色参考图';
-
-  @override
-  String get charRefOnly45 => '角色参考仅 4.5 模型支持,当前模型生成时不会发送。';
 
   @override
   String filesImportFailed(int n) {
@@ -4033,7 +4272,7 @@ class AppLocalizationsJa extends AppLocalizations {
   String get galleryNoImages => '图库还没有图片';
 
   @override
-  String get pickFromGallery => '从图库选取';
+  String get pickFromGallery => 'ギャラリーから選択';
 
   @override
   String totalImagesN(int n) {
@@ -6755,6 +6994,11 @@ class AppLocalizationsJa extends AppLocalizations {
   String get desktopSavedAndSynced => '已保存并同步';
 
   @override
+  String tagSavedLocallySyncFailed(String reason) {
+    return 'この端末に保存しました。公開ライブラリとの同期に失敗しました（$reason）。';
+  }
+
+  @override
   String get desktopSavedAsALocalCopy => '已存为本地副本';
 
   @override
@@ -8025,4 +8269,116 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get diagnosticExpired => '期限切れ';
+
+  @override
+  String get compareImages => '图片比对';
+
+  @override
+  String get swapAB => '交换 A / B';
+
+  @override
+  String get onlyInA => '仅 A';
+
+  @override
+  String get onlyInB => '仅 B';
+
+  @override
+  String get weightChanged => '权重不同';
+
+  @override
+  String get orderChanged => '位置不同';
+
+  @override
+  String get identical => '相同';
+
+  @override
+  String identicalN(int n) {
+    return '$n 项相同';
+  }
+
+  @override
+  String differentN(int n) {
+    return '$n 项不同';
+  }
+
+  @override
+  String get retryStripImage => '最后一次重试不带图';
+
+  @override
+  String get retryStripImageDesc => '最后一次失败重试时去掉附图';
+
+  @override
+  String get compareSideBySide => '並べて比較';
+
+  @override
+  String get compareContain => '全体';
+
+  @override
+  String get compareCover => '枠に合わせる';
+
+  @override
+  String get compareResetView => '表示をリセット';
+
+  @override
+  String get compareClear => '両方をクリア';
+
+  @override
+  String get compareOpenFile => 'ファイルを開く';
+
+  @override
+  String get comparePickGallery => 'ギャラリーから選択';
+
+  @override
+  String compareDrop(String slot) {
+    return '画像を $slot にドロップ';
+  }
+
+  @override
+  String get comparePairHint => '2 枚選択すると A と B に配置されます';
+
+  @override
+  String compareEmptySlot(String slot) {
+    return '$slot は未選択';
+  }
+
+  @override
+  String get compareEmpty => '生成情報を含む画像を 2 枚選択してください';
+
+  @override
+  String get compareInspectHint => '生成パラメータ、プロンプト、重み、キャラクター座標を比較できます。';
+
+  @override
+  String get compareAllChanges => 'すべての変更';
+
+  @override
+  String get compareDiffOnly => '変更タグのみ';
+
+  @override
+  String get compareNoMatches => '該当する差分はありません';
+
+  @override
+  String compareUseSide(String slot) {
+    return '$slot の設定を読み込む';
+  }
+
+  @override
+  String get compareCopyReport => '差分をコピー';
+
+  @override
+  String get compareOriginals => 'A / B の原文を表示';
+
+  @override
+  String get compareReady => '2 枚の画像を読み込み済み';
+
+  @override
+  String get compareZoomIn => '拡大';
+
+  @override
+  String get compareZoomOut => '縮小';
+
+  @override
+  String get compareTagPosition => '位置';
+
+  @override
+  String get compareMetadataHint => '生成情報を含む元画像ならプロンプトも比較できます';
 }

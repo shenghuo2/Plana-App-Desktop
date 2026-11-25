@@ -8,6 +8,7 @@ import 'package:path_provider/path_provider.dart';
 
 import '../../core/store/atomic_file.dart';
 import '../migrate/web_backup.dart' show decodeDataUrl;
+import 'external/oc_catalog.dart' show ocCopyPrefix;
 import 'inspiration_examples.dart';
 import 'tag_models.dart';
 
@@ -33,6 +34,7 @@ typedef PreviewResolver =
 class TagLibraryState {
   const TagLibraryState({
     this.entries = const [],
+    this.externalTags = const {},
     this.pools = const {},
     this.usage = const {},
     this.customDefs = const [],
@@ -42,6 +44,9 @@ class TagLibraryState {
   });
 
   final List<TagEntry> entries;
+
+  /// Local tag choices for a source card. An empty list hides all source tags.
+  final Map<String, List<String>> externalTags;
   final Map<TagCategory, List<String>> pools;
   final Map<TagCategory, List<String>> usage;
 
@@ -90,6 +95,14 @@ class TagLibraryState {
       if (e.category == c && !isStockInspirationExample(e)) e,
   ];
 
+  List<TagEntry> externalCopies(String sourceId) {
+    final prefix = ocCopyPrefix(sourceId);
+    return [
+      for (final e in entries)
+        if (e.id.startsWith(prefix)) e,
+    ];
+  }
+
   List<String> poolOf(TagCategory c) => pools[c] ?? const [];
 
   /// 旧的公共副本可能只存了名字。同名的自建条目仍有自己的标签和星标。
@@ -121,6 +134,7 @@ class TagLibraryState {
 
   TagLibraryState copyWith({
     List<TagEntry>? entries,
+    Map<String, List<String>>? externalTags,
     Map<TagCategory, List<String>>? pools,
     Map<TagCategory, List<String>>? usage,
     List<TagCategoryDef>? customDefs,
@@ -129,6 +143,7 @@ class TagLibraryState {
     Map<String, String>? labels,
   }) => TagLibraryState(
     entries: entries ?? this.entries,
+    externalTags: externalTags ?? this.externalTags,
     pools: pools ?? this.pools,
     usage: usage ?? this.usage,
     customDefs: customDefs ?? this.customDefs,
@@ -261,6 +276,12 @@ class TagLibrary extends AsyncNotifier<TagLibraryState> {
     final layout = j['categories'] is Map ? j['categories'] as Map : const {};
     return TagLibraryState(
       entries: entries,
+      externalTags: {
+        if (j['externalTags'] case final Map tags)
+          for (final e in tags.entries)
+            if (e.key is String && e.value is List)
+              e.key as String: _strs(e.value),
+      },
       pools: byCat(j['pools']),
       usage: byCat(j['usage']),
       customDefs: _defs(layout['defs']),
@@ -276,12 +297,14 @@ class TagLibrary extends AsyncNotifier<TagLibraryState> {
     TagLibraryState next, {
     bool requirePersistence = false,
   }) async {
+    final previous = _s;
     syncCustomTagCategories(next.customDefs, labels: next.labels);
     state = AsyncData(next);
     final contents = jsonEncode({
       'version': 1,
       'categories': next.layoutJson(),
       'entries': [for (final e in next.entries) e.toJson()],
+      if (next.externalTags.isNotEmpty) 'externalTags': next.externalTags,
       'pools': {
         for (final en in next.pools.entries)
           tagCategoryDef(en.key).webId: en.value,
@@ -297,7 +320,15 @@ class TagLibrary extends AsyncNotifier<TagLibraryState> {
     _writes = write.catchError((Object error) {
       debugPrint('Inspiration library could not be saved: $error');
     });
-    await (requirePersistence ? write : _writes);
+    try {
+      await (requirePersistence ? write : _writes);
+    } catch (_) {
+      if (identical(_s, next)) {
+        syncCustomTagCategories(previous.customDefs, labels: previous.labels);
+        state = AsyncData(previous);
+      }
+      rethrow;
+    }
   }
 
   Future<int> addPreviewExamples(TagCategory category) async {
@@ -341,18 +372,93 @@ class TagLibrary extends AsyncNotifier<TagLibraryState> {
       list.add(e);
     }
     final next = previous.copyWith(entries: list);
-    try {
-      await _set(next, requirePersistence: requirePersistence);
-    } catch (_) {
-      if (identical(_s, next)) state = AsyncData(previous);
-      rethrow;
-    }
+    await _set(next, requirePersistence: requirePersistence);
     if (i >= 0) {
       _gcPreviewFiles(
         previous.entries[i].previews,
         keep: [for (final entry in _s.entries) ...entry.previews],
       );
     }
+  }
+
+  Future<void> saveExternalTags(TagEntry source, List<String> tags) async {
+    await future;
+    final overrides = {..._s.externalTags};
+    if (setEquals(source.tags.toSet(), tags.toSet())) {
+      overrides.remove(source.id);
+    } else {
+      overrides[source.id] = List.of(tags);
+    }
+    await _set(_s.copyWith(externalTags: overrides), requirePersistence: true);
+  }
+
+  Future<TagEntry> saveExternalCopy(TagEntry source, List<String> tags) async {
+    await future;
+    final id = '${ocCopyPrefix(source.id)}${newId(source.category)}';
+    final previews = <String>[];
+    try {
+      // A local catalog can refer to the author's original files. The copy must
+      // own its files so deleting it never deletes a source image or its cache.
+      for (final (i, path) in source.previews.indexed) {
+        previews.add(
+          path.startsWith('https://') || path.startsWith('http://')
+              ? path
+              : await savePreviewBytes(id, i, await File(path).readAsBytes()),
+        );
+      }
+      final copy = source.copyWith(
+        id: id,
+        name: uniqueName(source.category, source.name),
+        tags: tags,
+        previews: previews,
+        origin: TagOrigin.local,
+        favorite: false,
+        publicId: TagEntry.clearPublicId,
+      );
+      await _set(
+        _s.copyWith(entries: [..._s.entries, copy]),
+        requirePersistence: true,
+      );
+      return copy;
+    } catch (_) {
+      _gcPreviewFiles(
+        previews,
+        keep: [for (final entry in _s.entries) ...entry.previews],
+      );
+      rethrow;
+    }
+  }
+
+  Future<void> removeExternalLocalData(
+    String sourceId, {
+    String? copyId,
+  }) async {
+    await future;
+    if (copyId == null) {
+      await _set(
+        _s.copyWith(externalTags: {..._s.externalTags}..remove(sourceId)),
+        requirePersistence: true,
+      );
+      return;
+    }
+    final copy = _s
+        .externalCopies(sourceId)
+        .where((e) => e.id == copyId)
+        .firstOrNull;
+    if (copy == null) return;
+    await _set(
+      _s.copyWith(
+        entries: [
+          for (final e in _s.entries)
+            if (e.id != copy.id) e,
+        ],
+      ),
+      requirePersistence: true,
+    );
+    _gcPreviewFiles(
+      copy.previews,
+      keep: [for (final e in _s.entries) ...e.previews],
+    );
   }
 
   Future<void> remove(String id) async {

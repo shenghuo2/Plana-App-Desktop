@@ -8,6 +8,7 @@ import '../../core/theme/app_theme.dart';
 import '../../core/platform/desktop.dart';
 import '../../core/theme/theme_settings.dart';
 import 'widgets/settings_ui.dart';
+import '../inspiration/inspiration_page.dart';
 
 class AppearancePage extends ConsumerWidget {
   const AppearancePage({super.key});
@@ -298,6 +299,49 @@ class AppearancePage extends ConsumerWidget {
                     (settings) => settings.copyWith(inspirationRowSnap: value),
                   ),
                 ),
+                LayoutBuilder(
+                  builder: (context, bounds) => _AppearanceRow(
+                    icon: Icons.sell_outlined,
+                    title: context.l10n.inspirationTagMatch,
+                    subtitle: context.l10n.inspirationTagMatchHint,
+                    controlBelow:
+                        bounds.maxWidth <
+                        440 * MediaQuery.textScalerOf(context).scale(14) / 14,
+                    control: SegmentedButton<bool>(
+                      key: const ValueKey('appearance-tag-match'),
+                      showSelectedIcon: false,
+                      segments: [
+                        ButtonSegment(
+                          value: false,
+                          label: Text(context.l10n.tagIntersection),
+                        ),
+                        ButtonSegment(
+                          value: true,
+                          label: Text(context.l10n.tagUnion),
+                        ),
+                      ],
+                      selected: {ts.inspirationMatchAnyTag},
+                      onSelectionChanged: (v) => notifier.patch(
+                        (s) => s.copyWith(inspirationMatchAnyTag: v.single),
+                      ),
+                    ),
+                  ),
+                ),
+                SettingsRowTextTheme(
+                  child: ListTile(
+                    key: const ValueKey('appearance-public-blocklist'),
+                    leading: const Icon(Icons.block_outlined),
+                    title: Text(context.l10n.publicLibraryBlocklist),
+                    subtitle: Text(context.l10n.publicLibraryBlocklistHint),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () =>
+                        Navigator.of(context, rootNavigator: true).push<void>(
+                          MaterialPageRoute(
+                            builder: (_) => const InspirationPage.blocklist(),
+                          ),
+                        ),
+                  ),
+                ),
               ],
             ),
           ],
@@ -429,21 +473,10 @@ class _AppearanceRow extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                title,
-                style: context.texts.bodyMedium!.copyWith(
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
+              Text(title, style: SettingsRowTextTheme.titleStyle(context)),
               if (subtitle case final sub?) ...[
                 const SizedBox(height: 2),
-                Text(
-                  sub,
-                  style: context.texts.labelSmall!.copyWith(
-                    color: scheme.outline,
-                    height: 1.5,
-                  ),
-                ),
+                Text(sub, style: SettingsRowTextTheme.subtitleStyle(context)),
               ],
             ],
           ),

@@ -6,12 +6,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:plana_app/core/platform/desktop.dart';
 import 'package:plana_app/core/store/app_stores.dart';
 import 'package:plana_app/core/theme/app_theme.dart';
 import 'package:plana_app/features/assistant/image_gen/image_models.dart';
 import 'package:plana_app/features/assistant/agent_model.dart';
+import 'package:plana_app/features/assistant/custom_endpoint.dart';
 import 'package:plana_app/features/assistant/assistant_mode.dart';
 import 'package:plana_app/features/assistant/assistant_page.dart';
 import 'package:plana_app/features/assistant/assistant_settings.dart';
@@ -204,7 +206,9 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      final point = tester.getCenter(find.byType(ReorderableListView));
+      final point = tester.getCenter(
+        find.byKey(const ValueKey('rules-preset-groups')),
+      );
       final scale = tester.view.devicePixelRatio;
       void native(String method, List<String> paths) {
         unawaited(
@@ -281,6 +285,7 @@ void main() {
                   (
                     key: 'sample',
                     name: 'Hosted image',
+                    health: ModelHealth.unknown,
                     sizes: ['2K', '4K'],
                     aspects: ['1:1', '3:2'],
                   ),
@@ -453,10 +458,11 @@ void main() {
       await mount(tester);
       await tester.tap(find.byKey(const ValueKey('assistant-model-button')));
       await tester.pumpAndSettle();
-      expect(find.text('添加接口'), findsOneWidget);
+      expect(find.text('添加接口'), findsNothing);
+      expect(find.text('管理接口与订阅'), findsOneWidget);
       await tester.sendKeyEvent(LogicalKeyboardKey.escape);
       await tester.pumpAndSettle();
-      expect(find.text('添加接口'), findsNothing);
+      expect(find.text('管理接口与订阅'), findsNothing);
       await finish(tester);
     },
   );
@@ -485,6 +491,67 @@ void main() {
     );
     await finish(tester);
   });
+
+  testWidgets(
+    'thinking levels anchor above their chip, retain the selected value and scroll in a short window',
+    (tester) async {
+      FlutterSecureStorage.setMockInitialValues({});
+      const ep = CustomEndpoint(
+        id: 'thinking-test',
+        name: 'OpenAI',
+        format: AgentApiFormat.openai,
+        baseUrl: 'https://api.openai.com/v1',
+        apiKey: 'test',
+        model: 'example',
+      );
+      await tester.runAsync(() async {
+        await c.read(customEndpointsProvider.future);
+        await c.read(customEndpointsProvider.notifier).put(ep);
+        await c
+            .read(assistantModelPrefProvider.notifier)
+            .set(customModelKey(ep.id, ep.model));
+      });
+      await mount(tester, realAssistant: true);
+      Finder chip(String name) => find.widgetWithText(FilterChip, '思考 $name');
+      await tester.ensureVisible(chip('自动'));
+      await tester.tap(chip('自动'));
+      await tester.pumpAndSettle();
+      final panel = find.byKey(const ValueKey('desktop-popover'));
+      final rect = tester.getRect(panel);
+      expect(rect.width, 280);
+      expect(rect.bottom, closeTo(tester.getTopLeft(chip('自动')).dy - 8, 1));
+      await screenshot(tester, 'assistant-thinking-menu');
+      expect(find.byType(BottomSheet), findsNothing);
+      expect(
+        find.descendant(of: panel, matching: find.byType(Slider)),
+        findsNothing,
+      );
+      expect(
+        tester.widget<ListTile>(find.widgetWithText(ListTile, '自动')).selected,
+        true,
+      );
+      await tester.tap(find.widgetWithText(ListTile, '高'));
+      await tester.pumpAndSettle();
+      expect(
+        c.read(assistantSettingsProvider).value!.thinkLevel,
+        ThinkLevel.high,
+      );
+      expect(panel, findsNothing);
+      tester.view.physicalSize = const Size(900, 420);
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(chip('高'));
+      await tester.tap(chip('高'));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.widgetWithText(ListTile, '超高'));
+      expect(find.widgetWithText(ListTile, '超高').hitTestable(), findsOneWidget);
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+      expect(panel, findsNothing);
+      expect(chip('高'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await finish(tester);
+    },
+  );
 
   testWidgets(
     'preset navigation and repeated mode changes preserve the assistant and draft',

@@ -827,6 +827,13 @@ class _AssistantPageState extends ConsumerState<AssistantPage> {
     final ask = isUser ? m : n.askOf(m.id);
     final choices = [
       ('copy', '复制内容', Icons.copy_outlined, true),
+      if (m.canRecoverDraw)
+        (
+          'recover',
+          context.l10n.recoverDrawProposal,
+          Icons.image_outlined,
+          !running,
+        ),
       ('edit', '编辑该信息', Icons.edit_outlined, !running),
       ('retry', '从这里重新生成', Icons.refresh, !running && ask != null),
     ];
@@ -885,6 +892,10 @@ class _AssistantPageState extends ConsumerState<AssistantPage> {
     switch (action) {
       case 'copy':
         await copyText(context, replayText(m));
+      case 'recover':
+        if (!n.recoverDrawProposal(m.id)) {
+          hintSnack(context, context.l10n.invalidDrawProposal);
+        }
       case 'edit':
         final edited = await showDialog<String>(
           context: context,
@@ -979,21 +990,25 @@ class _AssistantPageState extends ConsumerState<AssistantPage> {
           return;
         }
         n.unqueue(q.id);
-        final draft = _input.text;
-        final text = draft.trim().isEmpty ? q.text : '${q.text}\n$draft';
-        _input.value = TextEditingValue(
-          text: text,
-          selection: TextSelection.collapsed(offset: text.length),
-        );
-        setState(() {
-          _pending.insertAll(0, [
-            for (var i = 0; i < q.images.length; i++)
-              PickedImage('图片 ${i + 1}', q.images[i]),
-          ]);
-          if (q.withCanvas) _withCanvas = true;
-        });
-        _inputFocus.requestFocus();
+        _restoreAsk(q);
     }
+  }
+
+  void _restoreAsk(QueuedAsk q) {
+    final draft = _input.text;
+    final text = draft.trim().isEmpty ? q.text : '${q.text}\n$draft';
+    _input.value = TextEditingValue(
+      text: text,
+      selection: TextSelection.collapsed(offset: text.length),
+    );
+    setState(() {
+      _pending.insertAll(0, [
+        for (var i = 0; i < q.images.length; i++)
+          PickedImage('图片 ${i + 1}', q.images[i]),
+      ]);
+      if (q.withCanvas) _withCanvas = true;
+    });
+    _inputFocus.requestFocus();
   }
 
   /// 从某一句提问重来。和 [_send] 一样先回到底部:重来的那一轮出在最下面,
@@ -1030,6 +1045,7 @@ class _AssistantPageState extends ConsumerState<AssistantPage> {
   Widget _optionRow(bool hasCanvas) {
     final image = ref.watch(assistantImageModelProvider);
     if (image != null) return _imageOptionRow(image);
+    final thinkLevels = ref.watch(assistantThinkLevelsProvider);
     // 能开哪几个模式跟着这个模型在用的预设走。还没取到时先不拦 —— 发的时候会再核一遍
     final family = rulesFamilyOf(
       agentImageModel(
@@ -1109,11 +1125,9 @@ class _AssistantPageState extends ConsumerState<AssistantPage> {
                 child: Text(l10nNow.desktopTemporaryChat),
               ),
             ],
-            // 思考等级只对自定义接口有意义:后端渠道的推理档位由服务端按渠道
-            // 定死,app 没有可下发的字段。摆一颗按了不生效的芯片比不摆更糟。
-            if (ref.watch(assistantEndpointProvider) != null) ...[
+            if (thinkLevels.length > 1) ...[
               const SizedBox(width: 8),
-              _thinkChip(),
+              _thinkChip(thinkLevels),
             ],
           ],
         ),
@@ -1207,23 +1221,25 @@ class _AssistantPageState extends ConsumerState<AssistantPage> {
     required ValueChanged<BuildContext> onTap,
   }) {
     final muted = context.scheme.outline;
-    return Builder(builder: (anchor) => FilterChip(
-      selected: on,
-      showCheckmark: false,
-      visualDensity: VisualDensity.compact,
-      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-      avatar: Icon(
-        icon,
-        size: 16,
-        color: enabled
-            ? (on ? context.scheme.primary : context.scheme.onSurfaceVariant)
-            : muted,
+    return Builder(
+      builder: (anchor) => FilterChip(
+        selected: on,
+        showCheckmark: false,
+        visualDensity: VisualDensity.compact,
+        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        avatar: Icon(
+          icon,
+          size: 16,
+          color: enabled
+              ? (on ? context.scheme.primary : context.scheme.onSurfaceVariant)
+              : muted,
+        ),
+        label: Text(label, style: enabled ? null : TextStyle(color: muted)),
+        onSelected: (_) => enabled
+            ? onTap(anchor)
+            : hintSnack(context, context.l10n.modelUnsupported, icon: icon),
       ),
-      label: Text(label, style: enabled ? null : TextStyle(color: muted)),
-      onSelected: (_) => enabled
-          ? onTap(anchor)
-          : hintSnack(context, context.l10n.modelUnsupported, icon: icon),
-    ));
+    );
   }
 
   Widget _temporaryButton(AssistantState st, {bool compact = false}) {
@@ -1321,24 +1337,36 @@ class _AssistantPageState extends ConsumerState<AssistantPage> {
     ref.read(assistantProvider.notifier).setMode(picked);
   }
 
-  /// 思考等级。点开是一张带滑杆的弹层([showThinkSheet])—— 六档是一条有序的轴,
-  /// 循环点击要按五下才回得来,菜单又会让它看起来像六个并列选项。
-  Widget _thinkChip() {
-    final level =
+  /// 在按钮上方选择当前模型支持的思考档位。
+  Widget _thinkChip(List<ThinkLevel> choices) {
+    final saved =
         ref.watch(assistantSettingsProvider).value?.thinkLevel ??
         ThinkLevel.auto;
-    return FilterChip(
-      // 「自动」不算开着:那一档压根不发字段
-      selected: level != ThinkLevel.auto,
-      showCheckmark: false,
-      visualDensity: VisualDensity.compact,
-      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-      avatar: Icon(
-        level == ThinkLevel.off ? Icons.lightbulb_outline : Icons.lightbulb,
-        size: 16,
+    final level = choices.contains(saved) ? saved : ThinkLevel.auto;
+    return Builder(
+      builder: (anchor) => FilterChip(
+        selected: level != ThinkLevel.auto,
+        showCheckmark: false,
+        visualDensity: VisualDensity.compact,
+        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        avatar: Icon(
+          level == ThinkLevel.off ? Icons.lightbulb_outline : Icons.lightbulb,
+          size: 16,
+        ),
+        label: Text('思考 ${thinkLevelLabel(level)}'),
+        onSelected: (_) async {
+          final picked = await showThinkSheet(
+            anchor,
+            current: level,
+            choices: choices,
+          );
+          if (!mounted || picked == null || picked == level) return;
+          Haptics.selection();
+          await ref
+              .read(assistantSettingsProvider.notifier)
+              .patch((o) => o.copyWith(thinkLevel: picked));
+        },
       ),
-      label: Text('思考 ${thinkLevelLabel(level)}'),
-      onSelected: (_) => showThinkSheet(context),
     );
   }
 
@@ -1423,7 +1451,12 @@ class _AssistantPageState extends ConsumerState<AssistantPage> {
       child: st.running && !hasDraft
           ? IconButton.filledTonal(
               tooltip: l10nNow.stop,
-              onPressed: ref.read(assistantProvider.notifier).stop,
+              onPressed: () {
+                final ask = ref
+                    .read(assistantProvider.notifier)
+                    .stopAndRestore();
+                if (ask != null) _restoreAsk(ask);
+              },
               icon: const Icon(Icons.stop, size: 20),
             )
           : _sending

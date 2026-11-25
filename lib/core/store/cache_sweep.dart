@@ -88,6 +88,7 @@ Future<void> sweepPickerCache({
           name.endsWith('.onnx') ||
           name.startsWith('image_picker') ||
           name.startsWith('scaled_') ||
+          name == 'file_picker' ||
           name == kShareCacheDir;
       if (!junk) {
         kept++;

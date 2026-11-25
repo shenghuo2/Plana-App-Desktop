@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -118,6 +119,8 @@ class _StorageSnapshot {
   }
 }
 
+StorageReport? lastStorageReport;
+
 /// 全量扫描。key 清单:gallery / blobs / vibeLib / vibeEnc / charLib /
 /// imgCache / codexCache / tagPrev / models / temp / outputs (Windows)。
 ///
@@ -172,6 +175,27 @@ Future<StorageReport> scanStorage({
     documentRoots.add(docs);
   }
 
+  final report = await Isolate.run(
+    () => _scanRoots(
+      sup,
+      tempRoots,
+      documentRoots,
+      outputs,
+      isWindows || isMacOS,
+    ),
+  );
+  lastStorageReport = report;
+  return report;
+}
+
+Future<StorageReport> _scanRoots(
+  Directory sup,
+  List<FileSystemEntity> tempRoots,
+  List<Directory> documentRoots,
+  List<Directory> outputs,
+  bool includeOutputs,
+) async {
+  Directory sub(String name) => Directory(p.join(sup.path, name));
   final snapshot = _StorageSnapshot();
   for (final root in <FileSystemEntity>[sup, ...tempRoots, ...documentRoots]) {
     await snapshot.read(root);
@@ -222,7 +246,7 @@ Future<StorageReport> scanStorage({
     supportCategory('codexCache', 'codex_cache', suffix: '.json'),
     supportCategory('tagPrev', 'tag_previews', suffix: '.jpg'),
     snapshot.category('models', models, count: models.length),
-    if (isWindows || isMacOS)
+    if (includeOutputs)
       snapshot.category(
         'outputs',
         outputs,

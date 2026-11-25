@@ -25,7 +25,7 @@ typedef KreaStyleRefPayload = String;
 /// 由创作页状态构造后端 `POST /api/bot/generate` 的 `params`(web camelCase)。
 /// 目标形状见后端 `convert_web_params_to_stream`。
 ///
-/// 覆盖:文生图 + 多角色(带站位) + 角色参考 CR(仅 4.5) + 图生图 + Vibe + 重绘。
+/// 覆盖:文生图 + 多角色(带站位) + 精确参考 + 图生图 + Vibe + 重绘。
 Map<String, dynamic> buildBotParams(
   GenerateState s, {
   required int seed,
@@ -37,13 +37,15 @@ Map<String, dynamic> buildBotParams(
   /// 见 [buildNaiPayload]:透明图的 alpha 编码约定。
   bool straightAlpha = true,
   Img2ImgRef? img2img,
+
+  /// [img2img] 是原图,由后端 cover 放大到出图尺寸(后端 caps 的 img2img_fit)。
+  bool img2imgFit = false,
   List<CharRefPayload> charRefs = const [],
   List<BotVibe> vibes = const [],
   List<KreaStyleRefPayload> kreaStyleRefs = const [],
 }) {
   final p = s.params;
   final model = naiModelId(p.model);
-  final is45 = crSupportsModel(p.model);
   final isV5 = model.startsWith('nai-diffusion-5');
 
   final chars = s.characters
@@ -118,15 +120,15 @@ Map<String, dynamic> buildBotParams(
     'useCoords': s.params.useCoords,
   };
 
-  // 角色参考(CR / Precise Reference):仅 4.5;后端算 secondary = 1 - informationExtracted
-  if (charRefs.isNotEmpty && is45) {
+  // The backend converts informationExtracted into the secondary strength.
+  if (charRefs.isNotEmpty && p.supportsCharRefs(inpaint: s.inpaint != null)) {
     params['preciseReferences'] = [
       for (final c in charRefs)
         {
           'imageBase64': c.image,
           'mode': c.mode,
           'strength': c.strength,
-          'informationExtracted': c.fidelity,
+          'informationExtracted': isV5 ? 1.0 : c.fidelity,
         },
     ];
   }
@@ -148,6 +150,7 @@ Map<String, dynamic> buildBotParams(
     // 图生图
     params['img2img'] = {
       'imageBase64': img2img.image,
+      if (img2imgFit) 'fit': 'cover',
       'strength': img2img.strength,
       'noise': img2img.noise,
     };

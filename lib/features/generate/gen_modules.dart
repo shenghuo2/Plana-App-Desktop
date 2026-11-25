@@ -13,7 +13,7 @@ export 'models.dart'
 
 /// 主页附属功能模块系统(对齐 web moduleConfig):
 /// - 注册表定死可管理的模块,每个模块归属一个模型父类(provider,
-///   定义在 models.dart),可带「组内按具体型号」的能力门槛(如角色参考仅 4.5);
+///   定义在 models.dart),可带「组内按具体型号」的能力门槛(如精确参考支持 4.5 和 5);
 /// - 用户配置只有「启用 + 每组顺序」;
 /// - 主页可见 = 归属当前父类 + 已启用 + 当前型号支持,不满足的整卡不渲染,
 ///   面板发起的生成也不发其数据(工作区数据保留,条件恢复即回来);
@@ -258,7 +258,8 @@ GenerateState stripHiddenModules(GenerateState s, GenModuleSettings ms) {
   if (!on(GenModule.vibe) && out.vibes.isNotEmpty) {
     out = out.copyWith(vibes: const []);
   }
-  if (!on(GenModule.charRef) && out.charRefs.isNotEmpty) {
+  if ((!on(GenModule.charRef) || out.params.isNaiMedium) &&
+      out.charRefs.isNotEmpty) {
     out = out.copyWith(charRefs: const []);
   }
   // 遮罩挂在图生图这张卡下面(带遮罩的图生图就是重绘),卡收走了它也得跟着走 ——
@@ -307,8 +308,8 @@ GenerateState withoutInpaintVibes(GenerateState s) =>
 /// 把快照适配到**另一个模型**:只按型号能力剥,不看用户的模块显隐。
 ///
 /// 换模型重跑会碰到这件事(图库的「重绘放大」用创作页当前的模型跑一张老图):
-/// 4.5 的快照带着 Vibe / 角色参考,换到 V5 就得整组去掉 —— V5 不支持它们,
-/// 发过去是未定义行为,费用还会白算一笔。角色数上限同理(V5 32 / 其余 6)。
+/// 将 4.5 的快照切到 V5 时剥离 Vibe，精确参考按新型号的模式发送。
+/// 角色数也按新型号截取(V5 32 / 其余 6)。
 ///
 /// **刻意不复用 [stripHiddenModules]**:那个还会按用户当前的模块显隐剥,而快照
 /// 该忠实执行自己的内容;更要命的是它会把 img2img 一起剥掉 —— 重绘放大的底图
@@ -318,7 +319,8 @@ GenerateState retargetModel(GenerateState s, String model) {
   if (!vibeSupportsModel(model) && out.vibes.isNotEmpty) {
     out = out.copyWith(vibes: const []);
   }
-  if (!crSupportsModel(model) && out.charRefs.isNotEmpty) {
+  if (!out.params.supportsCharRefs(inpaint: out.inpaint != null) &&
+      out.charRefs.isNotEmpty) {
     out = out.copyWith(charRefs: const []);
   }
   final cap = maxCharactersOf(model);

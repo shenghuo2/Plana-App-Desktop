@@ -4,7 +4,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../gallery/albums/album_state.dart';
-import '../gallery/albums/album_ui.dart' show AlbumCoverImage, showAlbumName;
 import '../gallery/gallery_state.dart';
 import 'desktop_gallery_browser.dart';
 import '../gallery/widgets/gallery_grid_sheet.dart';
@@ -12,7 +11,7 @@ import '../generate/generation_controller.dart';
 import '../generate/widgets/common.dart' show hintSnack;
 import '../inpaint/inpaint_overlay.dart' show inpaintSessionProvider;
 import '../shell/shell_state.dart';
-import 'desktop_album_menu.dart';
+import 'desktop_library_picker.dart';
 import 'desktop_library_state.dart';
 
 void returnToDesktopCreation(WidgetRef ref) =>
@@ -37,10 +36,22 @@ Future<void> showDesktopLibraryPicker(
     hintSnack(context, l10nNow.desktopFinishInpaintingToSwitchGalleries);
     return;
   }
-  await showDialog<void>(
-    context: context,
-    builder: (_) => const _DesktopLibraryPicker(),
-  );
+  final choice = await showLibraryChoiceDialog(context);
+  if (choice == null || !context.mounted) return;
+  // 浏览别的图库不等于主动改选历史图，保留当前任务的画布跟随。
+  final following = ref.read(generationProvider).selected != null;
+  ref
+      .read(desktopLibraryProvider.notifier)
+      .choose(choice.albumId, automatic: choice.automatic);
+  if (!following) {
+    ref.read(generationProvider.notifier).select(null);
+    ref.read(galleryResultPreviewProvider.notifier).clear();
+    final images = ref.read(galleryViewProvider).results;
+    final selected = ref.read(galleryProvider).selectedId;
+    if (!images.any((r) => r.id == selected)) {
+      ref.read(galleryProvider.notifier).select(images.firstOrNull?.id);
+    }
+  }
 }
 
 class DesktopGalleryPage extends StatelessWidget {
@@ -97,189 +108,6 @@ class DesktopLibraryButton extends ConsumerWidget {
           visualDensity: VisualDensity.compact,
         ),
       ],
-    );
-  }
-}
-
-class _DesktopLibraryPicker extends ConsumerStatefulWidget {
-  const _DesktopLibraryPicker();
-
-  @override
-  ConsumerState<_DesktopLibraryPicker> createState() =>
-      _DesktopLibraryPickerState();
-}
-
-class _DesktopLibraryPickerState extends ConsumerState<_DesktopLibraryPicker> {
-  final _albumMenu = DesktopAlbumMenuController();
-
-  void _choose(
-    BuildContext context,
-    WidgetRef ref,
-    String? id, {
-    bool automatic = false,
-  }) {
-    // 浏览别的图库不等于主动改选历史图，保留当前任务的画布跟随。
-    final following = ref.read(generationProvider).selected != null;
-    ref.read(desktopLibraryProvider.notifier).choose(id, automatic: automatic);
-    if (!following) {
-      ref.read(generationProvider.notifier).select(null);
-      ref.read(galleryResultPreviewProvider.notifier).clear();
-    }
-    final images = ref.read(galleryViewProvider).results;
-    final selected = ref.read(galleryProvider).selectedId;
-    if (!following && !images.any((r) => r.id == selected)) {
-      ref.read(galleryProvider.notifier).select(images.firstOrNull?.id);
-    }
-    Navigator.pop(context);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final selection = ref.watch(desktopLibraryProvider);
-    final albums = ref.watch(albumsProvider);
-    final all = ref.watch(galleryProvider).results;
-    final choices = [
-      (
-        id: 'auto',
-        name: '按日期自动',
-        detail: selection.day,
-        scope: 'day_${selection.day}',
-      ),
-      (id: '', name: '全部作品', detail: '查看所有图片', scope: null),
-      for (final a in albums.albums)
-        (id: a.id, name: a.name, detail: '浏览并保存到这里', scope: a.id),
-    ];
-    return Dialog(
-      child: SizedBox(
-        key: const ValueKey('desktop-library-dialog'),
-        width: 740,
-        height: 540,
-        child: Padding(
-          padding: const EdgeInsets.all(20),
-          child: Column(
-            children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      l10nNow.desktopChooseGallery,
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                  TextButton.icon(
-                    key: const ValueKey('desktop-new-album'),
-                    onPressed: () async {
-                      final id = await showAlbumName(context);
-                      if (id != null && context.mounted) {
-                        _choose(context, ref, id);
-                      }
-                    },
-                    icon: const Icon(Icons.add, size: 17),
-                    label: Text(l10nNow.desktopNewGallery),
-                  ),
-                  IconButton(
-                    tooltip: l10nNow.close,
-                    onPressed: () => Navigator.pop(context),
-                    icon: const Icon(Icons.close),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Align(
-                alignment: Alignment.centerLeft,
-                child: Text(l10nNow.desktopNewImagesAreSavedToTheGalleryYou, style: TextStyle(fontSize: 12)),
-              ),
-              const SizedBox(height: 18),
-              Expanded(
-                child: GridView.builder(
-                  gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                    maxCrossAxisExtent: 205,
-                    childAspectRatio: .93,
-                    crossAxisSpacing: 12,
-                    mainAxisSpacing: 12,
-                  ),
-                  itemCount: choices.length,
-                  itemBuilder: (_, i) {
-                    final entry = choices[i];
-                    final images = all
-                        .where((r) => albums.contains(entry.scope, r.id))
-                        .toList();
-                    final active = selection.choice == entry.id;
-                    return Material(
-                      color: active
-                          ? context.scheme.primaryContainer
-                          : context.scheme.surface,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        side: BorderSide(
-                          color: active
-                              ? context.scheme.primary
-                              : context.scheme.outlineVariant,
-                        ),
-                      ),
-                      clipBehavior: Clip.antiAlias,
-                      child: InkWell(
-                        key: ValueKey('desktop-album-${entry.id}'),
-                        onSecondaryTapDown: entry.id == 'auto'
-                            ? null
-                            : (details) => _albumMenu.show(
-                                context,
-                                entry.scope,
-                                details.globalPosition,
-                              ),
-                        onTap: () => _choose(
-                          context,
-                          ref,
-                          entry.scope,
-                          automatic: entry.id == 'auto',
-                        ),
-                        child: Padding(
-                          padding: const EdgeInsets.all(9),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              Expanded(
-                                child:
-                                    entry.id == 'auto' &&
-                                        images.isEmpty &&
-                                        albums.cover(entry.scope) == null
-                                    ? Icon(
-                                        Icons.calendar_month_outlined,
-                                        size: 36,
-                                        color: context.scheme.primary,
-                                      )
-                                    : AlbumCoverImage(albumId: entry.scope),
-                              ),
-                              const SizedBox(height: 8),
-                              Text(
-                                entry.name,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                              Text(
-                                '${images.length} 张 · ${entry.detail}',
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(fontSize: 11),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    );
-                  },
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
     );
   }
 }

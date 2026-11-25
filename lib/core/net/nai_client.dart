@@ -2,6 +2,7 @@ import '../util/canonical_number.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 import 'dart:math';
 import 'dart:typed_data';
 
@@ -42,12 +43,10 @@ final _shortIdleIo = IOClient(_shortIdleHttp);
   Map<String, dynamic> body, {
   required bool multipart,
 }) {
-  final asJson = (
-    contentType: 'application/json',
-    bytes: utf8.encode(jsonEncode(body)),
-  );
+  ({String contentType, Uint8List bytes}) asJson() =>
+      (contentType: 'application/json', bytes: utf8.encode(jsonEncode(body)));
   final p = body['parameters'];
-  if (!multipart || p is! Map) return asJson;
+  if (!multipart || p is! Map) return asJson();
   final params = Map<String, dynamic>.from(p);
   final parts = <String, Uint8List>{};
   final seen = <String, String>{};
@@ -79,9 +78,9 @@ final _shortIdleIo = IOClient(_shortIdleHttp);
       }
     }
   } on FormatException {
-    return asJson;
+    return asJson();
   }
-  if (parts.isEmpty) return asJson;
+  if (parts.isEmpty) return asJson();
   final boundary =
       '----PlanaFormBoundary${Random().nextInt(1 << 32).toRadixString(16)}'
       '${DateTime.now().microsecondsSinceEpoch.toRadixString(16)}';
@@ -125,11 +124,15 @@ final _shortIdleIo = IOClient(_shortIdleHttp);
 ///                      Opus 号的个数,那时 [percent] 是**平均水位** —— 界面上
 ///                      的读数和折算张数都要乘回号数(每个号满值都是 ≈1730 张),
 ///                      换算一律走 [NaiUsageX],别直接读这个字段去画
+/// - [purchasedPercent] 单独购买的 Extra Usage(Opus Usage Boost,每个 +100%,
+///                      最多 400%)。不回充,常规额度用完才扣它;多号时同 [percent]
+///                      是平均值
 typedef NaiUsage = ({
   double percent,
   bool isNegative,
   int secondsToNextPct,
   int accounts,
+  double purchasedPercent,
 });
 
 /// `/user/subscription` 响应里的 `usage` 块 → [NaiUsage];整块缺省时返回 null。
@@ -150,6 +153,10 @@ NaiUsage? parseNaiUsage(Object? raw) {
     isNegative: raw['isNegative'] == true,
     secondsToNextPct: (raw['timeUntilNextPercent'] as num?)?.toInt() ?? 0,
     accounts: max(1, (raw['accounts'] as num?)?.toInt() ?? 1),
+    purchasedPercent: max(
+      0.0,
+      (raw['purchasedPercent'] as num?)?.toDouble() ?? 0,
+    ),
   );
 }
 
@@ -203,8 +210,14 @@ extension NaiUsageX on NaiUsage {
   double get batteryPct =>
       isNegative ? 0 : (percent * accounts).clamp(0.0, fullPct).toDouble();
 
-  /// 约合还能出多少张免费尺寸 V5 图。[batteryPct] 已是池子合计,不再乘号数。
-  int get imagesRemaining => (imagesPerPct * batteryPct).round();
+  /// 加购的 Extra Usage 读数(池子合计),不封顶 100。
+  double get extraPct => purchasedPercent * accounts;
+
+  /// 常规 + 加购,一共还剩多少。
+  double get totalPct => batteryPct + extraPct;
+
+  /// 约合还能出多少张免费尺寸 V5 图(常规 + 加购)。读数已是池子合计,不再乘号数。
+  int get imagesRemaining => (imagesPerPct * totalPct).round();
 
   /// 回充速率(百分点/天,**池子合计**:每个号都在各自回充,所以乘号数),
   /// 保留一位小数;拿不到回充节奏时为 0。
@@ -237,7 +250,8 @@ extension NaiUsageX on NaiUsage {
   ///
   /// 这里**故意读 percent 原值**(单号口径)而不是相加后的读数:门槛问的是
   /// 「一个号还剩多少」,跟着号数放大的话,5 个号各剩 4% 也会被算作健康。
-  bool get isLowOrEmpty => isNegative || percent < 5;
+  /// 加购额度还有 5% 以上时不算低电。
+  bool get isLowOrEmpty => (isNegative || percent < 5) && purchasedPercent < 5;
 }
 
 /// NovelAI 直连客户端(v1:App 用用户自己的 Bearer token 直接打 NAI)。
@@ -326,9 +340,10 @@ class NaiClient {
   /// 第三方站点不一定认,照旧发 JSON。
   bool get _multipart => _host == kNaiOfficialBase || _host == kNaiProxyBase;
 
-  ({String contentType, Uint8List bytes}) _encodeBody(
+  /// 请求体在后台 isolate 里编码(几 MB 的 base64 图解码、拼分片都不占主线程)。
+  Future<({String contentType, Uint8List bytes})> _encodeBody(
     Map<String, dynamic> body,
-  ) => encodeNaiBody(body, multipart: _multipart);
+  ) => _encodeNaiBodyInIsolate(body, _multipart);
 
   /// 流式端点头:NAI 前端每请求都带 x-correlation-id(6 hex)+ x-initiated-at。
   Map<String, String> _streamHeaders(String token) => {
@@ -373,11 +388,16 @@ class NaiClient {
       return;
     }
     final uri = Uri.parse('$_host/ai/generate-image-stream');
-    // 取消:中止这一个请求,进行中的流随即断开抛错(对齐 web abort fetch)。
-    // 连接池是共用的,不能整个关掉。
+    // 取消:中止这一个请求,进行中的流随即断开(对齐 web abort fetch)。
+    // 连接池是共用的,不能整个关掉。响应头到了之后 req.abort() 不再生效,
+    // 得取消响应流,连接随之拆掉。
     HttpClientRequest? req;
+    StreamIterator<List<int>>? chunks;
     var finished = false;
-    abort?.whenAbort(() => req?.abort());
+    abort?.whenAbort(() {
+      req?.abort();
+      if (!finished) unawaited(chunks?.cancel());
+    });
 
     var received = 0; // 诊断:累计字节
     var parseFails = 0; // 诊断:解析失败帧数
@@ -385,7 +405,7 @@ class NaiClient {
     var yielded = 0;
 
     try {
-      final payload = _encodeBody(body);
+      final payload = await _encodeBody(body);
       final r = req = await (_longIdle ? _longIdleHttp : _shortIdleHttp)
           .postUrl(uri);
       if (abort?.aborted ?? false) throw NaiException(l10nNow.genCancelled);
@@ -406,15 +426,25 @@ class NaiClient {
         );
       }
 
-      final buf = <int>[];
+      // 收到还没拆完的字节:buf[0, size)
+      var buf = Uint8List(64 << 10);
+      var size = 0;
       // 帧间隔超 90s 视为断流(出图步间通常 1~3s)
-      final chunks = StreamIterator(resp.timeout(const Duration(seconds: 90)));
-      while (await chunks.moveNext()) {
-        final chunk = chunks.current;
+      final it = chunks = StreamIterator(
+        resp.timeout(const Duration(seconds: 90)),
+      );
+      while (await it.moveNext()) {
+        final chunk = it.current;
         received += chunk.length;
-        buf.addAll(chunk);
+        if (size + chunk.length > buf.length) {
+          final grown = Uint8List(max(buf.length * 2, size + chunk.length));
+          grown.setRange(0, size, buf);
+          buf = grown;
+        }
+        buf.setRange(size, size + chunk.length, chunk);
+        size += chunk.length;
         var off = 0;
-        while (buf.length - off >= 4) {
+        while (size - off >= 4) {
           final len =
               (buf[off] << 24) |
               (buf[off + 1] << 16) |
@@ -423,10 +453,8 @@ class NaiClient {
           if (len < 0 || len > (64 << 20)) {
             throw NaiException(l10nNow.streamBadFrame('$len'));
           }
-          if (buf.length - off < 4 + len) break;
-          final msgBytes = Uint8List.fromList(
-            buf.sublist(off + 4, off + 4 + len),
-          );
+          if (size - off < 4 + len) break;
+          final msgBytes = buf.sublist(off + 4, off + 4 + len);
           off += 4 + len;
 
           dynamic msg;
@@ -458,7 +486,7 @@ class NaiClient {
             if (isFinal) {
               // 下游拿到成图就停止收流:剩下的响应交给后台读完,连接才能回池
               finished = true;
-              unawaited(_drain(chunks));
+              unawaited(_drain(it));
             }
             yield (
               step: stepIx is int ? stepIx + 1 : null,
@@ -469,9 +497,13 @@ class NaiClient {
             if (isFinal) return;
           }
         }
-        if (off > 0) buf.removeRange(0, off);
+        if (off > 0) {
+          buf.setRange(0, size - off, buf, off);
+          size -= off;
+        }
       }
 
+      if (abort?.aborted ?? false) throw NaiException(l10nNow.genCancelled);
       if (yielded == 0) {
         throw NaiException(
           parseFails > 0
@@ -496,7 +528,10 @@ class NaiClient {
       throw NaiException(l10nNow.streamGenFailed('$e'));
     } finally {
       // 没正常读完(出错、超时、取消、下游不再收)就拆掉这条连接,别放回池里
-      if (!finished) req?.abort();
+      if (!finished) {
+        req?.abort();
+        unawaited(chunks?.cancel());
+      }
     }
   }
 
@@ -534,7 +569,7 @@ class NaiClient {
     }
 
     abort?.whenAbort(stopNow);
-    final payload = _encodeBody(body);
+    final payload = await _encodeBody(body);
     final req = http.AbortableRequest('POST', uri, abortTrigger: stop.future)
       ..headers.addAll(_genHeaders(token))
       ..headers['Content-Type'] = payload.contentType
@@ -815,3 +850,8 @@ class NaiClient {
     };
   }
 }
+
+Future<({String contentType, Uint8List bytes})> _encodeNaiBodyInIsolate(
+  Map<String, dynamic> body,
+  bool multipart,
+) => Isolate.run(() => encodeNaiBody(body, multipart: multipart));

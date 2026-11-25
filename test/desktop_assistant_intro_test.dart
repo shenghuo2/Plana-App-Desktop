@@ -1,6 +1,5 @@
-import 'dart:typed_data';
-
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:plana_app/core/platform/desktop.dart';
@@ -86,7 +85,13 @@ void main() {
 
   Future<void> completeIntro(WidgetTester tester) async {
     expect(dialogs, findsOneWidget);
-    await tester.tap(find.text('不使用').hitTestable());
+    await tester.tap(key('assistant-library-dropdown'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 350));
+    await tester.tap(key('library-pause'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 350));
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
     await tester.pump(const Duration(milliseconds: 400));
     await tester.tap(find.text('下一步').hitTestable());
     await tester.pump(const Duration(milliseconds: 400));

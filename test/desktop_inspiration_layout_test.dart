@@ -14,6 +14,11 @@ import 'package:plana_app/core/platform/desktop.dart';
 import 'package:plana_app/core/store/app_stores.dart';
 import 'package:plana_app/core/theme/app_theme.dart';
 import 'package:plana_app/core/theme/theme_settings.dart';
+import 'package:plana_app/features/desktop/desktop_library_state.dart';
+import 'package:plana_app/features/gallery/albums/album_state.dart';
+import 'package:plana_app/features/gallery/gallery_state.dart';
+import 'package:plana_app/features/gallery/models.dart';
+import 'package:plana_app/features/gallery/widgets/gallery_image_tile.dart';
 import 'package:plana_app/features/generate/generate_state.dart';
 import 'package:plana_app/features/editor/data/tag_translation_service.dart';
 import 'package:plana_app/features/inspiration/codex/codex_history.dart';
@@ -120,8 +125,8 @@ void main() {
         appStoresProvider.overrideWithValue(stores),
         desktopModeProvider.overrideWithValue(true),
         codexIntroProvider.overrideWith(_Acknowledged.new),
-        codexIndexProvider.overrideWith(
-          (ref) async => const [
+        codexIndexProvider.overrideWithBuild(
+          (ref, _) async => const [
             CodexMeta(id: 'styles', type: CodexType.string, title: '画风词典'),
           ],
         ),
@@ -446,6 +451,154 @@ void main() {
             .widget<ChoiceChip>(find.widgetWithText(ChoiceChip, '全部'))
             .selected,
         isTrue,
+      );
+      await finish(tester);
+    },
+  );
+
+  testWidgets(
+    'pick an album photo as a character cover with a stale public library',
+    (tester) async {
+      final own = publicEntry.copyWith(
+        id: 'my-character',
+        origin: TagOrigin.created,
+      );
+      File('${temp.path}/tag_library.json').writeAsStringSync(
+        jsonEncode({
+          'entries': [own.toJson()],
+        }),
+      );
+      final bytes = img.encodePng(img.Image(width: 32, height: 120));
+      final photo = ResultImage(
+        id: 'portrait',
+        width: 32,
+        height: 120,
+        seed: 71,
+        bytes: bytes,
+        favorite: true,
+      );
+      const current = ResultImage(
+        id: 'canvas',
+        width: 120,
+        height: 45,
+        seed: 80,
+      );
+      await tester.runAsync(() => stores.gallery.persistResult(photo));
+      stores.gallery.initialResults = [photo.stripped(), current];
+      stores.gallery.initialSelectedId = current.id;
+      final albums = container.read(albumsProvider.notifier);
+      final source = (await tester.runAsync(() => albums.create('封面候选')))!;
+      final target = (await tester.runAsync(() => albums.create('创作目标')))!;
+      await tester.runAsync(() async {
+        await albums.organize({photo.id}, {source});
+        container.read(desktopLibraryProvider.notifier).choose(target);
+      });
+      await mount(tester);
+
+      Future<void> tap(Finder control) async {
+        await tester.tap(control);
+        await tester.pumpAndSettle();
+      }
+
+      await tap(key('inspiration-menu-my-character'));
+      await tap(find.text('编辑'));
+      Size buttonSize(String label) => tester.getSize(
+        find
+            .ancestor(
+              of: find.descendant(
+                of: key('tag-editor-preview'),
+                matching: find.text(label),
+              ),
+              matching: find.byWidgetPredicate(
+                (widget) => widget is ButtonStyleButton,
+              ),
+            )
+            .first,
+      );
+      expect(buttonSize('历史'), buttonSize('上传'));
+      expect(buttonSize('历史'), buttonSize('生成'));
+      await tap(find.text('历史'));
+      final picker = key('gallery-image-picker');
+      final tile = key('quick-gallery-image-portrait');
+      expect(
+        find.descendant(of: picker, matching: find.text('从图库选取')),
+        findsOneWidget,
+      );
+      expect(tester.widget<GalleryImageTile>(tile).fit, BoxFit.contain);
+      expect(key('quick-gallery-image-canvas'), findsOneWidget);
+      await tap(key('quick-gallery-library'));
+      await tap(key('desktop-album-$source'));
+      expect(key('quick-gallery-image-canvas'), findsNothing);
+      expect(tile, findsOneWidget);
+      await tester.enterText(key('quick-gallery-search'), 'missing');
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(tile, findsNothing);
+      await tester.enterText(key('quick-gallery-search'), '71');
+      await tester.pump(const Duration(milliseconds: 400));
+      await tap(key('gallery-favorites-filter'));
+      expect(tile, findsOneWidget);
+      // Cancel after browsing another album, then reopen without changing the canvas.
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+      expect(picker, findsNothing);
+      expect(key('tag-editor-dialog'), findsOneWidget);
+      expect(container.read(desktopLibraryProvider).albumId, target);
+      await tap(find.text('历史'));
+      await tap(key('quick-gallery-library'));
+      await tap(key('desktop-album-$source'));
+      await tap(tile);
+      final slot = key('tag-preview-slot-drop-0');
+      await pumpUntil(
+        tester,
+        () => find
+            .descendant(of: slot, matching: find.byType(Image))
+            .evaluate()
+            .isNotEmpty,
+      );
+      final loaded = tester.widget<Image>(
+        find.descendant(of: slot, matching: find.byType(Image)),
+      );
+      expect((loaded.image as MemoryImage).bytes, orderedEquals(bytes));
+      expect(container.read(galleryProvider).selectedId, current.id);
+      expect(container.read(gallerySaveTargetProvider).albumId, target);
+
+      await tester.tap(find.text('保存到本地'));
+      await pumpUntil(
+        tester,
+        () => key('tag-editor-dialog').evaluate().isEmpty,
+      );
+      final path = container
+          .read(tagLibraryProvider)
+          .requireValue
+          .entries
+          .single
+          .previewUrl!;
+      expect(File(path).readAsBytesSync(), orderedEquals(bytes));
+      expect(
+        tester.widget<InspirationEntryCard>(key('my-character')).preview,
+        path,
+      );
+      await tap(key('inspiration-scope-public'));
+      expect(
+        tester.widget<InspirationEntryCard>(key(publicEntry.id)).preview,
+        path,
+      );
+      container.invalidate(tagLibraryProvider);
+      await tester.runAsync(() => container.read(tagLibraryProvider.future));
+      await tester.pumpAndSettle();
+      expect(
+        tester.widget<InspirationEntryCard>(key(publicEntry.id)).preview,
+        path,
+      );
+      final publicCover = find.descendant(
+        of: key(publicEntry.id),
+        matching: find.byType(RawImage),
+      );
+      await pumpUntil(
+        tester,
+        () => tester
+            .widgetList<RawImage>(publicCover)
+            .any((w) => w.image != null),
       );
       await finish(tester);
     },

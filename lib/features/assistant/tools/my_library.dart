@@ -2,21 +2,12 @@
 /// 库的内容只在本机用。
 library;
 
-import 'dart:collection';
 import 'dart:math';
 
-import 'package:unorm_dart/unorm_dart.dart' as unorm;
-
+import '../../../core/util/name_query.dart';
 import '../runtime/placeholders.dart' show artistPlaceholder;
 
-// ---- 规范化 ----
-
-final _punctOrSpace = RegExp(r'[\p{P}\s]', unicode: true);
-
-/// 名字比对用的规范化:NFKC、小写、去掉标点和空白。
-/// 库里存 DeepSeek,用户写 deepseek、deep seek 都要对得上。
-String normalizeName(String s) =>
-    unorm.nfkc(s).toLowerCase().replaceAll(_punctOrSpace, '');
+export '../../../core/util/name_query.dart' show normalizeName;
 
 /// 按码点数长度,名字里带表情时和 UTF-16 长度不一样。
 int nameLength(String s) => s.runes.length;
@@ -35,10 +26,17 @@ List<T> largestFirst<T>(List<T> items, int Function(T) key) {
 
 /// 一条画师串。
 class LibArtist {
-  const LibArtist({required this.id, required this.name, required this.prompt});
+  const LibArtist({
+    required this.id,
+    required this.name,
+    required this.prompt,
+    this.negative = '',
+  });
 
   final String id;
   final String name;
+
+  final String negative;
 
   /// 完整画师串。
   final String prompt;
@@ -86,6 +84,7 @@ List<LibArtist> libArtistsOf(List<Map<String, dynamic>> raw) {
       id: id.isNotEmpty ? id : name,
       name: name.isNotEmpty ? name : id,
       prompt: prompt,
+      negative: _field(m, const ['negative']),
     );
     if (seen.add('${a.id.toUpperCase()}|${a.name.toUpperCase()}|${a.prompt}')) {
       out.add(a);
@@ -169,38 +168,66 @@ List<(String, String)> matchArtists(String text, List<LibArtist> artists) {
   return out.take(kBlockMax).toList();
 }
 
-/// 这句话点到的 OC → [(命中的名字、以顿号连起来, tag 组)]。中文名、别名、去掉 `OC_`
-/// 的键名都认,命中的名字越长越靠前,最多 10 个。
+/// Keep each form's canonical label in the resource block and placeholder map.
 List<(String, String)> matchOcs(String text, List<LibOc> ocs) {
-  final textNorm = normalizeName(text);
-  final hits = <(int, String, String)>[];
+  final query = NameQuery(text);
+  final hits =
+      <
+        ({String label, String tags, int length, String group, bool specific})
+      >[];
+  final specificGroups = <String>{};
   for (final oc in ocs) {
     final bare = oc.enName.toLowerCase().startsWith('oc_')
         ? oc.enName.substring(3)
         : oc.enName;
-    final names = [
+    final names = {
       for (final n in [oc.zhName, ...oc.aliases, bare])
         if (n.trim().isNotEmpty) n.trim(),
-    ];
-    final hit = [
-      for (final n in names)
-        if (normalizeName(n) case final k
-            when k.isNotEmpty && textNorm.contains(k))
-          n,
-    ];
-    if (hit.isEmpty) continue;
+    };
+    if (!oc.enName.startsWith('ext:')) {
+      final matched = [
+        for (final name in names)
+          if (normalizeName(name) case final key
+              when key.isNotEmpty && query.compact.contains(key))
+            name,
+      ];
+      if (matched.isNotEmpty) {
+        hits.add((
+          label: oc.label,
+          tags: oc.tagGroup,
+          length: matched.map(nameLength).reduce(max),
+          group: '',
+          specific: false,
+        ));
+      }
+      continue;
+    }
+
+    final length = names.map(query.mentionLength).fold(0, max);
+    if (length == 0) continue;
+    // Forms from one external character share an ID prefix and the first alias.
+    final group = oc.enName.substring(0, oc.enName.lastIndexOf(':'));
+    final base = oc.aliases.firstOrNull ?? oc.label;
+    final specific =
+        length > nameLength(normalizeName(base)) ||
+        (query.words.length > 1 &&
+            query.score(names) > 0 &&
+            query.score([base]) == 0);
+    if (specific) specificGroups.add(group);
     hits.add((
-      hit.map(nameLength).reduce(max),
-      LinkedHashSet.of(hit).join('、'),
-      oc.tagGroup,
+      label: oc.label,
+      tags: oc.tagGroup,
+      length: length,
+      group: group,
+      specific: specific,
     ));
   }
   return [
-    for (final (_, label, tags) in largestFirst(
-      hits,
-      (e) => e.$1,
-    ).take(kBlockMax))
-      (label, tags),
+    for (final hit
+        in largestFirst(hits, (h) => h.length)
+            .where((h) => h.specific || !specificGroups.contains(h.group))
+            .take(kBlockMax))
+      (hit.label, hit.tags),
   ];
 }
 
@@ -211,6 +238,7 @@ Map<String, dynamic> artistToolEntry(LibArtist a) => {
   'id': a.id,
   'name': a.name,
   'prompt': a.prompt,
+  if (a.negative.isNotEmpty) 'negative': a.negative,
   'placeholder': artistPlaceholder(a.label),
 };
 
@@ -256,13 +284,13 @@ List<LibArtist> searchArtists(
 
 /// 按名字 / 别名查 OC 库。
 List<LibOc> searchOcs(List<LibOc> ocs, String query) {
-  final q = normalizeName(query);
-  if (q.isEmpty) return const [];
-  return [
-    for (final oc in ocs)
-      if (normalizeName(oc.enName).contains(q) ||
-          normalizeName(oc.zhName).contains(q) ||
-          oc.aliases.any((a) => normalizeName(a).contains(q)))
-        oc,
-  ];
+  final q = NameQuery(query);
+  if (q.words.isEmpty) return const [];
+  final hits = <(int, LibOc)>[];
+  for (final oc in ocs) {
+    final primary = q.score([oc.label, oc.enName]);
+    final score = q.score([oc.label, ...oc.aliases, oc.enName]);
+    if (score > 0) hits.add((score * 5 + primary, oc));
+  }
+  return [for (final hit in largestFirst(hits, (h) => h.$1)) hit.$2];
 }

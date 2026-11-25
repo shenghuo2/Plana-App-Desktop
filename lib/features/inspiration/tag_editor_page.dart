@@ -17,11 +17,13 @@ import '../../core/theme/app_theme.dart';
 import '../../core/ui/image_drop.dart';
 import '../../core/util/image_pick.dart';
 import '../gallery/gallery_state.dart';
+import '../gallery/widgets/gallery_grid_sheet.dart';
 import '../generate/generate_state.dart';
 import '../generate/style_recipes.dart';
 import '../generate/widgets/common.dart'
     show ExpandBody, confirmDialog, hintSnack, measureText, sharedAxisRoute;
 import 'artist_models.dart';
+import 'external/oc_sources.dart' show OcSource;
 import 'public_tags.dart';
 import 'tag_library.dart';
 import 'tag_models.dart';
@@ -39,6 +41,7 @@ Future<void> showTagEditor(
   List<TagCategory>? categories,
   String? lastPageKey,
   bool allowNegativeOnly = false,
+  OcSource? externalSource,
   ValueChanged<TagEntry>? onSaved,
 }) {
   void saved(TagEntry? entry) {
@@ -60,6 +63,7 @@ Future<void> showTagEditor(
               categories: categories,
               lastPageKey: lastPageKey,
               allowNegativeOnly: allowNegativeOnly,
+              externalSource: externalSource,
             ),
           ),
         )
@@ -89,6 +93,7 @@ Future<void> showTagEditor(
           categories: categories,
           lastPageKey: lastPageKey,
           allowNegativeOnly: allowNegativeOnly,
+          externalSource: externalSource,
         ),
       ),
     ),
@@ -125,7 +130,8 @@ class TagEditorPage extends ConsumerStatefulWidget {
     this.categories,
     this.lastPageKey,
     this.allowNegativeOnly = false,
-  });
+    this.externalSource,
+  }) : assert(externalSource == null || edit != null);
 
   final TagCategory cat;
   final TagEntry? edit;
@@ -133,6 +139,8 @@ class TagEditorPage extends ConsumerStatefulWidget {
   final List<TagCategory>? categories;
   final String? lastPageKey;
   final bool allowNegativeOnly;
+  final OcSource? externalSource;
+  bool get external => externalSource != null;
 
   /// 新建时预填;[edit] 不为 null 时不看它。
   final TagDraft? draft;
@@ -160,7 +168,7 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
   TagCategoryDef get _def => tagCategoryDef(_category);
   late final TagEntry? _edit = widget.edit;
   late final bool _isEdit = _edit != null;
-  late final bool _locked = _edit?.origin == TagOrigin.favorited;
+  bool get _locked => widget.external || _edit?.origin == TagOrigin.favorited;
   late final String _entryId = _edit?.id ?? TagLibrary.newId(_category);
 
   late final _name = TextEditingController(
@@ -173,7 +181,13 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
     text: _edit?.negative ?? widget.draft?.negative ?? '',
   );
   late final List<String> _aliases = [...?_edit?.aliases];
-  late final Set<String> _tags = {...?(_edit?.tags ?? widget.draft?.tags)};
+  late final Set<String> _tags = {
+    ...?((widget.external
+            ? ref.read(tagLibraryProvider).value?.externalTags[_entryId]
+            : null) ??
+        _edit?.tags ??
+        widget.draft?.tags),
+  };
 
   /// 适用模型(仅画风)。空 = 通用 —— 这是默认档,不是"没填完"。
   late final Set<String> _models = {...?_edit?.models};
@@ -187,6 +201,12 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
       ? 4
       : 1;
   List<_Slot> get _slots => _allSlots.take(_slotCount).toList();
+  _Slot? get _coverSlot {
+    final slots = _slots;
+    if (_cover < slots.length && slots[_cover].filled) return slots[_cover];
+    return slots.where((slot) => slot.filled).firstOrNull;
+  }
+
   late final List<_Slot> _allSlots = List.generate(4, (i) {
     final s = _Slot();
     final prev = _edit?.previews ?? const [];
@@ -248,16 +268,33 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
   /// 存为副本(forId ≠ 本条目)时,本机文件引用也复制一份——
   /// 否则与原条目共用文件,原条目删除会连带毁掉副本预览。
   Future<List<String>> _buildPreviews(String forId) async {
+    final slots = [
+      ..._slots,
+      // A character has one editable cover, but a saved form can also have
+      // alternate previews. Editing its name or prompt preserves those files.
+      if (_category == TagCategory.character && _edit != null)
+        for (final path in _edit.previews.skip(1)) _Slot()..ref = path,
+    ];
     final order = [
-      if (_cover < _slots.length) _cover,
-      for (var i = 0; i < _slots.length; i++)
+      if (_cover < slots.length) _cover,
+      for (var i = 0; i < slots.length; i++)
         if (i != _cover) i,
     ];
     final out = <String>[];
+    final cover = _coverSlot;
     for (final i in order) {
-      final s = _slots[i];
+      final s = slots[i];
       var bytes = s.bytes;
       final r = s.ref;
+      // An imported style can have several URL previews. A newly promoted
+      // one needs a local file just like an uploaded cover.
+      if (bytes == null &&
+          identical(s, cover) &&
+          r != null &&
+          r.startsWith('http') &&
+          r != _edit?.previewUrl) {
+        bytes = await fetchRemoteImageBytes(r);
+      }
       if (bytes == null &&
           forId != _entryId &&
           r != null &&
@@ -280,7 +317,6 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
     String? id,
     String? name,
     TagOrigin? origin,
-    String? publicId,
   }) async {
     final eid = id ?? _entryId;
     return TagEntry(
@@ -296,8 +332,7 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
           : const [],
       origin: origin ?? _edit?.origin ?? TagOrigin.local,
       favorite: eid == _edit?.id ? _edit?.favorite : null,
-      publicId:
-          publicId ?? (origin == TagOrigin.local ? null : _edit?.publicId),
+      publicId: origin == TagOrigin.local ? null : _edit?.publicId,
       previews: await _buildPreviews(eid),
       createdAt: _edit?.createdAt ?? DateTime.now().millisecondsSinceEpoch,
       createdBy: _edit?.createdBy,
@@ -330,14 +365,17 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
     }
   }
 
+  Future<TagEntry> _persistEntry() async {
+    final library = ref.read(tagLibraryProvider.notifier);
+    final entry = await _buildEntry();
+    await library.upsert(entry, requirePersistence: true);
+    return entry;
+  }
+
   Future<void> _saveLocal() async {
     if (_guardValidation()) return;
     await _run(() async {
-      final entry = await _buildEntry();
-      if (!mounted) return;
-      await ref
-          .read(tagLibraryProvider.notifier)
-          .upsert(entry, requirePersistence: true);
+      final entry = await _persistEntry();
       if (!mounted) return;
       _rememberCategory();
       Navigator.pop(context, entry);
@@ -384,14 +422,18 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
   /// favorited:内容锁定,仅保存标签改动。
   Future<void> _saveTagsOnly() async {
     await _run(() async {
-      final entry = _edit!.copyWith(
+      final source = _edit!;
+      final entry = source.copyWith(
         tags: _tags.toList()..sort(),
         models: normalizeArtistModels(_models.toList()),
         recipe: _recipe ?? TagEntry.clearRecipe,
       );
-      await ref
-          .read(tagLibraryProvider.notifier)
-          .upsert(entry, requirePersistence: true);
+      final library = ref.read(tagLibraryProvider.notifier);
+      if (widget.external) {
+        await library.saveExternalTags(source, entry.tags);
+      } else {
+        await library.upsert(entry, requirePersistence: true);
+      }
       if (!mounted) return;
       Navigator.pop(context, entry);
       hintSnack(
@@ -402,17 +444,20 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
     });
   }
 
-  Future<String?> _coverPreviewBase64() async {
-    if (_slots.isEmpty) return null;
-    final s = _slots[_cover < _slots.length ? _cover : 0];
-    if (s.bytes != null) return base64Encode(s.bytes!);
-    final r = s.ref;
-    if (r != null && r.isNotEmpty && !r.startsWith('http')) {
-      try {
-        return base64Encode(await File(r).readAsBytes());
-      } catch (_) {}
+  Future<String?> _coverPreviewBase64(
+    TagEntry entry, {
+    bool publishing = false,
+  }) async {
+    final cover = entry.previewUrl;
+    if (cover == null) return null;
+    if (cover.startsWith('http')) {
+      return publishing
+          ? base64Encode(await fetchRemoteImageBytes(cover))
+          : null;
     }
-    return null;
+    final file = File(cover);
+    if (!publishing && !await file.exists()) return null;
+    return base64Encode(await file.readAsBytes());
   }
 
   /// 发布前提醒。**按类目分文案**,对齐 web `PublishGuidelinesDialog` ——
@@ -473,125 +518,140 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
     if (!await _publishGuidelines()) return;
     await _run(() async {
       final client = ref.read(backendClientProvider);
-      final preview = await _coverPreviewBase64();
-      final String publicId;
-      var finalName = _name.text.trim();
-      if (_category == TagCategory.character) {
-        publicId = await client.createPublicOc(
-          sessionId: session.sessionId,
-          zhName: finalName,
-          aliases: _aliases,
-          tagGroup: _positive.text.trim(),
-          negativePrompt: _negative.text.trim(),
-          previewBase64: preview,
-          createdBy: session.botUserId,
-        );
-      } else {
-        final r = await client.createPublicArtist(
-          sessionId: session.sessionId,
-          name: finalName,
-          artistString: _positive.text.trim(),
-          negative: _negative.text.trim(),
-          previewBase64: preview,
-          addedBy: session.botUserId,
-          models: normalizeArtistModels(_models.toList()),
-          recipe: _recipe?.toJson(),
-        );
-        publicId = r.id;
-        finalName = r.name;
-      }
-      final entry = await _buildEntry(
-        name: finalName,
-        origin: TagOrigin.created,
-        publicId: publicId,
-      );
+      final library = ref.read(tagLibraryProvider.notifier);
+      final local = await _persistEntry();
       if (!mounted) return;
-      await ref
-          .read(tagLibraryProvider.notifier)
-          .upsert(entry, requirePersistence: true);
-      ref.invalidate(publicTagsProvider(_category));
       _rememberCategory();
+      late final TagEntry entry;
+      try {
+        final preview = await _coverPreviewBase64(local, publishing: true);
+        if (local.category == TagCategory.character) {
+          final id = await client.createPublicOc(
+            sessionId: session.sessionId,
+            zhName: local.name,
+            aliases: local.aliases,
+            tagGroup: local.positive,
+            negativePrompt: local.negative,
+            previewBase64: preview,
+            createdBy: session.botUserId,
+          );
+          entry = local.copyWith(origin: TagOrigin.created, publicId: id);
+        } else {
+          final result = await client.createPublicArtist(
+            sessionId: session.sessionId,
+            name: local.name,
+            artistString: local.positive,
+            negative: local.negative,
+            previewBase64: preview,
+            addedBy: session.botUserId,
+            models: local.models,
+            recipe: local.recipe?.toJson(),
+          );
+          entry = local.copyWith(
+            origin: TagOrigin.created,
+            publicId: result.id,
+            name: result.name,
+          );
+        }
+      } catch (error) {
+        if (mounted) _finishPublicSave(local, error: error);
+        return;
+      }
+      await library.upsert(entry, requirePersistence: true);
       if (!mounted) return;
-      Navigator.pop(context, entry);
-      hintSnack(
-        context,
-        l10nNow.desktopPublishedToThePublicLibrary,
-        icon: Icons.public,
-      );
+      _finishPublicSave(entry, published: true);
     });
   }
 
-  /// 编辑 created「保存并同步」:同步服务端 + 更新本地副本。
+  /// 先提交本机版本。公共库请求失败时仍可重开条目，再同步已落盘的封面。
   Future<void> _syncPublic() async {
     if (_guardValidation()) return;
     final session = ref.read(botSessionProvider).value;
-    if (session == null) {
-      hintSnack(
-        context,
-        l10nNow.desktopSyncRequiresBotAuthorization,
-        icon: Icons.cloud_off_outlined,
-      );
-      return;
-    }
     await _run(() async {
       final client = ref.read(backendClientProvider);
-      // 预览:本轮换了新图(内存字节)才重传
-      final coverSlot = _slots.isNotEmpty
-          ? _slots[_cover < _slots.length ? _cover : 0]
-          : null;
-      final preview = coverSlot?.bytes != null
-          ? base64Encode(coverSlot!.bytes!)
-          : null;
-      if (_category == TagCategory.character) {
-        await client.updatePublicOc(
-          sessionId: session.sessionId,
-          enName: _edit!.publicId!,
-          zhName: _name.text.trim(),
-          aliases: _aliases,
-          tagGroup: _positive.text.trim(),
-          negativePrompt: _negative.text.trim(),
-          previewBase64: preview,
+      final entry = await _persistEntry();
+      if (!mounted) return;
+      if (session == null) {
+        _finishPublicSave(
+          entry,
+          error: l10nNow.desktopSyncRequiresBotAuthorization,
         );
-      } else {
-        await client.updatePublicArtist(
-          sessionId: session.sessionId,
-          id: _edit!.publicId!,
-          artistString: _positive.text.trim(),
-          negative: _negative.text.trim(),
-          previewBase64: preview,
-          // 空列表照发:用户取消掉全部标注 = 改回通用,和「本次不改」不是一回事
-          models: normalizeArtistModels(_models.toList()),
-          // 同理,清掉推荐参数要发 {}
-          recipe: _recipe?.toJson() ?? const {},
-        );
+        return;
       }
-      final entry = await _buildEntry();
-      if (!mounted) return;
-      await ref
-          .read(tagLibraryProvider.notifier)
-          .upsert(entry, requirePersistence: true);
-      ref.invalidate(publicTagsProvider(_category));
-      if (!mounted) return;
-      Navigator.pop(context, entry);
-      hintSnack(
-        context,
-        l10nNow.desktopSavedAndSynced,
-        icon: Icons.cloud_done_outlined,
-      );
+      try {
+        final preview = await _coverPreviewBase64(entry);
+        if (entry.category == TagCategory.character) {
+          await client.updatePublicOc(
+            sessionId: session.sessionId,
+            enName: entry.publicId!,
+            zhName: entry.name,
+            aliases: entry.aliases,
+            tagGroup: entry.positive,
+            negativePrompt: entry.negative,
+            previewBase64: preview,
+          );
+        } else {
+          await client.updatePublicArtist(
+            sessionId: session.sessionId,
+            id: entry.publicId!,
+            artistString: entry.positive,
+            negative: entry.negative,
+            previewBase64: preview,
+            models: entry.models,
+            recipe: entry.recipe?.toJson() ?? const {},
+          );
+        }
+      } catch (error) {
+        if (mounted) _finishPublicSave(entry, error: error);
+        return;
+      }
+      if (mounted) _finishPublicSave(entry);
     });
   }
 
-  /// 存为脱钩本地副本(编辑 created 次按钮 / favorited 管理行)。
+  void _finishPublicSave(
+    TagEntry entry, {
+    Object? error,
+    bool published = false,
+  }) {
+    if (error == null) ref.invalidate(publicTagsProvider(entry.category));
+    Navigator.pop(context, entry);
+    if (error != null) {
+      final reason = error is BackendException
+          ? error.message
+          : error.toString();
+      hintSnack(
+        context,
+        l10nNow.tagSavedLocallySyncFailed(reason),
+        icon: Icons.cloud_off_outlined,
+      );
+    } else {
+      hintSnack(
+        context,
+        published
+            ? l10nNow.desktopPublishedToThePublicLibrary
+            : l10nNow.desktopSavedAndSynced,
+        icon: published ? Icons.public : Icons.cloud_done_outlined,
+      );
+    }
+  }
+
+  /// 将公共条目另存为可独立编辑的本地副本。
   Future<void> _saveAsCopy() async {
     if (_guardValidation()) return;
     await _run(() async {
       final lib = ref.read(tagLibraryProvider.notifier);
-      final entry = await _buildEntry(
-        id: TagLibrary.newId(_category),
-        name: lib.uniqueName(_category, _name.text.trim()),
-        origin: TagOrigin.local, // origin=local ⇒ publicId 自动为空,脱钩
-      );
-      await lib.upsert(entry, requirePersistence: true);
+      final TagEntry entry;
+      if (widget.external) {
+        entry = await lib.saveExternalCopy(_edit!, _tags.toList()..sort());
+      } else {
+        entry = await _buildEntry(
+          id: TagLibrary.newId(_category),
+          name: lib.uniqueName(_category, _name.text.trim()),
+          origin: TagOrigin.local,
+        );
+        await lib.upsert(entry, requirePersistence: true);
+      }
       if (!mounted) return;
       Navigator.pop(context, entry);
       hintSnack(
@@ -622,10 +682,14 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
     }
     await _run(() async {
       final client = ref.read(backendClientProvider);
-      if (_category == TagCategory.character) {
-        await client.deletePublicOc(session.sessionId, edit.publicId!);
-      } else {
-        await client.deletePublicArtist(session.sessionId, edit.publicId!);
+      try {
+        if (_category == TagCategory.character) {
+          await client.deletePublicOc(session.sessionId, edit.publicId!);
+        } else {
+          await client.deletePublicArtist(session.sessionId, edit.publicId!);
+        }
+      } on BackendException catch (e) {
+        if (e.status != 404) rethrow;
       }
       await ref
           .read(tagLibraryProvider.notifier)
@@ -731,18 +795,23 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
     }
     await _run(() async {
       final client = ref.read(backendClientProvider);
-      if (_category == TagCategory.character) {
-        await client.updatePublicOc(
-          sessionId: session.sessionId,
-          enName: edit.publicId!,
-          createdBy: target,
-        );
-      } else {
-        await client.updatePublicArtist(
-          sessionId: session.sessionId,
-          id: edit.publicId!,
-          addedBy: target,
-        );
+      try {
+        if (_category == TagCategory.character) {
+          await client.updatePublicOc(
+            sessionId: session.sessionId,
+            enName: edit.publicId!,
+            createdBy: target,
+          );
+        } else {
+          await client.updatePublicArtist(
+            sessionId: session.sessionId,
+            id: edit.publicId!,
+            addedBy: target,
+          );
+        }
+      } on BackendException catch (e) {
+        if (e.status == 404) throw BackendException('公共库里已没有这条');
+        rethrow;
       }
       ref.invalidate(publicTagsProvider(_category));
       if (!mounted) return;
@@ -752,6 +821,48 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
         l10nNow.desktopOwnershipTransferred,
         icon: Icons.manage_accounts_outlined,
       );
+    });
+  }
+
+  Future<void> _deleteExternal() async {
+    final source = _edit!;
+    final copies = ref
+        .read(tagLibraryProvider)
+        .requireValue
+        .externalCopies(source.id);
+    TagEntry? copy = copies.firstOrNull;
+    if (copies.length > 1) {
+      copy = await showDialog<TagEntry>(
+        context: context,
+        builder: (ctx) => SimpleDialog(
+          title: Text(ctx.l10n.delete),
+          children: [
+            for (final entry in copies)
+              SimpleDialogOption(
+                onPressed: () => Navigator.pop(ctx, entry),
+                child: Text(entry.name),
+              ),
+          ],
+        ),
+      );
+      if (copy == null || !mounted) return;
+    }
+    final ok = await confirmDialog(
+      context,
+      title: context.l10n.deleteNamedQ(copy?.name ?? source.name),
+      message: copy == null
+          ? context.l10n.externalOcResetTags
+          : context.l10n.localOnlyDeleteBody,
+      confirmLabel: context.l10n.delete,
+    );
+    if (!ok || !mounted) return;
+    await _run(() async {
+      await ref
+          .read(tagLibraryProvider.notifier)
+          .removeExternalLocalData(source.id, copyId: copy?.id);
+      if (!mounted) return;
+      Navigator.pop(context);
+      hintSnack(context, context.l10n.deletedLabel, icon: Icons.delete_outline);
     });
   }
 
@@ -772,10 +883,15 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
         final session = ref.read(botSessionProvider).value;
         if (session == null) throw BackendException('需要 Bot 授权');
         final client = ref.read(backendClientProvider);
-        if (_category == TagCategory.character) {
-          await client.deletePublicOc(session.sessionId, edit.publicId!);
-        } else {
-          await client.deletePublicArtist(session.sessionId, edit.publicId!);
+        try {
+          if (_category == TagCategory.character) {
+            await client.deletePublicOc(session.sessionId, edit.publicId!);
+          } else {
+            await client.deletePublicArtist(session.sessionId, edit.publicId!);
+          }
+        } on BackendException catch (e) {
+          // 公共条目早被删了(404):当作已删,接着删本地副本
+          if (e.status != 404) rethrow;
         }
         ref.invalidate(publicTagsProvider(_category));
       }
@@ -891,92 +1007,25 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
     });
   }
 
-  Future<void> _pickFromHistory({int? into}) async {
-    final results = ref.read(galleryProvider).results;
-    if (results.isEmpty) {
-      hintSnack(
-        context,
-        context.l10n.galleryNoImages,
-        icon: Icons.photo_library_outlined,
-      );
-      return;
-    }
-    final picked = await showModalBottomSheet<String>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      builder: (context) => SizedBox(
-        height: 460,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(18, 14, 18, 8),
-              child: Row(
-                children: [
-                  Icon(Icons.history, size: 20, color: context.scheme.primary),
-                  const SizedBox(width: 8),
-                  Text(
-                    context.l10n.pickFromGallery,
-                    style: context.texts.titleMedium!.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  const Spacer(),
-                  Text(
-                    context.l10n.totalImagesN(results.length),
-                    style: context.texts.labelSmall!.copyWith(
-                      color: context.scheme.onSurfaceVariant,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            Expanded(
-              child: GridView.builder(
-                padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
-                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: 3,
-                  mainAxisSpacing: 8,
-                  crossAxisSpacing: 8,
-                ),
-                itemCount: results.length,
-                itemBuilder: (context, i) => _HistoryThumb(
-                  id: results[i].id,
-                  onTap: () => Navigator.pop(context, results[i].id),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
+  Future<void> _pickFromGallery({int? into}) async {
+    final picked = await showGalleryGrid(
+      context,
+      desktop: ref.read(desktopModeProvider),
+      pickImage: true,
     );
     if (picked == null || !mounted) return;
     final bytes =
-        ref
-            .read(galleryProvider)
-            .results
-            .where((r) => r.id == picked)
-            .firstOrNull
-            ?.bytes ??
-        await ref.read(galleryImageProvider(picked).future);
-    if (bytes == null) {
-      if (mounted) {
-        hintSnack(
-          context,
-          context.l10n.readImageFailed,
-          icon: Icons.error_outline,
-        );
-      }
+        picked.bytes ?? await ref.read(galleryImageProvider(picked.id).future);
+    if (!mounted) return;
+    if (bytes == null || bytes.isEmpty) {
+      hintSnack(
+        context,
+        context.l10n.readImageFailed,
+        icon: Icons.error_outline,
+      );
       return;
     }
-    setState(() {
-      var target = into ?? _slots.indexWhere((s) => !s.filled);
-      if (target < 0) target = 0;
-      _slots[target]
-        ..bytes = bytes
-        ..ref = null;
-    });
+    _applyPickedImages([PickedImage(picked.id, bytes)], into: into);
   }
 
   Future<void> _generateInto(List<int> indexes) async {
@@ -1059,7 +1108,7 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
               title: Text(context.l10n.pickFromGallery),
               onTap: () {
                 Navigator.pop(sheet);
-                _pickFromHistory(into: i);
+                _pickFromGallery(into: i);
               },
             ),
             if (_canGenerate)
@@ -1314,7 +1363,7 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
   }
 
   Widget _header(ColorScheme scheme) {
-    final isCreated = _edit?.origin == TagOrigin.created;
+    final isCreated = !widget.external && _edit?.origin == TagOrigin.created;
     Widget title(VoidCallback? open) => InkWell(
       key: const ValueKey('tag-editor-category'),
       onTap: open,
@@ -1744,6 +1793,10 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
             ),
           ),
         ),
+        if (widget.external && (_edit?.createdBy ?? '').isNotEmpty) ...[
+          const SizedBox(height: 8),
+          SelectableText('${context.l10n.author} · ${_edit!.createdBy}'),
+        ],
         if (_category == TagCategory.character) ...[
           const SizedBox(height: 10),
           _foldHeader(
@@ -1947,8 +2000,6 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
           ),
         if (!_locked) ...[
           const SizedBox(height: 12),
-          // 三等分固定布局:生成中也不改 flex、不加长文案(进度在槽位上显示),
-          // 否则相邻按钮被挤到换行竖排。
           LayoutBuilder(
             builder: (context, constraints) {
               final count = _canGenerate ? 3 : 2;
@@ -1991,10 +2042,10 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
                   Expanded(
                     child: OutlinedButton.icon(
                       style: style,
-                      onPressed: _generating ? null : () => _pickFromHistory(),
+                      onPressed: _generating ? null : () => _pickFromGallery(),
                       icon: icons ? const Icon(Icons.history, size: 16) : null,
                       label: Text(
-                        l10nNow.history,
+                        context.l10n.history,
                         maxLines: 1,
                         softWrap: false,
                       ),
@@ -2344,9 +2395,12 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
   }
 
   Widget _tagsBody(ColorScheme scheme) {
-    final known =
-        ref.watch(tagLibraryProvider).value?.knownTags(_category) ??
-        const <String>[];
+    final library = ref.watch(tagLibraryProvider).value;
+    final known = {
+      ...?library?.knownTags(_category),
+      if (widget.externalSource case final source?)
+        ...source.tagsWithEdits(library?.externalTags ?? const {}),
+    };
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -2379,8 +2433,16 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
   /// 编辑态管理动作行(平铺常驻,不藏菜单)。
   Widget _managementRow(ColorScheme scheme) {
     final origin = _edit!.origin;
+    final library = widget.external
+        ? ref.watch(tagLibraryProvider).value
+        : null;
+    final onDelete = widget.external ? _deleteExternal : _delete;
+    final hasLocalData =
+        library != null &&
+        (library.externalTags.containsKey(_entryId) ||
+            library.externalCopies(_entryId).isNotEmpty);
     final buttons = <Widget>[
-      if (origin == TagOrigin.created) ...[
+      if (!widget.external && origin == TagOrigin.created) ...[
         OutlinedButton.icon(
           onPressed: _busy ? null : _unpublish,
           icon: const Icon(Icons.undo, size: 16),
@@ -2392,14 +2454,18 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
           label: Text(l10nNow.desktopTransfer),
         ),
       ],
-      if (origin == TagOrigin.favorited)
+      if (widget.external ||
+          origin == TagOrigin.favorited ||
+          origin == TagOrigin.created)
         OutlinedButton.icon(
           onPressed: _busy ? null : _saveAsCopy,
           icon: const Icon(Icons.file_copy_outlined, size: 16),
           label: Text(l10nNow.desktopSaveAsALocalCopy),
         ),
       OutlinedButton.icon(
-        onPressed: _busy ? null : _delete,
+        onPressed: _busy || (widget.external && !hasLocalData)
+            ? null
+            : onDelete,
         style: OutlinedButton.styleFrom(foregroundColor: scheme.error),
         icon: const Icon(Icons.delete_outline, size: 16),
         label: Text(context.l10n.delete),
@@ -2453,14 +2519,13 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
                 ),
               ),
             ];
-    } else if (origin == TagOrigin.created) {
+    } else if (!widget.external && origin == TagOrigin.created) {
       children = [
         Expanded(
-          child: OutlinedButton.icon(
-            onPressed: _busy ? null : _saveAsCopy,
+          child: OutlinedButton(
+            onPressed: _busy ? null : _saveLocal,
             style: _outStyle(),
-            icon: const Icon(Icons.file_copy_outlined, size: 16),
-            label: Text(l10nNow.desktopSaveLocalCopy),
+            child: Text(context.l10n.saveLocal, maxLines: 1),
           ),
         ),
         const SizedBox(width: 10),
@@ -2474,15 +2539,14 @@ class _TagEditorPageState extends ConsumerState<TagEditorPage> {
           ),
         ),
       ];
-    } else if (_def.hasPublic && origin == TagOrigin.local) {
+    } else if (!widget.external &&
+        _def.hasPublic &&
+        origin == TagOrigin.local) {
       // 本地条目也该有发布的路。以前编辑态只有 created 给两个按钮,本地条目
       // 只剩一个「保存修改」—— 想把攒好的本地 OC / 画风发出去,只能照着重新
       // 建一条,原来那条还得手动删。版式与创建态对齐:左保存、右发布。
       //
-      // 复用 [_publish] 是安全的:它用 `_buildEntry` 建条目,而 `_entryId` 在
-      // 编辑态就是原条目的 id,upsert 是原地把 origin 翻成 created + 补上
-      // publicId,不会多出一条。favorited 不给这个按钮 —— 那是别人的东西,
-      // 要改要发得先「存为本地副本」。
+      // 发布成功后在原条目上记录公共编号；收藏的条目可以另存为独立副本。
       children = [
         Expanded(
           child: OutlinedButton(
@@ -2744,30 +2808,6 @@ class _ChipPickerState extends State<_ChipPicker> {
             ],
           ),
         ),
-      ),
-    );
-  }
-}
-
-/// 图库缩略图(异步懒读)。
-class _HistoryThumb extends ConsumerWidget {
-  const _HistoryThumb({required this.id, required this.onTap});
-
-  final String id;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final thumb = ref.watch(galleryThumbProvider(id)).value;
-    return Material(
-      color: context.scheme.surfaceContainerHigh,
-      borderRadius: BorderRadius.circular(10),
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: onTap,
-        child: thumb == null
-            ? const SizedBox.expand()
-            : Image.memory(thumb, fit: BoxFit.cover, gaplessPlayback: true),
       ),
     );
   }

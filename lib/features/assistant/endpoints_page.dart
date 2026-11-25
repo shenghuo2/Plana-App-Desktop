@@ -12,6 +12,10 @@ import '../../core/theme/app_theme.dart';
 import '../../core/util/haptics.dart';
 import '../../core/ui/editable_combo_field.dart';
 import 'widgets/assistant_tag.dart';
+import 'widgets/catalog_model_picker.dart';
+import 'widgets/model_sheet.dart' show AssistantModelDropdown;
+import 'widgets/plan_accounts_dialog.dart';
+import 'subscription/plan_accounts.dart';
 import '../generate/widgets/common.dart'
     show
         confirmDialog,
@@ -33,12 +37,19 @@ import 'custom_endpoint.dart';
 import 'llm/http_provider.dart' show llmProviderFor;
 import '../../l10n/l10n.dart';
 
+final endpointDiscoveryProvider =
+    Provider<Future<Map<String, CatalogModel>> Function(CustomEndpoint)>(
+      (_) =>
+          (endpoint) => llmProviderFor(endpoint).discoverModels(),
+    );
+
 /// 打开接口管理页，并选中要编辑的接口。
 Future<void> openEndpointsPage(BuildContext context, {String? editId}) =>
     Navigator.of(context).push(sharedAxisRoute(EndpointsPage(editId: editId)));
 
 /// 「添加接口」那张卡的记号。
 const _kAdd = '';
+const planHubId = '@chatgpt';
 
 class EndpointsPage extends ConsumerStatefulWidget {
   const EndpointsPage({super.key, this.editId});
@@ -51,7 +62,7 @@ class EndpointsPage extends ConsumerStatefulWidget {
 
 class _EndpointsPageState extends ConsumerState<EndpointsPage> {
   /// 当前编辑的接口 id，或新建表单 [_kAdd]。
-  late String _open = widget.editId ?? _kAdd;
+  late String _open = widget.editId ?? planHubId;
   final _pending = <String>{};
   int _revision = 0;
 
@@ -154,13 +165,15 @@ class _EndpointsPageState extends ConsumerState<EndpointsPage> {
   Widget build(BuildContext context) {
     final saved = ref.watch(customEndpointsProvider);
     final list = saved.value ?? const <CustomEndpoint>[];
+    final account = ref.watch(planAccountsProvider).value?.active;
     final source = list.where((e) => e.id == _open).firstOrNull;
     final scratch = source == null;
-    Widget library(bool wide) {
+    Widget library() {
       final rows = ReorderableListView.builder(
         shrinkWrap: true,
         buildDefaultDragHandles: false,
-        physics: wide ? null : const NeverScrollableScrollPhysics(),
+        primary: false,
+        physics: const NeverScrollableScrollPhysics(),
         proxyDecorator: dragProxy,
         onReorderStart: dragStartHaptic,
         onReorderEnd: dragEndHaptic,
@@ -201,94 +214,138 @@ class _EndpointsPageState extends ConsumerState<EndpointsPage> {
           );
         },
       );
-      return Card(
-        margin: EdgeInsets.zero,
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(4, 4, 4, 12),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        context.l10n.savedEndpoints,
-                        style: context.texts.titleMedium,
-                      ),
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Card(
+            margin: EdgeInsets.zero,
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    context.l10n.planSources,
+                    style: context.texts.titleMedium,
+                  ),
+                  ListTile(
+                    selected: _open == planHubId,
+                    selectedTileColor: context.scheme.secondaryContainer,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
                     ),
-                    AssistantTag('${list.length}'),
-                  ],
-                ),
+                    leading: const _ProviderMark('OpenAI'),
+                    title: Text(context.l10n.planSection),
+                    subtitle: Text(
+                      account?.displayLabel ?? context.l10n.planLogin,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    onTap: () => _toggle(planHubId),
+                  ),
+                  const Divider(),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(4, 4, 4, 12),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            context.l10n.savedEndpoints,
+                            style: context.texts.titleMedium,
+                          ),
+                        ),
+                        AssistantTag('${list.length}'),
+                      ],
+                    ),
+                  ),
+                  rows,
+                  const SizedBox(height: 8),
+                  OutlinedButton.icon(
+                    onPressed: () => _toggle(_kAdd),
+                    icon: const Icon(Icons.add),
+                    label: Text(context.l10n.addEndpoint),
+                  ),
+                ],
               ),
-              if (wide) Flexible(child: rows) else rows,
-              const SizedBox(height: 8),
-              OutlinedButton.icon(
-                onPressed: () => _toggle(_kAdd),
-                icon: const Icon(Icons.add),
-                label: Text(context.l10n.addEndpoint),
-              ),
-            ],
+            ),
           ),
-        ),
+          const SizedBox(height: 12),
+          Card(
+            margin: EdgeInsets.zero,
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    context.l10n.planMenuPreview,
+                    style: context.texts.titleSmall,
+                  ),
+                  AssistantModelDropdown(onManage: _toggle),
+                ],
+              ),
+            ),
+          ),
+        ],
       );
     }
 
-    final editor = Card(
-      margin: EdgeInsets.zero,
-      clipBehavior: Clip.antiAlias,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 12, 12, 12),
-            child: Row(
+    final editor = _open == planHubId
+        ? const PlanAccountsPanel(embedded: true)
+        : Card(
+            margin: EdgeInsets.zero,
+            clipBehavior: Clip.antiAlias,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                if (scratch)
-                  Icon(Icons.add_link, color: context.scheme.primary)
-                else
-                  _ProviderMark(
-                    source.customService ? null : source.preset?.label,
-                    size: 28,
-                  ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    source?.displayName ?? context.l10n.addEndpoint,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: context.texts.titleLarge,
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 12, 12, 12),
+                  child: Row(
+                    children: [
+                      if (scratch)
+                        Icon(Icons.add_link, color: context.scheme.primary)
+                      else
+                        _ProviderMark(
+                          source.customService ? null : source.preset?.label,
+                          size: 28,
+                        ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          source?.displayName ?? context.l10n.addEndpoint,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: context.texts.titleLarge,
+                        ),
+                      ),
+                      if (source != null) ...[
+                        Tooltip(
+                          message: source.enabled
+                              ? context.l10n.disable
+                              : context.l10n.enable,
+                          child: Switch(
+                            value: source.enabled,
+                            onChanged: _pending.contains(source.id)
+                                ? null
+                                : (v) => _setEnabled(source, v),
+                          ),
+                        ),
+                        IconButton(
+                          onPressed: () => _delete(source),
+                          tooltip: context.l10n.delete,
+                          icon: const Icon(Icons.delete_outline),
+                        ),
+                      ],
+                    ],
                   ),
                 ),
-                if (source != null) ...[
-                  Tooltip(
-                    message: source.enabled
-                        ? context.l10n.disable
-                        : context.l10n.enable,
-                    child: Switch(
-                      value: source.enabled,
-                      onChanged: _pending.contains(source.id)
-                          ? null
-                          : (v) => _setEnabled(source, v),
-                    ),
-                  ),
-                  IconButton(
-                    onPressed: () => _delete(source),
-                    tooltip: context.l10n.delete,
-                    icon: const Icon(Icons.delete_outline),
-                  ),
-                ],
+                const Divider(height: 1),
+                _form(source),
               ],
             ),
-          ),
-          const Divider(height: 1),
-          _form(source),
-        ],
-      ),
-    );
+          );
 
     return PopScope(
       canPop: !_dirty,
@@ -298,7 +355,7 @@ class _EndpointsPageState extends ConsumerState<EndpointsPage> {
         Navigator.of(context).pop();
       },
       child: Scaffold(
-        appBar: AppBar(title: Text(context.l10n.myEndpoints)),
+        appBar: AppBar(title: Text(context.l10n.planHub)),
         body: saved.hasError
             ? Center(
                 child: TextButton.icon(
@@ -316,11 +373,7 @@ class _EndpointsPageState extends ConsumerState<EndpointsPage> {
                   if (bounds.maxWidth < 760) {
                     return ListView(
                       padding: const EdgeInsets.all(12),
-                      children: [
-                        library(false),
-                        const SizedBox(height: 12),
-                        editor,
-                      ],
+                      children: [library(), const SizedBox(height: 12), editor],
                     );
                   }
                   return Align(
@@ -334,7 +387,7 @@ class _EndpointsPageState extends ConsumerState<EndpointsPage> {
                           children: [
                             SizedBox(
                               width: bounds.maxWidth < 1000 ? 230 : 280,
-                              child: library(true),
+                              child: SingleChildScrollView(child: library()),
                             ),
                             const SizedBox(width: 18),
                             Expanded(
@@ -409,13 +462,22 @@ class _EndpointFormState extends ConsumerState<_EndpointForm> {
   late final _name = TextEditingController(text: _src?.name ?? '');
   late final _base = TextEditingController(text: _src?.effectiveBase ?? '');
   final _baseFocus = FocusNode();
+  final _keyFocus = FocusNode(), _headersFocus = FocusNode();
   late final _key = TextEditingController(text: _src?.apiKey ?? '');
   late EndpointRoute _wire = _src?.route ?? EndpointRoute.chat;
   late final _path = TextEditingController(
     text: (_src?.apiPath ?? '').isEmpty ? _wire.path : _src!.apiPath,
   );
-  Map<String, EndpointModelKind>? _catalog;
+  Map<String, CatalogModel>? _catalog;
+  final _assignments = <String, Map<String, EndpointModelKind>>{};
+  Map<String, EndpointModelKind> get _overrides => _assignments.putIfAbsent(
+    normalizeEndpointBase(_base.text.trim(), _format),
+    () => {},
+  );
   String? _catalogConfig;
+  String? _attemptedCatalog;
+  final _fetches = <String, Future<Map<String, CatalogModel>>>{};
+  DateTime? _catalogTime;
   bool _saving = false;
   bool _switching = false;
   final _drafts = <String, CustomEndpoint>{};
@@ -456,15 +518,12 @@ class _EndpointFormState extends ConsumerState<_EndpointForm> {
   List<String> get _allModels => _withPending(_models, _modelInput);
 
   /// 服务商决定是否提供出图。自定义服务可自行指定出图模型。
-  bool get _offersImages => _preset?.offersImages ?? true;
+  bool get _offersImages =>
+      (_preset?.offersImages ?? true) ||
+      _key.text.trim().isNotEmpty ||
+      _imageModels.isNotEmpty;
   String get _catalogKey =>
       jsonEncode([_base.text, _path.text, _key.text, _headers.text]);
-  bool get _showImages =>
-      !_offersImages ||
-      _custom ||
-      _catalogConfig != _catalogKey ||
-      _catalog!.containsValue(EndpointModelKind.image) ||
-      _allImageModels.isNotEmpty;
 
   List<String> get _allImageModels =>
       !_offersImages ? const [] : _withPending(_imageModels, _imageInput);
@@ -494,11 +553,64 @@ class _EndpointFormState extends ConsumerState<_EndpointForm> {
   @override
   void initState() {
     super.initState();
+    _overrides.addAll(_src?.modelOverrides ?? {});
     _snap = _texts();
     _initial = _fingerprint();
     for (final c in _fields) {
       c.addListener(_onEdit);
     }
+    for (final node in [_baseFocus, _keyFocus, _headersFocus]) {
+      node.addListener(_catalogFocusChanged);
+    }
+    if (_src != null) {
+      WidgetsBinding.instance.addPostFrameCallback(
+        (_) => _catalogFocusChanged(),
+      );
+    }
+  }
+
+  void _catalogFocusChanged() {
+    if (!mounted ||
+        [_baseFocus, _keyFocus, _headersFocus].any((n) => n.hasFocus)) {
+      return;
+    }
+    if (_attemptedCatalog == _catalogKey ||
+        _address == null ||
+        !_draft().hasCredentials ||
+        parseHeaderLines(_headers.text).bad != null) {
+      return;
+    }
+    _attemptedCatalog = _catalogKey;
+    unawaited(
+      _loadCatalog().then<void>((_) {}, onError: (Object _, StackTrace _) {}),
+    );
+  }
+
+  Future<Map<String, CatalogModel>> _loadCatalog() {
+    final config = _catalogKey;
+    if (_catalogConfig == config &&
+        _catalogTime != null &&
+        DateTime.now().difference(_catalogTime!) < const Duration(minutes: 5)) {
+      return Future.value(_catalog!);
+    }
+    return _fetches.putIfAbsent(
+      config,
+      () => ref
+          .read(endpointDiscoveryProvider)(_draft())
+          .then((values) {
+            if (mounted && _catalogKey == config) {
+              setState(() {
+                _catalogConfig = config;
+                _catalog = values;
+                _catalogTime = DateTime.now();
+              });
+            }
+            return values;
+          })
+          .whenComplete(() {
+            _fetches.remove(config);
+          }),
+    );
   }
 
   String _snap = '';
@@ -533,12 +645,32 @@ class _EndpointFormState extends ConsumerState<_EndpointForm> {
         ..removeListener(_onEdit)
         ..dispose();
     }
-    _baseFocus.dispose();
+    for (final node in [_baseFocus, _keyFocus, _headersFocus]) {
+      node.removeListener(_catalogFocusChanged);
+      node.dispose();
+    }
     super.dispose();
   }
 
   CustomEndpoint _draft() {
     final models = _allModels;
+    final images = _allImageModels;
+    final overrides = Map.of(_overrides);
+    for (final id in [_modelInput.text.trim(), _imageInput.text.trim()]) {
+      if (id.isEmpty ||
+          (_discoveredKind(id) ?? EndpointModelKind.unknown) !=
+              EndpointModelKind.unknown) {
+        continue;
+      }
+      overrides.putIfAbsent(
+        id,
+        () => models.contains(id) && images.contains(id)
+            ? EndpointModelKind.chatAndImage
+            : images.contains(id)
+            ? EndpointModelKind.image
+            : EndpointModelKind.chat,
+      );
+    }
     return CustomEndpoint(
       id: _src?.id ?? _newId,
       enabled: _src?.enabled ?? true,
@@ -550,7 +682,8 @@ class _EndpointFormState extends ConsumerState<_EndpointForm> {
       apiKey: _key.text.trim(),
       model: models.firstOrNull ?? '',
       models: models,
-      imageModels: _allImageModels,
+      imageModels: images,
+      modelOverrides: overrides,
       apiPath: _path.text.trim(),
       headers: parseHeaderLines(_headers.text).headers,
     );
@@ -587,8 +720,7 @@ class _EndpointFormState extends ConsumerState<_EndpointForm> {
     if (!draft.hasCredentials) return context.l10n.noApiKeyYet;
     if (needModel &&
         (_allModels.any((m) => !_acceptModel(m, false)) ||
-            _allImageModels.any((m) => !_acceptModel(m, true)) ||
-            _allModels.any(_allImageModels.contains))) {
+            _allImageModels.any((m) => !_acceptModel(m, true)))) {
       return context.l10n.endpointModelTypeMismatch;
     }
     // 只填出图模型的也行:这个接口只拿来生成图片
@@ -636,18 +768,19 @@ class _EndpointFormState extends ConsumerState<_EndpointForm> {
     });
     _switching = false;
     _changed();
+    _catalogFocusChanged();
   }
 
   bool _acceptModel(String id, bool image) {
-    final kind =
-        (_catalogConfig == _catalogKey ? (_catalog?[id]) : null) ??
-        (_src?.imageModels.contains(id) == true
-            ? EndpointModelKind.image
-            : _src?.allModels.contains(id) == true
-            ? EndpointModelKind.chat
-            : modelKind(id));
-    return kind == EndpointModelKind.unknown ||
-        kind == (image ? EndpointModelKind.image : EndpointModelKind.chat);
+    final kind = _overrides[id] ?? _discoveredKind(id);
+    return kind == null ||
+        kind == EndpointModelKind.unknown ||
+        kind.supports(image);
+  }
+
+  EndpointModelKind? _discoveredKind(String id) {
+    if (_catalogConfig != _catalogKey) return null;
+    return _catalog?[id]?.kind;
   }
 
   /// [image] = 出图模型那一格,否则对话模型。
@@ -663,13 +796,21 @@ class _EndpointFormState extends ConsumerState<_EndpointForm> {
     final input = _inputOf(image);
     final m = input.text.trim();
     if (m.isEmpty) return;
-    if (!_acceptModel(m, image) || _listOf(!image).contains(m)) {
+    if (!_acceptModel(m, image)) {
       return _fail(context.l10n.endpointModelTypeMismatch);
     }
     Haptics.selection();
     setState(() {
       final list = _listOf(image);
       if (!list.contains(m)) _setList(image, [...list, m]);
+      if (_discoveredKind(m) == null ||
+          _discoveredKind(m) == EndpointModelKind.unknown) {
+        _overrides[m] = _listOf(!image).contains(m)
+            ? EndpointModelKind.chatAndImage
+            : image
+            ? EndpointModelKind.image
+            : EndpointModelKind.chat;
+      }
     });
     input.clear();
     _changed();
@@ -709,7 +850,13 @@ class _EndpointFormState extends ConsumerState<_EndpointForm> {
   /// 拉模型列表多选。列表里勾掉的移出去,手填的(列表里没有的)留着。
   Future<void> _pickModels({bool image = false}) async {
     if (image && !_offersImages) {
-      await _showModelPicker(context, const [], const {});
+      await showCatalogModelPicker(
+        context,
+        const {},
+        const {},
+        const {},
+        image,
+      );
       return;
     }
     final miss = _missing(needModel: false);
@@ -720,26 +867,10 @@ class _EndpointFormState extends ConsumerState<_EndpointForm> {
     });
     final draft = _draft();
     final config = _catalogKey;
-    List<String> listed;
+    Map<String, CatalogModel> catalog;
     try {
-      final catalog = _catalogConfig == config && _catalog != null
-          ? _catalog!
-          : await llmProviderFor(draft).modelCatalog();
+      catalog = await _loadCatalog();
       if (!mounted || config != _catalogKey) return;
-      _catalog = catalog;
-      _catalogConfig = config;
-      listed = [
-        for (final entry in catalog.entries)
-          if (!_listOf(!image).contains(entry.key) &&
-              (entry.value ==
-                      (image
-                          ? EndpointModelKind.image
-                          : EndpointModelKind.chat) ||
-                  (entry.value == EndpointModelKind.unknown &&
-                      (!image || _imageModels.contains(entry.key)))))
-            entry.key,
-      ];
-      if (listed.isEmpty) return _fail(context.l10n.noModelsInGroup);
     } catch (e) {
       if (mounted) _fail(draft.redactSecrets('$e'));
       return;
@@ -748,15 +879,33 @@ class _EndpointFormState extends ConsumerState<_EndpointForm> {
     }
     if (!mounted) return;
     final current = _listOf(image);
-    final picked = await _showModelPicker(context, listed, current.toSet());
+    final picked = await showCatalogModelPicker(
+      context,
+      catalog,
+      current.toSet(),
+      _overrides,
+      image,
+    );
     if (picked == null || !mounted || config != _catalogKey) return;
     setState(() {
-      _setList(image, [
-        for (final m in current)
-          if (picked.contains(m) || !listed.contains(m)) m,
-        for (final m in listed)
-          if (picked.contains(m) && !current.contains(m)) m,
-      ]);
+      final changes = picked.overrides;
+      final other = _listOf(!image).toSet();
+      for (final entry in catalog.entries) {
+        if (_overrides[entry.key] == changes[entry.key]) continue;
+        final kind = changes[entry.key] ?? entry.value.kind;
+        if (kind == EndpointModelKind.unknown) continue;
+        if (!kind.supports(!image)) other.remove(entry.key);
+        if (current.contains(entry.key) &&
+            !kind.supports(image) &&
+            kind.supports(!image)) {
+          other.add(entry.key);
+        }
+      }
+      _setList(!image, other.toList());
+      _setList(image, picked.selected.toList());
+      _overrides
+        ..clear()
+        ..addAll(changes);
     });
     _changed();
   }
@@ -920,6 +1069,7 @@ class _EndpointFormState extends ConsumerState<_EndpointForm> {
               'Key',
               _field(
                 _key,
+                focus: _keyFocus,
                 obscure: _obscureKey,
                 keyboard: TextInputType.visiblePassword,
                 suffix: Row(
@@ -957,9 +1107,7 @@ class _EndpointFormState extends ConsumerState<_EndpointForm> {
           ),
           _pair(
             _modelsRow(context.l10n.chatModelField),
-            _showImages
-                ? _modelsRow(context.l10n.imageModelField, image: true)
-                : null,
+            _modelsRow(context.l10n.imageModelField, image: true),
           ),
           _advancedHeader(),
           AnimatedSize(
@@ -975,6 +1123,7 @@ class _EndpointFormState extends ConsumerState<_EndpointForm> {
                         context.l10n.headersField,
                         _field(
                           _headers,
+                          focus: _headersFocus,
                           hint: context.l10n.headersHint,
                           multiline: true,
                         ),
@@ -1274,126 +1423,6 @@ class _EndpointFormState extends ConsumerState<_EndpointForm> {
       ),
       contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
       suffixIcon: suffix,
-    );
-  }
-}
-
-/// 模型列表多选。条数可能上百,给个搜索框。[selected] 是已经加上的,返回勾完的全部;
-/// 关掉返回 null。
-Future<Set<String>?> _showModelPicker(
-  BuildContext context,
-  List<String> models,
-  Set<String> selected,
-) => showModalBottomSheet<Set<String>>(
-  context: context,
-  isScrollControlled: true,
-  builder: (_) => _ModelPicker(models: models, selected: selected),
-);
-
-class _ModelPicker extends StatefulWidget {
-  const _ModelPicker({required this.models, required this.selected});
-
-  final List<String> models;
-  final Set<String> selected;
-
-  @override
-  State<_ModelPicker> createState() => _ModelPickerState();
-}
-
-class _ModelPickerState extends State<_ModelPicker> {
-  String _q = '';
-  late final Set<String> _on = {...widget.selected};
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = context.scheme;
-    final q = _q.trim().toLowerCase();
-    final list = [
-      for (final m in widget.models)
-        if (q.isEmpty || m.toLowerCase().contains(q)) m,
-    ];
-    return SafeArea(
-      child: Padding(
-        padding: EdgeInsets.only(
-          bottom: MediaQuery.viewInsetsOf(context).bottom,
-        ),
-        child: ConstrainedBox(
-          constraints: BoxConstraints(
-            maxHeight: MediaQuery.sizeOf(context).height * .8,
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (widget.models.isEmpty)
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 24, 20, 16),
-                  child: Text(
-                    context.l10n.noImageModelsAvailable,
-                    style: context.texts.bodyMedium,
-                  ),
-                )
-              else ...[
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 2, 20, 8),
-                  child: TextField(
-                    onChanged: (v) => setState(() => _q = v),
-                    decoration: InputDecoration(
-                      isDense: true,
-                      hintText: context.l10n.searchNModels(
-                        widget.models.length,
-                      ),
-                      prefixIcon: const Icon(Icons.search, size: 20),
-                      border: const OutlineInputBorder(),
-                    ),
-                  ),
-                ),
-                Flexible(
-                  child: ListView.builder(
-                    itemCount: list.length,
-                    itemBuilder: (context, i) {
-                      final m = list[i];
-                      final on = _on.contains(m);
-                      return CheckboxListTile(
-                        dense: true,
-                        value: on,
-                        controlAffinity: ListTileControlAffinity.trailing,
-                        title: Text(
-                          m,
-                          style: TextStyle(
-                            fontWeight: on ? FontWeight.w700 : null,
-                            color: on ? scheme.primary : null,
-                          ),
-                        ),
-                        onChanged: (v) => setState(() {
-                          if (v ?? false) {
-                            _on.add(m);
-                          } else {
-                            _on.remove(m);
-                          }
-                        }),
-                      );
-                    },
-                  ),
-                ),
-              ],
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 8, 20, 8),
-                child: SizedBox(
-                  width: double.infinity,
-                  child: FilledButton(
-                    onPressed: () => Navigator.pop(context, _on),
-                    child: Text(
-                      widget.models.isEmpty
-                          ? context.l10n.close
-                          : context.l10n.doneSelectedN(_on.length),
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
     );
   }
 }

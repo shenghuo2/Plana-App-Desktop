@@ -20,6 +20,8 @@ import 'package:plana_app/features/gallery/models.dart';
 import 'package:plana_app/features/gallery/widgets/gallery_export_dialog.dart';
 import 'package:plana_app/features/generate/models.dart';
 
+import 'support/pump_until.dart';
+
 class _DirectoryPicker extends FilePicker {
   String? directory;
   int calls = 0;
@@ -430,8 +432,8 @@ void main() {
         output.listSync().whereType<File>().single.readAsBytesSync(),
         selected.bytes,
       );
+      await pumpUntilComplete(tester, stores.gallery.idle);
       await tester.runAsync(() async {
-        await stores.gallery.idle;
         expect(await stores.gallery.readImage(selected.id), isNull);
         expect(await stores.gallery.readImage(unselected.id), unselected.bytes);
       });
@@ -495,9 +497,11 @@ void main() {
       final exports = output.listSync().whereType<File>().toList();
       expect(exports, hasLength(1));
       expect(exports.single.readAsBytesSync(), selected.bytes);
+      await pumpUntilComplete(
+        tester,
+        Future.wait([stores.gallery.idle, stores.albums.idle]),
+      );
       await tester.runAsync(() async {
-        await stores.gallery.idle;
-        await stores.albums.idle;
         expect(await stores.gallery.readImage(selected.id), isNull);
         expect(await stores.gallery.readImage(unselected.id), isNull);
         expect(await stores.gallery.readImage(other.id), other.bytes);
@@ -564,9 +568,11 @@ void main() {
       final exports = output.listSync().whereType<File>().toList();
       expect(exports, hasLength(1));
       expect(exports.single.readAsBytesSync(), selected.bytes);
+      await pumpUntilComplete(
+        tester,
+        Future.wait([stores.gallery.idle, stores.albums.idle]),
+      );
       await tester.runAsync(() async {
-        await stores.gallery.idle;
-        await stores.albums.idle;
         expect(await stores.gallery.readImage(selected.id), isNull);
         expect(await stores.gallery.readImage(unselected.id), isNull);
         expect(await blockedPath.exists(), isTrue);

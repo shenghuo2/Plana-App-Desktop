@@ -28,22 +28,40 @@ class PromptBlock {
     required this.text,
     required this.start,
     this.icon,
+    this.libraryText,
     this.character = -1,
     this.negative = false,
   });
   final PromptBlockKind kind;
   final String name, text;
   final String? icon;
+
+  /// The original entry for exact library copies, including its own weights.
+  final String? libraryText;
   final int start, character;
   final bool negative;
 
   String get title => '$name · ${kind.label}';
   String get foldTitle => '${kind.glyph} $title';
 
+  PromptBlock atSpan(int start, String text, {bool? negative}) => PromptBlock(
+    kind: kind,
+    name: name,
+    icon: icon,
+    libraryText: (negative ?? this.negative) == this.negative
+        ? libraryText
+        : null,
+    text: text,
+    start: start,
+    character: character,
+    negative: negative ?? this.negative,
+  );
+
   PromptBlock _withLabel(String name, String? icon) => PromptBlock(
     kind: kind,
     name: name,
     icon: icon,
+    libraryText: name == this.name ? libraryText : null,
     text: text,
     start: start,
     character: character,
@@ -67,6 +85,8 @@ class PromptBlock {
     'name': name,
     'text': text,
     'start': start,
+    if (libraryText case final source?)
+      'libraryText': source == text ? true : source,
     if (character >= 0) 'character': character,
     if (negative) 'negative': true,
   };
@@ -100,6 +120,11 @@ class PromptBlock {
             icon: canonicalTagIconKey(item['icon']),
             text: t,
             start: s,
+            libraryText: switch (item['libraryText']) {
+              true => t,
+              final String source => source,
+              _ => null,
+            },
             character: index,
             negative: item['negative'] == true,
           ),
@@ -114,32 +139,45 @@ class PromptBlock {
       value.length <= 64 &&
       !RegExp(r'[\x00-\x1f<>]').hasMatch(value);
 
-  /// Recover exact library spans and explicitly owned character fields.
-  static List<PromptBlock> fromKnownParts(
-    Map<String, dynamic> draw,
+  /// Only complete library entries qualify, even inside a named character field.
+  static List<PromptBlock> fromLibraryParts(
+    Map<String, dynamic>? draw,
     Map<String, Map<String, String>> resources, {
-    bool recoverSplitLines = false,
+    Map<int, Set<String>> insertedCopies = const {},
   }) {
+    if (draw == null) return [];
+    final chars = draw['characters'];
+    return [
+      ..._libraryField(draw['positive'], -1, resources, insertedCopies[-1]),
+      if (chars is List)
+        for (final (i, c) in chars.indexed)
+          if (c is Map)
+            ..._libraryField(c['positive'], i, resources, insertedCopies[i]),
+    ];
+  }
+
+  static List<PromptBlock> _libraryField(
+    Object? positive,
+    int character,
+    Map<String, Map<String, String>> resources, [
+    Set<String>? inserted,
+  ]) {
+    if (positive is! String || positive.isEmpty) return [];
     final blocks = <PromptBlock>[];
-    final positive = draw['positive'] is String
-        ? draw['positive'] as String
-        : '';
-    final leftEdge = RegExp(r'(?:^|[,，\n])\s*$');
-    final rightEdge = RegExp(r'^\s*(?:$|[,，\n])');
     for (final (key, kind) in [
       ('artist', PromptBlockKind.style),
       ('oc', PromptBlockKind.character),
     ]) {
       for (final e in (resources[key] ?? const <String, String>{}).entries) {
-        final body = e.value.trim();
+        final body = e.value.replaceAll(_libraryDelimiters, '');
         if (body.isEmpty || !_validName(e.key)) continue;
-        final at = positive.indexOf(body);
-        if (at < 0 ||
-            positive.indexOf(body, at + 1) >= 0 ||
-            !leftEdge.hasMatch(positive.substring(0, at)) ||
-            !rightEdge.hasMatch(positive.substring(at + body.length))) {
-          continue;
-        }
+        final span = _librarySpans(
+          positive,
+          body,
+          inserted?.contains(e.value) == true,
+        ).singleOrNull;
+        if (span == null) continue;
+        final (at, end) = span;
         blocks.add(
           PromptBlock(
             kind: kind,
@@ -147,8 +185,10 @@ class PromptBlock {
             icon: kind == PromptBlockKind.style
                 ? 'Brush'
                 : _matchingIcon(_words(body), _characterIcons),
-            text: body,
+            text: positive.substring(at, end),
+            libraryText: e.value,
             start: at,
+            character: character,
           ),
         );
       }
@@ -164,6 +204,61 @@ class PromptBlock {
       result.add(block);
       end = block.start + block.text.length;
     }
+    return result;
+  }
+
+  static final _libraryDelimiters = RegExp(r'^[,，\s]+|[,，\s]+$');
+  static final _leftTagEdge = RegExp(r'(?:^|[,，\n])\s*$');
+  static final _rightTagEdge = RegExp(r'^\s*(?:$|[,，\n])');
+  static final _outerWeight = RegExp(r'-?(?:\d+(?:\.\d+)?|\.\d+)::$');
+
+  static Iterable<(int, int)> _librarySpans(
+    String field,
+    String body,
+    bool inserted,
+  ) sync* {
+    // Expanding a token is verbatim. An older server may instead return the
+    // same tags with spaces around its commas. Keep the actual field offsets.
+    final terms = body.split(RegExp(r'\s*[,，]\s*'));
+    final Pattern pattern = terms.length == 1
+        ? body
+        : RegExp(terms.map(RegExp.escape).join(r'\s*[,，]\s*'));
+    for (final match in pattern.allMatches(field)) {
+      var a = match.start, b = match.end;
+      while (a > 0 && b < field.length) {
+        final left = field.substring(0, a).trimRight();
+        final right = field.substring(b).trimLeft();
+        if (left.endsWith('{') && right.startsWith('}') ||
+            left.endsWith('[') && right.startsWith(']')) {
+          a = left.length - 1;
+          b = field.length - right.length + 1;
+        } else {
+          final open = right.startsWith('::')
+              ? _outerWeight.firstMatch(left)
+              : null;
+          if (open == null) break;
+          a = open.start;
+          b = field.length - right.length + 2;
+        }
+      }
+      if (inserted && match.group(0) == body ||
+          _leftTagEdge.hasMatch(field.substring(0, a)) &&
+              _rightTagEdge.hasMatch(field.substring(b))) {
+        yield (a, b);
+      }
+    }
+  }
+
+  /// Semantic presets can also recover unlabelled lines and whole character fields.
+  static List<PromptBlock> fromKnownParts(
+    Map<String, dynamic> draw,
+    Map<String, Map<String, String>> resources, {
+    bool recoverSplitLines = false,
+  }) {
+    final positive = draw['positive'] is String
+        ? draw['positive'] as String
+        : '';
+    final result = _libraryField(positive, -1, resources);
     final chars = draw['characters'];
     if (recoverSplitLines) {
       result.addAll(

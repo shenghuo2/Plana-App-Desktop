@@ -21,13 +21,13 @@ import '../../../core/util/haptics.dart';
 import '../../generate/generate_state.dart' show generateProvider;
 import '../../generate/prompt_sections.dart' show SectionImport;
 import '../../generate/widgets/common.dart' show dropFocusSoon, hintSnack;
-import '../agent_model.dart'
-    show assistantBotAuthorizedProvider, assistantEndpointProvider;
+import '../agent_model.dart' show assistantBotAuthorizedProvider;
 import '../assistant_settings.dart';
 import '../assistant_state.dart';
 import '../preset_rules.dart';
 import '../rules_page.dart';
 import 'desktop_settings_dropdown.dart';
+import 'library_scope_picker.dart';
 
 Future<void> showAssistantSettings(BuildContext context) async {
   if (ProviderScope.containerOf(
@@ -294,6 +294,17 @@ class _DesktopSettingsPanel extends ConsumerWidget {
                                         ),
                                       ),
                                     ]),
+                                    section('OC 引用', [
+                                      SettingRow(
+                                        icon: Icons.person_outline,
+                                        title: l10nNow.ocPlaceholder,
+                                        desc: l10nNow.ocPlaceholderDesc,
+                                        value: s.ocPlaceholders,
+                                        onChanged: (v) => n.patch(
+                                          (o) => o.copyWith(ocPlaceholders: v),
+                                        ),
+                                      ),
+                                    ]),
                                     section('对话记忆', [
                                       ..._retrySettings(context, s, n),
                                       SettingStepperRow(
@@ -393,32 +404,12 @@ class _DesktopSettingsPanel extends ConsumerWidget {
                                               ),
                                             ),
                                             const SizedBox(height: 12),
-                                            DesktopSettingsDropdown<
-                                              LibraryScope
-                                            >(
-                                              id: 'assistant-library-dropdown',
-                                              label: l10nNow.libraryScope,
-                                              value: effectiveLibraryScope(
-                                                s.libraryScope,
-                                                botAuthorized: authorized,
-                                              ),
-                                              options: LibraryScope.values,
-                                              labelOf: libraryScopeLabel,
-                                              optionEnabled: (scope) =>
-                                                  libraryScopeAllowed(
-                                                    scope,
-                                                    botAuthorized: authorized,
-                                                  ),
-                                              optionNote: (scope) =>
-                                                  libraryScopeAllowed(
-                                                    scope,
-                                                    botAuthorized: authorized,
-                                                  )
-                                                  ? null
-                                                  : '需要 Bot 授权',
-                                              onChanged: (scope) => n.patch(
+                                            LibraryScopePicker(
+                                              selection: s.libraries,
+                                              botAuthorized: authorized,
+                                              onChanged: (v) => n.patch(
                                                 (o) => o.copyWith(
-                                                  libraryScope: scope,
+                                                  sourceSelection: v,
                                                 ),
                                               ),
                                             ),
@@ -559,7 +550,6 @@ class _SettingsSheet extends ConsumerWidget {
     final s = ref.watch(assistantSettingsProvider).value;
     final n = ref.read(assistantSettingsProvider.notifier);
     final authorized = ref.watch(assistantBotAuthorizedProvider);
-    final customEndpoint = ref.watch(assistantEndpointProvider) != null;
     return SettingSheet(
       title: l10nNow.assistantSettings,
       children: [
@@ -647,31 +637,19 @@ class _SettingsSheet extends ConsumerWidget {
                 n.patch((o) => o.copyWith(historyTurns: v.round())),
           ),
           settingSection(context, l10nNow.settingLibrary),
-          SettingChoiceRow<LibraryScope>(
-            icon: Icons.library_books_outlined,
-            title: l10nNow.libraryScope,
-            desc: '查询画师串与角色时使用的资料来源',
-            value: effectiveLibraryScope(
-              s.libraryScope,
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+            child: LibraryScopePicker(
+              selection: s.libraries,
               botAuthorized: authorized,
+              onChanged: (v) => n.patch((o) => o.copyWith(sourceSelection: v)),
             ),
-            options: LibraryScope.values,
-            labelOf: libraryScopeLabel,
-            optionEnabled: (o) =>
-                libraryScopeAllowed(o, botAuthorized: authorized),
-            optionNote: (o) => libraryScopeAllowed(o, botAuthorized: authorized)
-                ? libraryScopeDesc(o)
-                : '需要 Bot 授权',
-            onChanged: (v) => n.patch((o) => o.copyWith(libraryScope: v)),
           ),
           SettingRow(
             icon: Icons.person_outline,
             title: l10nNow.ocPlaceholder,
-            desc: customEndpoint
-                ? '本地与公共 OC 只给 AI 占位符，出图时还原；调整原设时请关闭'
-                : '仅自定义接口渠道可用',
-            value: customEndpoint && s.ocPlaceholders,
-            enabled: customEndpoint,
+            desc: l10nNow.ocPlaceholderDesc,
+            value: s.ocPlaceholders,
             onChanged: (v) => n.patch((o) => o.copyWith(ocPlaceholders: v)),
           ),
           settingSection(context, l10nNow.settingRules),
@@ -757,6 +735,14 @@ List<Widget> _retrySettings(
       step: 1,
       format: (v) => v.toInt().toString(),
       onChanged: (v) => n.patch((old) => old.copyWith(retries: v.toInt())),
+    ),
+    SettingRow(
+      icon: Icons.hide_image_outlined,
+      title: l.retryStripImage,
+      desc: l.retryStripImageDesc,
+      enabled: s.retries > 0,
+      value: s.retryStripImage,
+      onChanged: (v) => n.patch((old) => old.copyWith(retryStripImage: v)),
     ),
     SettingStepperRow(
       icon: Icons.replay,

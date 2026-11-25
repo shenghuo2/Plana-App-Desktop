@@ -376,7 +376,7 @@ class _SaveDefaultsCard extends ConsumerWidget {
           ),
         if (s.format != SaveFormat.jpg && s.meta == SaveMeta.custom)
           if (ref.watch(desktopModeProvider))
-            const MetadataToolLink()
+            const SettingsRowTextTheme(child: MetadataToolLink())
           else
             _PromptRow(
               prompt: s.customPrompt,

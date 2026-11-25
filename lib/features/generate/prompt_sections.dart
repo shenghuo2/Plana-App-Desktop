@@ -181,6 +181,7 @@ GenerateState importPromptsInto(
   String sectionName = '',
   String fallbackName = 'AI',
   bool allowEditNegative = true,
+  bool clearNegative = false,
   PromptImportBinding binding = const PromptImportBinding(),
   void Function(PromptImportBinding)? onBinding,
   ImportBlockDecorator? decorate,
@@ -198,7 +199,9 @@ GenerateState importPromptsInto(
       : s.sections.where((r) => r.id != target.id).toList();
   final writeNeg =
       allowEditNegative &&
-      (negative.trim().isNotEmpty || mode == SectionImport.clear);
+      (negative.trim().isNotEmpty ||
+          clearNegative ||
+          mode == SectionImport.clear);
   final mainPos = pickEditorText(s.promptRaw, s.prompt);
   final mainNeg = pickEditorText(s.negativePromptRaw, s.negativePrompt);
   final posSlot = append
@@ -330,13 +333,6 @@ GenerateState _appendMainImport(
   PromptImportBinding binding,
   void Function(PromptImportBinding)? onBinding,
 ) {
-  final (rawPos, nextPos) = positiveSlot.insert(
-    pickEditorText(row.positiveRaw, row.positive),
-    [
-      for (final link in row.foldLinks)
-        if (link.positiveName.isNotEmpty) link.id,
-    ],
-  );
   final mainNeg = pickEditorText(state.negativePromptRaw, state.negativePrompt);
   final (rawNeg, nextNeg) =
       negativeSlot?.insert(pickEditorText(row.negativeRaw, row.negative), [
@@ -360,6 +356,44 @@ GenerateState _appendMainImport(
         link.copyWith(negativeName: '', negativeBody: ''),
       ],
   ]);
+  final placed = [...row.foldLinks];
+  if (negativeSlot == null && singles.isNotEmpty) {
+    // The canvas negative was omitted. Keep its link ID when the same
+    // conversation replaces the other half of this exact named pair.
+    final ownedPairs = state.promptFoldLinks.where(
+      (l) =>
+          l.paired &&
+          binding.positive?.linkIds.contains(l.id) == true &&
+          binding.negative?.linkIds.contains(l.id) == true,
+    );
+    for (var i = 0; i < placed.length; i++) {
+      final fresh = placed[i];
+      if (fresh.paired || fresh.temporaryCategory == null) continue;
+      final old = ownedPairs
+          .where(
+            (l) =>
+                l.positiveName == fresh.positiveName &&
+                l.temporaryCategory == fresh.temporaryCategory,
+          )
+          .singleOrNull;
+      final kept = singles
+          .where((s) => s.id == old?.id && s.negativeName.isNotEmpty)
+          .singleOrNull;
+      if (kept == null) continue;
+      placed[i] = kept.copyWith(
+        positiveName: fresh.positiveName,
+        positiveBody: fresh.positiveBody,
+      );
+      singles.remove(kept);
+    }
+  }
+  final (rawPos, nextPos) = positiveSlot.insert(
+    pickEditorText(row.positiveRaw, row.positive),
+    [
+      for (final link in placed)
+        if (link.positiveName.isNotEmpty) link.id,
+    ],
+  );
   onBinding?.call(
     PromptImportBinding(
       sectionId: binding.sectionId,
@@ -377,7 +411,7 @@ GenerateState _appendMainImport(
     negativePromptRaw: rawNeg == mainNeg
         ? state.negativePromptRaw
         : draftOf(rawNeg, neg),
-    promptFoldLinks: [...surviving, ...singles, ...row.foldLinks],
+    promptFoldLinks: [...surviving, ...singles, ...placed],
     sections: withMainRow(state.sections, pos),
   );
 }

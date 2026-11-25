@@ -93,7 +93,7 @@ void main() {
         publicTagsProvider.overrideWith((ref, cat) async => []),
         tagAuthorNamesProvider.overrideWith((ref) async => {}),
         codexIntroProvider.overrideWith(_Acknowledged.new),
-        codexIndexProvider.overrideWith((ref) async {
+        codexIndexProvider.overrideWithBuild((ref, _) async {
           indexLoads++;
           return [styles, scenes];
         }),

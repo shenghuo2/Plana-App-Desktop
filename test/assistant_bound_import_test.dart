@@ -130,6 +130,17 @@ void main() {
       expect(s.negativePrompt, 'fixed, AI exclusion');
       expect(s.promptFoldLinks.single.paired, true);
       final firstNegative = s.negativePromptRaw;
+      final firstId = s.promptFoldLinks.single.id;
+      s = write(
+        s,
+        proposal('池边', '月光', 'moonlight, stars', negative: ''),
+        allowNeg: true,
+      );
+      expect(s.negativePromptRaw, firstNegative);
+      expect(s.promptFoldLinks.single.paired, true);
+      expect(s.promptFoldLinks.single.id, firstId);
+      expect(binding.positive?.linkIds, [firstId]);
+      expect(binding.negative?.linkIds, [firstId]);
       final edited = '<#前缀: dawn#>, ${s.promptRaw}, <#后缀: flowers#>';
       s = s.copyWith(prompt: outputOf(edited), promptRaw: edited);
       binding = PromptImportBinding.fromJson(binding.toJson());

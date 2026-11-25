@@ -250,10 +250,13 @@ class VibeItem {
 enum CharRefMode {
   character('character'),
   style('style'),
-  both('character&style');
+  both('character&style'),
+  outfit('costume');
 
   const CharRefMode(this.api);
   final String api;
+  bool get hasOutfitPreference =>
+      this == CharRefMode.character || this == CharRefMode.both;
 }
 
 class CharRefItem {
@@ -262,16 +265,33 @@ class CharRefItem {
     this.name = '',
     this.enabled = true,
     this.mode = CharRefMode.both,
+    bool? preferSameOutfit,
     this.strength = 1.0,
     this.infoExtracted = 1.0,
     this.image,
     this.imageHash,
-  });
+  }) : preferSameOutfit = preferSameOutfit ?? mode == CharRefMode.both;
 
   final String id;
   final String name;
   final bool enabled;
   final CharRefMode mode;
+  final bool preferSameOutfit;
+
+  String captionFor(String model) {
+    if (isNai5Model(model)) {
+      if (mode == CharRefMode.character && preferSameOutfit) {
+        return 'character_mainoutfit';
+      }
+      if (mode == CharRefMode.both && !preferSameOutfit) {
+        return 'character&style_anyoutfit';
+      }
+    }
+    return mode.api;
+  }
+
+  double strengthFor(String model) =>
+      strength.clamp(0.0, isNai5Model(model) ? 5.0 : 1.0);
   final double strength;
 
   /// UI 上的「保真度 Fidelity」;载荷 secondary_strength = 1 - infoExtracted。
@@ -283,6 +303,7 @@ class CharRefItem {
   CharRefItem copyWith({
     bool? enabled,
     CharRefMode? mode,
+    bool? preferSameOutfit,
     double? strength,
     double? infoExtracted,
   }) => CharRefItem(
@@ -290,6 +311,9 @@ class CharRefItem {
     name: name,
     enabled: enabled ?? this.enabled,
     mode: mode ?? this.mode,
+    preferSameOutfit:
+        preferSameOutfit ??
+        (mode == null || mode == this.mode ? this.preferSameOutfit : null),
     strength: strength ?? this.strength,
     infoExtracted: infoExtracted ?? this.infoExtracted,
     image: image,
@@ -498,8 +522,8 @@ const models = <String>[
 /// NAI 5 两档(2026-08-20 上线)。**直连 + Bot 双线可用**:直连线 buildNaiPayload
 /// 已支持 V5 载荷(仍用 v4_prompt,仅 params_version 3→4、centers 放开连续),
 /// bot 线载荷由后端 convert 构造 —— 弹层两线都列(top_bar `nai5: true`)。
-/// 已支持:两档、分角色提示词(自由定位)、图生图;角色参考 / Vibe 官方未放出,
-/// 见各自门槛(crSupportsModel / vibeSupportsModel 仍排除 V5)。
+/// 已支持:两档、分角色提示词(自由定位)、图生图、角色参考;Vibe 官方未放出,
+/// 见各自门槛(vibeSupportsModel 仍排除 V5)。
 const nai5Models = <String>[
   'NAI 5.0 Full',
   'NAI 5.0 Full Medium',
@@ -515,10 +539,10 @@ bool isNai5MediumModel(String displayModel) =>
 const kNai5MediumSteps = 14;
 const kNai5MediumSampler = 'Euler Ancestral';
 
-/// 角色参考(Director/Precise Reference)仅 4.5 系模型支持(对齐 web 门槛)。
-/// 载荷构造 / 成本预估 / 卡片提示共用此判定,入参为 UI 展示名。
-/// NAI 5 是否支持官方未公布,预载期按不支持处理(startsWith 天然排除)。
-bool crSupportsModel(String displayModel) => displayModel.startsWith('NAI 4.5');
+/// Both V5 editions support precise reference outside inpainting.
+bool crSupportsModel(String displayModel, {bool inpaint = false}) =>
+    displayModel.startsWith('NAI 4.5') ||
+    (!inpaint && isNai5Model(displayModel));
 
 /// Vibe Transfer 门槛:NAI 5 官方未确认支持(编码接口是否兼容也未知),
 /// 预载期整卡屏蔽 —— 渲染与载荷剥离都走模块可见性,这里一处管住。
@@ -1081,6 +1105,8 @@ class GenParams {
   });
 
   final String model;
+  bool supportsCharRefs({bool inpaint = false}) =>
+      !isNaiMedium && crSupportsModel(model, inpaint: inpaint);
   final int width;
   final int height;
   final int steps;
@@ -1413,6 +1439,14 @@ class GenerateState {
   int get negativeTokens => (negativePrompt.length / 2.2).round().clamp(0, 999);
 
   int get enabledVibes => vibes.where((v) => v.enabled).length;
+  Iterable<CharRefItem> usableCharRefs({bool inpaint = false}) =>
+      params.supportsCharRefs(inpaint: inpaint)
+      ? charRefs.where(
+          (r) =>
+              r.enabled &&
+              (r.mode != CharRefMode.outfit || isNai5Model(params.model)),
+        )
+      : const [];
   int get enabledCharRefs => charRefs.where((r) => r.enabled).length;
   int get enabledLoras => loras.where((l) => l.enabled).length;
 

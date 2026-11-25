@@ -92,6 +92,14 @@ class _RulesPresetDetailPageState extends ConsumerState<RulesPresetDetailPage> {
     final header = Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        if (p != null && !p.isDefault)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: RulesGroupSelector(
+              localOnly: p.localOnly,
+              onChanged: (v) => _replace(p, localOnly: v),
+            ),
+          ),
         SettingsCard(
           children: [
             SettingsRow(
@@ -139,7 +147,11 @@ class _RulesPresetDetailPageState extends ConsumerState<RulesPresetDetailPage> {
                 } else {
                   ref
                       .read(rulesLibraryProvider.notifier)
-                      .use(f, checked ? selfId : null);
+                      .use(
+                        f,
+                        checked ? selfId : null,
+                        supplement: p?.localOnly == true,
+                      );
                 }
               },
             ),
@@ -147,22 +159,22 @@ class _RulesPresetDetailPageState extends ConsumerState<RulesPresetDetailPage> {
         ),
         const SizedBox(height: 16),
         SettingsLabel(l.ruleSectionsLabel),
-        // 首尾各一颗:顶上这颗加在最前;一段都没有时只留底下那颗
-        if (rules.isNotEmpty)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 10),
-            child: _addButton(() => _add(rules, atStart: true)),
-          ),
+        Padding(
+          padding: const EdgeInsets.only(bottom: 10),
+          child: _addButton(() => _add(rules, atStart: true)),
+        ),
       ],
     );
     return ReorderableListView.builder(
       buildDefaultDragHandles: false,
       padding: const EdgeInsets.fromLTRB(14, 8, 14, 24),
       header: header,
-      footer: Padding(
-        padding: const EdgeInsets.only(top: 2),
-        child: _addButton(() => _add(rules)),
-      ),
+      footer: rules.isEmpty
+          ? null
+          : Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: _addButton(() => _add(rules)),
+            ),
       itemCount: rules.length,
       proxyDecorator: (child, _, _) => Material(
         color: Colors.transparent,
@@ -199,6 +211,7 @@ class _RulesPresetDetailPageState extends ConsumerState<RulesPresetDetailPage> {
     Set<RulesFamily>? models,
     List<PresetRule>? rules,
     RulesFamily? enableFor,
+    bool? localOnly,
   }) => ref
       .read(rulesLibraryProvider.notifier)
       .replace(
@@ -207,6 +220,7 @@ class _RulesPresetDetailPageState extends ConsumerState<RulesPresetDetailPage> {
         author: author ?? p.author,
         models: models ?? p.models,
         rules: rules ?? p.rules,
+        localOnly: localOnly ?? p.localOnly,
         insertIfMissing: p.id == widget.draft?.id,
         enableFor: enableFor,
       );
@@ -229,6 +243,7 @@ class _RulesPresetDetailPageState extends ConsumerState<RulesPresetDetailPage> {
     String? name,
     String? author,
     Set<RulesFamily>? models,
+    bool localOnly = false,
   }) async {
     if (_copying) return;
     final err = rulesEditLimitError(rules);
@@ -245,6 +260,7 @@ class _RulesPresetDetailPageState extends ConsumerState<RulesPresetDetailPage> {
         name: name,
         author: author,
         models: models,
+        localOnly: p.localOnly || localOnly,
         rules: rules,
       );
       return;
@@ -265,8 +281,9 @@ class _RulesPresetDetailPageState extends ConsumerState<RulesPresetDetailPage> {
         name: copyName,
         author: author ?? p?.author ?? d!.author,
         models: copyModels,
+        localOnly: localOnly,
         rules: rules,
-        enableFor: lib.activeFor(f)?.id == originalId ? f : null,
+        enableFor: !localOnly && lib.activeFor(f)?.id == originalId ? f : null,
       );
       if (!mounted) return;
       setState(() => _id = newId);
@@ -393,6 +410,7 @@ class _RulesPresetDetailPageState extends ConsumerState<RulesPresetDetailPage> {
             name: name,
             author: p?.author ?? d?.author ?? '',
             models: p?.models ?? {?f},
+            localOnly: p?.localOnly ?? false,
             rules: rules,
           ),
         ),
@@ -404,8 +422,42 @@ class _RulesPresetDetailPageState extends ConsumerState<RulesPresetDetailPage> {
       name: file.name,
       author: file.author,
       models: file.models,
+      localOnly: file.localOnly,
     );
   }
+}
+
+class RulesGroupSelector extends StatelessWidget {
+  const RulesGroupSelector({
+    super.key,
+    required this.localOnly,
+    required this.onChanged,
+  });
+  final bool localOnly;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      SegmentedButton<bool>(
+        segments: [
+          ButtonSegment(value: false, label: Text(context.l10n.rulePresets)),
+          ButtonSegment(value: true, label: Text(context.l10n.rulesLocalGroup)),
+        ],
+        selected: {localOnly},
+        onSelectionChanged: (value) => onChanged(value.single),
+      ),
+      if (localOnly)
+        Padding(
+          padding: const EdgeInsets.only(top: 6),
+          child: Text(
+            context.l10n.rulesLocalOnly,
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+        ),
+    ],
+  );
 }
 
 class _RuleTextDialog extends StatefulWidget {

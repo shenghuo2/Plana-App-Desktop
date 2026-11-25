@@ -100,6 +100,294 @@ abstract class AppLocalizations {
     Locale('zh'),
   ];
 
+  /// No description provided for @downloadWindowsPackage.
+  ///
+  /// In zh, this message translates to:
+  /// **'下载 Windows 版'**
+  String get downloadWindowsPackage;
+
+  /// No description provided for @preciseRefUsesHigh.
+  ///
+  /// In zh, this message translates to:
+  /// **'已切换到 High，以启用精确参考。'**
+  String get preciseRefUsesHigh;
+
+  /// No description provided for @mediumPausesPreciseRefs.
+  ///
+  /// In zh, this message translates to:
+  /// **'Medium 已暂停精确参考。'**
+  String get mediumPausesPreciseRefs;
+
+  /// No description provided for @catalogAll.
+  ///
+  /// In zh, this message translates to:
+  /// **'显示全部类型'**
+  String get catalogAll;
+
+  /// No description provided for @catalogBoth.
+  ///
+  /// In zh, this message translates to:
+  /// **'对话和出图'**
+  String get catalogBoth;
+
+  /// No description provided for @catalogEmbedding.
+  ///
+  /// In zh, this message translates to:
+  /// **'向量嵌入'**
+  String get catalogEmbedding;
+
+  /// No description provided for @catalogTranscription.
+  ///
+  /// In zh, this message translates to:
+  /// **'语音识别'**
+  String get catalogTranscription;
+
+  /// No description provided for @catalogSpeech.
+  ///
+  /// In zh, this message translates to:
+  /// **'语音合成'**
+  String get catalogSpeech;
+
+  /// No description provided for @catalogAuto.
+  ///
+  /// In zh, this message translates to:
+  /// **'恢复自动判断'**
+  String get catalogAuto;
+
+  /// No description provided for @catalogOther.
+  ///
+  /// In zh, this message translates to:
+  /// **'其他用途'**
+  String get catalogOther;
+
+  /// No description provided for @catalogAssign.
+  ///
+  /// In zh, this message translates to:
+  /// **'指定模型用途'**
+  String get catalogAssign;
+
+  /// No description provided for @planHub.
+  ///
+  /// In zh, this message translates to:
+  /// **'接口与订阅'**
+  String get planHub;
+
+  /// No description provided for @planManageHub.
+  ///
+  /// In zh, this message translates to:
+  /// **'管理接口与订阅'**
+  String get planManageHub;
+
+  /// No description provided for @planSources.
+  ///
+  /// In zh, this message translates to:
+  /// **'订阅登录'**
+  String get planSources;
+
+  /// No description provided for @planQuickSwitch.
+  ///
+  /// In zh, this message translates to:
+  /// **'快捷切换订阅账户'**
+  String get planQuickSwitch;
+
+  /// No description provided for @planMenuPreview.
+  ///
+  /// In zh, this message translates to:
+  /// **'助手下拉菜单预览'**
+  String get planMenuPreview;
+
+  /// No description provided for @planWorkspaces.
+  ///
+  /// In zh, this message translates to:
+  /// **'已登录账户与工作区'**
+  String get planWorkspaces;
+
+  /// No description provided for @planActive.
+  ///
+  /// In zh, this message translates to:
+  /// **'当前生效'**
+  String get planActive;
+
+  /// No description provided for @planUsageShort.
+  ///
+  /// In zh, this message translates to:
+  /// **'管理用量'**
+  String get planUsageShort;
+
+  /// No description provided for @planSelectedModels.
+  ///
+  /// In zh, this message translates to:
+  /// **'选择的模型'**
+  String get planSelectedModels;
+
+  /// No description provided for @planNoSelected.
+  ///
+  /// In zh, this message translates to:
+  /// **'点击「重新拉取模型」选择要使用的模型。'**
+  String get planNoSelected;
+
+  /// No description provided for @planNoAccounts.
+  ///
+  /// In zh, this message translates to:
+  /// **'尚未登录订阅账户'**
+  String get planNoAccounts;
+
+  /// No description provided for @planCachedModels.
+  ///
+  /// In zh, this message translates to:
+  /// **'正在使用上次拉取的模型列表'**
+  String get planCachedModels;
+
+  /// No description provided for @planSection.
+  ///
+  /// In zh, this message translates to:
+  /// **'ChatGPT 订阅'**
+  String get planSection;
+
+  /// No description provided for @planLogin.
+  ///
+  /// In zh, this message translates to:
+  /// **'使用 ChatGPT 登录'**
+  String get planLogin;
+
+  /// No description provided for @planManage.
+  ///
+  /// In zh, this message translates to:
+  /// **'管理账户与工作区'**
+  String get planManage;
+
+  /// No description provided for @planAdd.
+  ///
+  /// In zh, this message translates to:
+  /// **'添加账户或工作区'**
+  String get planAdd;
+
+  /// No description provided for @planNotice.
+  ///
+  /// In zh, this message translates to:
+  /// **'使用 ChatGPT 订阅须知'**
+  String get planNotice;
+
+  /// No description provided for @planDisclosure.
+  ///
+  /// In zh, this message translates to:
+  /// **'你将前往 OpenAI 官方登录页，选择账户和工作区并授权 Plana。订阅模型会收到你的消息、对话上下文、附图和主动引用的画布，以及按资料库设置匹配的画风编号和角色参考。符合条件的请求将计入该工作区的套餐或获准使用的点数。登录凭据加密保存在本机，可随时退出并在 ChatGPT 设置中撤销授权。'**
+  String get planDisclosure;
+
+  /// No description provided for @planConduct.
+  ///
+  /// In zh, this message translates to:
+  /// **'请遵守 OpenAI 使用政策和登录条款。请勿使用意图绕过安全限制的预设或提示词。Plana 会把当前启用的绘图规则作为创作参考发给 OpenAI，模型拒答时直接显示原回复。实际出图使用创作页选中的服务。'**
+  String get planConduct;
+
+  /// No description provided for @recoverDrawProposal.
+  ///
+  /// In zh, this message translates to:
+  /// **'识别为绘图方案'**
+  String get recoverDrawProposal;
+
+  /// No description provided for @invalidDrawProposal.
+  ///
+  /// In zh, this message translates to:
+  /// **'这条回复里没有完整的绘图方案。'**
+  String get invalidDrawProposal;
+
+  /// No description provided for @planTerms.
+  ///
+  /// In zh, this message translates to:
+  /// **'登录条款'**
+  String get planTerms;
+
+  /// No description provided for @planPolicy.
+  ///
+  /// In zh, this message translates to:
+  /// **'使用政策'**
+  String get planPolicy;
+
+  /// No description provided for @planConfirm.
+  ///
+  /// In zh, this message translates to:
+  /// **'我已阅读并知悉'**
+  String get planConfirm;
+
+  /// No description provided for @planUsage.
+  ///
+  /// In zh, this message translates to:
+  /// **'管理 ChatGPT 用量'**
+  String get planUsage;
+
+  /// No description provided for @planWaiting.
+  ///
+  /// In zh, this message translates to:
+  /// **'请在浏览器中完成 OpenAI 授权'**
+  String get planWaiting;
+
+  /// No description provided for @planReady.
+  ///
+  /// In zh, this message translates to:
+  /// **'符合条件的助手请求将使用所选 ChatGPT 工作区的额度。可在 ChatGPT 设置中查看或调整用量。'**
+  String get planReady;
+
+  /// No description provided for @planRelogin.
+  ///
+  /// In zh, this message translates to:
+  /// **'重新登录'**
+  String get planRelogin;
+
+  /// No description provided for @planLogout.
+  ///
+  /// In zh, this message translates to:
+  /// **'退出此工作区'**
+  String get planLogout;
+
+  /// No description provided for @planRevocation.
+  ///
+  /// In zh, this message translates to:
+  /// **'本机已退出。远程撤销未获确认，可在 ChatGPT 设置中断开 Plana。'**
+  String get planRevocation;
+
+  /// No description provided for @planEmpty.
+  ///
+  /// In zh, this message translates to:
+  /// **'此工作区未列出可选模型'**
+  String get planEmpty;
+
+  /// No description provided for @planAccountLabel.
+  ///
+  /// In zh, this message translates to:
+  /// **'工作区显示名称'**
+  String get planAccountLabel;
+
+  /// No description provided for @catalogUnknown.
+  ///
+  /// In zh, this message translates to:
+  /// **'未分类 · 勾选以指定用途'**
+  String get catalogUnknown;
+
+  /// No description provided for @catalogAssigned.
+  ///
+  /// In zh, this message translates to:
+  /// **'已手动指定'**
+  String get catalogAssigned;
+
+  /// No description provided for @catalogRemote.
+  ///
+  /// In zh, this message translates to:
+  /// **'服务商声明'**
+  String get catalogRemote;
+
+  /// No description provided for @catalogDirectory.
+  ///
+  /// In zh, this message translates to:
+  /// **'模型目录匹配'**
+  String get catalogDirectory;
+
+  /// No description provided for @catalogRefresh.
+  ///
+  /// In zh, this message translates to:
+  /// **'重新拉取模型'**
+  String get catalogRefresh;
+
   /// No description provided for @language.
   ///
   /// In zh, this message translates to:
@@ -501,6 +789,48 @@ abstract class AppLocalizations {
   /// In zh, this message translates to:
   /// **'风格'**
   String get refStyle;
+
+  /// No description provided for @v5PreciseReference.
+  ///
+  /// In zh, this message translates to:
+  /// **'精确参考'**
+  String get v5PreciseReference;
+
+  /// No description provided for @refOutfit.
+  ///
+  /// In zh, this message translates to:
+  /// **'服装'**
+  String get refOutfit;
+
+  /// No description provided for @refPreferSameOutfit.
+  ///
+  /// In zh, this message translates to:
+  /// **'偏好相同服装'**
+  String get refPreferSameOutfit;
+
+  /// No description provided for @v5ReferenceInpaint.
+  ///
+  /// In zh, this message translates to:
+  /// **'NAI 5 重绘会暂停使用精确参考。'**
+  String get v5ReferenceInpaint;
+
+  /// No description provided for @outfitNeedsV5.
+  ///
+  /// In zh, this message translates to:
+  /// **'服装参考仅在 NAI 5 下生效。'**
+  String get outfitNeedsV5;
+
+  /// No description provided for @rulesLocalGroup.
+  ///
+  /// In zh, this message translates to:
+  /// **'破限'**
+  String get rulesLocalGroup;
+
+  /// No description provided for @rulesLocalOnly.
+  ///
+  /// In zh, this message translates to:
+  /// **'按模型启用后，Plana 渠道和自定义 API 会在普通规则后发送这里的补充说明。Codex、反重力等订阅会跳过此分区。'**
+  String get rulesLocalOnly;
 
   /// No description provided for @refCharacterStyle.
   ///
@@ -1270,6 +1600,150 @@ abstract class AppLocalizations {
   /// **'清空提示词和分区'**
   String get clearPromptAndSections;
 
+  /// No description provided for @inspirationTagMatch.
+  ///
+  /// In zh, this message translates to:
+  /// **'灵感标签匹配'**
+  String get inspirationTagMatch;
+
+  /// No description provided for @inspirationTagMatchHint.
+  ///
+  /// In zh, this message translates to:
+  /// **'收藏始终只显示已加星的结果。'**
+  String get inspirationTagMatchHint;
+
+  /// No description provided for @tagIntersection.
+  ///
+  /// In zh, this message translates to:
+  /// **'交集'**
+  String get tagIntersection;
+
+  /// No description provided for @tagUnion.
+  ///
+  /// In zh, this message translates to:
+  /// **'并集'**
+  String get tagUnion;
+
+  /// No description provided for @librarySelectionOff.
+  ///
+  /// In zh, this message translates to:
+  /// **'不使用'**
+  String get librarySelectionOff;
+
+  /// No description provided for @librarySourcePriority.
+  ///
+  /// In zh, this message translates to:
+  /// **'拖动调整优先级，靠前的库优先'**
+  String get librarySourcePriority;
+
+  /// No description provided for @allExternalLibraries.
+  ///
+  /// In zh, this message translates to:
+  /// **'全部外部库'**
+  String get allExternalLibraries;
+
+  /// No description provided for @selectLibrarySource.
+  ///
+  /// In zh, this message translates to:
+  /// **'切换资料库'**
+  String get selectLibrarySource;
+
+  /// No description provided for @externalOcResetTags.
+  ///
+  /// In zh, this message translates to:
+  /// **'删除这个条目的本地标签修改后，将重新显示来源中的标签。'**
+  String get externalOcResetTags;
+
+  /// No description provided for @externalOcLibraries.
+  ///
+  /// In zh, this message translates to:
+  /// **'外部库'**
+  String get externalOcLibraries;
+
+  /// No description provided for @externalOcImportHint.
+  ///
+  /// In zh, this message translates to:
+  /// **'从网址或本地 JSON 添加角色库'**
+  String get externalOcImportHint;
+
+  /// No description provided for @externalOcUrl.
+  ///
+  /// In zh, this message translates to:
+  /// **'资料库网址'**
+  String get externalOcUrl;
+
+  /// No description provided for @externalOcFile.
+  ///
+  /// In zh, this message translates to:
+  /// **'本地 JSON 文件'**
+  String get externalOcFile;
+
+  /// No description provided for @externalOcName.
+  ///
+  /// In zh, this message translates to:
+  /// **'显示名称（可选）'**
+  String get externalOcName;
+
+  /// No description provided for @externalOcPassword.
+  ///
+  /// In zh, this message translates to:
+  /// **'访客口令（如需要）'**
+  String get externalOcPassword;
+
+  /// No description provided for @externalOcConnect.
+  ///
+  /// In zh, this message translates to:
+  /// **'连接'**
+  String get externalOcConnect;
+
+  /// No description provided for @externalOcRefresh.
+  ///
+  /// In zh, this message translates to:
+  /// **'更新连接'**
+  String get externalOcRefresh;
+
+  /// No description provided for @externalOcRemove.
+  ///
+  /// In zh, this message translates to:
+  /// **'移除此来源'**
+  String get externalOcRemove;
+
+  /// No description provided for @externalOcSearch.
+  ///
+  /// In zh, this message translates to:
+  /// **'搜索角色、作者、形态或标签'**
+  String get externalOcSearch;
+
+  /// No description provided for @externalOcImages.
+  ///
+  /// In zh, this message translates to:
+  /// **'形态图片'**
+  String get externalOcImages;
+
+  /// No description provided for @publicLibraryBlocklist.
+  ///
+  /// In zh, this message translates to:
+  /// **'公共库黑名单'**
+  String get publicLibraryBlocklist;
+
+  /// No description provided for @publicLibraryBlocklistHint.
+  ///
+  /// In zh, this message translates to:
+  /// **'分别屏蔽角色和画风，可按作者或单个条目选择。'**
+  String get publicLibraryBlocklistHint;
+
+  /// No description provided for @blockPublicAuthor.
+  ///
+  /// In zh, this message translates to:
+  /// **'屏蔽此作者的全部条目'**
+  String get blockPublicAuthor;
+
+  /// No description provided for @searchPublicEntries.
+  ///
+  /// In zh, this message translates to:
+  /// **'搜索作者、名称或编号'**
+  String get searchPublicEntries;
+
   /// No description provided for @inspirationLibrary.
   ///
   /// In zh, this message translates to:
@@ -1587,12 +2061,6 @@ abstract class AppLocalizations {
   /// In zh, this message translates to:
   /// **'导入角色参考图'**
   String get importCharRef;
-
-  /// No description provided for @charRefOnly45.
-  ///
-  /// In zh, this message translates to:
-  /// **'角色参考仅 4.5 模型支持,当前模型生成时不会发送。'**
-  String get charRefOnly45;
 
   /// No description provided for @filesImportFailed.
   ///
@@ -12100,6 +12568,12 @@ abstract class AppLocalizations {
   /// **'已保存并同步'**
   String get desktopSavedAndSynced;
 
+  /// No description provided for @tagSavedLocallySyncFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'已保存到本机，公共库同步失败（{reason}）。'**
+  String tagSavedLocallySyncFailed(String reason);
+
   /// No description provided for @desktopSavedAsALocalCopy.
   ///
   /// In zh, this message translates to:
@@ -14427,6 +14901,210 @@ abstract class AppLocalizations {
   /// In zh, this message translates to:
   /// **'已过期'**
   String get diagnosticExpired;
+
+  /// No description provided for @compareImages.
+  ///
+  /// In zh, this message translates to:
+  /// **'图片比对'**
+  String get compareImages;
+
+  /// No description provided for @swapAB.
+  ///
+  /// In zh, this message translates to:
+  /// **'交换 A / B'**
+  String get swapAB;
+
+  /// No description provided for @onlyInA.
+  ///
+  /// In zh, this message translates to:
+  /// **'仅 A'**
+  String get onlyInA;
+
+  /// No description provided for @onlyInB.
+  ///
+  /// In zh, this message translates to:
+  /// **'仅 B'**
+  String get onlyInB;
+
+  /// No description provided for @weightChanged.
+  ///
+  /// In zh, this message translates to:
+  /// **'权重不同'**
+  String get weightChanged;
+
+  /// No description provided for @orderChanged.
+  ///
+  /// In zh, this message translates to:
+  /// **'位置不同'**
+  String get orderChanged;
+
+  /// No description provided for @identical.
+  ///
+  /// In zh, this message translates to:
+  /// **'相同'**
+  String get identical;
+
+  /// No description provided for @identicalN.
+  ///
+  /// In zh, this message translates to:
+  /// **'{n} 项相同'**
+  String identicalN(int n);
+
+  /// No description provided for @differentN.
+  ///
+  /// In zh, this message translates to:
+  /// **'{n} 项不同'**
+  String differentN(int n);
+
+  /// No description provided for @retryStripImage.
+  ///
+  /// In zh, this message translates to:
+  /// **'最后一次重试不带图'**
+  String get retryStripImage;
+
+  /// No description provided for @retryStripImageDesc.
+  ///
+  /// In zh, this message translates to:
+  /// **'最后一次失败重试时去掉附图'**
+  String get retryStripImageDesc;
+
+  /// No description provided for @compareSideBySide.
+  ///
+  /// In zh, this message translates to:
+  /// **'并排对照'**
+  String get compareSideBySide;
+
+  /// No description provided for @compareContain.
+  ///
+  /// In zh, this message translates to:
+  /// **'完整'**
+  String get compareContain;
+
+  /// No description provided for @compareCover.
+  ///
+  /// In zh, this message translates to:
+  /// **'铺满'**
+  String get compareCover;
+
+  /// No description provided for @compareResetView.
+  ///
+  /// In zh, this message translates to:
+  /// **'重置视图'**
+  String get compareResetView;
+
+  /// No description provided for @compareClear.
+  ///
+  /// In zh, this message translates to:
+  /// **'清空槽位'**
+  String get compareClear;
+
+  /// No description provided for @compareOpenFile.
+  ///
+  /// In zh, this message translates to:
+  /// **'打开本地文件'**
+  String get compareOpenFile;
+
+  /// No description provided for @comparePickGallery.
+  ///
+  /// In zh, this message translates to:
+  /// **'从图库选图'**
+  String get comparePickGallery;
+
+  /// No description provided for @compareDrop.
+  ///
+  /// In zh, this message translates to:
+  /// **'拖入图片到槽位 {slot}'**
+  String compareDrop(String slot);
+
+  /// No description provided for @comparePairHint.
+  ///
+  /// In zh, this message translates to:
+  /// **'一次选择两张可同时填入 A 和 B'**
+  String get comparePairHint;
+
+  /// No description provided for @compareEmptySlot.
+  ///
+  /// In zh, this message translates to:
+  /// **'未选择图 {slot}'**
+  String compareEmptySlot(String slot);
+
+  /// No description provided for @compareEmpty.
+  ///
+  /// In zh, this message translates to:
+  /// **'选择两张带生成信息的图片'**
+  String get compareEmpty;
+
+  /// No description provided for @compareInspectHint.
+  ///
+  /// In zh, this message translates to:
+  /// **'可对比生成参数、正负向提示词、权重和角色坐标。'**
+  String get compareInspectHint;
+
+  /// No description provided for @compareAllChanges.
+  ///
+  /// In zh, this message translates to:
+  /// **'全部变更'**
+  String get compareAllChanges;
+
+  /// No description provided for @compareDiffOnly.
+  ///
+  /// In zh, this message translates to:
+  /// **'仅看差异词'**
+  String get compareDiffOnly;
+
+  /// No description provided for @compareNoMatches.
+  ///
+  /// In zh, this message translates to:
+  /// **'没有这类差异'**
+  String get compareNoMatches;
+
+  /// No description provided for @compareUseSide.
+  ///
+  /// In zh, this message translates to:
+  /// **'导入图 {slot} 参数'**
+  String compareUseSide(String slot);
+
+  /// No description provided for @compareCopyReport.
+  ///
+  /// In zh, this message translates to:
+  /// **'复制差异报告'**
+  String get compareCopyReport;
+
+  /// No description provided for @compareOriginals.
+  ///
+  /// In zh, this message translates to:
+  /// **'查看 A / B 原文'**
+  String get compareOriginals;
+
+  /// No description provided for @compareReady.
+  ///
+  /// In zh, this message translates to:
+  /// **'两张图已就绪'**
+  String get compareReady;
+
+  /// No description provided for @compareZoomIn.
+  ///
+  /// In zh, this message translates to:
+  /// **'放大'**
+  String get compareZoomIn;
+
+  /// No description provided for @compareZoomOut.
+  ///
+  /// In zh, this message translates to:
+  /// **'缩小'**
+  String get compareZoomOut;
+
+  /// No description provided for @compareTagPosition.
+  ///
+  /// In zh, this message translates to:
+  /// **'位置'**
+  String get compareTagPosition;
+
+  /// No description provided for @compareMetadataHint.
+  ///
+  /// In zh, this message translates to:
+  /// **'使用带生成信息的原图可同时比对提示词'**
+  String get compareMetadataHint;
 }
 
 class _AppLocalizationsDelegate

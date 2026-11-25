@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/auth/bot_session_store.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/theme/theme_settings.dart';
 import '../../../core/platform/desktop.dart';
 import '../../../core/store/ui_prefs.dart';
 import '../../../core/ui/selection_bar.dart';
@@ -112,7 +113,7 @@ class _PickSheetState extends ConsumerState<_PickSheet> {
 
   final _searchCtrl = TextEditingController();
   String _search = '';
-  String? _filter;
+  var _filter = const InspirationTagFilter();
 
   /// 已勾选的,插入序即勾选顺序(也就是加进去的顺序)。标签库条目的键带分类
   /// (各类 id 各自发号),法典收藏的键同收藏夹([CodexFavorite.key])。
@@ -142,7 +143,7 @@ class _PickSheetState extends ConsumerState<_PickSheet> {
           );
       _searchCtrl.clear();
       _search = '';
-      _filter = null;
+      _filter = const InspirationTagFilter();
     });
   }
 
@@ -196,11 +197,8 @@ class _PickSheetState extends ConsumerState<_PickSheet> {
         e.tags.any(has);
   }
 
-  String? _validFilter(TagCategory cat, TagLibraryState lib) {
-    final filter = _filter;
-    if (filter == null || filter == TagFilterChips.favorites) return filter;
-    return lib.knownTags(cat).contains(filter) ? filter : null;
-  }
+  InspirationTagFilter _validFilter(TagCategory cat, TagLibraryState lib) =>
+      _filter.validFor(lib.knownTags(cat));
 
   /// 我的:自建 / 我发布的在前,收藏来的在后。组内画风按编号自然序
   /// (A1 < A2 < A10),其余最新在前,各自同灵感页的默认排法。
@@ -211,18 +209,16 @@ class _PickSheetState extends ConsumerState<_PickSheet> {
   ) {
     final q = _search.trim().toLowerCase();
     final filter = _validFilter(cat, lib);
+    final matchAny = ref.watch(
+      themeSettingsProvider.select((s) => s.inspirationMatchAnyTag),
+    );
     final list = [
       for (final e in mergeMineTags(
         lib.of(cat),
         ref.watch(botSessionProvider).value?.botUserId,
         pub,
       ))
-        if (_matches(e, q) &&
-            (filter == null ||
-                (filter == TagFilterChips.favorites
-                    ? e.origin == TagOrigin.favorited
-                    : e.tags.contains(filter))))
-          e,
+        if (_matches(e, q) && filter.matches(e, matchAny: matchAny)) e,
     ];
     int fav(TagEntry e) => e.origin == TagOrigin.favorited ? 1 : 0;
     list.sort((a, b) {
@@ -357,13 +353,13 @@ class _PickSheetState extends ConsumerState<_PickSheet> {
 
   Widget _tagGrid(TagCategory cat, TagLibraryState lib) {
     final def = tagCategoryDef(cat);
-    final pubAsync = ref.watch(publicTagsProvider(cat));
-    final pubPreview = publicPreviewsOf(pubAsync.value);
+    final pubAsync = ref.watch(visiblePublicTagsProvider(cat));
+    final pubPreview = ref.watch(tagCoverPreviewsProvider(cat));
     final list = _mineList(cat, lib, pubAsync.value);
     if (list.isEmpty) {
       return _empty(
         def.icon,
-        _search.trim().isEmpty && _validFilter(cat, lib) == null
+        _search.trim().isEmpty && !_validFilter(cat, lib).active
             ? '还没有${def.label}'
             : '没有匹配的${def.label}',
       );

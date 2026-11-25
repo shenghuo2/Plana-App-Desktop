@@ -5,12 +5,13 @@ import '../../core/store/ui_prefs.dart';
 import '../../core/platform/desktop.dart';
 import '../../core/ui/settings_scaffold.dart';
 import 'metadata_tool_page.dart';
+import 'metadata_compare_page.dart';
 import 'metadata_tool_link.dart';
 import 'weight_convert_page.dart';
 import '../../l10n/l10n.dart';
 
-/// 工具箱(对齐 web):权重转换 / 图片元数据 两个页签,
-/// IndexedStack 保活,切页签不丢已输入内容与已选图。
+/// 工具箱的权重转换、图片元数据与图片比对页签。
+/// 切换页签时保留已输入的内容与已选图片。
 class ToolsPage extends ConsumerStatefulWidget {
   const ToolsPage({super.key});
 
@@ -27,11 +28,75 @@ class _ToolsPageState extends ConsumerState<ToolsPage> {
     super.dispose();
   }
 
+  Widget _desktopFrame(Widget child) => Padding(
+    padding: const EdgeInsets.all(24),
+    child: Align(
+      alignment: Alignment.topCenter,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 1440),
+        child: child,
+      ),
+    ),
+  );
+
+  Widget _desktopBody(int tab, Widget tabs) {
+    final header = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [const SettingsPageHeader(), tabs],
+    );
+    const editors = [WeightConvertView(), MetadataToolView()];
+    return IndexedStack(
+      index: tab == 2 ? 1 : 0,
+      children: [
+        Scrollbar(
+          controller: _scroll,
+          child: SingleChildScrollView(
+            key: const PageStorageKey('desktop-tools-scroll'),
+            controller: _scroll,
+            child: _desktopFrame(
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  header,
+                  for (final (i, editor) in editors.indexed)
+                    Offstage(
+                      offstage: tab != i,
+                      child: TickerMode(
+                        enabled: tab == i,
+                        child: ExcludeFocus(excluding: tab != i, child: editor),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        _desktopFrame(
+          CustomScrollView(
+            primary: false,
+            slivers: [
+              SliverToBoxAdapter(child: header),
+              SliverLayoutBuilder(
+                builder: (context, viewport) => SliverToBoxAdapter(
+                  child: MetadataCompareView(
+                    desktopViewportHeight:
+                        viewport.viewportMainAxisExtent -
+                        viewport.precedingScrollExtent,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final desktop = ref.watch(desktopModeProvider);
     final tab = ref.watch(
-      uiPrefsProvider.select((p) => p.toolsTab.clamp(0, 1)),
+      uiPrefsProvider.select((p) => p.toolsTab.clamp(0, 2)),
     );
     ref.listen(singleMetadataRequestProvider, (_, _) {
       final toolsRoute = ModalRoute.of(context);
@@ -40,77 +105,58 @@ class _ToolsPageState extends ConsumerState<ToolsPage> {
       ).popUntil((route) => route == toolsRoute || route.isFirst);
       if (_scroll.hasClients) _scroll.jumpTo(0);
     });
+    final selector = SegmentedButton<int>(
+      segments: [
+        ButtonSegment(
+          value: 0,
+          label: Text(l10nNow.weightConverter, maxLines: 1),
+          icon: Icon(Icons.swap_horiz, size: 17),
+        ),
+        ButtonSegment(
+          value: 1,
+          label: Text(l10nNow.imageMetadata, maxLines: 1),
+          icon: Icon(Icons.document_scanner_outlined, size: 17),
+        ),
+        ButtonSegment(
+          value: 2,
+          label: Text(l10nNow.compareImages, maxLines: 1),
+          icon: const Icon(Icons.compare_outlined, size: 17),
+        ),
+      ],
+      selected: {tab},
+      onSelectionChanged: (s) {
+        FocusManager.instance.primaryFocus?.unfocus();
+        ref
+            .read(uiPrefsProvider.notifier)
+            .patch((p) => p.copyWith(toolsTab: s.first));
+      },
+      showSelectedIcon: false,
+    );
     final tabs = Padding(
       padding: desktop
           ? const EdgeInsets.only(bottom: 20)
           : const EdgeInsets.fromLTRB(14, 4, 14, 10),
-      child: SizedBox(
-        width: desktop ? null : double.infinity,
-        child: SegmentedButton<int>(
-          segments: [
-            ButtonSegment(
-              value: 0,
-              label: Text(l10nNow.weightConverter),
-              icon: Icon(Icons.swap_horiz, size: 17),
-            ),
-            ButtonSegment(
-              value: 1,
-              label: Text(l10nNow.imageMetadata),
-              icon: Icon(Icons.document_scanner_outlined, size: 17),
-            ),
-          ],
-          selected: {tab},
-          onSelectionChanged: (s) {
-            FocusManager.instance.primaryFocus?.unfocus();
-            ref
-                .read(uiPrefsProvider.notifier)
-                .patch((p) => p.copyWith(toolsTab: s.first));
-          },
-          showSelectedIcon: false,
-        ),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: selector,
       ),
     );
-    const views = [WeightConvertView(), MetadataToolView()];
     return SettingsScaffold(
       appBar: AppBar(title: Text(l10nNow.toolbox)),
       body: desktop
-          ? Scrollbar(
-              controller: _scroll,
-              child: SingleChildScrollView(
-                key: const PageStorageKey('desktop-tools-scroll'),
-                controller: _scroll,
-                padding: const EdgeInsets.all(24),
-                child: Align(
-                  alignment: Alignment.topCenter,
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 1440),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        const SettingsPageHeader(),
-                        Align(alignment: Alignment.centerLeft, child: tabs),
-                        for (var i = 0; i < views.length; i++)
-                          Offstage(
-                            offstage: tab != i,
-                            child: TickerMode(
-                              enabled: tab == i,
-                              child: ExcludeFocus(
-                                excluding: tab != i,
-                                child: views[i],
-                              ),
-                            ),
-                          ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            )
+          ? _desktopBody(tab, tabs)
           : Column(
               children: [
                 tabs,
                 Expanded(
-                  child: IndexedStack(index: tab, children: views),
+                  child: IndexedStack(
+                    index: tab,
+                    children: const [
+                      WeightConvertView(),
+                      MetadataToolView(),
+                      MetadataCompareView(),
+                    ],
+                  ),
                 ),
               ],
             ),

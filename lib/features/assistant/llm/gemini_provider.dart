@@ -35,6 +35,15 @@ class GeminiProvider extends HttpLlmProvider {
   @override
   Map<String, String> get authHeaders => {'x-goog-api-key': apiKey};
 
+  /// 放宽四项可配置安全阈值，避免二次元/绘画提示词被默认阈值误杀；
+  /// 不发已废弃的 `HARM_CATEGORY_CIVIC_INTEGRITY`，防止新模型报 400。
+  static const _safetySettings = [
+    {'category': 'HARM_CATEGORY_HARASSMENT', 'threshold': 'BLOCK_NONE'},
+    {'category': 'HARM_CATEGORY_HATE_SPEECH', 'threshold': 'BLOCK_NONE'},
+    {'category': 'HARM_CATEGORY_SEXUALLY_EXPLICIT', 'threshold': 'BLOCK_NONE'},
+    {'category': 'HARM_CATEGORY_DANGEROUS_CONTENT', 'threshold': 'BLOCK_NONE'},
+  ];
+
   @override
   Map<String, dynamic> requestBody(LlmRequest r, {required bool stream}) => {
     'systemInstruction': {
@@ -56,6 +65,7 @@ class GeminiProvider extends HttpLlmProvider {
           ],
         },
     ],
+    'safetySettings': _safetySettings,
     ...thinkFields(r.think),
   };
 

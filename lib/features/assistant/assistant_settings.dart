@@ -91,6 +91,88 @@ LibraryScope effectiveLibraryScope(
 /// 把「线上协议」和「本地枚举」的耦合摆到明面上:改名字要一起改。
 String libraryScopeWire(LibraryScope s) => s.name;
 
+/// Identifiers match the local catalog source IDs and survive source renames.
+class LibrarySelection {
+  const LibrarySelection({
+    this.order = const [local, public],
+    this.enabled = const {local},
+    this.paused = false,
+  });
+  static const local = 'local';
+  static const public = 'public';
+  final List<String> order;
+  final Set<String> enabled;
+  final bool paused;
+
+  factory LibrarySelection.legacy(LibraryScope scope) => LibrarySelection(
+    enabled: scope == LibraryScope.all ? const {local, public} : const {local},
+    paused: scope == LibraryScope.none,
+  );
+
+  static LibrarySelection? read(Object? value) {
+    if (value is! Map || value['order'] is! List || value['enabled'] is! List) {
+      return null;
+    }
+    return LibrarySelection(
+      order: (value['order'] as List).whereType<String>().toSet().toList(),
+      enabled: (value['enabled'] as List).whereType<String>().toSet(),
+      paused: value['paused'] == true,
+    );
+  }
+
+  Map<String, Object> toJson() => {
+    'order': order,
+    'enabled': enabled.toList(),
+    'paused': paused,
+  };
+
+  List<String> available(Iterable<String> external) {
+    final ids = {local, ...external, public};
+    final sorted = order.where(ids.contains).toSet().toList();
+    if (!sorted.contains(local)) sorted.insert(0, local);
+    if (!sorted.contains(public)) sorted.add(public);
+    sorted.insertAll(
+      sorted.indexOf(public),
+      ids.where((id) => !sorted.contains(id)).toList(),
+    );
+    return sorted;
+  }
+
+  List<String> active(
+    Iterable<String> external, {
+    required bool botAuthorized,
+  }) => paused
+      ? []
+      : available(external)
+            .where(
+              (id) => enabled.contains(id) && (id != public || botAuthorized),
+            )
+            .toList();
+
+  LibraryScope get legacyScope => paused || enabled.isEmpty
+      ? LibraryScope.none
+      : enabled.contains(public)
+      ? LibraryScope.all
+      : LibraryScope.local;
+
+  LibrarySelection withPause(bool value) =>
+      LibrarySelection(order: order, enabled: enabled, paused: value);
+
+  LibrarySelection toggle(String id) {
+    final next = {...enabled};
+    if (!next.remove(id)) next.add(id);
+    return LibrarySelection(order: order, enabled: next, paused: paused);
+  }
+
+  LibrarySelection withOrder(List<String> next) =>
+      LibrarySelection(order: next, enabled: enabled, paused: paused);
+  LibrarySelection without(String id) => LibrarySelection(
+    order: order.where((key) => key != id).toList(),
+    enabled: {...enabled}..remove(id),
+    paused: paused,
+  );
+}
+
 String sectionImportLabel(SectionImport m) => switch (m) {
   SectionImport.aiSection => 'AI 专属分区',
   SectionImport.appendMain => '加到主提示词后方',
@@ -109,7 +191,8 @@ class AssistantSettings {
     this.autoImport = false,
     this.allowEditNegative = false,
     this.thinkLevel = ThinkLevel.auto,
-    this.libraryScope = LibraryScope.local,
+    LibraryScope libraryScope = LibraryScope.local,
+    this.sourceSelection,
     this.ocPlaceholders = false,
     this.noDraw = false,
     this.introVersion = 0,
@@ -118,6 +201,7 @@ class AssistantSettings {
     this.stream = true,
     this.importTo = SectionImport.aiSection,
     this.retries = retriesDefault,
+    this.retryStripImage = false,
     this.rerolls = rerollsDefault,
     this.refusalKeywords = kRefusalKeywords,
     this.imageSize = '',
@@ -126,7 +210,7 @@ class AssistantSettings {
     this.showSidebarImagePicker = false,
     this.showSidebarHistoryPicker = false,
     this.showSidebarClipboardButton = false,
-  });
+  }) : _legacyScope = libraryScope;
 
   /// 上下文轮数的默认值、可调范围与步长。
   ///
@@ -182,7 +266,11 @@ class AssistantSettings {
   ///
   /// 默认只认自己那份,是因为公共库上万条画师串,而用户想用的是自己收藏的那几十条;
   /// 拿全量去和一句话做匹配,捞上来的多半是他没见过的东西。
-  final LibraryScope libraryScope;
+  final LibraryScope _legacyScope;
+  LibraryScope get libraryScope => sourceSelection?.legacyScope ?? _legacyScope;
+  final LibrarySelection? sourceSelection;
+  LibrarySelection get libraries =>
+      sourceSelection ?? LibrarySelection.legacy(libraryScope);
 
   /// 自定义接口渠道：本地和公共库 OC 只给 AI 占位符，结果落地前展开。默认关闭。
   final bool ocPlaceholders;
@@ -222,8 +310,11 @@ class AssistantSettings {
   /// 导入与直接生成共用的主提示词分区写入方式。
   final SectionImport importTo;
 
-  /// 出错后自动重发几次,重发时剥掉附图。
+  /// 出错后自动重发几次。
   final int retries;
+
+  /// 最后一次失败重试时去掉附图。
+  final bool retryStripImage;
 
   /// 回复像拒绝时原地重掷几次。0 = 不判拒绝,回复照常显示。
   final int rerolls;
@@ -254,6 +345,7 @@ class AssistantSettings {
     bool? allowEditNegative,
     ThinkLevel? thinkLevel,
     LibraryScope? libraryScope,
+    LibrarySelection? sourceSelection,
     bool? ocPlaceholders,
     bool? noDraw,
     int? introVersion,
@@ -262,6 +354,7 @@ class AssistantSettings {
     bool? stream,
     SectionImport? importTo,
     int? retries,
+    bool? retryStripImage,
     int? rerolls,
     List<String>? refusalKeywords,
     String? imageSize,
@@ -276,7 +369,10 @@ class AssistantSettings {
     autoImport: autoImport ?? this.autoImport,
     allowEditNegative: allowEditNegative ?? this.allowEditNegative,
     thinkLevel: thinkLevel ?? this.thinkLevel,
-    libraryScope: libraryScope ?? this.libraryScope,
+    libraryScope:
+        libraryScope ?? sourceSelection?.legacyScope ?? this.libraryScope,
+    sourceSelection:
+        sourceSelection ?? (libraryScope == null ? this.sourceSelection : null),
     ocPlaceholders: ocPlaceholders ?? this.ocPlaceholders,
     noDraw: noDraw ?? this.noDraw,
     introVersion: introVersion ?? this.introVersion,
@@ -285,6 +381,7 @@ class AssistantSettings {
     stream: stream ?? this.stream,
     importTo: importTo ?? this.importTo,
     retries: retries ?? this.retries,
+    retryStripImage: retryStripImage ?? this.retryStripImage,
     rerolls: rerolls ?? this.rerolls,
     refusalKeywords: refusalKeywords ?? this.refusalKeywords,
     imageSize: imageSize ?? this.imageSize,
@@ -305,6 +402,7 @@ class AssistantSettings {
     'allowEditNegative': allowEditNegative,
     'thinkLevel': thinkLevel.name,
     'libraryScope': libraryScope.name,
+    if (sourceSelection != null) 'librarySources': sourceSelection!.toJson(),
     'ocPlaceholders': ocPlaceholders,
     'noDraw': noDraw,
     'introVersion': introVersion,
@@ -313,6 +411,7 @@ class AssistantSettings {
     'stream': stream,
     'importTo': importTo.name,
     'retries': retries,
+    'retryStripImage': retryStripImage,
     'rerolls': rerolls,
     if (!defaultRefusalKeywords) 'refusalKeywords': refusalKeywords,
     if (imageSize.isNotEmpty) 'imageSize': imageSize,
@@ -336,6 +435,7 @@ class AssistantSettings {
         libraryScope:
             LibraryScope.values.asNameMap()[j['libraryScope']] ??
             LibraryScope.local,
+        sourceSelection: LibrarySelection.read(j['librarySources']),
         ocPlaceholders: j['ocPlaceholders'] == true,
         noDraw: j['noDraw'] == true,
         // 缺键 = 老存档,按开算:新行为更好,不必等用户自己去翻设置
@@ -344,6 +444,7 @@ class AssistantSettings {
             SectionImport.values.asNameMap()[j['importTo']] ??
             SectionImport.aiSection,
         retries: _count(j['retries'], retriesDefault),
+        retryStripImage: j['retryStripImage'] == true,
         rerolls: _count(j['rerolls'], rerollsDefault),
         refusalKeywords: switch (j['refusalKeywords']) {
           final List<dynamic> l => [

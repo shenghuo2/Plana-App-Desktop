@@ -101,6 +101,7 @@ class ThemeSettings {
     this.codexHoverPreview = true,
     this.galleryDragFeel = GalleryDragFeel.smooth,
     this.inspirationRowSnap = false,
+    this.inspirationMatchAnyTag = false,
     this.language = 'zh',
   });
 
@@ -140,6 +141,7 @@ class ThemeSettings {
   final bool codexHoverPreview;
   final GalleryDragFeel galleryDragFeel;
   final bool inspirationRowSnap;
+  final bool inspirationMatchAnyTag;
 
   ThemeSeed get seed => themeSeeds.firstWhere(
     (s) => s.key == seedKey,
@@ -160,6 +162,7 @@ class ThemeSettings {
     bool? codexHoverPreview,
     GalleryDragFeel? galleryDragFeel,
     bool? inspirationRowSnap,
+    bool? inspirationMatchAnyTag,
     String? language,
   }) => ThemeSettings(
     mode: mode ?? this.mode,
@@ -178,6 +181,8 @@ class ThemeSettings {
     codexHoverPreview: codexHoverPreview ?? this.codexHoverPreview,
     galleryDragFeel: galleryDragFeel ?? this.galleryDragFeel,
     inspirationRowSnap: inspirationRowSnap ?? this.inspirationRowSnap,
+    inspirationMatchAnyTag:
+        inspirationMatchAnyTag ?? this.inspirationMatchAnyTag,
   );
 
   /// 脏数据(旧版本/已下架的档位,如早先那档深蓝)回退默认。
@@ -200,6 +205,7 @@ class ThemeSettings {
         GalleryDragFeel.values.asNameMap()[j['galleryDragFeel']] ??
         GalleryDragFeel.smooth,
     inspirationRowSnap: j['inspirationRowSnap'] == true,
+    inspirationMatchAnyTag: j['inspirationMatchAnyTag'] == true,
   );
 
   Map<String, dynamic> toJson() => {
@@ -217,6 +223,7 @@ class ThemeSettings {
     'codexHoverPreview': codexHoverPreview,
     'galleryDragFeel': galleryDragFeel.name,
     'inspirationRowSnap': inspirationRowSnap,
+    'inspirationMatchAnyTag': inspirationMatchAnyTag,
   };
 
   @override
@@ -235,7 +242,8 @@ class ThemeSettings {
       other.foldAfterInspirationSave == foldAfterInspirationSave &&
       other.codexHoverPreview == codexHoverPreview &&
       other.galleryDragFeel == galleryDragFeel &&
-      other.inspirationRowSnap == inspirationRowSnap;
+      other.inspirationRowSnap == inspirationRowSnap &&
+      other.inspirationMatchAnyTag == inspirationMatchAnyTag;
 
   @override
   int get hashCode => Object.hash(
@@ -253,6 +261,7 @@ class ThemeSettings {
     codexHoverPreview,
     galleryDragFeel,
     inspirationRowSnap,
+    inspirationMatchAnyTag,
   );
 }
 

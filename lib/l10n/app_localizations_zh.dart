@@ -9,6 +9,153 @@ class AppLocalizationsZh extends AppLocalizations {
   AppLocalizationsZh([String locale = 'zh']) : super(locale);
 
   @override
+  String get downloadWindowsPackage => '下载 Windows 版';
+
+  @override
+  String get preciseRefUsesHigh => '已切换到 High，以启用精确参考。';
+
+  @override
+  String get mediumPausesPreciseRefs => 'Medium 已暂停精确参考。';
+
+  @override
+  String get catalogAll => '显示全部类型';
+
+  @override
+  String get catalogBoth => '对话和出图';
+
+  @override
+  String get catalogEmbedding => '向量嵌入';
+
+  @override
+  String get catalogTranscription => '语音识别';
+
+  @override
+  String get catalogSpeech => '语音合成';
+
+  @override
+  String get catalogAuto => '恢复自动判断';
+
+  @override
+  String get catalogOther => '其他用途';
+
+  @override
+  String get catalogAssign => '指定模型用途';
+
+  @override
+  String get planHub => '接口与订阅';
+
+  @override
+  String get planManageHub => '管理接口与订阅';
+
+  @override
+  String get planSources => '订阅登录';
+
+  @override
+  String get planQuickSwitch => '快捷切换订阅账户';
+
+  @override
+  String get planMenuPreview => '助手下拉菜单预览';
+
+  @override
+  String get planWorkspaces => '已登录账户与工作区';
+
+  @override
+  String get planActive => '当前生效';
+
+  @override
+  String get planUsageShort => '管理用量';
+
+  @override
+  String get planSelectedModels => '选择的模型';
+
+  @override
+  String get planNoSelected => '点击「重新拉取模型」选择要使用的模型。';
+
+  @override
+  String get planNoAccounts => '尚未登录订阅账户';
+
+  @override
+  String get planCachedModels => '正在使用上次拉取的模型列表';
+
+  @override
+  String get planSection => 'ChatGPT 订阅';
+
+  @override
+  String get planLogin => '使用 ChatGPT 登录';
+
+  @override
+  String get planManage => '管理账户与工作区';
+
+  @override
+  String get planAdd => '添加账户或工作区';
+
+  @override
+  String get planNotice => '使用 ChatGPT 订阅须知';
+
+  @override
+  String get planDisclosure =>
+      '你将前往 OpenAI 官方登录页，选择账户和工作区并授权 Plana。订阅模型会收到你的消息、对话上下文、附图和主动引用的画布，以及按资料库设置匹配的画风编号和角色参考。符合条件的请求将计入该工作区的套餐或获准使用的点数。登录凭据加密保存在本机，可随时退出并在 ChatGPT 设置中撤销授权。';
+
+  @override
+  String get planConduct =>
+      '请遵守 OpenAI 使用政策和登录条款。请勿使用意图绕过安全限制的预设或提示词。Plana 会把当前启用的绘图规则作为创作参考发给 OpenAI，模型拒答时直接显示原回复。实际出图使用创作页选中的服务。';
+
+  @override
+  String get recoverDrawProposal => '识别为绘图方案';
+
+  @override
+  String get invalidDrawProposal => '这条回复里没有完整的绘图方案。';
+
+  @override
+  String get planTerms => '登录条款';
+
+  @override
+  String get planPolicy => '使用政策';
+
+  @override
+  String get planConfirm => '我已阅读并知悉';
+
+  @override
+  String get planUsage => '管理 ChatGPT 用量';
+
+  @override
+  String get planWaiting => '请在浏览器中完成 OpenAI 授权';
+
+  @override
+  String get planReady =>
+      '符合条件的助手请求将使用所选 ChatGPT 工作区的额度。可在 ChatGPT 设置中查看或调整用量。';
+
+  @override
+  String get planRelogin => '重新登录';
+
+  @override
+  String get planLogout => '退出此工作区';
+
+  @override
+  String get planRevocation => '本机已退出。远程撤销未获确认，可在 ChatGPT 设置中断开 Plana。';
+
+  @override
+  String get planEmpty => '此工作区未列出可选模型';
+
+  @override
+  String get planAccountLabel => '工作区显示名称';
+
+  @override
+  String get catalogUnknown => '未分类 · 勾选以指定用途';
+
+  @override
+  String get catalogAssigned => '已手动指定';
+
+  @override
+  String get catalogRemote => '服务商声明';
+
+  @override
+  String get catalogDirectory => '模型目录匹配';
+
+  @override
+  String get catalogRefresh => '重新拉取模型';
+
+  @override
   String get language => '语言';
 
   @override
@@ -208,6 +355,28 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get refStyle => '风格';
+
+  @override
+  String get v5PreciseReference => '精确参考';
+
+  @override
+  String get refOutfit => '服装';
+
+  @override
+  String get refPreferSameOutfit => '偏好相同服装';
+
+  @override
+  String get v5ReferenceInpaint => 'NAI 5 重绘会暂停使用精确参考。';
+
+  @override
+  String get outfitNeedsV5 => '服装参考仅在 NAI 5 下生效。';
+
+  @override
+  String get rulesLocalGroup => '破限';
+
+  @override
+  String get rulesLocalOnly =>
+      '按模型启用后，Plana 渠道和自定义 API 会在普通规则后发送这里的补充说明。Codex、反重力等订阅会跳过此分区。';
 
   @override
   String get refCharacterStyle => '角色&风格';
@@ -640,6 +809,78 @@ class AppLocalizationsZh extends AppLocalizations {
   String get clearPromptAndSections => '清空提示词和分区';
 
   @override
+  String get inspirationTagMatch => '灵感标签匹配';
+
+  @override
+  String get inspirationTagMatchHint => '收藏始终只显示已加星的结果。';
+
+  @override
+  String get tagIntersection => '交集';
+
+  @override
+  String get tagUnion => '并集';
+
+  @override
+  String get librarySelectionOff => '不使用';
+
+  @override
+  String get librarySourcePriority => '拖动调整优先级，靠前的库优先';
+
+  @override
+  String get allExternalLibraries => '全部外部库';
+
+  @override
+  String get selectLibrarySource => '切换资料库';
+
+  @override
+  String get externalOcResetTags => '删除这个条目的本地标签修改后，将重新显示来源中的标签。';
+
+  @override
+  String get externalOcLibraries => '外部库';
+
+  @override
+  String get externalOcImportHint => '从网址或本地 JSON 添加角色库';
+
+  @override
+  String get externalOcUrl => '资料库网址';
+
+  @override
+  String get externalOcFile => '本地 JSON 文件';
+
+  @override
+  String get externalOcName => '显示名称（可选）';
+
+  @override
+  String get externalOcPassword => '访客口令（如需要）';
+
+  @override
+  String get externalOcConnect => '连接';
+
+  @override
+  String get externalOcRefresh => '更新连接';
+
+  @override
+  String get externalOcRemove => '移除此来源';
+
+  @override
+  String get externalOcSearch => '搜索角色、作者、形态或标签';
+
+  @override
+  String get externalOcImages => '形态图片';
+
+  @override
+  String get publicLibraryBlocklist => '公共库黑名单';
+
+  @override
+  String get publicLibraryBlocklistHint => '分别屏蔽角色和画风，可按作者或单个条目选择。';
+
+  @override
+  String get blockPublicAuthor => '屏蔽此作者的全部条目';
+
+  @override
+  String get searchPublicEntries => '搜索作者、名称或编号';
+
+  @override
   String get inspirationLibrary => '灵感库';
 
   @override
@@ -821,9 +1062,6 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get importCharRef => '导入角色参考图';
-
-  @override
-  String get charRefOnly45 => '角色参考仅 4.5 模型支持,当前模型生成时不会发送。';
 
   @override
   String filesImportFailed(int n) {
@@ -6754,6 +6992,11 @@ class AppLocalizationsZh extends AppLocalizations {
   String get desktopSavedAndSynced => '已保存并同步';
 
   @override
+  String tagSavedLocallySyncFailed(String reason) {
+    return '已保存到本机，公共库同步失败（$reason）。';
+  }
+
+  @override
   String get desktopSavedAsALocalCopy => '已存为本地副本';
 
   @override
@@ -8016,4 +8259,116 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get diagnosticExpired => '已过期';
+
+  @override
+  String get compareImages => '图片比对';
+
+  @override
+  String get swapAB => '交换 A / B';
+
+  @override
+  String get onlyInA => '仅 A';
+
+  @override
+  String get onlyInB => '仅 B';
+
+  @override
+  String get weightChanged => '权重不同';
+
+  @override
+  String get orderChanged => '位置不同';
+
+  @override
+  String get identical => '相同';
+
+  @override
+  String identicalN(int n) {
+    return '$n 项相同';
+  }
+
+  @override
+  String differentN(int n) {
+    return '$n 项不同';
+  }
+
+  @override
+  String get retryStripImage => '最后一次重试不带图';
+
+  @override
+  String get retryStripImageDesc => '最后一次失败重试时去掉附图';
+
+  @override
+  String get compareSideBySide => '并排对照';
+
+  @override
+  String get compareContain => '完整';
+
+  @override
+  String get compareCover => '铺满';
+
+  @override
+  String get compareResetView => '重置视图';
+
+  @override
+  String get compareClear => '清空槽位';
+
+  @override
+  String get compareOpenFile => '打开本地文件';
+
+  @override
+  String get comparePickGallery => '从图库选图';
+
+  @override
+  String compareDrop(String slot) {
+    return '拖入图片到槽位 $slot';
+  }
+
+  @override
+  String get comparePairHint => '一次选择两张可同时填入 A 和 B';
+
+  @override
+  String compareEmptySlot(String slot) {
+    return '未选择图 $slot';
+  }
+
+  @override
+  String get compareEmpty => '选择两张带生成信息的图片';
+
+  @override
+  String get compareInspectHint => '可对比生成参数、正负向提示词、权重和角色坐标。';
+
+  @override
+  String get compareAllChanges => '全部变更';
+
+  @override
+  String get compareDiffOnly => '仅看差异词';
+
+  @override
+  String get compareNoMatches => '没有这类差异';
+
+  @override
+  String compareUseSide(String slot) {
+    return '导入图 $slot 参数';
+  }
+
+  @override
+  String get compareCopyReport => '复制差异报告';
+
+  @override
+  String get compareOriginals => '查看 A / B 原文';
+
+  @override
+  String get compareReady => '两张图已就绪';
+
+  @override
+  String get compareZoomIn => '放大';
+
+  @override
+  String get compareZoomOut => '缩小';
+
+  @override
+  String get compareTagPosition => '位置';
+
+  @override
+  String get compareMetadataHint => '使用带生成信息的原图可同时比对提示词';
 }
