@@ -511,7 +511,13 @@ void main() {
             expect(msg.change, isNull);
           } else {
             expect(
-              c.read(canvasWorkspaceProvider).find(a)!.prompts.prompt,
+              c
+                  .read(canvasWorkspaceProvider)
+                  .find(a)!
+                  .prompts
+                  .sections
+                  .last
+                  .positive,
               'AI result',
             );
             expect(msg.change!.canvasId, a);

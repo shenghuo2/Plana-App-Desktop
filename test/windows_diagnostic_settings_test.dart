@@ -8,6 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:plana_app/core/net/network_proxy.dart';
 import 'package:plana_app/core/platform/desktop_directory.dart';
 import 'package:plana_app/core/platform/windows_diagnostics.dart';
+import 'package:plana_app/core/store/app_stores.dart';
 import 'package:plana_app/core/util/log.dart';
 import 'package:plana_app/core/util/runtime_diagnostics.dart';
 import 'package:plana_app/features/profile/widgets/diagnostic_settings.dart';
@@ -151,10 +152,20 @@ void main() {
         () => messenger.setMockMethodCallHandler(SystemChannels.platform, null),
       );
       final launcher = _Folder();
+      final stores = AppStores.ephemeral();
+      await tester.runAsync(
+        () => stores.prefs.write(key: 'auth_mode', value: 'bot'),
+      );
+      addTearDown(() async {
+        stores.flushNow();
+        await stores.prefs.idle;
+        await stores.desktopOutput.root.parent.delete(recursive: true);
+      });
       await service.initialize();
       await tester.pumpWidget(
         ProviderScope(
           overrides: [
+            appStoresProvider.overrideWithValue(stores),
             windowsDiagnosticsProvider.overrideWithValue(service),
             desktopDirectoryLauncherProvider.overrideWithValue(launcher),
             networkProxyRuntimeProvider.overrideWithValue(

@@ -300,7 +300,7 @@ void main() {
         await tester.sendEventToBinding(
           PointerScrollEvent(
             position: tester.getCenter(strip),
-            scrollDelta: const Offset(0, 5000),
+            scrollDelta: const Offset(5000, 0),
           ),
         );
         await tester.pumpAndSettle();
@@ -340,9 +340,10 @@ void main() {
       await mount(tester);
       final strip = key('inspiration-tag-strip');
       final scroll = tester.widget<SingleChildScrollView>(strip).controller!;
-      await tester.drag(
-        strip,
-        const Offset(-280, 0),
+      final viewport = tester.getRect(strip);
+      await tester.dragFrom(
+        Offset(viewport.left + 8, viewport.bottom - 4),
+        const Offset(100, 0),
         kind: PointerDeviceKind.mouse,
       );
       await tester.pumpAndSettle();
@@ -366,10 +367,15 @@ void main() {
       expect(scroll.offset, lessThan(afterDrag));
 
       final tail = find.widgetWithText(ChoiceChip, 'tag-39');
-      for (var i = 0; i < 20 && tail.hitTestable().evaluate().isEmpty; i++) {
-        await tester.tap(key('inspiration-tags-right'));
-        await tester.pumpAndSettle();
-      }
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+      await tester.sendEventToBinding(
+        PointerScrollEvent(
+          position: tester.getCenter(strip),
+          scrollDelta: const Offset(0, 5000),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
       expect(tail.hitTestable(), findsOneWidget);
       await tester.tap(tail);
       await tester.pumpAndSettle();
@@ -387,10 +393,6 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(scroll.offset, 0);
-      expect(
-        tester.widget<IconButton>(key('inspiration-tags-left')).onPressed,
-        isNull,
-      );
       await finish(tester);
     },
   );
@@ -409,6 +411,8 @@ void main() {
       await captureDesktop(tester, capture, 'desktop-inspiration-tag-search');
       await tester.testTextInput.receiveAction(TextInputAction.done);
       await tester.pumpAndSettle();
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
       expect(key('inspiration-card-char0'), findsNothing);
       expect(key('inspiration-card-tail-character'), findsOneWidget);
 
@@ -426,16 +430,24 @@ void main() {
 
       await tester.tap(key('inspiration-all-tags'));
       await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(ListTile, 'tag-00'));
+      await tester.pumpAndSettle();
       await tester.tap(key('inspiration-tag-clear'));
+      await tester.pumpAndSettle();
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
       await tester.pumpAndSettle();
       expect(key('inspiration-card-char0'), findsOneWidget);
 
+      await tester.tap(find.widgetWithText(ChoiceChip, '收藏'));
+      await tester.pumpAndSettle();
       await tester.tap(find.widgetWithText(ChoiceChip, '收藏'));
       await tester.pumpAndSettle();
       await tester.tap(key('inspiration-all-tags'));
       await tester.pumpAndSettle();
       await tester.enterText(key('inspiration-tag-search'), 'tag-39');
       await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.pumpAndSettle();
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
       await tester.pumpAndSettle();
       expect(key('inspiration-card-tail-character'), findsOneWidget);
       await tester.runAsync(
