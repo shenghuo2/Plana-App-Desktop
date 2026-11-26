@@ -1,3 +1,4 @@
+import 'dart:async' show unawaited;
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
@@ -61,18 +62,26 @@ class _DesktopAlbumReorderGridState extends State<DesktopAlbumReorderGrid>
   Size _cell = Size.zero;
   Duration _lastTick = Duration.zero;
 
-  RenderBox? get _box => _area.currentContext?.findRenderObject() as RenderBox?;
+  RenderBox? get _box {
+    final ro = _area.currentContext?.findRenderObject();
+    return ro is RenderBox && ro.hasSize ? ro : null;
+  }
+
   bool get _reduced => MediaQuery.disableAnimationsOf(context);
   Offset _origin(int slot) => Offset(
     (slot % _columns) * (_cell.width + gap),
     (slot ~/ _columns) * (_cell.height + gap),
   );
-  Offset _inGrid(Offset global) => _box!.globalToLocal(global);
+  Offset? _inGrid(Offset global, [RenderBox? box]) =>
+      (box ?? _box)?.globalToLocal(global);
   Offset get _scrollOffset =>
       Offset(0, _scroll.hasClients ? _scroll.offset : 0);
 
-  int? _slot(Offset p, List<String?> ids) {
-    if (_cell.isEmpty || ids.isEmpty || !_box!.size.contains(p)) return null;
+  int? _slot(Offset p, List<String?> ids, [RenderBox? targetBox]) {
+    final box = targetBox ?? _box;
+    if (box == null || _cell.isEmpty || ids.isEmpty || !box.size.contains(p)) {
+      return null;
+    }
     final inside = p + _scrollOffset;
     final col = ((inside.dx + gap / 2) / (_cell.width + gap)).floor().clamp(
       0,
@@ -96,8 +105,10 @@ class _DesktopAlbumReorderGridState extends State<DesktopAlbumReorderGrid>
 
   void _start(Offset global) {
     if (_dropping || _working != null) return;
-    final p = _inGrid(global);
-    final index = _slot(p, widget.ids);
+    final box = _box;
+    final p = _inGrid(global, box);
+    if (box == null || p == null) return;
+    final index = _slot(p, widget.ids, box);
     if (index == null || !_movable(widget.ids[index])) return;
     final local = p + _scrollOffset - _origin(index);
     if (!_cell.contains(local)) return;
@@ -115,15 +126,17 @@ class _DesktopAlbumReorderGridState extends State<DesktopAlbumReorderGrid>
 
   void _move(Offset global) {
     if (_id == null || _dropping) return;
-    final p = _inGrid(global);
+    final box = _box;
+    final p = _inGrid(global, box);
+    if (box == null || p == null) return;
     _tilt = ((p.dx - _pointer.dx) * .09)
         .clamp(-widget.feel.maxTilt, widget.feel.maxTilt)
         .toDouble();
     _pointer = p;
     _ghost.value = p - _grab;
     _retarget();
-    final h = _box!.size.height;
-    _edgeSpeed = !_box!.size.contains(p)
+    final h = box.size.height;
+    _edgeSpeed = !box.size.contains(p)
         ? 0
         : p.dy < 60
         ? -14 * (1 - p.dy / 60)
@@ -155,16 +168,18 @@ class _DesktopAlbumReorderGridState extends State<DesktopAlbumReorderGrid>
   }
 
   void _retarget() {
-    final ids = _working!;
-    if (!_box!.size.contains(_pointer)) return;
+    final ids = _working;
+    final box = _box;
+    if (ids == null || box == null || !box.size.contains(_pointer)) return;
     final center = _ghost.value + _cell.center(Offset.zero);
     final probe = Offset.lerp(_pointer, center, .72)!;
-    final dest = _slot(probe, ids);
+    final dest = _slot(probe, ids, box);
     if (dest == null) return;
     final first = ids.indexWhere(_movable);
     final last = ids.lastIndexWhere(_movable);
-    final target = dest.clamp(first, last);
     final current = ids.indexOf(_id);
+    if (first < 0 || last < 0 || current < 0) return;
+    final target = dest.clamp(first, last);
     if (current != target) {
       setState(() => ids.insert(target, ids.removeAt(current)));
     }
@@ -184,8 +199,10 @@ class _DesktopAlbumReorderGridState extends State<DesktopAlbumReorderGrid>
 
   Future<void> _drop() async {
     final id = _id;
-    if (id == null || _dropping) return;
-    if (!_box!.size.contains(_pointer)) {
+    final working = _working;
+    final box = _box;
+    if (id == null || working == null || _dropping) return;
+    if (box == null || !box.size.contains(_pointer)) {
       _cancel();
       return;
     }
@@ -193,7 +210,7 @@ class _DesktopAlbumReorderGridState extends State<DesktopAlbumReorderGrid>
         .whereType<String>()
         .where((s) => !isFixedGallery(s))
         .toList();
-    final after = _working!
+    final after = working
         .whereType<String>()
         .where((s) => !isFixedGallery(s))
         .toList();
@@ -207,7 +224,8 @@ class _DesktopAlbumReorderGridState extends State<DesktopAlbumReorderGrid>
     try {
       await Future.wait([
         _settle.forward(from: 0).orCancel,
-        if (!listEquals(before, after)) widget.onReorder(id, before, after),
+        if (!listEquals(before, after))
+          widget.onReorder(id, before, after).catchError((Object _) {}),
       ]);
     } on TickerCanceled {
       // Route closed or the album set changed during the landing animation.
@@ -244,7 +262,9 @@ class _DesktopAlbumReorderGridState extends State<DesktopAlbumReorderGrid>
     if (to != from) {
       final after = [...before]..removeAt(from);
       after.insert(to, _hover!);
-      widget.onReorder(_hover!, before, after);
+      unawaited(
+        widget.onReorder(_hover!, before, after).catchError((Object _) {}),
+      );
     }
     return KeyEventResult.handled;
   }

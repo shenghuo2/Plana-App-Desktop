@@ -900,10 +900,9 @@ class GalleryStore {
 
   Future<void> _enqueueSearch(Future<void> Function() job) {
     final work = _searchChain.then((_) => job());
-    _searchChain = work.catchError((Object e) {
+    return _searchChain = work.catchError((Object e) {
       logd('[gallery-store] 检索索引写入失败: $e');
     });
-    return work;
   }
 
   /// 检索索引读入(后台 isolate);空/坏/**版本不对** → 空表(回填会重扫快照补齐)。
@@ -1128,14 +1127,28 @@ _readSearch(String basePath, String logPath) {
 int _compactSearch(String basePath, String logPath) {
   final items = _readSearch(basePath, logPath).items;
   final tmp = File('$basePath.tmp');
-  tmp.writeAsStringSync(
-    jsonEncode({
-      'v': GalleryStore._searchVersion,
-      'items': {for (final e in items.entries) e.key: _searchItemJson(e.value)},
-    }),
-    flush: true,
-  );
-  tmp.renameSync(basePath);
+  tmp.parent.createSync(recursive: true);
+  final payload = jsonEncode({
+    'v': GalleryStore._searchVersion,
+    'items': {for (final e in items.entries) e.key: _searchItemJson(e.value)},
+  });
+  tmp.writeAsStringSync(payload, flush: true);
+  // Retry brief transient locks (e.g. antivirus scans on Windows) before falling back.
+  var renamed = false;
+  for (var attempt = 0; attempt < 3 && !renamed; attempt++) {
+    try {
+      tmp.renameSync(basePath);
+      renamed = true;
+    } on FileSystemException {
+      if (attempt < 2) sleep(const Duration(milliseconds: 20));
+    }
+  }
+  if (!renamed) {
+    File(basePath).writeAsStringSync(payload, flush: true);
+    try {
+      tmp.deleteSync();
+    } catch (_) {}
+  }
   try {
     File(logPath).deleteSync();
   } catch (_) {}

@@ -189,7 +189,8 @@ class OcRepository {
         try {
           await refreshDue();
           if (!_closed) _schedule(await this.sources());
-        } on FileSystemException {
+        } catch (_) {
+          // Never leave an unhandled error inside the background refresh timer.
           if (!_closed) _schedule(sources, catchUp: false);
         }
       },
@@ -455,9 +456,14 @@ class OcRepository {
       }
       final images = <String>[];
       for (final image in withImages ? f.images : const <String>[]) {
-        final uri = source.location.isScheme('file') && p.isAbsolute(image)
-            ? File(image).uri
-            : source.location.resolve(image.replaceAll('\\', '/'));
+        final Uri uri;
+        try {
+          uri = source.location.isScheme('file') && p.isAbsolute(image)
+              ? File(image).uri
+              : source.location.resolve(image.replaceAll('\\', '/'));
+        } on FormatException {
+          continue;
+        }
         if (uri.isScheme('file') &&
             source.location.isScheme('file') &&
             uri.host.isEmpty) {

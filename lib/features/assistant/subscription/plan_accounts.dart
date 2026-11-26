@@ -32,8 +32,8 @@ PlanChoice? planChoiceOf(String key) {
 
 class PlanProfile {
   PlanProfile._(this.id, Map data)
-    : email = data['email'] as String,
-      label = data['label'] as String,
+    : email = data['email'] as String? ?? '',
+      label = data['label'] as String? ?? '',
       connected = data['grant'] != null,
       models = Map<String, String>.from(data['models'] as Map? ?? {}),
       selected = (data['selected'] as List? ?? const [])
@@ -63,7 +63,8 @@ class PlanAccounts {
       enabled = data['enabled'] != false,
       profiles = [
         for (final e in (data['profiles'] as Map).entries)
-          PlanProfile._(e.key as String, e.value as Map),
+          if (e.key is String && e.value is Map)
+            PlanProfile._(e.key as String, e.value as Map),
       ];
   final List<PlanProfile> profiles;
   final String activeId;
@@ -168,6 +169,7 @@ class PlanStore {
       await _locked((latest) async {
         var changed = false;
         for (final e in (latest['profiles'] as Map).entries) {
+          if (e.value is! Map) continue;
           final p = e.value as Map;
           if (p.containsKey('selected')) continue;
           p['selected'] = [
@@ -334,7 +336,13 @@ class PlanStore {
     if (response.statusCode != 200) {
       throw PlanAuthException('无法获取此工作区的模型（HTTP ${response.statusCode}）');
     }
-    final rows = jsonDecode(utf8.decode(response.bodyBytes))['models'];
+    Object? decoded;
+    try {
+      decoded = jsonDecode(utf8.decode(response.bodyBytes));
+    } on FormatException {
+      throw const PlanAuthException('OpenAI 返回的模型目录无法读取');
+    }
+    final rows = decoded is Map ? decoded['models'] : null;
     if (rows is! List) throw const PlanAuthException('OpenAI 返回的模型目录无法读取');
     final models = <String, String>{};
     final reasoning = <String, List<String>>{};

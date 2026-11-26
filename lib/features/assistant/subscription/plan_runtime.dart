@@ -246,14 +246,20 @@ class PlanRuntime implements AgentRuntime {
       if (!line.startsWith('data:')) continue;
       final data = line.substring(5).trim();
       if (data.isEmpty || data == '[DONE]') continue;
-      final frame = jsonDecode(data);
+      Object? frame;
+      try {
+        frame = jsonDecode(data);
+      } on FormatException {
+        continue;
+      }
       if (frame is! Map) continue;
       switch (frame['type']) {
         case 'response.completed':
-          if (frame['response']?['status'] != 'completed') {
+          final resp = frame['response'];
+          if (resp is! Map || resp['status'] != 'completed') {
             throw AgentFailure('ChatGPT 未完成本次回复', retryable: false);
           }
-          final output = frame['response']?['output'];
+          final output = resp['output'];
           if (output is List) {
             refused |= output.whereType<Map>().any(
               (item) =>
@@ -264,7 +270,7 @@ class PlanRuntime implements AgentRuntime {
             );
           }
           if (text.isEmpty) {
-            text.write(provider.parseResponse(frame['response']));
+            text.write(provider.parseResponse(resp));
           }
           completed = true;
         case 'error' || 'response.failed' || 'response.incomplete':
