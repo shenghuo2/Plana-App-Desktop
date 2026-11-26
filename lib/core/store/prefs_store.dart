@@ -58,6 +58,8 @@ class PrefsStore {
   /// `auth_mode` 只是「选了哪种接入」,不是机密,2026-10 起也搬过来:留在加密
   /// 存储里的话,Keystore 一出事它就跟凭据一起没了,用户每次冷启动都被踢回
   /// 首启引导。
+  static const migratedKey = 'prefs_migrated_v1';
+
   static const migrateKeys = <String>[
     'theme_settings',
     'editor_settings',
@@ -123,7 +125,9 @@ class PrefsStore {
     Future<String?> Function(String key) legacyRead,
     Future<void> Function(String key) legacyDelete,
   ) async {
+    if (_map[migratedKey] == '1') return;
     var moved = 0;
+    var hadError = false;
     for (final k in migrateKeys) {
       if (_map.containsKey(k)) continue; // 已迁过
       try {
@@ -133,10 +137,17 @@ class PrefsStore {
         moved++;
         await legacyDelete(k);
       } catch (_) {
-        // 这一项读不出来就算了,下次启动再试;不影响其余项
+        // Retry failed keys on next launch instead of marking migration complete.
+        hadError = true;
       }
     }
-    if (moved > 0) {
+    if (!hadError) {
+      _map[migratedKey] = '1';
+      await _flush();
+      if (moved > 0) {
+        logd('[prefs] 已从 secure storage 迁出 $moved 项设置');
+      }
+    } else if (moved > 0) {
       logd('[prefs] 已从 secure storage 迁出 $moved 项设置');
       await _flush();
     }
