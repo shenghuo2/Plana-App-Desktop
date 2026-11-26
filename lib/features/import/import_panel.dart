@@ -175,7 +175,6 @@ class _ImportImagePanelState extends ConsumerState<ImportImagePanel> {
   /// 二十来个词,常驻着会把下面的角色/Vibe/参数全顶出屏幕。点头部展开。
   bool _presetExpanded = false;
 
-
   // 正向按分区逐行列出(图里存的分区拼出来对得上时;否则只有一行主体)
   List<PromptSection>? _layout;
   final Set<int> _secOff = {}; // 取消勾选的行
@@ -519,7 +518,7 @@ class _ImportImagePanelState extends ConsumerState<ImportImagePanel> {
   /// 这个功能模块在**当前模型**下能不能用;不能用返回禁用原因。
   ///
   /// 判定直接借主页那条统一可见性谓词([GenModuleSettings.isVisibleFor]),
-  /// **不另立门槛**:主页上因型号能力(NAI 5 之于 Vibe、非 4.5 之于角色参考)
+  /// **不另立门槛**:主页上因型号能力(NAI 5 之于 Vibe、4.0 之于角色参考)
   /// 或用户隐藏而收走的模块,从这里导进去也会被 stripHiddenModules 原样剥掉 ——
   /// 让人按得下去、转一圈没效果,比按不动更难懂。
   ///
@@ -950,24 +949,42 @@ class _ImportImagePanelState extends ConsumerState<ImportImagePanel> {
       }
     }
 
-    if (secRows != null && pos != null && _prefs.promptMode == ImagePromptImportMode.replaceMain &&
+    if (secRows != null &&
+        pos != null &&
+        _prefs.promptMode == ImagePromptImportMode.replaceMain &&
         _posOn.length != _posRows.length) {
       final selected = [for (final i in _posOn) _posRows[i]];
-      pos = joinSections(selected, selected.where((r) => r.isMain).firstOrNull?.positive ?? '', positive: true);
+      pos = joinSections(
+        selected,
+        selected.where((r) => r.isMain).firstOrNull?.positive ?? '',
+        positive: true,
+      );
     }
 
-    if (secRows != null && pos != null && _prefs.promptMode != ImagePromptImportMode.replaceMain) {
-      final withNeg = neg != null && sectionLayoutMatches(secRows, neg, positive: false);
+    if (secRows != null &&
+        pos != null &&
+        _prefs.promptMode != ImagePromptImportMode.replaceMain) {
+      final withNeg =
+          neg != null && sectionLayoutMatches(secRows, neg, positive: false);
       final rows = _posRows;
-      ref.read(canvasWorkspaceProvider.notifier).updatePrompts(before.canvasId, (current) {
-        final updated = importSectionsInto(current.applyTo(ref.read(generateProvider)),
-          [for (final i in _posOn) withNeg ? rows[i] : rows[i].copyWith(negative: '')],
-          mainNegative: withNeg ? secRows.where((r) => r.isMain).firstOrNull?.negative ?? '' : neg,
-          append: _prefs.promptMode == ImagePromptImportMode.addSection,
-          newId: notifier.allocateItemId,
-        );
-        return CanvasPrompts.of(updated);
-      });
+      ref.read(canvasWorkspaceProvider.notifier).updatePrompts(
+        before.canvasId,
+        (current) {
+          final updated = importSectionsInto(
+            current.applyTo(ref.read(generateProvider)),
+            [
+              for (final i in _posOn)
+                withNeg ? rows[i] : rows[i].copyWith(negative: ''),
+            ],
+            mainNegative: withNeg
+                ? secRows.where((r) => r.isMain).firstOrNull?.negative ?? ''
+                : neg,
+            append: _prefs.promptMode == ImagePromptImportMode.addSection,
+            newId: notifier.allocateItemId,
+          );
+          return CanvasPrompts.of(updated);
+        },
+      );
     } else {
       _writeImagePrompts(before.canvasId, positive: pos, negative: neg);
     }
@@ -1581,11 +1598,20 @@ class _ImportImagePanelState extends ConsumerState<ImportImagePanel> {
         const SizedBox(height: 11),
         // 正向:同角色区,图里存了分区就逐格列出,没有就一行主体
         if (m.prompt.isNotEmpty) ...[
-          if (_secRows == null || (_posRows.length == 1 && _posRows.single.isMain))
-            _fixedRow(scheme, icon: Icons.notes, title: context.l10n.positivePrompt,
-              preview: m.prompt, checked: _positiveOn,
+          if (_secRows == null ||
+              (_posRows.length == 1 && _posRows.single.isMain))
+            _fixedRow(
+              scheme,
+              icon: Icons.notes,
+              title: context.l10n.positivePrompt,
+              preview: m.prompt,
+              checked: _positiveOn,
               onTap: () => setState(() {
-                if (_positiveOn) { _secOff.add(0); } else { _secOff.remove(0); }
+                if (_positiveOn) {
+                  _secOff.add(0);
+                } else {
+                  _secOff.remove(0);
+                }
               }),
             )
           else

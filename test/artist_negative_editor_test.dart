@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -6,10 +7,14 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:image/image.dart' as img;
+import 'package:plana_app/core/auth/bot_session_store.dart';
+import 'package:plana_app/core/net/backend_client.dart';
 import 'package:plana_app/core/platform/desktop.dart';
 import 'package:plana_app/core/store/app_stores.dart';
 import 'package:plana_app/core/theme/app_theme.dart';
 import 'package:plana_app/core/ui/expand_body.dart';
+import 'package:plana_app/features/gallery/models.dart';
 import 'package:plana_app/features/generate/generate_state.dart';
 import 'package:plana_app/features/inspiration/public_tags.dart';
 import 'package:plana_app/features/inspiration/tag_editor_page.dart';
@@ -18,6 +23,44 @@ import 'package:plana_app/features/inspiration/tag_models.dart';
 
 import 'support/desktop_capture.dart';
 import 'support/pump_until.dart';
+
+class _StyleBackend extends BackendClient {
+  _StyleBackend() : super('https://example.invalid');
+
+  final covers = <String?>[];
+  Completer<void>? pending;
+
+  @override
+  Future<({String id, String name})> createPublicArtist({
+    required String sessionId,
+    required String artistString,
+    String? name,
+    String negative = '',
+    String? previewBase64,
+    String? addedBy,
+    List<String>? models,
+    Map<String, dynamic>? recipe,
+  }) async {
+    covers.add(previewBase64);
+    await pending?.future;
+    return (id: 'new-public-style', name: name!);
+  }
+
+  @override
+  Future<void> updatePublicArtist({
+    required String sessionId,
+    required String id,
+    String? artistString,
+    String? negative,
+    String? previewBase64,
+    String? addedBy,
+    List<String>? models,
+    Map<String, dynamic>? recipe,
+  }) async {
+    covers.add(previewBase64);
+    await pending?.future;
+  }
+}
 
 void main() {
   final binding = TestWidgetsFlutterBinding.ensureInitialized();
@@ -34,6 +77,7 @@ void main() {
   late File libraryFile;
   late AppStores stores;
   late ProviderContainer container;
+  late _StyleBackend backend;
   final capture = GlobalKey();
 
   setUpAll(loadDesktopCaptureFonts);
@@ -48,10 +92,12 @@ void main() {
       (_) async => temp.path,
     );
     stores = AppStores.ephemeral();
+    backend = _StyleBackend();
     container = ProviderContainer(
       overrides: [
         appStoresProvider.overrideWithValue(stores),
         desktopModeProvider.overrideWithValue(true),
+        backendClientProvider.overrideWithValue(backend),
         publicTagsProvider.overrideWith((ref, cat) async => []),
       ],
     );
@@ -193,6 +239,116 @@ void main() {
     await tester.pump(const Duration(seconds: 1));
     expect(tester.takeException(), isNull);
   }
+
+  testWidgets(
+    'saving and publishing keeps the edited local original through a failed publication',
+    (tester) async {
+      final bytes = img.encodePng(img.Image(width: 96, height: 64));
+      stores.gallery.initialResults = [
+        ResultImage(
+          id: 'publish-cover',
+          width: 96,
+          height: 64,
+          seed: 2,
+          bytes: bytes,
+        ),
+      ];
+      await mount(tester, initial: saved);
+      await container.read(botSessionProvider.future);
+      await container
+          .read(botSessionProvider.notifier)
+          .save(const BotSession(sessionId: 'test'));
+      await open(tester);
+      await tap(tester, find.text('历史'));
+      await tap(tester, key('quick-gallery-image-publish-cover'));
+      await tap(tester, find.text('保存并发布'));
+      backend.pending = Completer<void>();
+      await tester.tap(find.text('我已确认,发布'));
+      await pumpUntil(tester, () => backend.covers.isNotEmpty);
+      final local = diskEntries().single;
+      expect(local.id, saved.id);
+      expect(local.origin, TagOrigin.local);
+      expect(File(local.previewUrl!).readAsBytesSync(), orderedEquals(bytes));
+      backend.pending!.completeError(BackendException('测试发布失败'));
+      await pumpUntil(
+        tester,
+        () => key('tag-editor-dialog').evaluate().isEmpty,
+      );
+      backend.pending = null;
+
+      await open(tester);
+      await tap(tester, find.text('保存并发布'));
+      await tester.tap(find.text('我已确认,发布'));
+      await pumpUntil(
+        tester,
+        () => key('tag-editor-dialog').evaluate().isEmpty,
+      );
+      final published = diskEntries().single;
+      expect(published.id, local.id);
+      expect(published.publicId, 'new-public-style');
+      expect(published.origin, TagOrigin.created);
+      expect(published.previewUrl, local.previewUrl);
+      expect(backend.covers, [base64Encode(bytes), base64Encode(bytes)]);
+      await finish(tester);
+    },
+  );
+
+  testWidgets(
+    'gallery replaces one style slot and its saved cover survives failed sync and retry',
+    (tester) async {
+      final original = File('assets/app_icon.png').readAsBytesSync();
+      final first = File('${temp.path}/first.png')..writeAsBytesSync(original);
+      final second = File('${temp.path}/second.png')
+        ..writeAsBytesSync(original);
+      final bytes = img.encodePng(img.Image(width: 80, height: 40));
+      stores.gallery.initialResults = [
+        ResultImage(id: 'wide', width: 80, height: 40, seed: 92, bytes: bytes),
+      ];
+      final entry = saved.copyWith(
+        origin: TagOrigin.created,
+        publicId: 'style',
+        previews: [first.path, second.path],
+      );
+      await mount(tester, initial: entry);
+      await container.read(botSessionProvider.future);
+      await container
+          .read(botSessionProvider.notifier)
+          .save(const BotSession(sessionId: 'test'));
+
+      await open(tester);
+      await tap(tester, key('tag-preview-slot-drop-1'));
+      await tap(tester, find.widgetWithText(ListTile, '从图库选取'));
+      await tap(tester, key('quick-gallery-image-wide'));
+      await save(tester, '保存到本地');
+      final slots = diskEntries().single.previews;
+      expect(slots.first, first.path);
+      expect(File(slots[1]).readAsBytesSync(), orderedEquals(bytes));
+      expect(backend.covers, isEmpty);
+
+      await open(tester);
+      await tap(tester, key('tag-preview-slot-drop-1'));
+      await tap(tester, find.text('设为封面'));
+      backend.pending = Completer<void>();
+      await tester.tap(find.text('保存并同步'));
+      await pumpUntil(tester, () => backend.covers.isNotEmpty);
+      expect(diskEntries().single.previews, slots.reversed.toList());
+      expect(backend.covers.single, base64Encode(bytes));
+      backend.pending!.completeError(BackendException('测试离线'));
+      await pumpUntil(
+        tester,
+        () => key('tag-editor-dialog').evaluate().isEmpty,
+      );
+      expect(find.textContaining('公共库同步失败'), findsOneWidget);
+
+      backend.pending = null;
+      await reloadLibrary(tester);
+      await open(tester);
+      await save(tester, '保存并同步');
+      expect(backend.covers, [base64Encode(bytes), base64Encode(bytes)]);
+      expect(diskEntries().single.previews, slots.reversed.toList());
+      await finish(tester);
+    },
+  );
 
   testWidgets(
     'new artist starts folded, saves entered negative, and reopens it expanded from disk',

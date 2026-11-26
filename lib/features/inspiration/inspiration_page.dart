@@ -1,8 +1,9 @@
 import 'dart:io';
+import 'external/oc_sources.dart';
+import 'external/oc_browser.dart';
 import '../../core/ui/fade_in_once.dart';
 import 'dart:async';
 
-import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -13,6 +14,7 @@ import '../../core/net/remote_image.dart';
 import '../../core/platform/desktop.dart';
 import '../../core/store/ui_prefs.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/theme/theme_settings.dart';
 import '../../core/ui/pinch_columns.dart';
 import '../../core/ui/scroll_memory.dart';
 import '../../core/ui/selection_bar.dart';
@@ -27,13 +29,21 @@ import '../shell/shell_state.dart';
 import 'codex/codex_view.dart';
 import 'artist_models.dart';
 import 'public_tags.dart';
+import 'public_tag_blocks.dart';
+import '../gallery/widgets/gallery_drag_selection.dart';
+import '../onboarding/bot_auth_page.dart';
 import 'tag_editor_page.dart';
 import 'tag_library.dart';
 import 'widgets/category_sheets.dart';
-import 'widgets/tag_card.dart' show TagTextPreview, TagCardArtwork;
+import 'widgets/tag_card.dart' show TagTextPreview;
 import 'tag_models.dart';
+import 'widgets/desktop_category_strip.dart';
+import 'widgets/desktop_inspiration_search.dart';
 import 'widgets/desktop_tag_filter_bar.dart';
 import 'widgets/scope_seg_tabs.dart';
+import 'widgets/sidebar_inspiration.dart';
+import 'widgets/inspiration_entry_card.dart';
+import 'widgets/inspiration_selection_bar.dart';
 import 'widgets/tag_filter_chips.dart';
 import 'widgets/tag_filter_sheet.dart';
 import 'widgets/tag_sheets.dart';
@@ -58,7 +68,12 @@ const _kCols = 2;
 /// 布局随 Vibe 管理器(搜索 + 我的/公共库分段 + 网格 + 底部操作条),
 /// 分类切换走左侧抽屉(角色/画风/场景/其他;自定义分类未开放,不做)。
 class InspirationPage extends ConsumerStatefulWidget {
-  const InspirationPage({super.key, this.embedded = false});
+  const InspirationPage({super.key, this.embedded = false})
+    : manageBlocks = false;
+  const InspirationPage.blocklist({super.key})
+    : embedded = false,
+      manageBlocks = true;
+  final bool manageBlocks;
   final bool embedded;
 
   @override
@@ -90,8 +105,103 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
   late final _pubScroll = MemoScrollController.keyed(
     () => _scrollKey(_cat, true),
   );
-  final _embeddedCategoryScroll = ScrollController();
-  final _embeddedCategoryKeys = <TagCategory, GlobalKey>{};
+  final _categoryScroll = ScrollController();
+  final _scopeScroll = ScrollController();
+  List<OcSource> _sources = const [];
+  static const _allExternal = 'all-external';
+  String? _sourceId, _lastRemote;
+  List<OcSource> get _activeSources => _sourceId == _allExternal
+      ? _sources
+      : _sources.where((s) => s.id == _sourceId).toList();
+  bool get _isExternal => _activeSources.isNotEmpty;
+  List<String> _tagPool(TagLibraryState lib) => _isExternal
+      ? ({
+          for (final s in _activeSources) ...s.tagsWithEdits(lib.externalTags),
+        }.toList()..sort())
+      : lib.knownTags(_cat);
+  int get _remoteIndex {
+    if (_lastRemote == _allExternal && _sources.isNotEmpty) {
+      return _sources.length + 2;
+    }
+    final index = _sources.indexWhere((s) => s.id == _lastRemote);
+    return index < 0 ? 1 : index + 2;
+  }
+
+  Widget _libraryChip({
+    required Key key,
+    required String label,
+    required IconData icon,
+    required int index,
+    required bool selected,
+  }) {
+    final compact = index >= 2 ? compactLibraryLabel(label) : label;
+    return ChoiceChip(
+      key: key,
+      avatar: Icon(icon, size: 17),
+      label: Text(compact, maxLines: 1, semanticsLabel: label),
+      tooltip: compact == label ? null : label,
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      labelStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+      visualDensity: VisualDensity.compact,
+      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      showCheckmark: false,
+      selected: selected,
+      onSelected: (_) => _chooseScope(index),
+    );
+  }
+
+  void _chooseScope(int index) {
+    final id = index < 2
+        ? null
+        : index == _sources.length + 2
+        ? _allExternal
+        : _sources[index - 2].id;
+    setState(() {
+      if (_sourceId != id || (index < 2 && _tabIndex != index)) {
+        _authorFilter = null;
+      }
+      _sourceId = id;
+      if (index > 0) _lastRemote = id;
+    });
+    if (index < 2) _tab.animateTo(index);
+  }
+
+  List<OcBrowseItem> _externalItems(TagLibraryState lib) =>
+      matchingOcCharacters(
+        _activeSources,
+        search: _search,
+        author: _authorFilter,
+        filter: _validFilter(lib),
+        matchAny: ref.watch(
+          themeSettingsProvider.select((s) => s.inspirationMatchAnyTag),
+        ),
+        favorites: ref.watch(ocFavoritesProvider),
+        tagOverrides: lib.externalTags,
+      );
+  Widget _external(TagLibraryState lib) => ExternalOcBrowser(
+    key: ValueKey(_sourceId),
+    items: _externalItems(lib),
+    tagOverrides: lib.externalTags,
+    sources: _activeSources,
+    query: _search,
+    author: _authorFilter,
+    scope: _sourceId == _allExternal
+        ? context.l10n.allExternalLibraries
+        : _activeSources.first.label,
+    sort: _sortMode,
+    filter: _validFilter(lib),
+    matchAny: ref.watch(
+      themeSettingsProvider.select((s) => s.inspirationMatchAnyTag),
+    ),
+    embedded: widget.embedded,
+    limit: _selectionLimit,
+    onPrompt: (items) => _confirmToPrompt(lib, items),
+    onCharacters: _charModuleOn
+        ? (items) => _confirmAsCharacters(lib, items)
+        : null,
+  );
+  final _categoryKeys = <TagCategory, GlobalKey>{};
+  final _codexCategoryKey = GlobalKey();
 
   /// 每分类已选 id(我的/公共库两 scope 共用一套,对齐 web selectionMap)。
   final Map<TagCategory, Set<String>> _selected = {};
@@ -103,12 +213,13 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
 
   String _search = '';
   final _searchController = TextEditingController();
-  double _desktopGridWidth = 0;
+  double _gridWidth = 0;
   bool get _desktopLibrary => ref.read(desktopModeProvider) && !widget.embedded;
 
-  /// 筛选:null=全部;[_kFavFilter]=收藏;其余为标签名。
-  String? _filter;
-  static const _kFavFilter = TagFilterChips.favorites;
+  var _filter = const InspirationTagFilter();
+  late final _blockDraft = {...ref.read(publicTagBlocksProvider)};
+  PublicTagRule get _blockRule => _blockDraft[_cat] ?? const PublicTagRule();
+  bool _savingBlocks = false;
 
   /// 画风的「适用模型」筛选:null=全部;[kGenericModelFilter]=只看通用;
   /// 其余是 [ArtistModelGroup] 的 name。与 [_filter] 是两个正交的维度,
@@ -127,7 +238,9 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
   /// 怎么看这一类」的偏好,回来还想看到上次那个排法。
   final Map<TagCategory, TagSort> _sortBy = {};
 
-  TagSort get _sortMode => _sortBy[_cat] ?? defaultTagSort(_cat);
+  TagSort get _sortMode => widget.manageBlocks
+      ? TagSort.author
+      : _sortBy[_cat] ?? defaultTagSort(_cat);
 
   /// 批量操作进行中(禁重入)。
   bool _busy = false;
@@ -150,7 +263,8 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
     _tab.dispose();
     _mineScroll.dispose();
     _pubScroll.dispose();
-    _embeddedCategoryScroll.dispose();
+    _categoryScroll.dispose();
+    _scopeScroll.dispose();
     super.dispose();
   }
 
@@ -161,12 +275,14 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
 
   Set<String> get _sel => _selected[_cat] ??= {};
 
+  int get _selectionLimit => _cat == TagCategory.character
+      ? maxCharactersOf(ref.read(generateProvider).params.model)
+      : _def.maxSelectable;
+
   void _toggle(TagEntry e) {
     // 角色分类的单次可选数 = 角色卡槽位,跟当前模型走(NAI 5 是 20);
     // 其余分类仍用注册表里的静态上限。
-    final cap = _cat == TagCategory.character
-        ? maxCharactersOf(ref.read(generateProvider).params.model)
-        : _def.maxSelectable;
+    final cap = _selectionLimit;
     setState(() {
       if (_sel.contains(e.id)) {
         _sel.remove(e.id);
@@ -184,7 +300,7 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
 
   /// 滚动记忆的账本 key:每个分类的两个 scope 各记各的。
   String _scrollKey(TagCategory c, bool pub) =>
-      'inspiration.${c.name}.${pub ? 'public' : 'mine'}';
+      '${widget.manageBlocks ? 'inspiration.blocks' : 'inspiration'}.${c.name}.${pub ? 'public' : 'mine'}';
 
   void _switchCategory(TagCategory c) {
     if (c == _cat) return;
@@ -192,26 +308,30 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
     // 挂上控制器时从新分类的账上落位(见 [MemoScrollController])。
     setState(() {
       _cat = c;
+      _sourceId = null;
+      _lastRemote = null;
       _search = '';
       _searchController.clear();
-      _filter = null;
+      _filter = const InspirationTagFilter();
       _modelFilter = null;
       _authorFilter = null;
       if (!tagCategoryDef(c).hasPublic) _tab.index = 0;
     });
     // 换完 _cat 再换:上限跟着新分类的卡片形状走
     jumpGridColumns(_savedCols(c));
-    _revealEmbeddedCategory(c);
+    _revealCategory(c);
   }
 
-  void _revealEmbeddedCategory(TagCategory category) {
-    if (!widget.embedded) return;
+  void _revealCategory(Object category) {
+    if (!widget.embedded && !_desktopLibrary) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || !_embeddedCategoryScroll.hasClients) return;
-      final target = _embeddedCategoryKeys[category]?.currentContext
-          ?.findRenderObject();
+      if (!mounted || !_categoryScroll.hasClients) return;
+      final key = category == _kCodexSel
+          ? _codexCategoryKey
+          : _categoryKeys[category];
+      final target = key?.currentContext?.findRenderObject();
       if (target == null) return;
-      _embeddedCategoryScroll.position.ensureVisible(
+      _categoryScroll.position.ensureVisible(
         target,
         alignment: 0.5,
         duration: Motion.fast,
@@ -282,11 +402,8 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
 
   /// 标签被删(标签池管理里删掉正在筛选的那个)后按「全部」处理,
   /// 不让列表空掉却没有任何选中态。
-  String? _validFilter(TagLibraryState lib) {
-    final f = _filter;
-    if (f == null || f == _kFavFilter) return f;
-    return lib.knownTags(_cat).contains(f) ? f : null;
-  }
+  InspirationTagFilter _validFilter(TagLibraryState lib) =>
+      _filter.validFor(_tagPool(lib));
 
   /// 「我的」的完整来源 = 本地条目 + 公共库里我发布的(本地没副本的补进来,
   /// 标 created;对齐 web mineAll)。归属判定优先 owner_id,与服务端一致。
@@ -294,32 +411,30 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
       ? mergeMineTags(
           lib.of(_cat),
           ref.watch(botSessionProvider).value?.botUserId,
-          ref.watch(publicTagsProvider(_cat)).value,
+          ref.watch(visiblePublicTagsProvider(_cat)).value,
         )
       : lib.of(_cat);
 
   List<TagEntry> _mineList(TagLibraryState lib) {
     final q = _search.trim().toLowerCase();
-    var list = [
-      for (final e in _mineAll(lib))
-        if (_matches(e, q)) e,
-    ];
     final filter = _validFilter(lib);
-    if (filter == _kFavFilter) {
-      list = [
-        for (final e in list)
-          if (e.origin == TagOrigin.favorited) e,
-      ];
-    } else if (filter != null) {
-      list = [
-        for (final e in list)
-          if (e.tags.contains(filter)) e,
-      ];
-    }
-    list = _byAuthor(_byModel(list));
+    final matchAny = ref.watch(
+      themeSettingsProvider.select((s) => s.inspirationMatchAnyTag),
+    );
+    final list = _byAuthor(_mineCandidates(_mineAll(lib), q, filter, matchAny));
     _sort(list);
     return list;
   }
+
+  List<TagEntry> _mineCandidates(
+    List<TagEntry> all,
+    String q,
+    InspirationTagFilter filter,
+    bool matchAny,
+  ) => _byModel([
+    for (final e in all)
+      if (_matches(e, q) && filter.matches(e, matchAny: matchAny)) e,
+  ]);
 
   /// 适用模型筛选(只对画风有意义;别的分类 [_modelFilter] 恒 null)。
   List<TagEntry> _byModel(List<TagEntry> list) => _modelFilter == null
@@ -329,15 +444,43 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
             if (matchesArtistModelFilter(e.models, _modelFilter)) e,
         ];
 
-  List<TagEntry> _publicList(List<TagEntry> all) {
-    final q = _search.trim().toLowerCase();
-    final list = [
-      for (final e in all)
-        if (_matches(e, q)) e,
-    ];
-    final out = _byAuthor(_byModel(list));
+  List<TagEntry> _publicList(List<TagEntry> all, TagLibraryState library) {
+    final matchAny = ref.watch(
+      themeSettingsProvider.select((s) => s.inspirationMatchAnyTag),
+    );
+    final out = _byAuthor(_publicCandidates(all, library, matchAny));
     _sort(out);
     return out;
+  }
+
+  List<TagEntry> _publicCandidates(
+    List<TagEntry> all,
+    TagLibraryState library,
+    bool matchAny,
+  ) {
+    final q = _search.trim().toLowerCase();
+    final desktop = ref.read(desktopModeProvider);
+    final findCopy = desktop && !widget.manageBlocks
+        ? library.publicCopyLookup(_cat)
+        : null;
+    final filter = desktop
+        ? _validFilter(library)
+        : const InspirationTagFilter();
+    final list = <TagEntry>[];
+    for (final remote in all) {
+      final copy = findCopy?.call(remote);
+      final entry = copy == null
+          ? remote
+          : remote.copyWith(tags: copy.tags, favorite: copy.isFavorite);
+      if (!(_matches(entry, q) ||
+              (widget.manageBlocks &&
+                  (entry.publicId?.toLowerCase().contains(q) ?? false))) ||
+          !filter.matches(entry, matchAny: matchAny)) {
+        continue;
+      }
+      list.add(entry);
+    }
+    return _byModel(list);
   }
 
   void _sort(List<TagEntry> list) {
@@ -362,7 +505,7 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
 
   List<TagEntry> _resolveSelected(TagLibraryState lib) {
     final byId = {for (final e in lib.of(_cat)) e.id: e};
-    final pub = ref.read(publicTagsProvider(_cat)).value;
+    final pub = ref.read(visiblePublicTagsProvider(_cat)).value;
     if (pub != null) {
       for (final e in pub) {
         byId[e.id] = e;
@@ -377,9 +520,13 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
   Future<void> _afterConfirm(List<TagEntry> used, String message) async {
     // 写进的是此刻的当前画布,提示条里的「套用」也按它回写
     final canvasId = ref.read(canvasWorkspaceProvider).activeId;
-    await ref.read(tagLibraryProvider.notifier).markUsed(_cat, [
-      for (final e in used) e.id,
-    ]);
+    final libraryIds = [
+      for (final e in used)
+        if (!e.id.startsWith('ext:')) e.id,
+    ];
+    if (libraryIds.isNotEmpty) {
+      await ref.read(tagLibraryProvider.notifier).markUsed(_cat, libraryIds);
+    }
     // 公共画师串使用计数上报(fire-and-forget)
     if (_cat == TagCategory.artist) {
       final session = ref.read(botSessionProvider).value;
@@ -403,17 +550,15 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
   }
 
   /// 角色 → 加入角色卡(带名追加,上限按模型截断,见 maxCharactersOf)。
-  Future<void> _confirmAsCharacters(TagLibraryState lib) async {
-    final entries = _resolveSelected(lib);
+  Future<void> _confirmAsCharacters(
+    TagLibraryState lib, [
+    List<TagEntry>? external,
+  ]) async {
+    final entries = external ?? _resolveSelected(lib);
     if (entries.isEmpty) return;
     final cap = maxCharactersOf(ref.read(generateProvider).params.model);
-    final pubPreview = publicPreviewsOf(
-      ref.read(publicTagsProvider(_cat)).value,
-    );
-    final drafts = [
-      for (final e in entries)
-        foldTagEntry(e),
-    ];
+    final pubPreview = ref.read(tagCoverPreviewsProvider(_cat));
+    final drafts = [for (final e in entries) foldTagEntry(e)];
     final notifier = ref.read(generateProvider.notifier);
     final oldCount = ref.read(generateProvider).characters.length;
     final added = notifier.addNamedCharactersFrom([
@@ -458,8 +603,11 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
 
   /// 角色「主提示词」/ 画风/场景/其他「确认选择」:先为每个条目新建命名分区,
   /// 再完整写入正负向(同提示词卡头的「灵感库」)。
-  Future<void> _confirmToPrompt(TagLibraryState lib) async {
-    final entries = _resolveSelected(lib);
+  Future<void> _confirmToPrompt(
+    TagLibraryState lib, [
+    List<TagEntry>? external,
+  ]) async {
+    final entries = external ?? _resolveSelected(lib);
     if (entries.isEmpty) return;
     ref.read(generateProvider.notifier).addEntrySections(entries);
     await _afterConfirm(entries, '已加入 ${entries.length} 个提示词分区');
@@ -472,15 +620,33 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
     super.build(context);
     final scheme = context.scheme;
     final lib = ref.watch(tagLibraryProvider).value ?? const TagLibraryState();
+    if (widget.manageBlocks) {
+      _authorNames = ref.watch(tagAuthorNamesProvider).value ?? const {};
+      return _blocklistPage(lib);
+    }
+    ref.listen(publicTagBlocksProvider, (_, rules) {
+      for (final selection in _selected.entries) {
+        final rule = rules[selection.key];
+        if (rule == null || selection.value.isEmpty) continue;
+        final catalog =
+            ref.read(publicTagsProvider(selection.key)).value ??
+            const <TagEntry>[];
+        selection.value.removeAll(catalog.where(rule.hides).map((e) => e.id));
+      }
+      if (mounted) setState(() {});
+    });
     if (!_codex && !lib.visibleTabKeys.contains(tagCategoryDef(_cat).webId)) {
       _cat = TagCategory.character;
       _tab.index = 0;
       _selected.clear();
       _searchController.clear();
       _search = '';
-      _revealEmbeddedCategory(_cat);
+      _revealCategory(_cat);
     }
     final def = _def;
+    _sources = _cat == TagCategory.character && ref.watch(desktopModeProvider)
+        ? ref.watch(ocSourcesProvider).value ?? const []
+        : const [];
     _authorNames = ref.watch(tagAuthorNamesProvider).value ?? const {};
     if (ref.watch(desktopModeProvider) && !widget.embedded) {
       return _desktopPage(scheme, lib);
@@ -507,7 +673,9 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
             ),
         ],
       ),
-      bottomNavigationBar: _codex ? null : _selectionBar(scheme, lib),
+      bottomNavigationBar: _codex || _isExternal
+          ? null
+          : _selectionBar(scheme, lib),
     );
   }
 
@@ -532,7 +700,9 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
             onChanged: (v) => setState(() => _search = v),
             decoration: InputDecoration(
               isDense: true,
-              hintText: def.searchHint,
+              hintText: !_isExternal
+                  ? def.searchHint
+                  : context.l10n.externalOcSearch,
               prefixIcon: const Icon(Icons.search, size: 20),
               filled: true,
               fillColor: scheme.surfaceContainerHigh,
@@ -547,7 +717,50 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
               // 只给有公共库的两类(角色/画风)—— 场景/其他的条目全是自己的,
               // 没有「别人」可筛。
               // 以按钮为锚点；独立语义边界保留漏斗与筛选药丸切换时的节点。
-              suffixIcon: def.hasPublic
+              suffixIcon: widget.embedded
+                  ? Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (_tagPool(lib).isNotEmpty)
+                          Builder(
+                            builder: (anchor) {
+                              final filter = _validFilter(lib);
+                              return IconButton(
+                                key: const ValueKey('sidebar-tag-filter'),
+                                tooltip: l10nNow.desktopFilterByTag,
+                                visualDensity: VisualDensity.compact,
+                                icon: Badge.count(
+                                  count: filter.tags.length,
+                                  isLabelVisible: filter.tags.isNotEmpty,
+                                  child: Icon(
+                                    Icons.sell_outlined,
+                                    size: 17,
+                                    color: filter.tags.isEmpty
+                                        ? scheme.onSurfaceVariant
+                                        : scheme.primary,
+                                  ),
+                                ),
+                                onPressed: () => showDesktopTagPicker(
+                                  anchor,
+                                  tags: _tagPool(lib),
+                                  selectedTags: filter.tags,
+                                  onChanged: _setFilterTags,
+                                ),
+                              );
+                            },
+                          ),
+                        if (def.hasPublic)
+                          Flexible(
+                            child: Builder(
+                              builder: (anchor) => Semantics(
+                                container: true,
+                                child: _filterButton(scheme, anchor),
+                              ),
+                            ),
+                          ),
+                      ],
+                    )
+                  : def.hasPublic
                   ? Builder(
                       builder: (anchor) => Semantics(
                         container: true,
@@ -562,7 +775,24 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
             ),
           ),
         ),
-        if (def.hasPublic)
+        if (widget.embedded && _validFilter(lib).tags.isNotEmpty)
+          SelectedInspirationTags(
+            tags: _validFilter(lib).tags,
+            onChanged: _setFilterTags,
+          ),
+        if (widget.embedded)
+          SidebarLibraryScope(
+            publicAvailable: def.hasPublic,
+            publicSelected: !_isExternal && def.hasPublic && _tabIndex == 1,
+            sources: [for (final s in _sources) s.label],
+            sourceIndex: _isExternal ? _remoteIndex - 2 : -1,
+            remoteIndex: _remoteIndex,
+            favorites: _filter.favorites,
+            onScope: _chooseScope,
+            onFavorites: () =>
+                setState(() => _filter = _filter.toggleFavorites()),
+          )
+        else if (def.hasPublic)
           Padding(
             // 「我的」下面紧跟筛选行,间距由它顶出,这里不再留底距;
             // 公共态没有筛选行,分段行会直接贴上网格首个分组头(顶衬仅 2),
@@ -578,282 +808,320 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
               mineCount: lib.of(_cat).length,
             ),
           ),
-        if (_tabIndex == 0 || !def.hasPublic) _filterChips(lib),
+        if (!widget.embedded && (_tabIndex == 0 || !def.hasPublic))
+          _filterChips(lib),
         Expanded(
           // 禁 TabBarView 横滑:横滑手势留给 shell PageView 切底部 tab
           // (与场景/其他分类行为一致),scope 切换走分段控件点按。
-          child: pinchLayer(
-            child: def.hasPublic
-                ? TabBarView(
-                    controller: _tab,
-                    physics: const NeverScrollableScrollPhysics(),
-                    children: [_mineTab(lib), _publicTab(lib)],
-                  )
-                : _mineTab(lib),
-          ),
+          child: _isExternal
+              ? _external(lib)
+              : pinchLayer(
+                  child: def.hasPublic
+                      ? TabBarView(
+                          controller: _tab,
+                          physics: const NeverScrollableScrollPhysics(),
+                          children: [_mineTab(lib), _publicTab(lib)],
+                        )
+                      : _mineTab(lib),
+                ),
         ),
       ],
     );
   }
 
-  Future<void> _addPreviewExamples() async {
-    setState(() => _busy = true);
-    final category = _cat;
-    try {
-      final added = await ref
-          .read(tagLibraryProvider.notifier)
-          .addPreviewExamples(category);
-      if (!mounted) return;
-      setState(() {
-        _search = '';
-        _searchController.clear();
-        _filter = null;
-      });
-      hintSnack(context, added == 0 ? '预览示例已在库中' : '已添加 $added 个预览示例');
-    } catch (_) {
-      if (mounted) {
-        hintSnack(context, l10nNow.desktopCouldNotSaveThePreviewSampleTryAgain);
-      }
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
+  Widget _blocklistPage(TagLibraryState lib) {
+    final l = context.l10n;
+    return Scaffold(
+      appBar: AppBar(title: Text(l.publicLibraryBlocklist)),
+      body: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(24, 8, 24, 12),
+            child: Wrap(
+              spacing: 16,
+              runSpacing: 8,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                SegmentedButton<TagCategory>(
+                  segments: [
+                    for (final cat in [
+                      TagCategory.character,
+                      TagCategory.artist,
+                    ])
+                      ButtonSegment(
+                        value: cat,
+                        icon: Icon(tagCategoryDef(cat).icon),
+                        label: Text(tagCategoryDef(cat).label),
+                      ),
+                  ],
+                  selected: {_cat},
+                  onSelectionChanged: (value) => _switchCategory(value.single),
+                  showSelectedIcon: false,
+                ),
+                SizedBox(
+                  width: 300,
+                  child: buildDesktopInspirationSearch(
+                    context,
+                    key: const ValueKey('blocklist-search'),
+                    controller: _searchController,
+                    onChanged: (v) => setState(() => _search = v),
+                    hint: l.searchPublicEntries,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Expanded(child: _publicTab(lib)),
+        ],
+      ),
+      bottomNavigationBar: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              FilledButton(
+                key: const ValueKey('blocklist-confirm'),
+                onPressed: _savingBlocks
+                    ? null
+                    : () async {
+                        setState(() => _savingBlocks = true);
+                        await ref
+                            .read(publicTagBlocksProvider.notifier)
+                            .save(_blockDraft);
+                        if (mounted &&
+                            ModalRoute.of(context)?.isCurrent == true) {
+                          Navigator.pop(context);
+                        }
+                      },
+                child: Text(l.confirm),
+              ),
+              const SizedBox(width: 12),
+              OutlinedButton(
+                key: const ValueKey('blocklist-cancel'),
+                onPressed: _savingBlocks ? null : () => Navigator.pop(context),
+                child: Text(l.cancel),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   Widget _desktopPage(ColorScheme scheme, TagLibraryState lib) {
     final mine = _mineAll(lib);
     final inlineFilters = MediaQuery.sizeOf(context).width >= 1000;
-    final public = _def.hasPublic && _tabIndex == 1;
-    final visibleCount = public
-        ? _publicList(ref.watch(publicTagsProvider(_cat)).value ?? []).length
+    final snapRows = ref.watch(
+      themeSettingsProvider.select((s) => s.inspirationRowSnap),
+    );
+    final external = _isExternal;
+    final public = !external && _def.hasPublic && _tabIndex == 1;
+    final visibleCount = external
+        ? _externalItems(lib).length
+        : public
+        ? _publicList(
+            ref.watch(visiblePublicTagsProvider(_cat)).value ?? [],
+            lib,
+          ).length
         : _mineList(lib).length;
-    return Scaffold(
-      key: const ValueKey('desktop-inspiration-page'),
-      body: Column(
+    Widget header([Widget? codexSearch]) => Padding(
+      padding: const EdgeInsets.fromLTRB(24, 16, 24, 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(24, 16, 24, 8),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                LayoutBuilder(
-                  builder: (context, constraints) {
-                    final categories = _desktopCategories(scheme);
-                    final search = TextField(
-                      key: ValueKey('tag-search-${_def.webId}'),
-                      controller: _searchController,
-                      onChanged: (value) => setState(() => _search = value),
-                      style: context.texts.bodyMedium,
-                      decoration: InputDecoration(
-                        hintText: l10nNow.desktopSearchNamesTagsOrPrompts,
-                        prefixIcon: const Icon(Icons.search, size: 20),
-                        prefixIconConstraints: const BoxConstraints(
-                          minWidth: 36,
-                          minHeight: 36,
-                        ),
-                        isDense: true,
-                        filled: true,
-                        fillColor: scheme.surfaceContainerLowest,
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: BorderSide(color: scheme.outlineVariant),
-                        ),
-                        enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: BorderSide(color: scheme.outlineVariant),
-                        ),
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 8,
-                        ),
-                      ),
-                    );
-                    final tools = _codex
-                        ? const CodexPickerButton()
-                        : Wrap(
-                            alignment: WrapAlignment.end,
-                            spacing: 12,
-                            runSpacing: 8,
-                            crossAxisAlignment: WrapCrossAlignment.center,
-                            children: [
-                              SizedBox(width: 300, child: search),
-                              Wrap(
-                                alignment: WrapAlignment.end,
-                                spacing: 8,
-                                runSpacing: 6,
-                                crossAxisAlignment: WrapCrossAlignment.center,
-                                children: [
-                                  if (_cat == TagCategory.scene ||
-                                      _cat == TagCategory.other)
-                                    TextButton.icon(
-                                      key: const ValueKey(
-                                        'inspiration-add-examples',
-                                      ),
-                                      onPressed: _busy
-                                          ? null
-                                          : _addPreviewExamples,
-                                      icon: const Icon(
-                                        Icons.photo_library_outlined,
-                                        size: 18,
-                                      ),
-                                      label: Text(
-                                        l10nNow.desktopAddPreviewSample,
-                                      ),
-                                    ),
-                                  IconButton(
-                                    tooltip: l10nNow.desktopDataBackup,
-                                    onPressed: () =>
-                                        showTagBackupSheet(context, ref),
-                                    icon: const Icon(
-                                      Icons.cloud_outlined,
-                                      size: 21,
-                                    ),
-                                  ),
-                                  FilledButton.icon(
-                                    key: const ValueKey('inspiration-new'),
-                                    onPressed: () => showTagEditor(
-                                      context,
-                                      cat: _cat,
-                                      categories: _categories(lib),
-                                    ),
-                                    icon: const Icon(Icons.add, size: 18),
-                                    label: Text(
-                                      '新建${_cat == TagCategory.other ? '提示词' : _def.label}',
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ],
-                          );
-                    final textScale =
-                        MediaQuery.textScalerOf(context).scale(15) / 15;
-                    if (constraints.maxWidth <
-                        (_codex ? 960 : 1320) * textScale) {
-                      return Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          categories,
-                          const SizedBox(height: 12),
-                          Align(alignment: Alignment.centerRight, child: tools),
-                        ],
-                      );
-                    }
-                    return Row(
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final categories = _desktopCategories(lib, snapRows);
+              final search =
+                  codexSearch ??
+                  buildDesktopInspirationSearch(
+                    context,
+                    key: ValueKey('tag-search-${_def.webId}'),
+                    controller: _searchController,
+                    onChanged: (value) => setState(() => _search = value),
+                    hint: !external
+                        ? l10nNow.desktopSearchNamesTagsOrPrompts
+                        : context.l10n.externalOcSearch,
+                  );
+              final tools = Wrap(
+                alignment: WrapAlignment.end,
+                spacing: 12,
+                runSpacing: 8,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  SizedBox(
+                    width: codexSearch == null ? 300 : 348,
+                    child: search,
+                  ),
+                  if (codexSearch != null)
+                    const CodexMainDrawButton()
+                  else
+                    Wrap(
+                      alignment: WrapAlignment.end,
+                      spacing: 8,
+                      runSpacing: 6,
+                      crossAxisAlignment: WrapCrossAlignment.center,
                       children: [
-                        Expanded(child: categories),
-                        const SizedBox(width: 16),
-                        tools,
-                      ],
-                    );
-                  },
-                ),
-                if (!_codex) ...[
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      if (_def.hasPublic) ...[
-                        ChoiceChip(
-                          key: const ValueKey('inspiration-scope-mine'),
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 4,
-                          ),
-                          labelStyle: const TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
-                          ),
-                          avatar: const Icon(Icons.bookmark_outline, size: 17),
-                          visualDensity: VisualDensity.compact,
-                          materialTapTargetSize:
-                              MaterialTapTargetSize.shrinkWrap,
-                          label: Text('我的 · ${mine.length}'),
-                          selected: !public,
-                          showCheckmark: false,
-                          onSelected: (_) => _tab.animateTo(0),
-                        ),
-                        const SizedBox(width: 8),
-                        ChoiceChip(
-                          key: const ValueKey('inspiration-scope-public'),
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 4,
-                          ),
-                          labelStyle: const TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
-                          ),
-                          avatar: const Icon(Icons.public, size: 17),
-                          visualDensity: VisualDensity.compact,
-                          materialTapTargetSize:
-                              MaterialTapTargetSize.shrinkWrap,
-                          label: Text(l10nNow.publicLibrary),
-                          selected: public,
-                          showCheckmark: false,
-                          onSelected: (_) => _tab.animateTo(1),
-                        ),
-                      ],
-                      if (!public && inlineFilters) ...[
-                        if (_def.hasPublic) const SizedBox(width: 18),
-                        Expanded(child: _filterChips(lib)),
-                        const SizedBox(width: 12),
-                      ] else
-                        const Spacer(),
-                      Text(
-                        '$visibleCount 个条目',
-                        style: context.texts.bodySmall!.copyWith(
-                          color: scheme.onSurfaceVariant,
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      if (_def.hasPublic) ...[
-                        _sortButton(scheme),
-                        Builder(
-                          builder: (anchor) => _filterButton(scheme, anchor),
-                        ),
-                      ],
-                      if (public)
                         IconButton(
-                          tooltip: l10nNow.desktopRefreshPublicLibrary,
-                          onPressed: _reloadPublic,
-                          icon: const Icon(Icons.refresh, size: 20),
+                          tooltip: l10nNow.desktopDataBackup,
+                          onPressed: () => showTagBackupSheet(context, ref),
+                          icon: const Icon(Icons.cloud_outlined, size: 21),
                         ),
-                    ],
+                        FilledButton.icon(
+                          key: const ValueKey('inspiration-new'),
+                          onPressed: () => showTagEditor(
+                            context,
+                            cat: _cat,
+                            categories: _categories(lib),
+                          ),
+                          icon: const Icon(Icons.add, size: 18),
+                          label: ConstrainedBox(
+                            constraints: const BoxConstraints(maxWidth: 160),
+                            child: Text(
+                              '新建${_def.label}',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                ],
+              );
+              final textScale = MediaQuery.textScalerOf(context).scale(15) / 15;
+              if (constraints.maxWidth < 840 * textScale) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    categories,
+                    const SizedBox(height: 12),
+                    Align(alignment: Alignment.centerRight, child: tools),
+                  ],
+                );
+              }
+              return Row(
+                children: [
+                  Expanded(child: categories),
+                  const SizedBox(width: 16),
+                  ConstrainedBox(
+                    constraints: BoxConstraints(
+                      maxWidth: constraints.maxWidth - 200 * textScale,
+                    ),
+                    child: tools,
                   ),
                 ],
+              );
+            },
+          ),
+          if (!_codex) ...[
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                if (_def.hasPublic)
+                  ConstrainedBox(
+                    constraints: BoxConstraints(
+                      maxWidth:
+                          MediaQuery.sizeOf(context).width *
+                          (inlineFilters ? .34 : .57),
+                    ),
+                    child: ScopeScrollStrip(
+                      controller: _scopeScroll,
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          _libraryChip(
+                            key: const ValueKey('inspiration-scope-mine'),
+                            label: '我的 · ${mine.length}',
+                            icon: Icons.bookmark_outline,
+                            index: 0,
+                            selected: !external && !public,
+                          ),
+                          const SizedBox(width: 8),
+                          _libraryChip(
+                            key: const ValueKey('inspiration-scope-public'),
+                            label: l10nNow.publicLibrary,
+                            icon: Icons.public,
+                            index: 1,
+                            selected: public,
+                          ),
+                          for (final (i, item) in _sources.indexed)
+                            Padding(
+                              padding: const EdgeInsets.only(left: 8),
+                              child: _libraryChip(
+                                key: ValueKey('inspiration-source-${item.id}'),
+                                label: item.label,
+                                icon: Icons.collections_bookmark_outlined,
+                                index: i + 2,
+                                selected: _sourceId == item.id,
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
+                if (inlineFilters) ...[
+                  if (_def.hasPublic) const SizedBox(width: 18),
+                  Expanded(child: _filterChips(lib)),
+                  const SizedBox(width: 12),
+                ] else
+                  const Spacer(),
+                Text(
+                  !external ? '$visibleCount 个条目' : '$visibleCount 个角色',
+                  style: context.texts.bodySmall!.copyWith(
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                if (_def.hasPublic) ...[
+                  _sortButton(scheme),
+                  Builder(builder: (anchor) => _filterButton(scheme, anchor)),
+                ],
+                if (public)
+                  IconButton(
+                    tooltip: l10nNow.desktopRefreshPublicLibrary,
+                    onPressed: _reloadPublic,
+                    icon: const Icon(Icons.refresh, size: 20),
+                  ),
               ],
             ),
-          ),
-          if (!_codex && !public && !inlineFilters)
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 10),
-              child: _filterChips(lib),
-            ),
-          Expanded(
-            child: _codex
-                ? const CodexView(desktop: true)
-                : _def.hasPublic
-                ? TabBarView(
-                    controller: _tab,
-                    physics: const NeverScrollableScrollPhysics(),
-                    children: [_mineTab(lib), _publicTab(lib)],
-                  )
-                : _mineTab(lib),
-          ),
+          ],
         ],
       ),
-      bottomNavigationBar: _codex || _sel.isEmpty
+    );
+
+    return Scaffold(
+      key: const ValueKey('desktop-inspiration-page'),
+      body: _codex
+          ? CodexView(desktop: true, desktopHeaderBuilder: header)
+          : Column(
+              children: [
+                header(),
+                if (!inlineFilters)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 10),
+                    child: _filterChips(lib),
+                  ),
+                Expanded(
+                  child: external
+                      ? _external(lib)
+                      : _def.hasPublic
+                      ? TabBarView(
+                          controller: _tab,
+                          physics: const NeverScrollableScrollPhysics(),
+                          children: [_mineTab(lib), _publicTab(lib)],
+                        )
+                      : _mineTab(lib),
+                ),
+              ],
+            ),
+      bottomNavigationBar: _codex || external || _sel.isEmpty
           ? null
           : _desktopSelectionBar(lib),
     );
   }
 
-  List<TagCategory> _categories(TagLibraryState lib) => [
-    for (final key in lib.visibleTabKeys) ?tagCategoryByWebId(key),
-  ];
-
-  String _categoryLabel(TagCategory c) {
-    final label = tagCategoryDef(c).label;
-    return c == TagCategory.other && label == '其他' ? '提示词' : label;
-  }
+  List<TagCategory> _categories(TagLibraryState lib) => lib.visibleCategories;
 
   Widget _categoryManager() => IconButton(
     tooltip: l10nNow.desktopManageCategories,
@@ -866,35 +1134,38 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
       ref.read(tagLibraryProvider).value ?? const TagLibraryState(),
     ).toSet();
     await showCategoryManagerSheet(context);
-    if (!mounted || !widget.embedded) return;
+    if (!mounted) return;
     final categories = _categories(
       ref.read(tagLibraryProvider).value ?? const TagLibraryState(),
     );
     final added = categories.where((c) => !before.contains(c));
-    // 新类别在横栏末尾,关闭管理器后露出来,不打断原分类的浏览。
-    _revealEmbeddedCategory(added.isEmpty ? _cat : added.last);
+    _revealCategory(added.lastOrNull ?? (_codex ? _kCodexSel : _cat));
   }
 
-  Widget _desktopCategories(ColorScheme scheme) {
-    final lib = ref.watch(tagLibraryProvider).value ?? const TagLibraryState();
-    return Wrap(
-      spacing: 4,
-      runSpacing: 6,
-      crossAxisAlignment: WrapCrossAlignment.center,
-      children: [
-        for (final key in lib.visibleTabKeys)
-          if (key == kCodexTabKey)
-            _desktopCategory(_kCodexSel, codexTabLabel(), _codex)
-          else if (tagCategoryByWebId(key) case final category?)
-            _desktopCategory(
-              category,
-              _categoryLabel(category),
-              !_codex && category == _cat,
-            ),
-        _categoryManager(),
-      ],
-    );
-  }
+  Widget _desktopCategories(TagLibraryState lib, bool snapRows) => Row(
+    children: [
+      Expanded(
+        child: DesktopCategoryStrip(
+          controller: _categoryScroll,
+          snap: snapRows,
+          onReflow: () => _revealCategory(_codex ? _kCodexSel : _cat),
+          children: [
+            for (final tab in lib.visibleTabKeys)
+              if (tab == kCodexTabKey)
+                _desktopCategory(_kCodexSel, codexTabLabel(), _codex)
+              else if (tagCategoryByWebId(tab) case final category?)
+                _desktopCategory(
+                  category,
+                  tagCategoryDef(category).label,
+                  !_codex && category == _cat,
+                ),
+          ],
+        ),
+      ),
+      const SizedBox(width: 4),
+      _categoryManager(),
+    ],
+  );
 
   Widget _desktopCategory(Object category, String label, bool selected) {
     final scheme = context.scheme;
@@ -905,6 +1176,9 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
         ? scheme.onSecondaryContainer
         : scheme.onSurfaceVariant;
     return Semantics(
+      key: category is TagCategory
+          ? _categoryKeys.putIfAbsent(category, () => GlobalKey())
+          : _codexCategoryKey,
       selected: selected,
       child: TextButton.icon(
         key: ValueKey(
@@ -921,7 +1195,10 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
               ? scheme.secondaryContainer
               : scheme.surfaceContainerLow,
           foregroundColor: foreground,
-          textStyle: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+          textStyle: context.texts.labelLarge!.copyWith(
+            fontSize: 15,
+            fontWeight: FontWeight.w600,
+          ),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(10),
           ),
@@ -935,7 +1212,9 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
         label: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(label),
+            Flexible(
+              child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
+            ),
             if (isCodex) ...[
               const SizedBox(width: 8),
               Container(
@@ -959,99 +1238,70 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
   Widget _topBar(ColorScheme scheme, TagLibraryState lib) {
     if (widget.embedded) {
       final categories = _categories(lib);
-      _embeddedCategoryKeys.removeWhere((c, _) => !categories.contains(c));
+      _categoryKeys.removeWhere((c, _) => !categories.contains(c));
       return Padding(
-        padding: const EdgeInsets.fromLTRB(12, 10, 8, 0),
+        padding: const EdgeInsets.fromLTRB(_kEdge, 6, _kEdge, 0),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            ScrollConfiguration(
-              behavior: ScrollConfiguration.of(context).copyWith(
-                dragDevices: {
-                  ...ScrollConfiguration.of(context).dragDevices,
-                  PointerDeviceKind.mouse,
-                },
-                scrollbars: false,
-              ),
-              child: Scrollbar(
-                controller: _embeddedCategoryScroll,
-                thumbVisibility: true,
-                interactive: true,
-                thickness: 4,
-                scrollbarOrientation: ScrollbarOrientation.bottom,
-                child: SingleChildScrollView(
-                  controller: _embeddedCategoryScroll,
-                  primary: false,
-                  scrollDirection: Axis.horizontal,
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: Row(
-                    children: [
-                      for (final category in categories)
-                        SizedBox(
-                          key: _embeddedCategoryKeys.putIfAbsent(
-                            category,
-                            () => GlobalKey(),
-                          ),
-                          width: 90,
-                          child: Padding(
-                            padding: const EdgeInsets.only(right: 5),
-                            child: TextButton(
-                              key: ValueKey(
-                                'desktop-inspiration-${category.name}',
-                              ),
-                              onPressed: () => _switchCategory(category),
-                              style: TextButton.styleFrom(
-                                padding: EdgeInsets.zero,
-                                backgroundColor: _cat == category
-                                    ? scheme.primary
-                                    : scheme.surfaceContainer,
-                                foregroundColor: _cat == category
-                                    ? scheme.onPrimary
-                                    : scheme.onSurface,
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(9),
-                                ),
-                              ),
-                              child: Text(
-                                _categoryLabel(category),
-                                style: const TextStyle(fontSize: 12),
-                              ),
-                            ),
-                          ),
-                        ),
-                    ],
-                  ),
+            SidebarCategoryTabs(
+              categories: categories,
+              selected: _cat,
+              labelOf: (category) => tagCategoryDef(category).label,
+              onSelected: _switchCategory,
+              controller: _categoryScroll,
+              itemKeys: _categoryKeys,
+            ),
+            const SizedBox(height: 4),
+            IconButtonTheme(
+              data: const IconButtonThemeData(
+                style: ButtonStyle(
+                  minimumSize: WidgetStatePropertyAll(Size.square(30)),
+                  padding: WidgetStatePropertyAll(EdgeInsets.all(4)),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                 ),
               ),
-            ),
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    '${lib.of(_cat).length} 个本地条目',
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: scheme.onSurfaceVariant,
+              child: Row(
+                key: const ValueKey('sidebar-inspiration-tools'),
+                children: [
+                  Expanded(
+                    child: Text(
+                      _isExternal
+                          ? '${_externalItems(lib).length} 个角色'
+                          : context.l10n.sidebarLocalEntries(
+                              lib.of(_cat).length,
+                            ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: context.texts.labelSmall?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                      ),
                     ),
                   ),
-                ),
-                _categoryManager(),
-                if (_def.hasPublic) _sortButton(scheme),
-                IconButton(
-                  tooltip: l10nNow.desktopDataBackup,
-                  icon: const Icon(Icons.cloud_outlined, size: 18),
-                  onPressed: () => showTagBackupSheet(context, ref),
-                ),
-                IconButton(
-                  tooltip: l10nNow.newLabel,
-                  icon: const Icon(Icons.add, size: 18),
-                  onPressed: () => showTagEditor(
-                    context,
-                    cat: _cat,
-                    categories: _categories(lib),
+                  _categoryManager(),
+                  _sortButton(scheme),
+                  IconButton(
+                    tooltip: l10nNow.desktopDataBackup,
+                    icon: const Icon(Icons.cloud_outlined, size: 18),
+                    onPressed: () => showTagBackupSheet(context, ref),
                   ),
-                ),
-              ],
+                  IconButton(
+                    tooltip: l10nNow.newLabel,
+                    icon: const Icon(Icons.add, size: 19),
+                    onPressed: () => showTagEditor(
+                      context,
+                      cat: _cat,
+                      categories: categories,
+                    ),
+                  ),
+                  Builder(
+                    builder: (anchor) => IconButton(
+                      tooltip: l10nNow.manageTags,
+                      icon: const Icon(Icons.settings_outlined, size: 18),
+                      onPressed: () => showTagPoolSheet(anchor, ref, _cat),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ],
         ),
@@ -1089,7 +1339,12 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
     final on = mode != defaultTagSort(_cat);
     return PopupMenuButton<TagSort>(
       tooltip: '排序:${mode.label}',
-      offset: const Offset(0, 44),
+      offset: widget.embedded ? Offset.zero : const Offset(0, 44),
+      position: widget.embedded ? PopupMenuPosition.under : null,
+      iconSize: widget.embedded ? 18 : null,
+      padding: widget.embedded
+          ? const EdgeInsets.all(4)
+          : const EdgeInsets.all(8),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
       onSelected: (v) => setState(() => _sortBy[_cat] = v),
       itemBuilder: (_) => [
@@ -1141,8 +1396,12 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
   void _onPickCat(Object v) {
     if (v == _kCodexSel) {
       setState(() => _codex = _codexBuilt = true);
+      _revealCategory(v);
     } else if (v is TagCategory) {
-      if (_codex) setState(() => _codex = false);
+      if (_codex) {
+        setState(() => _codex = false);
+        if (_cat == v) _revealCategory(v);
+      }
       _switchCategory(v);
     }
   }
@@ -1283,7 +1542,7 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
   }
 
   /// 作者的显示名:查得到昵称就显示昵称,查不到就是那串 QQ 号。
-  String _authorLabel(String id) => _authorNames[id] ?? id;
+  String _authorLabel(String id) => _isExternal ? id : _authorNames[id] ?? id;
 
   /// 漏斗里的两维有没有在筛(空列表的说法要跟着变:是"没匹配上"而不是"库是空的")。
   bool get _narrowed => _authorFilter != null || _modelFilter != null;
@@ -1360,18 +1619,65 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
     // 候选作者只从**当前 scope 里真有的条目**上点:公共 tab 数公共库、我的 tab
     // 数我的那些,免得补全里列出一串在这个列表里根本搜不到的人。
     final lib = ref.read(tagLibraryProvider).value ?? const TagLibraryState();
-    final pub = ref.read(publicTagsProvider(_cat)).value;
-    final scope = _tabIndex == 1 && _def.hasPublic
-        ? (pub ?? const <TagEntry>[])
-        : mergeMineTags(
-            lib.of(_cat),
-            ref.read(botSessionProvider).value?.botUserId,
-            pub,
-          );
+    final matchAny = ref.read(themeSettingsProvider).inspirationMatchAnyTag;
+    final filter = _validFilter(lib);
+    final search = _search;
+    late final List<TagAuthor> authors;
+    Future<int> Function(String author)? loadCount;
+    if (_isExternal) {
+      final favorites = ref.read(ocFavoritesProvider);
+      final repository = ref.read(ocRepositoryProvider);
+      final items = matchingOcCharacters(
+        _activeSources,
+        search: search,
+        author: null,
+        filter: filter,
+        matchAny: matchAny,
+        favorites: favorites,
+        tagOverrides: lib.externalTags,
+      );
+      final groups = <String, List<OcBrowseItem>>{};
+      for (final item in items) {
+        final name = item.character.author;
+        if (name.isNotEmpty) (groups[name] ??= []).add(item);
+      }
+      final names = groups.keys.toList()
+        ..sort((a, b) => groups[b]!.length.compareTo(groups[a]!.length));
+      authors = [for (final name in names) TagAuthor(id: name)];
+      loadCount = (author) => countMatchingOcCards(
+        groups[author]!,
+        repository,
+        search: search,
+        filter: filter,
+        matchAny: matchAny,
+        favorites: favorites,
+        tagOverrides: lib.externalTags,
+      );
+    } else {
+      final pub = widget.manageBlocks
+          ? ref.read(publicTagsProvider(_cat)).value
+          : ref.read(visiblePublicTagsProvider(_cat)).value;
+      final entries = _tabIndex == 1 && _def.hasPublic
+          ? _publicCandidates(pub ?? const [], lib, matchAny)
+          : _mineCandidates(
+              _def.hasPublic
+                  ? mergeMineTags(
+                      lib.of(_cat),
+                      ref.read(botSessionProvider).value?.botUserId,
+                      pub,
+                    )
+                  : lib.of(_cat),
+              search.trim().toLowerCase(),
+              filter,
+              matchAny,
+            );
+      authors = collectTagAuthors(entries, _authorNames);
+    }
     final picked = await showTagFilterSheet(
       anchor,
       desktop: ref.read(desktopModeProvider),
-      authors: collectTagAuthors(scope, _authorNames),
+      authors: authors,
+      loadCount: loadCount,
       current: (author: _authorFilter, model: _modelFilter),
       // 适用模型只有画风有;角色那张表就少这一节。
       hasModels: _cat == TagCategory.artist,
@@ -1383,109 +1689,32 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
     });
   }
 
-  /// 「全部 / 收藏 / 标签…」筛选行(我的 scope;标签=池∪在用)。
-  /// 药丸 chip + 主色实底标记选中,与 Vibe 管理器同款。
+  void _setFilterTags(Set<String> tags) {
+    if (mounted) setState(() => _filter = _filter.withTags(tags));
+  }
+
   Widget _filterChips(TagLibraryState lib) {
-    final scheme = context.scheme;
-    final tags = lib.knownTags(_cat);
+    final tags = _tagPool(lib);
     final filter = _validFilter(lib);
-    if (ref.watch(desktopModeProvider)) {
-      return Padding(
-        padding: EdgeInsets.symmetric(horizontal: _desktopLibrary ? 0 : _kEdge),
-        child: DesktopTagFilterBar(
-          key: ValueKey('inspiration-tag-filters-${_cat.name}'),
-          tags: tags,
-          selectedTag: filter == _kFavFilter ? null : filter,
-          favoritesSelected: filter == _kFavFilter,
-          onTagSelected: (tag) => setState(() => _filter = tag),
-          onFavoritesSelected: () => setState(() => _filter = _kFavFilter),
-          onManage: (anchor) => showTagPoolSheet(anchor, ref, _cat),
-        ),
+    void apply(InspirationTagFilter value) => setState(() => _filter = value);
+    if (!ref.watch(desktopModeProvider)) {
+      return TagFilterChips(
+        tags: tags,
+        filter: filter,
+        onChanged: apply,
+        onManageTags: () => showTagPoolSheet(context, ref, _cat),
       );
     }
-    Widget chip(String label, bool sel, VoidCallback onTap, {IconData? icon}) =>
-        Padding(
-          padding: const EdgeInsets.only(right: 8),
-          child: ChoiceChip(
-            // 图标放进 label(自控间距),不用 avatar(默认间距太大)
-            label: icon == null
-                ? Text(label)
-                : Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        icon,
-                        size: 15,
-                        color: sel ? scheme.onPrimary : scheme.onSurfaceVariant,
-                      ),
-                      const SizedBox(width: 3),
-                      Text(label),
-                    ],
-                  ),
-            selected: sel,
-            onSelected: (_) => onTap(),
-            visualDensity: VisualDensity.compact,
-            materialTapTargetSize: _desktopLibrary
-                ? MaterialTapTargetSize.shrinkWrap
-                : null,
-            padding: _desktopLibrary
-                ? const EdgeInsets.symmetric(horizontal: 10, vertical: 4)
-                : null,
-            shape: const StadiumBorder(),
-            labelStyle: context.texts.labelMedium!.copyWith(
-              fontSize: _desktopLibrary ? 13 : null,
-              fontWeight: FontWeight.w600,
-              color: sel ? scheme.onPrimary : scheme.onSurfaceVariant,
-            ),
-            selectedColor: scheme.primary,
-            backgroundColor: scheme.surfaceContainerHigh,
-            side: BorderSide.none,
-            showCheckmark: false,
-          ),
-        );
-    return SizedBox(
-      height: _desktopLibrary ? 40 : 48,
-      child: Row(
-        children: [
-          Expanded(
-            // 横向滚动:标签再多也不会溢出
-            child: ListView(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.fromLTRB(_kEdge, 4, 4, 4),
-              children: [
-                chip(
-                  '全部',
-                  filter == null,
-                  () => setState(() => _filter = null),
-                ),
-                chip(
-                  '收藏',
-                  filter == _kFavFilter,
-                  () => setState(() => _filter = _kFavFilter),
-                  icon: Icons.star_rounded,
-                ),
-                for (final t in tags)
-                  chip(
-                    t,
-                    filter == t,
-                    () => setState(() => _filter = _filter == t ? null : t),
-                  ),
-              ],
-            ),
-          ),
-          Builder(
-            builder: (anchor) => IconButton(
-              tooltip: l10nNow.manageTagPool,
-              icon: Icon(
-                Icons.settings_outlined,
-                size: 20,
-                color: scheme.onSurfaceVariant,
-              ),
-              onPressed: () => showTagPoolSheet(anchor, ref, _cat),
-            ),
-          ),
-          const SizedBox(width: _kIconEdge),
-        ],
+    return Padding(
+      padding: EdgeInsets.symmetric(horizontal: _desktopLibrary ? 0 : _kEdge),
+      child: DesktopTagFilterBar(
+        key: ValueKey('inspiration-tag-filters-${_cat.name}'),
+        tags: tags,
+        filter: filter,
+        onChanged: apply,
+        onManage: !_isExternal
+            ? (anchor) => showTagPoolSheet(anchor, ref, _cat)
+            : null,
       ),
     );
   }
@@ -1496,7 +1725,7 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
     final list = _mineList(lib);
     if (list.isEmpty) {
       return _empty(
-        _search.isNotEmpty || _filter != null || _narrowed
+        _search.isNotEmpty || _validFilter(lib).active || _narrowed
             ? '没有匹配的${_def.label}'
             : '还没有${_def.label},点右上角 + 新建',
       );
@@ -1510,11 +1739,11 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
     // 自建/我发布的在上,公共库收藏来的单独一组在下(对齐 web)
     final mine = [
       for (final e in list)
-        if (e.origin != TagOrigin.favorited) e,
+        if (e.origin != TagOrigin.favorited || !e.isFavorite) e,
     ];
     final fav = [
       for (final e in list)
-        if (e.origin == TagOrigin.favorited) e,
+        if (e.origin == TagOrigin.favorited && e.isFavorite) e,
     ];
     final groups = <_Group>[
       if (mine.isNotEmpty)
@@ -1541,7 +1770,9 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
   }
 
   Widget _publicTab(TagLibraryState lib) {
-    final async = ref.watch(publicTagsProvider(_cat));
+    final async = widget.manageBlocks
+        ? ref.watch(publicTagsProvider(_cat))
+        : ref.watch(visiblePublicTagsProvider(_cat));
     // 骨架 → 内容之间淡入淡出,不硬切
     return AnimatedSwitcher(
       duration: Motion.medium,
@@ -1553,23 +1784,37 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
               ? 'err'
               : 'data',
         ),
-        child: _publicContent(async),
+        child: _publicContent(async, lib),
       ),
     );
   }
 
-  Widget _publicContent(AsyncValue<List<TagEntry>> async) {
+  Widget _publicContent(AsyncValue<List<TagEntry>> async, TagLibraryState lib) {
     return async.when(
       loading: () => pinchBuilder(
-        (_) => _desktopLibrary
+        (_) => ref.read(desktopModeProvider)
             ? LayoutBuilder(
-                builder: (context, constraints) => _SkeletonGrid(
-                  aspect: _cardAspect,
-                  cols: _desktopColumns(constraints.maxWidth),
-                  mainAxisExtent: _desktopCardHeight,
-                  edge: _desktopEdge,
-                  gap: _desktopGap,
-                ),
+                builder: (context, bounds) {
+                  final library = _desktopLibrary;
+                  final cols = library
+                      ? _desktopColumns(bounds.maxWidth)
+                      : gridColumns;
+                  final edge = library ? _desktopEdge : _kEdge;
+                  final gap = library ? _desktopGap : _gap;
+                  final width =
+                      (bounds.maxWidth - 2 * edge - gap * (cols - 1)) / cols;
+                  return _SkeletonGrid(
+                    aspect: _cardAspect,
+                    cols: cols,
+                    edge: edge,
+                    gap: gap,
+                    mainAxisExtent: InspirationEntryCard.extent(
+                      _def,
+                      width,
+                      MediaQuery.textScalerOf(context),
+                    ),
+                  );
+                },
               )
             : _SkeletonGrid(aspect: _cardAspect, cols: gridColumns),
       ),
@@ -1584,14 +1829,22 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
             '公共库需要 Bot 授权',
             action: (
               '去授权',
-              () => ref.read(shellIndexProvider.notifier).select(kTabProfile),
+              () {
+                if (widget.manageBlocks) {
+                  Navigator.of(context).push<void>(
+                    MaterialPageRoute(builder: (_) => const BotAuthPage()),
+                  );
+                } else {
+                  ref.read(shellIndexProvider.notifier).select(kTabProfile);
+                }
+              },
             ),
           );
         }
         return _empty('公共库加载失败', action: ('重试', _reloadPublic));
       },
       data: (all) {
-        final list = _publicList(all);
+        final list = _publicList(all, lib);
         if (list.isEmpty) {
           return RefreshIndicator(
             onRefresh: () async => _reloadPublic(),
@@ -1601,7 +1854,10 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
                 SizedBox(
                   height: 320,
                   child: _empty(
-                    _search.isNotEmpty || _narrowed
+                    _search.isNotEmpty ||
+                            _narrowed ||
+                            (ref.read(desktopModeProvider) &&
+                                _validFilter(lib).active)
                         ? '没有匹配的${_def.label}'
                         : '公共库暂无内容',
                   ),
@@ -1650,6 +1906,12 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
         (byAuthor[id] ??= []).add(e);
       }
     }
+    final partiallyBlocked = <String?>{
+      if (widget.manageBlocks)
+        for (final entry
+            in ref.read(publicTagsProvider(_cat)).value ?? const <TagEntry>[])
+          if (_blockRule.hides(entry)) entry.createdBy?.trim(),
+    };
     final ids = byAuthor.keys.toList()
       ..sort((a, b) {
         final c = byAuthor[b]!.length.compareTo(byAuthor[a]!.length);
@@ -1662,6 +1924,9 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
             Icons.account_circle_outlined,
             authorDisplay(id, _authorNames),
             byAuthor[id]!.length,
+            action: widget.manageBlocks
+                ? _blockAuthorButton(id, partiallyBlocked.contains(id))
+                : null,
           ),
           items: byAuthor[id]!,
         ),
@@ -1678,11 +1943,47 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
     ];
   }
 
+  Widget _blockAuthorButton(String author, bool hasBlockedItems) {
+    final rule = _blockRule;
+    final all = rule.authors[author]?.isEmpty == true;
+    final partial =
+        !all && (rule.authors.containsKey(author) || hasBlockedItems);
+    return Semantics(
+      checked: all,
+      mixed: partial,
+      child: IconButton(
+        key: ValueKey('block-author-$author'),
+        tooltip: context.l10n.blockPublicAuthor,
+        padding: EdgeInsets.zero,
+        visualDensity: VisualDensity.compact,
+        onPressed: () {
+          final catalog = ref.read(publicTagsProvider(_cat)).requireValue;
+          setState(
+            () => _blockDraft[_cat] = _blockRule.selectAuthor(
+              author,
+              catalog,
+              !all,
+            ),
+          );
+        },
+        icon: Icon(
+          all
+              ? Icons.check_circle
+              : partial
+              ? Icons.remove_circle_outline
+              : Icons.radio_button_unchecked,
+          size: 21,
+        ),
+      ),
+    );
+  }
+
   Widget _sectionHeader(
     IconData icon,
     String label,
     int count, {
     bool muted = false,
+    Widget? action,
   }) {
     final scheme = context.scheme;
     final color = muted ? scheme.onSurfaceVariant : scheme.primary;
@@ -1711,6 +2012,7 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
               color: scheme.onSurfaceVariant,
             ),
           ),
+          ?action,
           const SizedBox(width: 10),
           Expanded(child: Divider(color: scheme.outlineVariant, height: 1)),
         ],
@@ -1746,7 +2048,6 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
   static const _headerH = 32.0;
   static const _desktopEdge = 24.0;
   static const _desktopGap = 16.0;
-  static const _desktopCardHeight = 332.0;
   int _desktopColumns(double width) =>
       ((width - _desktopEdge * 2 + _desktopGap) / 230).floor().clamp(1, 10);
 
@@ -1754,9 +2055,7 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
   double get _cardAspect => _def.hasPreview ? _def.previewAspect : 1.5;
 
   Widget _grid(List<_Group> groups, ScrollController ctrl, bool isPublic) {
-    final pubPreview = publicPreviewsOf(
-      ref.read(publicTagsProvider(_cat)).value,
-    );
+    final pubPreview = ref.watch(tagCoverPreviewsProvider(_cat));
     // 分组、预览表在外面算好;捏合与过渡只重建下面这一块(见 pinchBuilder)
     return pinchBuilder(
       (_) => LayoutBuilder(
@@ -1765,7 +2064,7 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
           // 不给的话 RemoteImage 按实时格宽解码,过渡那几百毫秒里每一帧都是一路新解码。
           final desktop = ref.watch(desktopModeProvider);
           final library = desktop && !widget.embedded;
-          if (library) _desktopGridWidth = constraints.maxWidth;
+          _gridWidth = constraints.maxWidth;
           final cols = library
               ? _desktopColumns(constraints.maxWidth)
               : gridColumns;
@@ -1773,7 +2072,7 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
           final gap = library ? _desktopGap : _gap;
           final decodeW =
               (constraints.maxWidth - edge * 2 - gap * (cols - 1)) / cols;
-          return CustomScrollView(
+          final grid = CustomScrollView(
             key: ValueKey(_scrollKey(_cat, isPublic)),
             controller: ctrl,
             physics: pinchPhysics(const AlwaysScrollableScrollPhysics()),
@@ -1791,9 +2090,11 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
                             crossAxisCount: cols,
                             mainAxisSpacing: gap,
                             crossAxisSpacing: gap,
-                            mainAxisExtent: library
-                                ? (_def.hasPreview ? _desktopCardHeight : 250)
-                                : null,
+                            mainAxisExtent: InspirationEntryCard.extent(
+                              _def,
+                              decodeW,
+                              MediaQuery.textScalerOf(context),
+                            ),
                             childAspectRatio: _cardAspect,
                           )
                         : zoomGridDelegate(
@@ -1806,19 +2107,66 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
                           ),
                     delegate: SliverChildBuilderDelegate((context, i) {
                       final e = g.items[i];
-                      final preview =
-                          (e.publicId != null
-                              ? pubPreview[e.publicId]
-                              : null) ??
-                          e.previewUrl;
+                      final preview = tagPreviewOf(e, pubPreview);
                       final masked =
                           isPublic &&
                           e.mosaic &&
                           !_revealed.contains(_revealKey(e));
+                      void select() {
+                        if (widget.manageBlocks) {
+                          setState(
+                            () => _blockDraft[_cat] = _blockRule.selectItems([
+                              e,
+                            ], !_blockRule.hides(e)),
+                          );
+                        } else if (masked) {
+                          setState(() => _revealed.add(_revealKey(e)));
+                        } else {
+                          _toggle(e);
+                        }
+                      }
+
+                      if (desktop) {
+                        return MetaData(
+                          key: ValueKey('drag-entry-${e.id}'),
+                          metaData: e.id,
+                          behavior: HitTestBehavior.translucent,
+                          child: InspirationEntryCard(
+                            key: ValueKey(e.id),
+                            entry: e,
+                            preview: preview,
+                            width: decodeW,
+                            masked: masked,
+                            selected: widget.manageBlocks
+                                ? _blockRule.hides(e)
+                                : _sel.contains(e.id),
+                            onSelect: select,
+                            onReveal: () =>
+                                setState(() => _revealed.add(_revealKey(e))),
+                            onSecondaryTapDown: library && !widget.manageBlocks
+                                ? (details) => _showSelectionMenu(
+                                    details.globalPosition,
+                                    e,
+                                  )
+                                : null,
+                            onFavorite: widget.manageBlocks
+                                ? null
+                                : () => _toggleFavorite(e, isPublic),
+                            onMenu: widget.manageBlocks
+                                ? null
+                                : (action) => _entryMenu(
+                                    action,
+                                    e,
+                                    isPublic,
+                                    groups,
+                                    pubPreview,
+                                  ),
+                          ),
+                        );
+                      }
                       return _TagCard(
                         key: ValueKey(e.id),
                         entry: e,
-                        desktop: library,
                         mosaic: masked,
                         previewUrl: preview,
                         decodeWidth: decodeW,
@@ -1833,17 +2181,7 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
                                   publicId: e.publicId,
                                   name: e.name,
                                 ),
-                        onTap: () {
-                          if (masked) {
-                            setState(() => _revealed.add(_revealKey(e)));
-                          } else {
-                            _toggle(e);
-                          }
-                        },
-                        onSecondaryTapDown: library
-                            ? (details) =>
-                                  _showSelectionMenu(details.globalPosition, e)
-                            : null,
+                        onTap: select,
                         onLongPress: () => showTagDetailSheet(context, e),
                         onCollect: isPublic ? () => _collect(e) : null,
                         onMenu: isPublic ? null : (v) => _cardMenu(v, e),
@@ -1853,6 +2191,42 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
                 ),
               ],
             ],
+          );
+          if (!desktop) return grid;
+          final entries = [for (final group in groups) ...group.items];
+          return GalleryDragSelection(
+            key: ValueKey('drag-${_scrollKey(_cat, isPublic)}'),
+            enabled: true,
+            mouseOnly: true,
+            scrollController: ctrl,
+            order: [for (final e in entries) e.id],
+            maxSelected: widget.manageBlocks ? null : _selectionLimit,
+            selected: widget.manageBlocks
+                ? {
+                    for (final e in entries)
+                      if (_blockRule.hides(e)) e.id,
+                  }
+                : _sel,
+            onChanged: (next) => setState(() {
+              if (widget.manageBlocks) {
+                final rule = _blockRule;
+                final changed = entries
+                    .where((e) => rule.hides(e) != next.contains(e.id))
+                    .toList();
+                _blockDraft[_cat] = rule
+                    .selectItems(
+                      changed.where((e) => next.contains(e.id)),
+                      true,
+                    )
+                    .selectItems(
+                      changed.where((e) => !next.contains(e.id)),
+                      false,
+                    );
+              } else {
+                _selected[_cat] = next;
+              }
+            }),
+            child: grid,
           );
         },
       ),
@@ -1892,14 +2266,20 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
 
   void _jumpToLetter(List<_Group> groups, ScrollController ctrl, String l) {
     if (!ctrl.hasClients) return;
-    final desktop = _desktopLibrary;
-    final w = desktop ? _desktopGridWidth : context.size?.width ?? 400;
-    final cols = desktop ? _desktopColumns(w) : gridColumns;
-    final itemW = (w - _kEdge * 2 - _gap * (cols - 1)) / cols;
-    final rowGap = desktop ? _desktopGap : _gap;
-    final rowExtent = desktop
-        ? _desktopCardHeight + rowGap
-        : itemW / _cardAspect + rowGap;
+    final library = _desktopLibrary;
+    final cols = library ? _desktopColumns(_gridWidth) : gridColumns;
+    final edge = library ? _desktopEdge : _kEdge;
+    final rowGap = library ? _desktopGap : _gap;
+    final itemW = (_gridWidth - edge * 2 - rowGap * (cols - 1)) / cols;
+    final rowExtent =
+        rowGap +
+        (ref.read(desktopModeProvider)
+            ? InspirationEntryCard.extent(
+                _def,
+                itemW,
+                MediaQuery.textScalerOf(context),
+              )
+            : itemW / _cardAspect);
     // 逐组累加(组头 + 该组行高),命中组内再按行偏移
     var offset = 0.0;
     for (final g in groups) {
@@ -1912,6 +2292,79 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
       }
       offset +=
           2 + _headerH + 8 + rows * rowExtent - (rows > 0 ? rowGap : 0) + 16;
+    }
+  }
+
+  TagEntry _editableEntry(TagEntry entry, bool publicScope) {
+    final library = ref.read(tagLibraryProvider).requireValue;
+    if (!publicScope) {
+      return library.entries.where((e) => e.id == entry.id).firstOrNull ??
+          entry;
+    }
+    final copy = library.publicCopyLookup(entry.category)(entry);
+    if (copy != null) {
+      return copy.publicId == null
+          ? copy.copyWith(publicId: entry.publicId)
+          : copy;
+    }
+    final owner = ref.read(botSessionProvider).value?.botUserId;
+    final owned = owner != null && entry.createdBy == owner;
+    return entry.copyWith(
+      id: owned ? entry.id : TagLibrary.newId(entry.category),
+      origin: owned ? TagOrigin.created : TagOrigin.favorited,
+      favorite: false,
+      mosaic: false,
+    );
+  }
+
+  Future<void> _toggleFavorite(TagEntry entry, bool publicScope) async {
+    if (!ref.read(tagLibraryProvider).hasValue) {
+      await ref.read(tagLibraryProvider.future);
+      if (!mounted) return;
+    }
+    final local = _editableEntry(entry, publicScope);
+    await ref
+        .read(tagLibraryProvider.notifier)
+        .upsert(local.copyWith(favorite: !local.isFavorite));
+  }
+
+  Future<void> _entryMenu(
+    InspirationEntryAction action,
+    TagEntry entry,
+    bool publicScope,
+    List<_Group> groups,
+    Map<String, String> previews,
+  ) async {
+    switch (action) {
+      case InspirationEntryAction.edit:
+        if (!ref.read(tagLibraryProvider).hasValue) {
+          await ref.read(tagLibraryProvider.future);
+          if (!mounted) return;
+        }
+        await showTagEditor(
+          context,
+          cat: entry.category,
+          edit: _editableEntry(entry, publicScope),
+        );
+      case InspirationEntryAction.copy:
+        await _cardMenu('copy', entry);
+      case InspirationEntryAction.view:
+        final chosen = await showDialog<TagEntry>(
+          context: context,
+          requestFocus: true,
+          builder: (_) => InspirationPromptDialog(
+            entries: [for (final group in groups) ...group.items],
+            initialEntry: entry,
+            selected: _sel,
+            categoryLabel: tagCategoryDef(entry.category).label,
+            scope: publicScope ? l10nNow.publicLibrary : l10nNow.scopeMine,
+            previewOf: (e) => tagPreviewOf(e, previews),
+            isMasked: (e) =>
+                publicScope && e.mosaic && !_revealed.contains(_revealKey(e)),
+            reveal: (e) => setState(() => _revealed.add(_revealKey(e))),
+          ),
+        );
+        if (mounted && chosen != null) _toggle(chosen);
     }
   }
 
@@ -2021,10 +2474,14 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
           if (e.origin == TagOrigin.created &&
               e.publicId != null &&
               session != null) {
-            if (_cat == TagCategory.character) {
-              await client.deletePublicOc(session.sessionId, e.publicId!);
-            } else {
-              await client.deletePublicArtist(session.sessionId, e.publicId!);
+            try {
+              if (_cat == TagCategory.character) {
+                await client.deletePublicOc(session.sessionId, e.publicId!);
+              } else {
+                await client.deletePublicArtist(session.sessionId, e.publicId!);
+              }
+            } on BackendException catch (e) {
+              if (e.status != 404) rethrow;
             }
           }
           await notifier.remove(e.id);
@@ -2166,132 +2623,34 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
     if (mounted && action != null) await _desktopSelectionAction(action);
   }
 
-  Widget _desktopSelectionBar(TagLibraryState lib) => Padding(
-    padding: const EdgeInsets.fromLTRB(24, 8, 24, 12),
-    child: Align(
-      alignment: Alignment.center,
-      heightFactor: 1,
-      child: Material(
-        key: const ValueKey('desktop-inspiration-selection'),
-        color: context.scheme.surfaceContainerLowest,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(14),
-          side: BorderSide(color: context.scheme.outlineVariant),
-        ),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-          child: Wrap(
-            spacing: 10,
-            runSpacing: 6,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            children: [
-              Text('已选 ${_sel.length} 项', style: context.texts.labelLarge),
-              FilledButton.tonalIcon(
-                key: const ValueKey('inspiration-selection-prompt'),
-                onPressed: _busy ? null : () => _confirmToPrompt(lib),
-                icon: const Icon(Icons.bolt_outlined, size: 18),
-                label: Text(l10nNow.desktopMainPrompt),
-              ),
-              if (_cat == TagCategory.character && _charModuleOn)
-                FilledButton.tonalIcon(
-                  onPressed: _busy ? null : () => _confirmAsCharacters(lib),
-                  icon: const Icon(Icons.person_add_alt, size: 18),
-                  label: Text(l10nNow.desktopAddCharacter),
-                ),
-              PopupMenuButton<String>(
-                key: const ValueKey('inspiration-selection-menu'),
-                tooltip: l10nNow.desktopBatchActionsOrRightClickACard,
-                enabled: !_busy,
-                onSelected: _desktopSelectionAction,
-                itemBuilder: (_) => _desktopSelectionItems(),
-                child: Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 8, vertical: 10),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(l10nNow.desktopMoreActions),
-                      SizedBox(width: 4),
-                      Icon(Icons.expand_more, size: 18),
-                    ],
-                  ),
-                ),
-              ),
-              IconButton(
-                tooltip: l10nNow.clearSelection,
-                onPressed: _busy ? null : () => setState(() => _sel.clear()),
-                icon: const Icon(Icons.close, size: 20),
-              ),
-            ],
-          ),
-        ),
-      ),
-    ),
-  );
-
-  /// 角色分类的动作:一体式分段胶囊 —— 左「主提示词」右「加入角色 N」,
-  /// 同一主色底,中间发丝分隔,整体一颗药丸。
-  Widget _splitAction(ColorScheme scheme, TagLibraryState lib, int n) {
-    final bg = scheme.primary;
-    final fg = scheme.onPrimary;
-    Widget seg({
-      required int flex,
-      required IconData icon,
-      required String label,
-      required VoidCallback onTap,
-    }) => Expanded(
-      flex: flex,
-      child: Material(
-        color: bg,
-        child: InkWell(
-          onTap: onTap,
-          child: Center(
+  Widget _desktopSelectionBar(TagLibraryState lib) =>
+      DesktopInspirationSelectionBar(
+        count: _sel.length,
+        busy: _busy,
+        onPrompt: () => _confirmToPrompt(lib),
+        onCharacters: _cat == TagCategory.character && _charModuleOn
+            ? () => _confirmAsCharacters(lib)
+            : null,
+        onClear: () => setState(_sel.clear),
+        menu: PopupMenuButton<String>(
+          key: const ValueKey('inspiration-selection-menu'),
+          tooltip: l10nNow.desktopBatchActionsOrRightClickACard,
+          enabled: !_busy,
+          onSelected: _desktopSelectionAction,
+          itemBuilder: (_) => _desktopSelectionItems(),
+          child: Padding(
+            padding: EdgeInsets.symmetric(horizontal: 8, vertical: 10),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(icon, size: 17, color: fg),
-                const SizedBox(width: 6),
-                Flexible(
-                  child: Text(
-                    label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: context.texts.labelLarge!.copyWith(
-                      fontWeight: FontWeight.w800,
-                      color: fg,
-                    ),
-                  ),
-                ),
+                Text(l10nNow.desktopMoreActions),
+                SizedBox(width: 4),
+                Icon(Icons.expand_more, size: 18),
               ],
             ),
           ),
         ),
-      ),
-    );
-
-    return SizedBox(
-      height: kSelectionActionHeight,
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(kSelectionActionRadius),
-        child: Row(
-          children: [
-            seg(
-              flex: 5,
-              icon: Icons.bolt_outlined,
-              label: l10nNow.desktopMainPrompt,
-              onTap: () => _confirmToPrompt(lib),
-            ),
-            Container(width: 1.5, color: scheme.surfaceContainer),
-            seg(
-              flex: 6,
-              icon: Icons.person_add_alt,
-              label: l10nNow.desktopAddCharacter,
-              onTap: () => _confirmAsCharacters(lib),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
+      );
 
   /// 角色模块对当前模型是否可见 —— 决定「加入角色」这个去处存不存在。
   /// anima 下 NAI 四件套整组收走(角色卡都不渲染),此时加进去的角色既不进
@@ -2311,13 +2670,13 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
       safeArea: false,
       onClear: () => setState(() => _sel.clear()),
       actions: [
-        if (publicScope)
+        if (publicScope && !widget.embedded)
           SelectionPill(
             icon: Icons.favorite_border,
             label: l10nNow.favorites,
             onTap: _busy ? null : () => _batchCollect(lib),
-          )
-        else
+          ),
+        if (!publicScope)
           SelectionPill(
             icon: Icons.sell_outlined,
             label: l10nNow.tagLabel,
@@ -2334,14 +2693,14 @@ class _InspirationPageState extends ConsumerState<InspirationPage>
             ),
       // 角色分类有两个去处,主动作是一体式分段按钮;角色模块不可见时
       // (anima 等)只剩「主提示词」一个去处,退回普通整条按钮
-      primary: _cat == TagCategory.character && _charModuleOn
-          ? _splitAction(scheme, lib, n)
-          : FilledButton.icon(
-              onPressed: () => _confirmToPrompt(lib),
-              icon: const Icon(Icons.check, size: 18),
-              label: Text('确认选择 ($n)'),
-              style: selectionPrimaryStyle(),
-            ),
+      primary: InspirationApplyActions(
+        count: n,
+        busy: _busy,
+        onPrompt: () => _confirmToPrompt(lib),
+        onCharacters: _cat == TagCategory.character && _charModuleOn
+            ? () => _confirmAsCharacters(lib)
+            : null,
+      ),
     );
   }
 }
@@ -2477,13 +2836,10 @@ class _TagCard extends StatelessWidget {
     this.onCollect,
     this.onMenu,
     this.decodeWidth,
-    this.desktop = false,
     this.mosaic = false,
-    this.onSecondaryTapDown,
   });
 
   final TagEntry entry;
-  final bool desktop;
   final bool mosaic;
 
   /// 实际渲染的预览(可能是按 publicId 从公共库补的 http,覆盖 entry 自身)。
@@ -2495,20 +2851,17 @@ class _TagCard extends StatelessWidget {
   final VoidCallback onLongPress;
   final VoidCallback? onCollect;
   final ValueChanged<String>? onMenu;
-  final GestureTapDownCallback? onSecondaryTapDown;
 
   /// 远端预览的解码宽(逻辑像素)。
   final double? decodeWidth;
 
   @override
-  Widget build(BuildContext context) => desktop
-      ? _desktopCard(context)
-      : LayoutBuilder(
-          // 捏到三四列以后卡片很小,角上两颗按钮和名字条照原尺寸画会把图盖满:收小
-          // 一档,型号角标也收掉。按实测尺寸判,换档过渡途中越过门槛就换。
-          builder: (context, c) =>
-              _card(context, compact: c.maxWidth < 100 || c.maxHeight < 100),
-        );
+  Widget build(BuildContext context) => LayoutBuilder(
+    // 捏到三四列以后卡片很小,角上两颗按钮和名字条照原尺寸画会把图盖满:收小
+    // 一档,型号角标也收掉。按实测尺寸判,换档过渡途中越过门槛就换。
+    builder: (context, c) =>
+        _card(context, compact: c.maxWidth < 100 || c.maxHeight < 100),
+  );
 
   Widget _mosaicHint(BuildContext context) => Center(
     child: Tooltip(
@@ -2519,172 +2872,10 @@ class _TagCard extends StatelessWidget {
           color: context.scheme.surface.withValues(alpha: .92),
           borderRadius: BorderRadius.circular(10),
         ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.visibility_off_outlined, size: 20),
-            if (desktop) ...[
-              const SizedBox(width: 6),
-              Text(l10nNow.desktopClickToShowOriginal),
-            ],
-          ],
-        ),
+        child: const Icon(Icons.visibility_off_outlined, size: 20),
       ),
     ),
   );
-
-  Widget _desktopCard(BuildContext context) {
-    final scheme = context.scheme;
-    return Material(
-      key: ValueKey('inspiration-card-${entry.id}'),
-      clipBehavior: Clip.antiAlias,
-      color: scheme.surfaceContainerLowest,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-        side: BorderSide(
-          color: selected ? scheme.primary : scheme.outlineVariant,
-          width: selected ? 2 : 1,
-        ),
-      ),
-      child: InkWell(
-        onTap: onTap,
-        onSecondaryTapDown: onSecondaryTapDown,
-        onLongPress: onLongPress,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Expanded(
-              child: ColoredBox(
-                color: scheme.surfaceContainerLow,
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    TagCardArtwork(
-                      entry: entry,
-                      url: previewUrl,
-                      decodeWidth: decodeWidth,
-                      selected: selected,
-                      mosaic: mosaic,
-                    ),
-                    if (mosaic) _mosaicHint(context),
-                    Positioned(
-                      left: 8,
-                      top: 8,
-                      child: Material(
-                        color: scheme.surface.withValues(alpha: .94),
-                        borderRadius: BorderRadius.circular(10),
-                        child: Tooltip(
-                          message: mosaic
-                              ? '点击显示原图'
-                              : selected
-                              ? '取消选择'
-                              : '选择用于创作',
-                          child: Checkbox(
-                            key: ValueKey('inspiration-select-${entry.id}'),
-                            value: selected,
-                            onChanged: (_) => onTap(),
-                            visualDensity: VisualDensity.compact,
-                          ),
-                        ),
-                      ),
-                    ),
-                    Positioned(
-                      right: 8,
-                      top: 8,
-                      child: Material(
-                        color: scheme.surface.withValues(alpha: .94),
-                        shape: const CircleBorder(),
-                        child: isPublic
-                            ? IconButton(
-                                tooltip: collected ? '已收藏' : '收藏',
-                                onPressed: collected ? null : onCollect,
-                                icon: Icon(
-                                  collected
-                                      ? Icons.bookmark
-                                      : Icons.bookmark_outline,
-                                  size: 20,
-                                ),
-                              )
-                            : PopupMenuButton<String>(
-                                tooltip: l10nNow.desktopMoreActions,
-                                onSelected: onMenu,
-                                icon: const Icon(Icons.more_horiz, size: 21),
-                                itemBuilder: (_) => const [
-                                  PopupMenuItem(
-                                    value: 'edit',
-                                    child: _MenuRow(Icons.edit_outlined, '编辑'),
-                                  ),
-                                  PopupMenuItem(
-                                    value: 'copy',
-                                    child: _MenuRow(Icons.copy, '复制提示词'),
-                                  ),
-                                  PopupMenuItem(
-                                    value: 'delete',
-                                    child: _MenuRow(
-                                      Icons.delete_outline,
-                                      '删除',
-                                      danger: true,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(14, 12, 14, 0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Text(
-                    entry.positive.replaceAll(RegExp(r'\s+'), ' '),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: context.texts.bodySmall!.copyWith(
-                      color: scheme.onSurfaceVariant,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(6, 4, 6, 8),
-              child: TextButton(
-                key: ValueKey('inspiration-detail-${entry.id}'),
-                onPressed: onLongPress,
-                style:
-                    TextButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(horizontal: 8),
-                      minimumSize: const Size(0, 32),
-                      alignment: Alignment.centerLeft,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                    ).copyWith(
-                      overlayColor: WidgetStateProperty.resolveWith((states) {
-                        if (states.contains(WidgetState.hovered)) {
-                          return scheme.primary.withValues(alpha: .12);
-                        }
-                        return null;
-                      }),
-                    ),
-                child: Row(
-                  children: [
-                    Text(l10nNow.desktopViewDetails),
-                    Spacer(),
-                    Icon(Icons.arrow_forward, size: 18),
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
 
   Widget _card(BuildContext context, {required bool compact}) {
     final scheme = context.scheme;

@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-accent="emerald" data-theme="light" data-type="software">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="page-type" content="software" />
+  <meta name="site-kind" content="software" />
+  <meta name="description" content="Plana Windows 使用手册" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' https://media.plana.invalid; media-src https://media.plana.invalid; base-uri 'none'; form-action 'none'" />
+  <title>Plana · 使用手册</title>
+  <link rel="icon" type="image/png" href="assets/plana.png" />
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="editor.css" />
+</head>
+<body>
+  <a class="skip-link" href="#articleMain">跳到正文</a>
+
+  <!-- ==================== 视图一：全屏使用手册（占满整个 Plana 窗口，无「我的」总侧栏） ==================== -->
+  <div class="manual-shell" id="manualView">
+    <header class="manual-header">
+      <div class="mh-left">
+        <button type="button" class="mh-menu-btn" id="mobileMenuBtn" aria-label="展开目录" aria-expanded="false">
+          <svg class="ico" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16"/><path d="M4 12h16"/><path d="M4 17h16"/></svg>
+        </button>
+
+        <button type="button" class="back-btn" id="backToAboutBtn" aria-label="返回关于 Plana" title="返回关于 Plana">
+          <svg class="ico m-arrow-left" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+          <span>返回关于</span>
+        </button>
+
+        <span class="mh-sep" aria-hidden="true"></span>
+
+        <a class="mh-brand" href="#welcome" id="brandHomeLink">
+          <img src="assets/plana.png" alt="" width="20" height="20" />
+          <span>Plana 使用手册</span>
+        </a>
+      </div>
+
+      <nav class="mh-breadcrumb" id="breadcrumb" aria-label="当前路径">
+        <span class="bc-section" id="bcSection">快速入门</span>
+        <span class="bc-slash" aria-hidden="true">/</span>
+        <span class="bc-page" id="bcPage">欢迎使用 Plana</span>
+      </nav>
+
+      <div class="mh-right">
+        <button type="button" class="mh-action-btn" id="openSearchBtn" title="全文搜索 (Ctrl+K)">
+          <svg class="ico" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+          <span class="mh-action-label">搜索</span>
+          <kbd class="kbd-chip">Ctrl K</kbd>
+        </button>
+
+        <button type="button" class="mh-action-btn" id="copyPageBtn" title="复制本页 Markdown 内容">
+          <svg class="ico ico-copy" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+          <svg class="ico ico-check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+          <span class="mh-action-label" id="copyPageLabel">复制页面</span>
+        </button>
+
+        <div class="accent-picker" role="radiogroup" aria-label="主题色">
+          <button type="button" class="accent-dot is-active" data-accent-pick="emerald" role="radio" aria-checked="true" aria-label="青绿" title="青绿"></button>
+          <button type="button" class="accent-dot" data-accent-pick="blue" role="radio" aria-checked="false" aria-label="海蓝" title="海蓝"></button>
+          <button type="button" class="accent-dot" data-accent-pick="amber" role="radio" aria-checked="false" aria-label="暖橙" title="暖橙"></button>
+          <button type="button" class="accent-dot" data-accent-pick="rose" role="radio" aria-checked="false" aria-label="玫瑰" title="玫瑰"></button>
+        </div>
+
+        <button type="button" class="mh-action-btn" id="devMode" aria-pressed="false" aria-label="开发者模式" title="开发者模式" hidden>
+          <span aria-hidden="true">✎</span><span>开发者模式</span>
+        </button>
+        <button type="button" class="icon-btn" id="themeToggle" aria-label="切换深浅色模式" title="切换浅色 / 深色">
+          <svg class="ico ico-sun" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg>
+          <svg class="ico ico-moon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <div class="manual-body">
+      <div class="drawer-scrim" id="drawerScrim" hidden></div>
+
+      <!-- 左侧边栏：Obsidian Help 风格折叠目录树 + 纵向引导线 -->
+      <aside class="obs-sidebar" id="obsSidebar" aria-label="使用手册目录">
+        <div class="obs-search-wrap">
+          <svg class="ico obs-search-ico" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+          <input type="text" id="sidebarFilterInput" class="obs-search-input" placeholder="筛选目录…" autocomplete="off" aria-label="筛选左侧目录" />
+          <button type="button" class="obs-search-clear" id="sidebarFilterClear" hidden aria-label="清空筛选">
+            <svg class="ico" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+          </button>
+        </div>
+
+        <nav class="obs-tree" id="obsTree" aria-label="章节导航"></nav>
+
+        <div class="obs-footer">
+          <span class="obs-version">Plana Windows</span>
+          <button type="button" class="obs-toggle-all" id="toggleAllFoldersBtn">全部展开</button>
+        </div>
+      </aside>
+
+      <!-- 中间正文阅读区 -->
+      <main class="doc-scroll" id="docScroll" tabindex="-1">
+        <div class="doc-layout">
+          <article class="doc-article" id="articleMain">
+            <header class="doc-header">
+              <div class="doc-eyebrow">
+                <span id="docCategoryTag">快速入门</span>
+                <span class="doc-dot" aria-hidden="true">·</span>
+                <span id="docVersionTag">使用手册</span>
+              </div>
+              <h1 class="doc-title" id="docTitle">欢迎使用 Plana</h1>
+              <p class="doc-lead" id="docLead"></p>
+            </header>
+
+            <div id="manualWarning" class="doc-callout is-warn" role="status" hidden></div>
+            <div class="author-tools" id="authorTools" hidden>
+              <button type="button" id="editArticle">编辑本页</button>
+              <button type="button" id="newArticle">新增页面</button>
+              <button type="button" id="openManualFolder">打开手册文件夹</button>
+            </div>
+            <div class="doc-content" id="docContent"></div>
+
+            <nav class="doc-pager" id="docPager" aria-label="上下篇导航"></nav>
+          </article>
+
+          <!-- 右侧边栏：Linear Docs 风格极简大纲 + 2px 平滑滑动高亮竖条 -->
+          <aside class="lin-toc-col" aria-label="本页目录">
+            <div class="lin-toc-sticky">
+              <nav class="lin-toc" id="linToc">
+                <div class="lin-toc-indicator" id="linTocIndicator" aria-hidden="true"></div>
+                <ul class="lin-toc-list" id="linTocList"></ul>
+              </nav>
+            </div>
+          </aside>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <!-- ==================== Ctrl + K 全文检索弹窗 ==================== -->
+  <div class="search-modal-backdrop" id="searchModal" hidden>
+    <div class="search-modal-card" role="dialog" aria-modal="true" aria-label="全文搜索使用手册">
+      <div class="sm-input-row">
+        <svg class="ico" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <input type="text" id="modalSearchInput" class="sm-input" placeholder="搜索功能、设置项、快捷键或排查词（如 代理 / 负面锁 / 顶栏）…" autocomplete="off" />
+        <kbd class="kbd-chip">Esc</kbd>
+      </div>
+      <div class="sm-results" id="modalSearchResults" role="listbox"></div>
+      <div class="sm-footer">
+        <span>↑ ↓ 选择</span>
+        <span>Enter 跳转</span>
+        <span>Esc 关闭</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- 轻量提示条 -->
+  <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+  <dialog id="articleEditor" aria-labelledby="editorHeading">
+    <form id="editorForm">
+      <header class="editor-heading">
+        <h2 id="editorHeading">编辑本页</h2>
+        <button type="button" data-action="cancel" aria-label="关闭编辑器">×</button>
+      </header>
+      <div class="editor-scroll">
+        <label class="editor-field">页面标题<input id="editTitle" required /></label>
+        <label class="editor-field">简介<textarea rows="2" id="editSummary"></textarea></label>
+        <div id="editBlocks"></div>
+      </div>
+      <footer class="editor-footer">
+        <div class="editor-insert">
+          <label><span class="sr-only">要插入的内容</span><select id="insertType"></select></label>
+          <button type="button" id="insertBlock">添加内容</button>
+          <button type="button" id="insertMedia">插入图片 / GIF / 视频</button>
+        </div>
+        <span id="editorStatus" role="status"></span>
+        <div class="editor-actions"><button type="button" data-action="cancel">取消</button>
+          <button type="submit" id="saveArticle">保存</button></div>
+      </footer>
+    </form>
+  </dialog>
+  <script src="docs-data.js"></script>
+  <script src="editor.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

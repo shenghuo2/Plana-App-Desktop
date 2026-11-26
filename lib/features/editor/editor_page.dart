@@ -1,11 +1,13 @@
+import 'widgets/fold_icon.dart';
 import 'dart:async';
 
-import 'package:flutter/foundation.dart' show listEquals;
+import 'package:flutter/foundation.dart' show listEquals, mapEquals;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/store/app_stores.dart';
+import '../../core/platform/desktop.dart';
 import '../../core/store/storage_lifecycle.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/theme/editor_theme.dart';
@@ -20,6 +22,7 @@ import 'data/tag_translation_service.dart';
 import 'editor_models.dart';
 import 'editor_settings.dart';
 import 'editor_state.dart';
+import 'inspiration_shortcuts.dart';
 import 'widgets/annotated_field.dart';
 import 'widgets/chip_flow_view.dart';
 import 'widgets/completion_bar.dart';
@@ -1755,6 +1758,13 @@ class _EditorPageState extends ConsumerState<EditorPage>
         _kickTabSlide(next.activePositive);
       }
       _syncFromProvider(next);
+      final icons = foldIconsOf(next.foldLinks);
+      if (!mapEquals(_controller.foldBodies, next.foldBodies) ||
+          !mapEquals(_controller.foldIcons, icons)) {
+        _controller.foldIcons = icons;
+        _controller.foldBodies = next.foldBodies;
+        _refreshAnnotations();
+      }
     });
     // 设置改动即时反映到当前会话:关补全清建议、切词条栏重路由、切注音重绘。
     ref.listen<EditorSettings>(
@@ -1783,6 +1793,9 @@ class _EditorPageState extends ConsumerState<EditorPage>
     // 即触发本 build 重灌 + 重绘。
     final foldBodies = ref.watch(editorProvider.select((s) => s.foldBodies));
     _controller.foldBodies = foldBodies;
+    _controller.foldIcons = foldIconsOf(
+      ref.watch(editorProvider.select((s) => s.foldLinks)),
+    );
     // 权重面板(词条栏 / 批量面板)一弹出,顶栏就让位;补全条不算。
     // 拖光标期间 dock 是冻住的那份,顶栏跟着不动,松手再定。
     final dock = _dock();
@@ -2160,6 +2173,13 @@ class _EditorPageState extends ConsumerState<EditorPage>
           ? null
           : () => onSelectGroup(group.$1, group.$2),
       onCopy: () => _copyUnits(live),
+      onSaveInspiration: ref.watch(desktopModeProvider)
+          ? () => openPromptInspiration(
+              ref,
+              selected: live,
+              onApplied: _dismissDesktopPanel,
+            )
+          : null,
       // 分区只属于主提示词:角色会话不给
       onExtract: widget.charId == null ? onExtract : null,
       onWrap: onWrap,
@@ -2190,6 +2210,20 @@ class _EditorPageState extends ConsumerState<EditorPage>
       return FoldInspector(
         key: ValueKey('fold-inspector-$name'),
         name: name,
+        onEditInspiration:
+            ref.watch(desktopModeProvider) ||
+                ref
+                        .watch(editorProvider)
+                        .placementOf(name)
+                        ?.link
+                        ?.temporaryCategory !=
+                    null
+            ? (name) => openPromptInspiration(
+                ref,
+                foldName: name,
+                onApplied: _dismissDesktopPanel,
+              )
+            : null,
         tapGroupId: _popoverTapGroup,
         onClose: _dismissDesktopPanel,
         onDelete: () => _deleteInspectedFold(name),

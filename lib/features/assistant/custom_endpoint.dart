@@ -12,6 +12,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import '../../core/auth/secure_storage.dart';
+import 'model_catalog.dart';
+export 'model_catalog.dart' show CatalogModel, ModelEvidence, EndpointModelKind;
 
 const _key = 'assistant_endpoints';
 
@@ -52,6 +54,65 @@ String agentApiDefaultPath(AgentApiFormat f) => switch (f) {
   AgentApiFormat.anthropic => '/messages',
 };
 
+/// A relay may expose one of these request formats at a custom path.
+enum EndpointRoute {
+  chat('OpenAI Chat Completions', '/chat/completions', AgentApiFormat.openai),
+  responses('OpenAI Responses', '/responses', AgentApiFormat.openai),
+  messages('Anthropic Messages', '/messages', AgentApiFormat.anthropic),
+  gemini(
+    'Gemini generateContent',
+    '/models/{model}:generateContent',
+    AgentApiFormat.google,
+  ),
+  ollama('Ollama Chat Completions', '/api/chat', AgentApiFormat.openai);
+
+  const EndpointRoute(this.label, this.path, this.format);
+  final String label;
+  final String path;
+  final AgentApiFormat format;
+
+  static EndpointRoute defaultFor(AgentApiFormat format) => switch (format) {
+    AgentApiFormat.openai => chat,
+    AgentApiFormat.google => gemini,
+    AgentApiFormat.anthropic => messages,
+  };
+
+  static EndpointRoute? match(String value) {
+    final path = '/${value.trim().split('?').first.toLowerCase()}'
+        .replaceAll(RegExp(r'/+'), '/')
+        .replaceFirst(RegExp(r'/$'), '');
+    for (final r in values) {
+      if (path.endsWith(r.path.toLowerCase())) return r;
+    }
+    if (path.endsWith(':generatecontent') ||
+        path.endsWith(':streamgeneratecontent')) {
+      return gemini;
+    }
+    return null;
+  }
+}
+
+// Only old, untyped saved lists used naming rules. New discovery uses remote data.
+EndpointModelKind _legacyModelKind(String id) {
+  final name = id.toLowerCase().split('/').last;
+  if (RegExp(
+    r'^(gpt-image|chatgpt-image|dall-e|imagen[-0-9]|flux[-.0-9]|stable-(diffusion|image)|seedream|qwen-image|nano-banana)|^gemini-.*(?:-image(?:-|$)|-banana)',
+  ).hasMatch(name)) {
+    return EndpointModelKind.image;
+  }
+  if (RegExp(
+    r'embed|rerank|^tts-|^whisper|transcrib|moderation|^sora|^veo-|speech|^lyria|audio-preview|realtime',
+  ).hasMatch(name)) {
+    return EndpointModelKind.other;
+  }
+  if (RegExp(
+    r'^(gpt-|chatgpt-|o[1-9](?:-|$)|claude|deepseek|gemini|llama|qwen|glm|grok|mistral)',
+  ).hasMatch(name)) {
+    return EndpointModelKind.chat;
+  }
+  return EndpointModelKind.unknown;
+}
+
 /// 添加接口时可以直接选的服务:格式和地址都带好。不在表里的走「自定义」自己填。
 class EndpointPreset {
   const EndpointPreset(this.label, this.format, this.base, this.keyUrl);
@@ -59,6 +120,9 @@ class EndpointPreset {
   final String label;
   final AgentApiFormat format;
   final String base;
+
+  bool get offersImages =>
+      label == 'OpenAI' || label == 'Gemini' || label == 'OpenRouter';
 
   /// 创建 API Key 的页面。
   final String keyUrl;
@@ -114,20 +178,15 @@ EndpointPreset? endpointPresetOf(AgentApiFormat format, String baseUrl) {
 /// 填进来的地址 → 基址:去掉末尾斜杠,连对话路径一起贴进来的把路径切掉
 /// (`…/v1/chat/completions` → `…/v1`),不然发请求时路径会拼两遍。
 String normalizeEndpointBase(String raw, AgentApiFormat format) {
-  var b = raw.trim().replaceAll(RegExp(r'/+$'), '');
-  final tail = switch (format) {
-    AgentApiFormat.openai => RegExp(
-      r'/chat/completions$',
-      caseSensitive: false,
-    ),
-    AgentApiFormat.anthropic => RegExp(r'/messages$', caseSensitive: false),
-    AgentApiFormat.google => RegExp(
-      r'/models/[^/]+:(?:stream)?generateContent.*$',
-      caseSensitive: false,
-    ),
-  };
-  b = b.replaceFirst(tail, '');
-  return b.replaceAll(RegExp(r'/+$'), '');
+  final text = raw.trim();
+  final uri = Uri.tryParse(text);
+  if (uri == null || !uri.hasAuthority) return text;
+  final tail = RegExp(
+    r'/(?:chat/completions|responses|messages|api/chat|models/[^/]+:(?:stream)?generateContent)$',
+    caseSensitive: false,
+  );
+  final path = uri.path.replaceAll(RegExp(r'/+$'), '').replaceFirst(tail, '');
+  return uri.replace(path: path).toString();
 }
 
 class CustomEndpoint {
@@ -140,11 +199,33 @@ class CustomEndpoint {
     required this.model,
     this.models = const [],
     this.imageModels = const [],
+    this.modelOverrides = const {},
     this.apiPath = '',
+    this.enabled = true,
+    this.customService = false,
+    this.wire,
     this.headers = const {},
   });
 
   final String id;
+  final bool enabled;
+  final bool customService;
+  final EndpointRoute? wire;
+
+  EndpointRoute get route =>
+      EndpointRoute.match(apiPath) ?? wire ?? EndpointRoute.defaultFor(format);
+  EndpointPreset? get preset =>
+      customService ? null : endpointPresetOf(format, baseUrl);
+  bool get offersImages =>
+      customService ||
+      imageModels.isNotEmpty ||
+      (preset?.offersImages ?? format != AgentApiFormat.anthropic);
+  bool get hasCredentials {
+    if (apiKey.trim().isNotEmpty) return true;
+    final host = Uri.tryParse(effectiveBase)?.host.toLowerCase();
+    return route == EndpointRoute.ollama &&
+        (host == 'localhost' || host == '127.0.0.1' || host == '::1');
+  }
 
   /// 界面上显示的名字。空的话按地址认出的服务名或主机名。
   final String name;
@@ -163,14 +244,16 @@ class CustomEndpoint {
   /// 这个接口下存的全部模型。
   final List<String> models;
 
-  /// 出图模型(「生成图片」用),和对话模型分开存。Claude 格式不出图,恒为空。
+  /// Models explicitly assigned to image generation.
   final List<String> imageModels;
+  final Map<String, EndpointModelKind> modelOverrides;
 
   /// 这个接口能不能出图:格式支持、填了 Key、有出图模型。
+  bool get usesGoogleImages =>
+      (preset?.format ?? route.format) == AgentApiFormat.google;
+
   bool get canDraw =>
-      format != AgentApiFormat.anthropic &&
-      apiKey.trim().isNotEmpty &&
-      imageModels.isNotEmpty;
+      enabled && offersImages && hasCredentials && imageModels.isNotEmpty;
 
   /// [models] 为空时(只给了 [model] 的)按 [model] 一个算。
   List<String> get allModels =>
@@ -220,9 +303,7 @@ class CustomEndpoint {
 
   /// 地址认得出是哪家就写那家,认不出写主机名。
   String get providerLabel =>
-      endpointPresetOf(format, baseUrl)?.label ??
-      Uri.tryParse(effectiveBase)?.host ??
-      effectiveBase;
+      preset?.label ?? Uri.tryParse(effectiveBase)?.host ?? effectiveBase;
 
   String get effectiveBase {
     final b = baseUrl.trim();
@@ -234,28 +315,63 @@ class CustomEndpoint {
 
   /// 拼在 [effectiveBase] 后面的那一段。开头补斜杠,`{model}` 就地替换。
   String get effectivePath {
-    final raw = apiPath.trim().isEmpty
-        ? agentApiDefaultPath(format)
-        : apiPath.trim();
+    final raw = apiPath.trim().isEmpty ? route.path : apiPath.trim();
     final withSlash = raw.startsWith('/') ? raw : '/$raw';
     return withSlash.replaceAll('{model}', model.trim());
   }
 
   /// 完整的对话接口地址(非流式)。流式地址各家不同,见 `llm/` 下的实现。
-  Uri get chatUri => Uri.parse('$effectiveBase$effectivePath');
+  Uri get chatUri => uriForPath(effectivePath);
+
+  Uri uriForPath(String relative) {
+    final base = Uri.parse(effectiveBase);
+    final route = Uri.parse(relative);
+    final prefix = base.path.replaceAll(RegExp(r'/+$'), '');
+    var suffix = route.path.startsWith('/') ? route.path : '/${route.path}';
+    final tail = base.pathSegments.where((s) => s.isNotEmpty).lastOrNull;
+    if (tail != null &&
+        RegExp(r'^(v[0-9]+(?:(?:alpha|beta)[0-9]*)?|api)$').hasMatch(tail) &&
+        suffix.startsWith('/$tail/')) {
+      suffix = suffix.substring(tail.length + 1);
+    }
+    final query = {...base.queryParameters, ...route.queryParameters};
+    return base
+        .replace(
+          path: prefix.endsWith(suffix) ? prefix : '$prefix$suffix',
+          queryParameters: query.isEmpty ? null : query,
+        )
+        .removeFragment();
+  }
+
+  Uri get catalogUri {
+    final chat = chatUri;
+    final tail = RegExp(
+      r'/(?:chat/completions|responses|messages|models/[^/]+:(?:stream)?generateContent)$',
+      caseSensitive: false,
+    );
+    return tail.hasMatch(chat.path)
+        ? chat.replace(path: chat.path.replaceFirst(tail, '/models'))
+        : uriForPath('/models');
+  }
 
   Uri get chatStreamUri {
-    if (format != AgentApiFormat.google) return chatUri;
-    final u = Uri.parse(
-      '$effectiveBase${effectivePath.replaceFirst(':generateContent', ':streamGenerateContent')}',
+    if (route != EndpointRoute.gemini) return chatUri;
+    final u = chatUri.replace(
+      path: chatUri.path.replaceFirst(
+        ':generateContent',
+        ':streamGenerateContent',
+      ),
     );
     return u.replace(queryParameters: {...u.queryParameters, 'alt': 'sse'});
   }
 
   /// 填全了才能用。缺一样就发不出去,列表里置灰。
-  bool get usable => apiKey.trim().isNotEmpty && model.trim().isNotEmpty;
+  bool get usable => enabled && hasCredentials && model.trim().isNotEmpty;
 
   CustomEndpoint copyWith({
+    bool? enabled,
+    bool? customService,
+    EndpointRoute? wire,
     String? name,
     AgentApiFormat? format,
     String? baseUrl,
@@ -263,10 +379,14 @@ class CustomEndpoint {
     String? model,
     List<String>? models,
     List<String>? imageModels,
+    Map<String, EndpointModelKind>? modelOverrides,
     String? apiPath,
     Map<String, String>? headers,
   }) => CustomEndpoint(
     id: id,
+    enabled: enabled ?? this.enabled,
+    customService: customService ?? this.customService,
+    wire: wire ?? this.wire,
     name: name ?? this.name,
     format: format ?? this.format,
     baseUrl: baseUrl ?? this.baseUrl,
@@ -274,12 +394,17 @@ class CustomEndpoint {
     model: model ?? this.model,
     models: models ?? this.models,
     imageModels: imageModels ?? this.imageModels,
+    modelOverrides: modelOverrides ?? this.modelOverrides,
     apiPath: apiPath ?? this.apiPath,
     headers: headers ?? this.headers,
   );
 
   Map<String, dynamic> toJson() => {
     'id': id,
+    'enabled': enabled,
+    'typedModels': true,
+    if (customService) 'customService': true,
+    if (wire != null) 'wire': wire!.name,
     'name': name,
     'format': format.name,
     'baseUrl': baseUrl,
@@ -287,6 +412,7 @@ class CustomEndpoint {
     'model': allModels.firstOrNull ?? '',
     'models': allModels,
     if (imageModels.isNotEmpty) 'imageModels': imageModels,
+    'modelOverrides': modelOverrides.map((k, v) => MapEntry(k, v.name)),
     if (apiPath.isNotEmpty) 'apiPath': apiPath,
     if (headers.isNotEmpty) 'headers': headers,
   };
@@ -297,27 +423,73 @@ class CustomEndpoint {
     if (id.isEmpty) return null;
     final single = e['model']?.toString() ?? '';
     final models = switch (e['models']) {
-      final List l => [
+      final List l when l.isNotEmpty => [
         for (final m in l)
           if ('$m'.trim().isNotEmpty) '$m'.trim(),
       ],
       _ => [if (single.isNotEmpty) single],
     };
+    final savedImages = [
+      if (e['imageModels'] case final List l)
+        for (final m in l) '$m'.trim(),
+    ];
+    final images = <String>[], chats = <String>[];
+    final assigned = <String>{};
+    final typed = e['typedModels'] == true;
+    void assign(String id, {required bool image}) {
+      if (id.isEmpty) return;
+      if (typed) {
+        final group = image ? images : chats;
+        if (!group.contains(id)) group.add(id);
+        return;
+      }
+      if (!assigned.add(id.toLowerCase())) return;
+      final kind = _legacyModelKind(id);
+      if (kind == EndpointModelKind.other) return;
+      if (kind == EndpointModelKind.image ||
+          (kind == EndpointModelKind.unknown && image)) {
+        images.add(id);
+      } else {
+        chats.add(id);
+      }
+    }
+
+    for (final id in savedImages) {
+      assign(id, image: true);
+    }
+    for (final id in models) {
+      assign(id, image: false);
+    }
+    final format =
+        AgentApiFormat.values.asNameMap()[e['format']] ?? AgentApiFormat.openai;
+    final base = e['baseUrl']?.toString() ?? '';
     return CustomEndpoint(
       id: id,
+      enabled: e['enabled'] != false,
+      customService:
+          e['customService'] == true || endpointPresetOf(format, base) == null,
+      wire: EndpointRoute.values.asNameMap()[e['wire']],
       name: e['name']?.toString() ?? '',
-      format:
-          AgentApiFormat.values.asNameMap()[e['format']] ??
-          AgentApiFormat.openai,
-      baseUrl: e['baseUrl']?.toString() ?? '',
+      format: format,
+      baseUrl: base,
       apiKey: e['apiKey']?.toString() ?? '',
-      model: models.firstOrNull ?? '',
-      models: models,
-      imageModels: [
-        if (e['imageModels'] case final List l)
-          for (final m in l)
-            if ('$m'.trim().isNotEmpty) '$m'.trim(),
-      ],
+      model: chats.firstOrNull ?? '',
+      models: chats,
+      imageModels: images.toList(),
+      modelOverrides: {
+        if (typed && !e.containsKey('modelOverrides')) ...{
+          for (final m in chats)
+            m: images.contains(m)
+                ? EndpointModelKind.chatAndImage
+                : EndpointModelKind.chat,
+          for (final m in images)
+            if (!chats.contains(m)) m: EndpointModelKind.image,
+        },
+        if (e['modelOverrides'] case final Map saved)
+          for (final entry in saved.entries)
+            entry.key.toString(): ?EndpointModelKind.values
+                .asNameMap()[entry.value],
+      },
       apiPath: e['apiPath']?.toString() ?? '',
       headers: switch (e['headers']) {
         final Map h => {
@@ -400,16 +572,23 @@ class CustomEndpointsNotifier extends AsyncNotifier<List<CustomEndpoint>> {
   }
 
   /// 新增或就地替换(按 id)。
-  Future<void> put(CustomEndpoint e) => _edit((current) {
-    final next = [...current];
-    final i = next.indexWhere((item) => item.id == e.id);
-    if (i < 0) {
-      next.add(e);
-    } else {
-      next[i] = e;
-    }
-    return next;
-  });
+  Future<void> put(CustomEndpoint e, {bool preserveEnabled = false}) =>
+      _edit((current) {
+        final next = [...current];
+        final i = next.indexWhere((item) => item.id == e.id);
+        if (i < 0) {
+          next.add(e);
+        } else {
+          next[i] = preserveEnabled ? e.copyWith(enabled: next[i].enabled) : e;
+        }
+        return next;
+      });
+
+  Future<void> setEnabled(String id, bool enabled) => _edit(
+    (current) => [
+      for (final e in current) e.id == id ? e.copyWith(enabled: enabled) : e,
+    ],
+  );
 
   Future<void> remove(String id) => _edit(
     (current) => [

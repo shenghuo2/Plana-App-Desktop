@@ -26,12 +26,14 @@ class RulesFile {
     required this.author,
     required this.models,
     required this.rules,
+    this.localOnly = false,
   });
 
   final String name;
   final String author;
   final Set<RulesFamily> models;
   final List<PresetRule> rules;
+  final bool localOnly;
 }
 
 /// 预设 → 文件文本。
@@ -40,6 +42,7 @@ String encodeRulesFile({
   required String author,
   required Set<RulesFamily> models,
   required List<PresetRule> rules,
+  bool localOnly = false,
 }) {
   final b = StringBuffer()
     ..writeln(l10nNow.rulesHeader1)
@@ -47,7 +50,9 @@ String encodeRulesFile({
     ..writeln(l10nNow.rulesHeader3)
     ..writeln(l10nNow.rulesHeader4)
     ..writeln('format: $_fileFormat')
-    ..writeln('version: 2')
+    ..writeln('version: 2');
+  if (localOnly) b.writeln('localOnly: true');
+  b
     // 名字、作者用 JSON 字符串写:JSON 的双引号串本身就是合法 YAML,
     // 里面带冒号、井号也不会被读歪
     ..writeln('name: ${jsonEncode(name)}')
@@ -111,7 +116,13 @@ RulesFile decodeRulesFile(String text, {String fileName = ''}) {
     final err = rulesLimitError(rules, reserveChars: _toolLayerReserveChars);
     if (err != null) throw FormatException(err);
     // 酒馆预设里没有名字、作者,也不分 NAI 模型:名字用文件名,模型让用户选
-    return RulesFile(name: base, author: '', models: const {}, rules: rules);
+    return RulesFile(
+      name: base,
+      author: '',
+      models: const {},
+      rules: rules,
+      localOnly: doc['localOnly'] == true,
+    );
   }
 
   final sections = doc['sections'];
@@ -149,6 +160,7 @@ RulesFile decodeRulesFile(String text, {String fileName = ''}) {
     author: '${doc['author'] ?? ''}'.trim(),
     models: models,
     rules: rules,
+    localOnly: doc['localOnly'] == true,
   );
 }
 

@@ -110,7 +110,7 @@ Future<bool> saveSectionToLibrary(
   // 调用方随后退出多选,这颗钮就没了:导航先拿在手里
   final nav = Navigator.of(anchor);
   final editorContext = nav.context;
-  if (sameLibraryEntry(lib.entries, cat, text.positive, text.negative)
+  if (sameLibraryEntry(lib.of(cat), cat, text.positive, text.negative)
       case final e?) {
     hintSnack(
       anchor,
@@ -174,7 +174,7 @@ Future<({int saved, int skipped})> saveSectionsToLibrary(
     final text = sectionSaveText(s, prompt);
     if (text.positive.isEmpty) continue;
     final cat = sectionSaveCategory(s, cats) ?? fallback;
-    if (sameLibraryEntry(lib.entries, cat, text.positive, text.negative) !=
+    if (sameLibraryEntry(lib.of(cat), cat, text.positive, text.negative) !=
         null) {
       skipped++;
       continue;

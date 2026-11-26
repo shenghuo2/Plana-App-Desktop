@@ -77,7 +77,7 @@ typedef Img2ImgRef = ({
   bool upscaledEnhance,
 });
 
-/// 一个待发的角色参考:已 contain 处理的 PNG base64 + 模式串 + 强度 + 保真度。
+/// 一个待发的角色参考:已按模型处理的 PNG base64 + 模式串 + 强度 + 保真度。
 typedef CharRefPayload = ({
   String image,
   String mode,
@@ -125,7 +125,7 @@ Map<String, double> _center(String? pos) {
 
 /// 由创作页状态构造 NAI `/ai/generate-image-stream` 请求体(镜像 web `services/novelai.ts`)。
 /// 返回体 + 实际使用的种子(留空随机时也已定值,便于图库回显)。已覆盖:
-/// 文生图 + 多角色带位置 + Vibe + 图生图 + 角色参考(4.5)+ 重绘(infill)。
+/// 文生图 + 多角色带位置 + Vibe + 图生图 + 精确参考(4.5 / 5)+ 重绘(infill)。
 ({Map<String, dynamic> body, int seed}) buildNaiPayload(
   GenerateState s, {
   required String presetId,
@@ -314,9 +314,9 @@ Map<String, double> _center(String? pos) {
     ], on: p.normalizeVibe).map(canonicalNumber).toList();
   }
 
-  // 角色参考(Director/Precise Reference):仅 4.5 模型下发,其余静默不发。
+  // V5 uses a fixed fidelity and excludes precise references during inpainting.
   // 五个并列数组;information_extracted 恒 1;secondary_strength = 1 - fidelity。
-  if (charRefs.isNotEmpty && crSupportsModel(p.model)) {
+  if (charRefs.isNotEmpty && p.supportsCharRefs(inpaint: inpaint != null)) {
     params['director_reference_images'] = [for (final c in charRefs) c.image];
     params['director_reference_descriptions'] = [
       for (final c in charRefs)
@@ -332,7 +332,7 @@ Map<String, double> _center(String? pos) {
       for (final c in charRefs) c.strength,
     ];
     params['director_reference_secondary_strength_values'] = [
-      for (final c in charRefs) 1 - c.fidelity,
+      for (final c in charRefs) isV5 ? 0 : 1 - c.fidelity,
     ];
   }
 

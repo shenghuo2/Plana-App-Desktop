@@ -25,7 +25,9 @@ import 'package:plana_app/features/assistant/custom_endpoint.dart';
 import 'package:plana_app/features/gallery/albums/album_state.dart';
 import 'package:plana_app/features/gallery/albums/album_models.dart';
 import 'package:plana_app/features/gallery/gallery_state.dart';
-import 'package:plana_app/features/generate/canvas_models.dart' show CanvasOrigin;
+import 'package:plana_app/features/gallery/save_settings.dart';
+import 'package:plana_app/features/generate/canvas_state.dart';
+import 'package:plana_app/features/tools/metadata_tool_link.dart';
 import 'package:plana_app/features/generate/generate_state.dart';
 import 'package:plana_app/features/generate/gen_jobs.dart';
 import 'package:plana_app/features/generate/gen_queue.dart';
@@ -1142,7 +1144,10 @@ void main() {
     await tester.tap(key('desktop-inspiration-tab'));
     await tester.pumpAndSettle();
     expect(find.text('公共库'), findsOneWidget);
-    expect(find.text('我的 · 0'), findsOneWidget);
+    expect(
+      find.descendant(of: key('sidebar-scope-0'), matching: find.text('我的')),
+      findsOneWidget,
+    );
     await screenshot(tester, 'inspiration');
     for (final size in [
       const Size(1280, 800),
@@ -1503,4 +1508,314 @@ void main() {
     await tester.pump(const Duration(seconds: 1));
     await drainWrites(tester);
   });
+  for (final topLevel in [true, false]) {
+    testWidgets(
+      'gallery metadata link opens the retained single editor (top navigation $topLevel)',
+      (tester) async {
+        c
+            .read(themeSettingsProvider.notifier)
+            .patch((s) => s.copyWith(showTools: topLevel));
+        await pumpUntilComplete(
+          tester,
+          c
+              .read(saveSettingsProvider.notifier)
+              .patch((s) => s.copyWith(meta: SaveMeta.custom)),
+        );
+        await mount(tester, const Size(1440, 900));
+        Future<void> tap(Finder finder) async {
+          await tester.ensureVisible(finder);
+          await tester.pumpAndSettle();
+          await tester.tap(finder);
+          await tester.pumpAndSettle();
+        }
+
+        final profile = key('desktop-nav-$kTabProfile');
+        final link = find.byType(MetadataToolLink);
+        await tap(profile);
+        await tap(key('profile-section-generation'));
+        await tap(link);
+        final prompt = key('metadata-field-prompt');
+        expect(prompt, findsOneWidget);
+        await tester.enterText(prompt, 'toolbox draft');
+        await tap(find.text('批量处理'));
+        await tap(find.text('权重转换'));
+        // A previously opened tool detail route may still cover the retained tabs.
+        final nav = Navigator.of(tester.element(key('weight-convert-input')));
+        unawaited(
+          nav.push<void>(
+            MaterialPageRoute(
+              builder: (_) => const Scaffold(body: Text('tool detail')),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        await tap(profile);
+        await tap(key('profile-section-generation'));
+        await tap(link);
+        expect(find.text('tool detail'), findsNothing);
+        expect(
+          tester.widget<TextField>(prompt).controller!.text,
+          'toolbox draft',
+        );
+        expect(c.read(shellIndexProvider), topLevel ? kTabTools : kTabProfile);
+        await tester.pumpWidget(const SizedBox());
+        await tester.pump(const Duration(seconds: 1));
+        await drainWrites(tester);
+      },
+    );
+  }
+
+  testWidgets(
+    '工具箱默认在我的前面，入口互斥切换保留草稿、结果和工具页签',
+    (tester) async {
+      await mount(tester, const Size(1440, 900));
+      final toolsNav = key('desktop-nav-$kTabTools');
+      final profileNav = key('desktop-nav-$kTabProfile');
+      expect(toolsNav, findsOneWidget);
+      expect(
+        tester.getRect(toolsNav).right,
+        lessThan(tester.getRect(profileNav).left),
+      );
+      await tester.tap(profileNav);
+      await tester.pumpAndSettle();
+      expect(key('profile-section-tools'), findsNothing);
+      await tester.tap(toolsNav);
+      await tester.pumpAndSettle();
+      final pane = tester.state(find.byType(DesktopToolsPage));
+      final draft = key('weight-convert-input');
+      await tester.enterText(draft, '(cat ears:1.2), solo, <lora:test:1>');
+      final modifier = defaultTargetPlatform == TargetPlatform.macOS
+          ? LogicalKeyboardKey.metaLeft
+          : LogicalKeyboardKey.controlLeft;
+      await tester.sendKeyDownEvent(modifier);
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.sendKeyUpEvent(modifier);
+      await tester.pumpAndSettle();
+      final converted = tester
+          .widget<SelectableText>(key('weight-convert-output'))
+          .textSpan!
+          .toPlainText();
+      expect(converted, contains('cat ears'));
+      expect(converted, isNot(contains('lora:')));
+      await screenshot(
+        tester,
+        'windows49-toolbox-${defaultTargetPlatform.name}',
+      );
+      await tester.tap(find.text('图片元数据'));
+      await tester.pumpAndSettle();
+      final metadataPrompt = key('metadata-field-prompt');
+      await tester.enterText(metadataPrompt, '1girl, forest');
+
+      Future<void> toggleInSettings() async {
+        await tester.tap(profileNav);
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(key('profile-section-appearance'));
+        await tester.tap(key('profile-section-appearance'));
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(find.text('显示工具箱'));
+        await tester.pumpAndSettle();
+        // Lazy settings cards can change the scroll extent after first layout.
+        await tester.ensureVisible(find.text('显示工具箱'));
+        await tester.pumpAndSettle();
+        await screenshot(
+          tester,
+          'windows49-appearance-${defaultTargetPlatform.name}',
+        );
+        await tester.tap(find.text('显示工具箱'));
+        await tester.pumpAndSettle();
+        stores.flushNow();
+        var saved = false;
+        unawaited(stores.prefs.idle.then((_) => saved = true));
+        await pumpUntil(
+          tester,
+          () => saved,
+          reason: 'Toolbox navigation preference must finish saving',
+        );
+      }
+
+      await toggleInSettings();
+      expect(toolsNav, findsNothing);
+      expect(key('profile-section-tools'), findsOneWidget);
+      expect(loadThemeSettings(stores.prefs).showTools, isFalse);
+      await tester.ensureVisible(key('profile-section-tools'));
+      await tester.tap(key('profile-section-tools'));
+      await tester.pumpAndSettle();
+      expect(tester.state(find.byType(DesktopToolsPage)), same(pane));
+      expect(
+        tester.widget<TextField>(metadataPrompt).controller!.text,
+        '1girl, forest',
+      );
+      await tester.tap(find.text('权重转换'));
+      await tester.pumpAndSettle();
+      expect(
+        tester.widget<TextField>(draft).controller!.text,
+        contains('cat ears'),
+      );
+      expect(
+        tester
+            .widget<SelectableText>(key('weight-convert-output'))
+            .textSpan!
+            .toPlainText(),
+        converted,
+      );
+      await toggleInSettings();
+      expect(toolsNav, findsOneWidget);
+      expect(key('profile-section-tools'), findsNothing);
+      expect(loadThemeSettings(stores.prefs).showTools, isTrue);
+      await tester.tap(toolsNav);
+      await tester.pumpAndSettle();
+      expect(tester.state(find.byType(DesktopToolsPage)), same(pane));
+      expect(
+        tester.widget<TextField>(draft).controller!.text,
+        contains('cat ears'),
+      );
+      expect(find.byType(ToolsPage), findsOneWidget);
+
+      // A restored preference can move the currently open toolbox back to settings.
+      c
+          .read(themeSettingsProvider.notifier)
+          .patch((s) => s.copyWith(showTools: false));
+      await tester.pumpAndSettle();
+      expect(c.read(shellIndexProvider), kTabProfile);
+      expect(
+        tester.widget<TextField>(draft).controller!.text,
+        contains('cat ears'),
+      );
+      expect(tester.state(find.byType(DesktopToolsPage)), same(pane));
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox());
+      await drainWrites(tester);
+    },
+    variant: TargetPlatformVariant({
+      TargetPlatform.windows,
+      TargetPlatform.macOS,
+    }),
+  );
+
+  for (final scale in [1.0, 1.4]) {
+    testWidgets(
+      '创作侧栏灵感筛选完整显示并可操作：字号=$scale',
+      (tester) async {
+        const paths = MethodChannel('plugins.flutter.io/path_provider');
+        tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          paths,
+          (_) async => stores.desktopOutput.root.parent.path,
+        );
+        addTearDown(() {
+          tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+            paths,
+            null,
+          );
+        });
+        await tester.runAsync(() async {
+          await c.read(tagLibraryProvider.future);
+          await c
+              .read(tagLibraryProvider.notifier)
+              .upsert(
+                const TagEntry(
+                  id: 'sidebar-character',
+                  category: TagCategory.character,
+                  name: '旅行者',
+                  createdBy: '123456',
+                ),
+              );
+        });
+        c
+            .read(themeSettingsProvider.notifier)
+            .patch((s) => s.copyWith(textScale: scale));
+        await mount(tester, const Size(1440, 900));
+        await tester.tap(key('desktop-inspiration-tab'));
+        await tester.pumpAndSettle();
+        final search = key('tag-search-character');
+        final filter = find.descendant(
+          of: search,
+          matching: find.byTooltip('筛选'),
+        );
+        final anchor = tester.getRect(filter);
+        await tester.tap(filter);
+        await tester.pumpAndSettle();
+        final panel = tester.getRect(key('desktop-popover'));
+        expect(panel.top, closeTo(anchor.bottom + 8, 1));
+        expect(panel.bottom, lessThanOrEqualTo(888));
+        expect(panel.height, greaterThan(180));
+        expect(find.text('123456').hitTestable(), findsOneWidget);
+        final input = find.descendant(
+          of: key('desktop-popover'),
+          matching: find.byType(TextField),
+        );
+        expect(input.hitTestable(), findsOneWidget);
+        await tester.enterText(input, '123');
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('123456'));
+        await tester.pumpAndSettle();
+        expect(key('desktop-popover'), findsNothing);
+        expect(
+          find.descendant(of: search, matching: find.text('123456')),
+          findsOneWidget,
+        );
+        // The active filter pill must also anchor the panel to itself.
+        await tester.tap(
+          find.descendant(of: search, matching: find.text('123456')),
+        );
+        await tester.pumpAndSettle();
+        expect(find.text('重置').hitTestable(), findsOneWidget);
+        await tester.tap(find.text('重置'));
+        await tester.pumpAndSettle();
+        expect(filter, findsOneWidget);
+        await tester.tap(filter);
+        await tester.pumpAndSettle();
+        await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+        await tester.pumpAndSettle();
+        expect(key('desktop-popover'), findsNothing);
+        await tester.tap(find.text('画风').hitTestable());
+        await tester.pumpAndSettle();
+        await tester.tap(find.byTooltip('筛选').hitTestable());
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('适用模型').hitTestable());
+        await tester.pumpAndSettle();
+        expect(find.text('NAI 4 / 4.5').hitTestable(), findsOneWidget);
+        await tester.tap(find.text('NAI 4 / 4.5'));
+        await tester.pumpAndSettle();
+        expect(key('desktop-popover'), findsNothing);
+        expect(find.text('NAI 4 / 4.5').hitTestable(), findsOneWidget);
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox());
+        await drainWrites(tester);
+      },
+      variant: TargetPlatformVariant({
+        TargetPlatform.windows,
+        TargetPlatform.macOS,
+      }),
+    );
+  }
+  testWidgets(
+    'multi-canvas workspace retains Medium controls at compact and large text sizes',
+    (tester) async {
+      final gen = c.read(generateProvider.notifier);
+      final canvases = c.read(canvasWorkspaceProvider.notifier);
+      gen.setModel('NAI 5.0 Full Medium');
+      gen.setPrompts(positive: 'blue sky, soft light', negative: 'rain');
+      for (var i = 1; i <= 7; i++) {
+        final id = canvases.create(duplicate: true);
+        canvases.rename(id, '合成场景 $i');
+      }
+      await mount(tester, const Size(1440, 900));
+      expect(
+        find.text('NAI 5.0 Full Medium', skipOffstage: false),
+        findsOneWidget,
+      );
+      expect(key('desktop-canvas-tabs'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await screenshot(tester, 'windows50-canvas-wide');
+      c
+          .read(themeSettingsProvider.notifier)
+          .patch((s) => s.copyWith(textScale: 1.4));
+      tester.view.physicalSize = const Size(900, 760);
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      expect(c.read(generateProvider).params.isNaiMedium, isTrue);
+      await screenshot(tester, 'windows50-canvas-compact');
+      await drainWrites(tester);
+    },
+  );
 }

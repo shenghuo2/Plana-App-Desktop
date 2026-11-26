@@ -38,15 +38,19 @@ class TagPanel extends StatefulWidget {
     this.onToggleFavorite,
     this.content,
     this.contentHeader,
+    this.titleSpan,
     this.contentFooter,
     this.constrainContent = false,
     this.expandContent = false,
     this.onFullscreen,
+    this.onEditInspiration,
+    this.temporaryInspiration = false,
     this.copyText,
     this.showWiki = true,
     this.mixedWeight = false,
   });
 
+  final InlineSpan? titleSpan;
   final Tok tok;
 
   /// A block inspector uses the same actions around editable body text.
@@ -54,6 +58,8 @@ class TagPanel extends StatefulWidget {
   final Widget? contentHeader, contentFooter;
   final bool constrainContent, expandContent;
   final VoidCallback? onFullscreen;
+  final VoidCallback? onEditInspiration;
+  final bool temporaryInspiration;
   final String? copyText;
   final bool showWiki, mixedWeight;
   final int? count;
@@ -235,7 +241,10 @@ class _TagPanelState extends State<TagPanel> {
               onCancelRename: _cancelRename,
               copyText: widget.copyText,
               showWiki: widget.showWiki,
+              titleSpan: widget.titleSpan,
               onFullscreen: widget.onFullscreen,
+              onEditInspiration: widget.onEditInspiration,
+              temporaryInspiration: widget.temporaryInspiration,
             ),
             if (widget.contentHeader != null) widget.contentHeader!,
             if (widget.content != null)
@@ -807,13 +816,19 @@ class _Header extends StatelessWidget {
     required this.onCancelRename,
     this.copyText,
     this.showWiki = true,
+    this.titleSpan,
     this.onFullscreen,
+    this.onEditInspiration,
+    this.temporaryInspiration = false,
   });
 
+  final InlineSpan? titleSpan;
   final Tok tok;
   final String? copyText;
   final bool showWiki;
   final VoidCallback? onFullscreen;
+  final VoidCallback? onEditInspiration;
+  final bool temporaryInspiration;
   final int? count;
   final Color wc;
   final bool favorited;
@@ -850,8 +865,13 @@ class _Header extends StatelessWidget {
                   textBaseline: TextBaseline.alphabetic,
                   children: [
                     Flexible(
-                      child: Text(
-                        tok.name.isEmpty ? context.l10n.tagLabel : tok.name,
+                      child: Text.rich(
+                        titleSpan ??
+                            TextSpan(
+                              text: tok.name.isEmpty
+                                  ? context.l10n.tagLabel
+                                  : tok.name,
+                            ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: context.texts.titleMedium!.copyWith(
@@ -897,6 +917,19 @@ class _Header extends StatelessWidget {
             context,
             icon: Icons.travel_explore,
             onTap: () => _openWiki(context, tok.name),
+          ),
+          const SizedBox(width: 4),
+        ],
+        if (onEditInspiration case final edit?) ...[
+          _circleIcon(
+            context,
+            icon: temporaryInspiration
+                ? Icons.library_add_outlined
+                : Icons.edit_outlined,
+            onTap: edit,
+            tooltip: temporaryInspiration
+                ? context.l10n.saveSelectionAsInspiration
+                : context.l10n.editInspirationBlock,
           ),
           const SizedBox(width: 4),
         ],
@@ -1198,6 +1231,7 @@ class BatchPanel extends StatelessWidget {
     this.foldCount = 0,
     required this.onCopy,
     this.onExtract,
+    this.onSaveInspiration,
     required this.onWrap,
     required this.onStepMult,
     required this.onClearWeight,
@@ -1250,6 +1284,7 @@ class BatchPanel extends StatelessWidget {
 
   /// 把所选提取出来新建一个分区;null = 不给(角色会话没有分区)。
   final VoidCallback? onExtract;
+  final VoidCallback? onSaveInspiration;
 
   final void Function(bool up) onWrap;
   final void Function(bool up) onStepMult;
@@ -1300,6 +1335,15 @@ class BatchPanel extends StatelessWidget {
                   ),
                 ),
                 if (has) ...[
+                  if (onSaveInspiration case final save?) ...[
+                    _circleIcon(
+                      context,
+                      icon: Icons.library_add_outlined,
+                      onTap: save,
+                      tooltip: context.l10n.saveSelectionAsInspiration,
+                    ),
+                    const SizedBox(width: 4),
+                  ],
                   if (onExtract case final extract?) ...[
                     _circleIcon(
                       context,

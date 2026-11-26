@@ -9,10 +9,14 @@
 /// 「推荐」是后端标的([AgentModelChoice.recommended]),不在 app 里写死 ——
 /// 哪个渠道当下稳、当下便宜只有后端知道,写死就得跟着发版。
 ///
-/// **选中态放在左边**(图标换成对勾 + 整行染色),右边空出来给「编辑」。两样都挤在
-/// 右边的话,想选中却点到编辑是迟早的事 —— 而这个弹层九成时候是来选的,
-/// 不是来改配置的。
+/// **选中态是整行染色**,右边空出来给「编辑」。选中标记挤在右边的话,想选中却点到
+/// 编辑是迟早的事 —— 而这个弹层九成时候是来选的,不是来改配置的。
+///
+/// 后端渠道(对话和图像)出问题时图标右下角挂一个小点([ModelHealth]):不稳琥珀、不可用红,
+/// 正常和没数据都不挂;弹层打开时重取一次列表,开着时定时再取。
 library;
+
+import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -22,16 +26,27 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/ui/setting_row.dart';
 import '../../generate/widgets/common.dart' show dropFocusSoon;
 import '../agent_model.dart';
+import '../subscription/plan_accounts.dart';
+import 'plan_accounts_dialog.dart';
 import '../custom_endpoint.dart';
+import 'assistant_tag.dart';
 import '../endpoints_page.dart';
 import '../image_gen/image_models.dart'
-    show ImageModelChoice, imageModelChoicesProvider;
+    show
+        ImageModelChoice,
+        imageModelChoicesProvider,
+        planaImageChannelsProvider;
 import '../../../l10n/l10n.dart';
 
 class AssistantModelDropdown extends ConsumerStatefulWidget {
-  const AssistantModelDropdown({super.key, this.compact = false});
+  const AssistantModelDropdown({
+    super.key,
+    this.compact = false,
+    this.onManage,
+  });
 
   final bool compact;
+  final ValueChanged<String>? onManage;
 
   @override
   ConsumerState<AssistantModelDropdown> createState() =>
@@ -46,27 +61,42 @@ class _AssistantModelDropdownState
   Widget build(BuildContext context) {
     final models = ref.watch(agentModelsProvider);
     final current = ref.watch(assistantModelProvider);
+    final plans = ref.watch(planAccountsProvider).value;
+    final login = widget.onManage == null && plans?.profiles.isEmpty == true;
     final endpointState = ref.watch(customEndpointsProvider);
-    final endpoints = endpointState.value ?? const [];
+    final endpoints = (endpointState.value ?? const <CustomEndpoint>[]).where(
+      (e) => e.enabled,
+    );
     final images = ref.watch(imageModelChoicesProvider);
     final authorized = ref.watch(assistantBotAuthorizedProvider);
+    final imageLive = !ref.watch(planaImageChannelsProvider).hasError;
     final hostedImages = images.where((m) => m.endpoint == null && m.available);
-    void edit([CustomEndpoint? endpoint]) {
+    void manage(String id) {
       menu.close();
-      openEndpointsPage(context, editId: endpoint?.id);
+      if (widget.onManage case final select?) {
+        select(id);
+      } else {
+        openEndpointsPage(context, editId: id);
+      }
     }
+
+    void edit(CustomEndpoint endpoint) => manage(endpoint.id);
 
     Widget choice(
       String key,
       String name, {
       String? subtitle,
       bool recommended = false,
+      bool image = false,
+      ModelHealth health = ModelHealth.unknown,
     }) => MenuItemButton(
       key: ValueKey('assistant-model-$key'),
       autofocus: current?.key == key,
-      leadingIcon: Icon(
-        current?.key == key ? Icons.check : Icons.smart_toy_outlined,
-        size: 17,
+      leadingIcon: _LeadingIcon(
+        icon: current?.key == key ? Icons.check : Icons.smart_toy_outlined,
+        color: null,
+        dot: _healthDot(health, context.scheme),
+        ringColor: context.scheme.surface,
       ),
       onPressed: () => ref.read(assistantModelPrefProvider.notifier).set(key),
       child: SizedBox(
@@ -76,16 +106,27 @@ class _AssistantModelDropdownState
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                name,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: current?.key == key
-                      ? FontWeight.w600
-                      : FontWeight.w400,
-                ),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Flexible(
+                    child: Text(
+                      name,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: current?.key == key
+                            ? FontWeight.w600
+                            : FontWeight.w400,
+                      ),
+                    ),
+                  ),
+                  if (image) ...[
+                    const SizedBox(width: 6),
+                    AssistantTag(context.l10n.imageModelField),
+                  ],
+                ],
               ),
               if (subtitle != null || recommended)
                 Text(
@@ -121,7 +162,12 @@ class _AssistantModelDropdownState
           ...switch (models) {
             AsyncData(:final value) when value.choices.isNotEmpty => [
               for (final c in authorized ? value.choices : value.free)
-                choice(c.key, c.name, recommended: c.recommended),
+                choice(
+                  c.key,
+                  c.name,
+                  recommended: c.recommended,
+                  health: models.hasError ? ModelHealth.unknown : c.health,
+                ),
             ],
             AsyncData() when hostedImages.isNotEmpty => <Widget>[],
             AsyncLoading() => [
@@ -148,7 +194,8 @@ class _AssistantModelDropdownState
             choice(
               '$kImageKeyPrefix${image.key}',
               image.name,
-              subtitle: context.l10n.imageModelField,
+              image: true,
+              health: imageLive ? image.health : ModelHealth.unknown,
             ),
           const Divider(height: 12),
         ],
@@ -184,8 +231,17 @@ class _AssistantModelDropdownState
             choice(
               '$kImageKeyPrefix${image.key}',
               image.name,
+              image: true,
               subtitle: e.displayName,
             ),
+        ],
+        if (plans?.active case final p?
+            when plans!.enabled &&
+                p.connected &&
+                p.selectedModels.isNotEmpty) ...[
+          settingSection(context, context.l10n.planSection),
+          for (final m in p.selectedModels.entries)
+            choice(planModelKey(p.id, m.key), m.value, subtitle: p.label),
         ],
         if (endpoints.any((e) => e.usable || e.canDraw))
           SubmenuButton(
@@ -200,10 +256,32 @@ class _AssistantModelDropdownState
             child: Text(l10nNow.desktopEditEndpoints),
           ),
         MenuItemButton(
-          onPressed: () => edit(),
+          onPressed: () => manage(planHubId),
           autofocus: current == null,
-          leadingIcon: const Icon(Icons.add, size: 18),
-          child: Text(l10nNow.addEndpoint),
+          leadingIcon: const Icon(Icons.tune, size: 18),
+          child: Text(context.l10n.planManageHub),
+        ),
+        MenuItemButton(
+          key: const ValueKey('assistant-chatgpt-accounts'),
+          leadingIcon: Image.asset(
+            'assets/assistant/providers/openai.png',
+            width: 18,
+            height: 18,
+            color: context.scheme.onSurface,
+          ),
+          onPressed: () {
+            menu.close();
+            openPlanAccounts(
+              context,
+              login: login,
+              onManage: widget.onManage == null
+                  ? null
+                  : () => widget.onManage!(planHubId),
+            );
+          },
+          child: Text(
+            login ? context.l10n.planLogin : context.l10n.planQuickSwitch,
+          ),
         ),
       ],
       builder: (context, controller, _) => TextButton(
@@ -225,6 +303,10 @@ class _AssistantModelDropdownState
                 style: const TextStyle(fontSize: 12),
               ),
             ),
+            if (imageChoiceKeyOf(current?.key ?? '') != null) ...[
+              const SizedBox(width: 6),
+              AssistantTag(context.l10n.imageModelField),
+            ],
             const SizedBox(width: 6),
             const Icon(Icons.expand_more, size: 16),
           ],
@@ -248,31 +330,68 @@ Future<void> showModelSheet(BuildContext context) async {
   dropFocusSoon();
 }
 
-class _ModelSheet extends ConsumerWidget {
+class _ModelSheet extends ConsumerStatefulWidget {
   const _ModelSheet();
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_ModelSheet> createState() => _ModelSheetState();
+}
+
+class _ModelSheetState extends ConsumerState<_ModelSheet> {
+  /// 开着时隔多久重取一次列表。
+  static const _refreshEvery = Duration(seconds: 30);
+
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    Future.microtask(_refresh);
+    _timer = Timer.periodic(_refreshEvery, (_) => _refresh());
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  void _refresh() {
+    if (!mounted) return;
+    ref.invalidate(agentModelsProvider);
+    ref.invalidate(planaImageChannelsProvider);
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final async = ref.watch(agentModelsProvider);
+    // 重取失败时列表照旧显示,近况不再可信,颜色撤掉
+    final live = !async.hasError;
     final currentKey = ref.watch(assistantModelProvider)?.key ?? '';
+    final plans = ref.watch(planAccountsProvider).value;
     final endpointState = ref.watch(customEndpointsProvider);
-    final endpoints = endpointState.value ?? const [];
+    final endpoints = (endpointState.value ?? const <CustomEndpoint>[]).where(
+      (e) => e.enabled,
+    );
     // 没有 Bot 授权时只列免费的;后端一条免费的都没有就整组不列
     final authorized = ref.watch(assistantBotAuthorizedProvider);
     List<AgentModelChoice> shown(AgentModelList l) =>
         authorized ? l.choices : l.free;
     final hidden = !authorized && async.hasValue && shown(async.value!).isEmpty;
     final images = ref.watch(imageModelChoicesProvider);
+    final imageLive = !ref.watch(planaImageChannelsProvider).hasError;
     String imageKey(ImageModelChoice m) => '$kImageKeyPrefix${m.key}';
     Widget imageRow(ImageModelChoice m) => _row(
       context,
       icon: Icons.image_outlined,
       title: m.name,
+      badge: context.l10n.imageModelField,
       // 没授权的后端渠道只说暂未开放,不引导去授权
       subtitle:
           m.endpoint?.displayName ??
           (m.available ? null : context.l10n.notAvailableYet),
       dim: !m.available,
+      health: m.available && imageLive ? m.health : ModelHealth.unknown,
       selected: imageKey(m) == currentKey,
       onTap: m.available ? () => _pick(context, ref, imageKey(m)) : () {},
       onEdit: m.endpoint == null
@@ -284,9 +403,13 @@ class _ModelSheet extends ConsumerWidget {
       title: context.l10n.selectModel,
       children: [
         if (!hidden) ...[
-          settingSection(context, context.l10n.planaBackend),
+          settingSection(
+            context,
+            authorized ? context.l10n.planaBackend : context.l10n.freeModels,
+          ),
+          // 重取期间沿用上一份,不闪转圈
           switch (async) {
-            AsyncData(:final value) when shown(value).isNotEmpty => Column(
+            AsyncValue(:final value?) when shown(value).isNotEmpty => Column(
               mainAxisSize: MainAxisSize.min,
               children: [
                 for (final c in shown(value))
@@ -295,6 +418,7 @@ class _ModelSheet extends ConsumerWidget {
                     icon: Icons.bolt_outlined,
                     title: c.name,
                     badge: c.recommended ? '推荐' : null,
+                    health: live ? c.health : ModelHealth.unknown,
                     selected: c.key == currentKey,
                     onTap: () => _pick(context, ref, c.key),
                   ),
@@ -305,7 +429,7 @@ class _ModelSheet extends ConsumerWidget {
               '拿不到渠道列表:$error',
               onRetry: () => ref.invalidate(agentModelsProvider),
             ),
-            AsyncData() => _note(
+            AsyncValue(hasValue: true) => _note(
               context,
               '后端没配可选渠道。',
               onRetry: () => ref.invalidate(agentModelsProvider),
@@ -358,12 +482,35 @@ class _ModelSheet extends ConsumerWidget {
               onEdit: () => openEndpointsPage(context, editId: e.id),
             ),
         ],
+        if (plans?.active case final p?
+            when plans!.enabled &&
+                p.connected &&
+                p.selectedModels.isNotEmpty) ...[
+          settingSection(context, context.l10n.planSection),
+          for (final m in p.selectedModels.entries)
+            _row(
+              context,
+              icon: Icons.chat_outlined,
+              title: m.value,
+              subtitle: p.label,
+              selected: planModelKey(p.id, m.key) == currentKey,
+              onTap: () => _pick(context, ref, planModelKey(p.id, m.key)),
+            ),
+        ],
         _row(
           context,
-          icon: Icons.add,
-          title: context.l10n.addEndpoint,
-          accent: true,
-          onTap: () => openEndpointsPage(context),
+          icon: Icons.tune,
+          title: context.l10n.planManageHub,
+          onTap: () => openEndpointsPage(context, editId: planHubId),
+        ),
+        _row(
+          context,
+          icon: Icons.account_circle_outlined,
+          title: plans?.profiles.isEmpty == true
+              ? context.l10n.planLogin
+              : context.l10n.planQuickSwitch,
+          onTap: () =>
+              openPlanAccounts(context, login: plans?.profiles.isEmpty == true),
         ),
       ],
     );
@@ -374,8 +521,7 @@ class _ModelSheet extends ConsumerWidget {
     Navigator.pop(context);
   }
 
-  /// 一行。选中时左边图标换成对勾并整行染色 —— 一列小对勾要挨个找,
-  /// 染色那行扫一眼就看见。
+  /// 一行。选中时整行染色、标题加粗,图标不换。
   Widget _row(
     BuildContext context, {
     required IconData icon,
@@ -383,29 +529,42 @@ class _ModelSheet extends ConsumerWidget {
     required VoidCallback onTap,
     String? subtitle,
     String? badge,
+    ModelHealth health = ModelHealth.unknown,
     bool selected = false,
     bool dim = false,
-    bool accent = false,
     VoidCallback? onEdit,
   }) {
     final scheme = context.scheme;
     final solid = selected && context.skin.float;
     final fg = solid
         ? scheme.onPrimary
-        : selected || accent
+        : selected
         ? scheme.primary
         : (dim ? scheme.outline : null);
+    final titleStyle = context.texts.bodyLarge!.copyWith(
+      fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+      color: fg,
+    );
+    final dot = _healthDot(health, scheme);
+    final sheetBg = context.raisedFill(scheme.surfaceContainer);
+    final selectedBg = context.skin.float
+        ? scheme.primary
+        : scheme.primaryContainer.withValues(alpha: .35);
+    final ringColor = selected
+        ? (context.skin.float
+              ? scheme.primary
+              : Color.alphaBlend(selectedBg, sheetBg))
+        : sheetBg;
     return ListTile(
       onTap: onTap,
       selected: selected,
-      selectedTileColor: context.skin.float
-          ? scheme.primary
-          : scheme.primaryContainer.withValues(alpha: .35),
+      selectedTileColor: selectedBg,
       contentPadding: const EdgeInsets.only(left: 20, right: 8),
-      leading: Icon(
-        selected ? Icons.check_circle : icon,
-        size: 21,
+      leading: _LeadingIcon(
+        icon: icon,
         color: selected ? fg : (dim ? scheme.outline : fg),
+        dot: dot,
+        ringColor: ringColor,
       ),
       title: Row(
         children: [
@@ -414,12 +573,7 @@ class _ModelSheet extends ConsumerWidget {
               title,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: context.texts.bodyLarge!.copyWith(
-                fontWeight: selected || accent
-                    ? FontWeight.w700
-                    : FontWeight.w500,
-                color: fg,
-              ),
+              style: titleStyle,
             ),
           ),
           if (badge != null) ...[
@@ -495,4 +649,50 @@ class _ModelSheet extends ConsumerWidget {
       ],
     ),
   );
+}
+
+/// 行首图标(对话闪电 / 图像图标);渠道异常时在右下角挂一枚带行底色描边的小圆点。
+Color? _healthDot(ModelHealth health, ColorScheme scheme) => switch (health) {
+  ModelHealth.degraded => const Color(0xFFF59E0B),
+  ModelHealth.down => scheme.error,
+  _ => null,
+};
+
+class _LeadingIcon extends StatelessWidget {
+  const _LeadingIcon({
+    required this.icon,
+    required this.color,
+    required this.dot,
+    required this.ringColor,
+  });
+
+  final IconData icon;
+  final Color? color;
+  final Color? dot;
+  final Color ringColor;
+
+  @override
+  Widget build(BuildContext context) {
+    final glyph = Icon(icon, size: 21, color: color);
+    if (dot == null) return glyph;
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        glyph,
+        Positioned(
+          right: -2,
+          bottom: -2,
+          child: Container(
+            width: 9,
+            height: 9,
+            decoration: BoxDecoration(
+              color: dot,
+              shape: BoxShape.circle,
+              border: Border.all(color: ringColor, width: 1.5),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
 }

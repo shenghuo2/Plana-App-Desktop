@@ -154,6 +154,38 @@ void main() {
   Finder editor() => find.byKey(const ValueKey('assistant-message-editor'));
 
   testWidgets(
+    'a saved JSON reply can become a proposal without a request, canvas change or automatic image job',
+    (tester) async {
+      const old = AssistantMsg(
+        id: 'old',
+        role: MsgRole.ai,
+        at: 2,
+        text:
+            '画好了。\n```json\n{"section":"海边","positive":"sea","negative":"","characters":[{"name":"猫娘","description":"cat ears"}]}\n```',
+      );
+      final assistant = c.read(assistantProvider.notifier) as _FixtureAssistant;
+      assistant.seed(AssistantState(msgs: [_messages.first, old]));
+      await mount(tester);
+      await tester.tap(menu('old'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('识别为绘图方案'));
+      await tester.pumpAndSettle();
+      final recovered = c.read(assistantProvider).msgs.last;
+      expect(recovered.text, '画好了。');
+      expect(recovered.draw!.characters.single.positive, 'cat ears');
+      expect(AssistantMsg.fromJson(recovered.toJson()).draw!.section, '海边');
+      expect(recovered.change, isNull);
+      expect(c.read(assistantProvider).jobs, isEmpty);
+      expect(assistant.recoverDrawProposal('old'), isFalse);
+      await tester.runAsync(() async {
+        stores.assistant.flush();
+        await stores.assistant.idle;
+      });
+      await finish(tester);
+    },
+  );
+
+  testWidgets(
     'desktop right click copies the complete reply and its proposal',
     (tester) async {
       const reply = AssistantMsg(
@@ -342,7 +374,7 @@ void main() {
       final receiver = tester.widget<ImageDropRegion>(drop);
       expect(receiver.enabled, isTrue);
       expect(receiver.multiple, isTrue);
-      await receiver.onDrop([
+      await receiver.onDrop!([
         PickedImage('canvas.png', png),
       ], ImageDropPayload.image(name: 'canvas.png', load: () async => png));
       await tester.pump();
@@ -353,7 +385,7 @@ void main() {
       notifier.seed(const AssistantState(msgs: _messages, running: true));
       await tester.pump();
       expect(tester.widget<ImageDropRegion>(drop).enabled, isTrue);
-      await tester.widget<ImageDropRegion>(drop).onDrop([
+      await tester.widget<ImageDropRegion>(drop).onDrop!([
         PickedImage('queued.png', png),
       ], ImageDropPayload.image(name: 'queued.png', load: () async => png));
       await tester.pump();
@@ -499,10 +531,15 @@ void main() {
         {'role': 'user', 'content': '第一条提问'},
         {'role': 'assistant', 'content': '先前回复'},
       ]);
-      expect(requests.single['user_request'], '改后的提问');
+      final wireText = requests.single['user_request'] as String;
+      expect(wireText.split('\n').first, '改后的提问');
+      expect(wireText, contains('全局负面提示词已锁定'));
       expect(requests.single['image_b64'], base64Encode(image));
       expect(requests.single['current_positive'], '当前画布');
-      expect(requests.single['resources'], resources);
+      // The reference scope is off. Keep the ordinary dialogue, but do
+      // not resend the earlier lookup when retrying or restoring a chat.
+      expect((requests.single['resources'] as Map?)?['artists'] ?? {}, isEmpty);
+      expect(jsonEncode(requests.single), isNot(contains('soft light')));
       expect(c.read(assistantProvider).msgs.map((m) => m.text), [
         '第一条提问',
         '先前回复',

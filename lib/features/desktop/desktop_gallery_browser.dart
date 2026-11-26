@@ -6,6 +6,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/theme/app_theme.dart';
+import '../../core/theme/theme_settings.dart';
+import 'desktop_album_reorder_grid.dart';
 import '../gallery/albums/album_state.dart';
 import '../gallery/albums/album_models.dart';
 import '../gallery/widgets/gallery_trash_content.dart';
@@ -67,6 +69,36 @@ class _DesktopGalleryBrowserState extends ConsumerState<DesktopGalleryBrowser>
       }
     }
     ref.read(desktopGalleryLocationProvider.notifier).open(albumId);
+  }
+
+  Future<void> _reorder(
+    String id,
+    List<String> before,
+    List<String> after,
+  ) async {
+    final store = ref.read(albumsProvider.notifier);
+    try {
+      if (!await store.reorderVisible(before, after) || !mounted) return;
+      final albums = ref.read(albumsProvider).albums;
+      final index = albums.indexWhere((a) => a.id == id);
+      if (index < 0) return;
+      hintSnack(
+        context,
+        context.l10n.galleryMovedTo(albums[index].name, index + 1),
+        icon: Icons.open_with,
+        atBottom: true,
+        actionLabel: context.l10n.undo,
+        onAction: () async {
+          try {
+            await store.reorderVisible(after, before);
+          } catch (error) {
+            if (mounted) hintSnack(context, '$error');
+          }
+        },
+      );
+    } catch (error) {
+      if (mounted) hintSnack(context, '$error');
+    }
   }
 
   Future<void> _createAlbum() async {
@@ -189,6 +221,7 @@ class _DesktopGalleryBrowserState extends ConsumerState<DesktopGalleryBrowser>
               _date.matches(entry.createdAt, now));
       return timeMatch && searchMatch(normalizeSearchText(entry.name), terms);
     }).toList();
+    final byId = {for (final entry in libraries) entry.id: entry};
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 18, 20, 18),
@@ -281,87 +314,28 @@ class _DesktopGalleryBrowserState extends ConsumerState<DesktopGalleryBrowser>
                           style: TextStyle(color: context.scheme.outline),
                         ),
                       )
-                    : GridView.builder(
-                        key: const PageStorageKey(
-                          'desktop-library-grid-overview',
+                    : DesktopAlbumReorderGrid(
+                        ids: [for (final e in libraries) e.id],
+                        feel: ref.watch(
+                          themeSettingsProvider.select(
+                            (s) => s.galleryDragFeel,
+                          ),
                         ),
-                        gridDelegate:
-                            const SliverGridDelegateWithMaxCrossAxisExtent(
-                              maxCrossAxisExtent: 245,
-                              childAspectRatio: .9,
-                              mainAxisSpacing: 18,
-                              crossAxisSpacing: 18,
-                            ),
-                        itemCount: libraries.length,
-                        itemBuilder: (context, i) {
-                          final entry = libraries[i];
-                          final tile = _GalleryTile(
-                            key: ValueKey(
-                              'desktop-library-card-${entry.id ?? 'all'}',
-                            ),
-                            albumId: entry.id,
-                            title: entry.name,
-                            detail: context.l10n.desktopImageCount(
-                              summaries[entry.id]!.count,
-                            ),
-                            onTap: () => _open(entry.id),
-                            onSecondaryTapDown: (details) => _albumMenu.show(
-                              context,
-                              entry.id,
-                              details.globalPosition,
-                            ),
-                          );
-                          final id = entry.id;
-                          if (id == null || isFixedGallery(id)) return tile;
-                          return DragTarget<_AlbumDrag>(
-                            onWillAcceptWithDetails: (details) =>
-                                details.data.id != id,
-                            onAcceptWithDetails: (details) async {
-                              try {
-                                await ref
-                                    .read(albumsProvider.notifier)
-                                    .moveTo(details.data.id, id);
-                              } catch (e) {
-                                if (context.mounted) hintSnack(context, '$e');
-                              }
-                            },
-                            builder: (context, targets, _) => LayoutBuilder(
-                              builder: (context, constraints) =>
-                                  Draggable<_AlbumDrag>(
-                                    data: _AlbumDrag(id),
-                                    feedback: Material(
-                                      color: Colors.transparent,
-                                      child: SizedBox.fromSize(
-                                        key: const ValueKey(
-                                          "album-drag-preview",
-                                        ),
-                                        size: constraints.biggest,
-                                        child: tile,
-                                      ),
-                                    ),
-                                    childWhenDragging: Opacity(
-                                      opacity: .5,
-                                      child: tile,
-                                    ),
-                                    child: DecoratedBox(
-                                      position: DecorationPosition.foreground,
-                                      decoration: BoxDecoration(
-                                        border: targets.isEmpty
-                                            ? null
-                                            : Border.all(
-                                                color: Theme.of(
-                                                  context,
-                                                ).colorScheme.primary,
-                                                width: 2,
-                                              ),
-                                        borderRadius: BorderRadius.circular(12),
-                                      ),
-                                      child: tile,
-                                    ),
-                                  ),
-                            ),
-                          );
-                        },
+                        onReorder: _reorder,
+                        tile: (id) => _GalleryTile(
+                          key: ValueKey('desktop-library-card-${id ?? 'all'}'),
+                          albumId: id,
+                          title: byId[id]!.name,
+                          detail: context.l10n.desktopImageCount(
+                            summaries[id]!.count,
+                          ),
+                          onTap: () => _open(id),
+                          onSecondaryTapDown: (details) => _albumMenu.show(
+                            context,
+                            id,
+                            details.globalPosition,
+                          ),
+                        ),
                       ),
               ),
             ],
@@ -446,9 +420,4 @@ class _GalleryTile extends StatelessWidget {
       ),
     ),
   );
-}
-
-class _AlbumDrag {
-  const _AlbumDrag(this.id);
-  final String id;
 }

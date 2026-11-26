@@ -14,9 +14,11 @@ class CanvasSnapshot {
     required this.positive,
     required this.negative,
     required this.characters,
+    this.blockSummary = '',
   });
 
   final String positive;
+  final String blockSummary;
   final String negative;
 
   /// `{name, positive, negative, position}`,只含启用的角色。
@@ -31,19 +33,24 @@ class AgentTurnRequest {
     this.history = const [],
     this.canvas,
     this.customRules,
+    this.apiSupplement = '',
+    this.importNote = '',
     this.modeKeys = const [],
     this.tools = const ToolSettings(),
     this.artists = const [],
     this.ocs = const [],
+    this.searchOcLibrary,
     this.resources = const {},
     this.think = ThinkLevel.auto,
     this.stream = true,
     this.retries = AssistantSettings.retriesDefault,
+    this.retryStripImage = false,
     this.rerolls = AssistantSettings.rerollsDefault,
     this.refusalKeywords = kRefusalKeywords,
   });
 
   final String userText;
+  final String importNote;
 
   /// 用户这轮附的图(原始字节)。
   final List<Uint8List> images;
@@ -60,6 +67,9 @@ class AgentTurnRequest {
   /// 自定义过的规则主体;null = 用默认规则。
   final List<PresetRule>? customRules;
 
+  /// User-authored preferences for API turns. Subscription runtimes omit them.
+  final String apiSupplement;
+
   /// 用户选的模式(`comic`、`mode:comic` 这类),拿来挑条件段。
   final List<String> modeKeys;
 
@@ -70,6 +80,8 @@ class AgentTurnRequest {
   /// `{'en_name','zh_name','zh_aliases','tag_group'}`)。
   final List<Map<String, dynamic>> artists;
   final List<Map<String, dynamic>> ocs;
+  final Future<List<Map<String, dynamic>>> Function(String query)?
+  searchOcLibrary;
 
   /// 上一轮记下的沿用资源账本。
   final Map<String, Map<String, String>> resources;
@@ -80,6 +92,9 @@ class AgentTurnRequest {
   /// 出错后重发几次 / 回复像拒绝时重掷几次,见 [AssistantSettings]。
   final int retries;
   final int rerolls;
+
+  /// 最后一次失败重试时去掉附图。
+  final bool retryStripImage;
 
   /// 回复命中就算拒绝的词。
   final List<String> refusalKeywords;

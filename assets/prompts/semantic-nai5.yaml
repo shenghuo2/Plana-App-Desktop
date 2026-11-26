@@ -1,0 +1,31 @@
+# 写词沿用 Plana / Nyako 的 NAI 5 约定，临时块的交互参考 W.O.F NAI Studio v2.2.4。
+format: plana-rules
+version: 2
+name: "Plana 语义分块 · NAI 5"
+author: "Plana"
+models: [nai5]
+sections:
+  - name: role
+    content: |
+      用用户的语言简短回复，说明这次画了什么或具体改了哪里。用户询问用法时直接回答。绘图结果写进应用的 nai_draw。标签、分块和构图细节留在提案详情里。
+  - name: multi_character_composition
+    when: "!mode:comic"
+    content: |
+      单人把外观写在全局 positive，characters 留空。多人时全局写人数、共同环境和互动，每人独有的发色、服装、动作与排除词归入自己的角色分区。延续上轮或引用画布时保留已确认的角色、顺序、站位、画师资源和权重，只改本轮点到的部分。新增站位须有用户指示。没有依据的角色特征留空，可用的资料按工具规则查询。
+  - name: prompt_construction
+    when: "!mode:natural"
+    content: |
+      为 NAI 5 用简洁英文描写可见的动作、空间关系、光线和镜头。角色名、画师、服装等需要精确匹配的元素可用英文标签作锚点。标签和句子各自成行。同一特征说一次。负面写实际要排除的元素，保留用户原有权重与资源写法。
+  - name: natural_construction
+    when: "mode:natural"
+    content: |
+      用连贯的英文句子描写用户指定的画面，先交代主体，再写动作与环境。每行可以是一个完整句子或一小段相关句子。已指定的人名、画师和资源引用沿用原文。
+  - name: mode_comic
+    when: "mode:comic"
+    content: |
+      一页多格时全局交代版式、阅读顺序与共用画风，人数按不同人物统计。按出场画面填写角色分区，同一人物跨格出场时分别描述各次动作并保持外观连续。只在用户指定站位时填 position。用户给出的台词逐字保留，只改某格时其余格沿用上轮。用户点名单张封面时按单图处理。
+  - name: semantic_blocks
+    content: |
+      将值得单独查看或复用的连续内容写在同一行。每个 positive 或 negative 字段可按语义换行，在同一个 JSON 对象附上 blocks，对要标注的字段列出逐行名称。名称用“类别·短名”或“类别·短名·图标”，类别选角色、场景、画风或其它。名称数组与该字段的非空行一一对应，普通行填 null。一整行共用的权重、资源占位符或完整句子放在一起。无需凑齐类别，短而简单的提示词可直接给原文。
+      多人时，各角色的 blocks 跟随该角色对象。共用的场景和画风留在全局。分类名只出现在 blocks 中。标签之间保留逗号，句子保留标点。英文内容只写一次。
+      单人句子示意：{"positive":"A silver-haired traveler waits under the arch.\nMoonlight falls across the empty courtyard.","negative":"","characters":[],"blocks":{"positive":["角色·旅人","场景·月下庭院·Moon"]}}

@@ -8,6 +8,8 @@ import 'package:path_provider/path_provider.dart';
 import '../../core/auth/bot_session_store.dart';
 import '../../core/net/backend_client.dart';
 import 'artist_models.dart';
+import 'public_tag_blocks.dart';
+import 'tag_library.dart';
 import 'tag_models.dart';
 
 /// 公共库列表(角色=OC、画风=画师串),映射为统一 [TagEntry] 供页面渲染。
@@ -64,6 +66,24 @@ final publicTagsProvider = FutureProvider.family<List<TagEntry>, TagCategory>((
   }
 });
 
+/// Refilter the cached catalog synchronously on confirmation. Only the
+/// blacklist editor needs to browse the unfiltered catalog.
+final visiblePublicTagsProvider =
+    Provider.family<AsyncValue<List<TagEntry>>, TagCategory>((ref, cat) {
+      final catalog = ref.watch(publicTagsProvider(cat));
+      final rule = ref.watch(
+        publicTagBlocksProvider.select((blocks) => blocks[cat]),
+      );
+      return rule == null || !rule.active
+          ? catalog
+          : catalog.whenData(
+              (entries) => [
+                for (final e in entries)
+                  if (!rule.hides(e)) e,
+              ],
+            );
+    });
+
 /// 灵感页「我的」的完整来源 = 本地条目 + 公共库里我发布的(本地没副本的补进来,
 /// 标 created、去掉打码;对齐 web mineAll)。归属判定优先 owner_id,与服务端一致。
 /// 纯函数:灵感页、它的筛选弹层、选角色面板都拿读来的值喂进来。
@@ -85,15 +105,33 @@ List<TagEntry> mergeMineTags(
   ];
 }
 
-/// publicId → 当前公共库的 http 预览,配合 [tagPreviewOf] 用。
-Map<String, String> publicPreviewsOf(List<TagEntry>? pub) => {
+/// 同一公共编号在「我的」、公共库和选角色面板使用同一张封面。
+/// 自己保存的封面随本地库更新，收藏及缺失的本机文件沿用当前后端的地址。
+final tagCoverPreviewsProvider = Provider.autoDispose
+    .family<Map<String, String>, TagCategory>((ref, category) {
+      final pub = ref.watch(visiblePublicTagsProvider(category)).value;
+      final entries = ref.watch(
+        tagLibraryProvider.select((s) => s.value?.entries),
+      );
+      return publicPreviewsOf(
+        pub,
+        local: entries?.where((e) => e.category == category) ?? const [],
+      );
+    });
+
+Map<String, String> publicPreviewsOf(
+  List<TagEntry>? pub, {
+  Iterable<TagEntry> local = const [],
+}) => {
   for (final p in pub ?? const <TagEntry>[])
     if (p.publicId != null && p.previewUrl != null) p.publicId!: p.previewUrl!,
+  for (final e in local)
+    if (e.publicId != null && e.origin != TagOrigin.favorited)
+      if (e.previewUrl case final cover?
+          when !cover.startsWith('http') && File(cover).existsSync())
+        e.publicId!: cover,
 };
 
-/// 条目实际该显示的预览:有 publicId 的(收藏 / 我发布的)一律用当前公共库的
-/// http 预览 —— 随当前后端地址,不受备份剥离本机预览、也不受端口变化影响;
-/// 公共库里没有(或还没加载到)才退回条目自带的。
 String? tagPreviewOf(TagEntry e, Map<String, String> pubPreviews) =>
     (e.publicId != null ? pubPreviews[e.publicId] : null) ?? e.previewUrl;
 

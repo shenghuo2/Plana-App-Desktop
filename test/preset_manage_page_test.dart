@@ -9,13 +9,16 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:plana_app/core/platform/desktop.dart';
 import 'package:plana_app/core/store/app_stores.dart';
+import 'package:plana_app/core/ui/image_drop.dart';
 import 'package:plana_app/features/generate/preset_file.dart';
 import 'package:plana_app/features/generate/generate_state.dart';
 import 'package:plana_app/features/generate/preset_manage_page.dart';
 import 'package:plana_app/features/generate/prompt_presets.dart';
+import 'support/pump_until.dart';
 
 class _Picker extends FilePicker {
   String? text;
+  List<PlatformFile>? files;
   int calls = 0;
 
   @override
@@ -36,8 +39,9 @@ class _Picker extends FilePicker {
     calls++;
     expect(type, FileType.custom);
     expect(allowedExtensions, ['json']);
-    expect(withData, isTrue);
-    expect(allowMultiple, isFalse);
+    expect(withData, isFalse);
+    expect(allowMultiple, isTrue);
+    if (files != null) return FilePickerResult(files!);
     final bytes = text == null ? null : Uint8List.fromList(utf8.encode(text!));
     return bytes == null
         ? null
@@ -87,7 +91,9 @@ class _MemoryPresets extends PromptPresetsNotifier {
   Future<int> importPresets(
     List<PromptPreset> incoming, {
     String? activeId,
+    bool requirePersistence = false,
   }) async {
+    expect(requirePersistence, isTrue);
     imported.add(incoming);
     return incoming.length;
   }
@@ -118,7 +124,7 @@ void main() {
         ],
         child: MaterialApp(
           theme: ThemeData(platform: TargetPlatform.windows),
-          home: const PromptPresetManagePage(),
+          home: const DesktopImageDropHost(child: PromptPresetManagePage()),
         ),
       ),
     );
@@ -126,6 +132,8 @@ void main() {
       tester.element(find.byType(PromptPresetManagePage)),
     );
     scope.read(generateProvider.notifier).setPromptPreset('c');
+    // The initial canvas save is debounced by 800 ms.
+    await tester.pump(const Duration(seconds: 1));
     await tester.pumpAndSettle();
   }
 
@@ -166,6 +174,101 @@ void main() {
       expect(imported.suffixPositive, isTrue);
       expect(presets.activations, 0);
       expect(picker.calls, 3);
+    },
+  );
+
+  testWidgets(
+    'picker imports valid files together, skips errors and updates repeated IDs in order',
+    (tester) async {
+      await mount(tester);
+      PlatformFile input(String name, String text) {
+        final bytes = Uint8List.fromList(utf8.encode(text));
+        return PlatformFile(name: name, size: bytes.length, bytes: bytes);
+      }
+
+      picker.files = [
+        input('一.json', '{"id":"repeat","positive":"old"}'),
+        input('坏.json', '[{"id":"partial","positive":"omit"},{"positive":12}]'),
+        input(
+          '二.JSON',
+          '{"presets":[{"id":"second","negative":"rain"},{"id":"repeat","positive":"new"}]}',
+        ),
+      ];
+      await tester.tap(find.byTooltip('导入预设（JSON）'));
+      await tester.pumpAndSettle();
+      final batch = presets.imported.single;
+      expect(batch.map((p) => p.id), ['repeat', 'second']);
+      expect(batch.first.positive, 'new');
+      expect(batch.last.negative, 'rain');
+      expect(find.textContaining('已导入 2 个预设'), findsOneWidget);
+      expect(find.textContaining('坏.json'), findsOneWidget);
+      expect(presets.activeId, 'c');
+    },
+  );
+
+  testWidgets(
+    'Explorer drop reads each JSON by path and reports rejected files without blocking later files',
+    (tester) async {
+      await mount(tester);
+      final dir = Directory.systemTemp.createTempSync(
+        'plana_prompt_preset_drop_',
+      );
+      addTearDown(() => dir.deleteSync(recursive: true));
+      final first = File('${dir.path}/晨光.JSON')
+        ..writeAsStringSync('{"id":"day","positive":"sunlight"}');
+      final last = File('${dir.path}/星光.json')
+        ..writeAsStringSync('{"id":"night","negative":"sun"}');
+      final large = File('${dir.path}/过大.json');
+      final handle = large.openSync(mode: FileMode.write);
+      handle.truncateSync(5 * 1024 * 1024 + 1);
+      handle.closeSync();
+      final point = tester.getCenter(find.byType(ReorderableListView));
+      final scale = tester.view.devicePixelRatio;
+      Future<void> native(String method, List<String> paths) async {
+        await tester.runAsync(() async {
+          await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
+            DesktopImageDropHost.channel.name,
+            const StandardMethodCodec().encodeMethodCall(
+              MethodCall(method, {
+                'x': point.dx * scale,
+                'y': point.dy * scale,
+                'paths': paths,
+              }),
+            ),
+            (_) {},
+          );
+        });
+        await tester.pump();
+      }
+
+      await native('over', []);
+      expect(find.text('松开以导入预设（JSON）'), findsOneWidget);
+      await native('drop', [
+        first.path,
+        '${dir.path}/图片.png',
+        large.path,
+        '${dir.path}/缺失.json',
+        last.path,
+      ]);
+      await pumpUntil(tester, () => presets.imported.isNotEmpty);
+      await tester.pumpAndSettle();
+      expect(presets.imported.single.map((p) => p.id), ['day', 'night']);
+      expect(presets.activations, 0);
+      expect(find.textContaining('3 个文件无法导入'), findsOneWidget);
+      await tester.tap(find.text('查看详情'));
+      await tester.pumpAndSettle();
+      final details = tester
+          .widget<SelectableText>(find.byType(SelectableText))
+          .data!;
+      expect(
+        details,
+        allOf(
+          contains('图片.png'),
+          contains('过大.json'),
+          contains('5 MB'),
+          contains('缺失.json'),
+        ),
+      );
     },
   );
 
@@ -231,7 +334,7 @@ void main() {
   });
 
   test(
-    'repeated import updates in place, preserves activation and persists scope',
+    'failed concurrent imports can retry and merge without changing activation or order',
     () async {
       final fixture = Directory.systemTemp.createTempSync(
         'plana_presets_import_',
@@ -261,7 +364,30 @@ void main() {
           ],
         });
         final incoming = parsePresetFile(source);
-        await notifier.importPresets(incoming);
+        Future<int> importOne(PromptPreset preset) =>
+            notifier.importPresets([preset], requirePersistence: true);
+        // A directory at the target path prevents the file from being committed.
+        final blockedTarget = Directory('${fixture.path}/prompt_presets.json');
+        await blockedTarget.create();
+        await Future.wait([
+          for (final preset in incoming)
+            expectLater(importOne(preset), throwsA(isA<FileSystemException>())),
+        ]);
+        expect(
+          container.read(promptPresetsProvider).requireValue.presets,
+          kDefaultPromptPresets,
+        );
+        await blockedTarget.delete();
+        expect(await Future.wait(incoming.map(importOne)), [1, 1]);
+        expect(
+          container
+              .read(promptPresetsProvider)
+              .requireValue
+              .presets
+              .skip(kDefaultPromptPresets.length)
+              .map((preset) => preset.id),
+          incoming.map((preset) => preset.id),
+        );
         await notifier.setActive('first');
         await notifier.reorder(5, 0);
         final orderBefore = container

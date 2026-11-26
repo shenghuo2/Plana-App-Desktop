@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
@@ -14,10 +15,14 @@ class CodexDrawRecord {
     required this.codex,
     required this.entry,
     required this.savedAt,
+    this.id = '',
+    this.scope,
   });
   final CodexMeta codex;
   final CodexEntry entry;
   final int savedAt;
+  final String id;
+  final String? scope;
 
   Map<String, dynamic> toJson() => {
     'codex': {
@@ -31,9 +36,11 @@ class CodexDrawRecord {
     },
     'entry': entry.toJson(),
     'savedAt': savedAt,
+    if (id.isNotEmpty) 'id': id,
+    if (scope != null) 'scope': scope,
   };
 
-  static CodexDrawRecord? fromJson(Object? value) {
+  static CodexDrawRecord? fromJson(Object? value, {String fallbackId = ''}) {
     if (value is! Map ||
         value['codex'] is! Map<String, dynamic> ||
         value['entry'] is! Map<String, dynamic> ||
@@ -48,11 +55,39 @@ class CodexDrawRecord {
         codex: codex,
         entry: entry,
         savedAt: (value['savedAt'] as num).toInt(),
+        id: value['id'] is String && (value['id'] as String).isNotEmpty
+            ? value['id'] as String
+            : fallbackId,
+        scope: value['scope'] is String ? value['scope'] as String : null,
       );
     } catch (_) {
       return null;
     }
   }
+}
+
+/// New for each app run and shared by the main catalog and the creation sidebar.
+final codexDrawSessionProvider = Provider((ref) => CodexDrawSession());
+
+class CodexDrawSession {
+  final _prefix =
+      '${DateTime.now().microsecondsSinceEpoch}-${Random.secure().nextInt(1 << 30)}/';
+  int _sequence = 0;
+
+  bool contains(CodexDrawRecord record) => record.id.startsWith(_prefix);
+
+  CodexDrawRecord create(
+    CodexMeta book,
+    CodexEntry entry, {
+    String? scope,
+    int? now,
+  }) => CodexDrawRecord(
+    id: '$_prefix${_sequence++}',
+    codex: book,
+    entry: entry,
+    scope: scope,
+    savedAt: now ?? DateTime.now().millisecondsSinceEpoch,
+  );
 }
 
 final codexHistoryProvider =
@@ -74,17 +109,28 @@ class CodexHistoryNotifier extends AsyncNotifier<List<CodexDrawRecord>> {
     final json = jsonDecode(await file.readAsString());
     if (json is! List) throw const FormatException('抽取历史格式无效');
     // File order is draw order, including duplicates and equal timestamps.
-    return [for (final row in json) ?CodexDrawRecord.fromJson(row)];
+    return [
+      for (var i = 0; i < json.length; i++)
+        ?CodexDrawRecord.fromJson(json[i], fallbackId: 'legacy-$i'),
+    ];
   }
 
-  Future<bool> record(CodexMeta codex, CodexEntry entry, {int? now}) {
-    final draw = CodexDrawRecord(
-      codex: codex,
-      entry: entry,
-      savedAt: now ?? DateTime.now().millisecondsSinceEpoch,
-    );
-    return _update((current) => [draw, ...current]);
-  }
+  Future<bool> record(CodexMeta codex, CodexEntry entry, {int? now}) =>
+      saveDraw(
+        ref.read(codexDrawSessionProvider).create(codex, entry, now: now),
+      );
+
+  Future<bool> saveDraw(CodexDrawRecord draw) => saveDraws([draw]);
+
+  Future<bool> saveDraws(List<CodexDrawRecord> draws) =>
+      _update((current) => [...draws.reversed, ...current]);
+
+  Future<bool> remove(String id) => _update(
+    (current) => [
+      for (final r in current)
+        if (r.id != id) r,
+    ],
+  );
 
   Future<bool> clearAll() => _update((_) => const []);
 

@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show listEquals;
 import 'dart:typed_data';
 
 import 'package:flutter/widgets.dart';
@@ -190,6 +191,40 @@ class AlbumsNotifier extends Notifier<AlbumsData> {
     albums.insert(to, albums.removeAt(from));
     return data.copyWith(albums: albums);
   });
+
+  /// Apply a drag only to slots that participated in it. Keep newer albums,
+  /// renames, covers and other edits made while saving or before undo.
+  Future<bool> reorderVisible(List<String> before, List<String> after) async {
+    final participants = before.toSet();
+    if (participants.length != before.length ||
+        before.length != after.length ||
+        !participants.containsAll(after) ||
+        after.toSet().length != after.length) {
+      throw ArgumentError('Invalid album order');
+    }
+    var applied = false;
+    await _edit((data) {
+      final present = {
+        for (final a in data.albums)
+          if (participants.contains(a.id)) a.id: a,
+      };
+      final previous = before.where(present.containsKey).toList();
+      final next = after.where(present.containsKey).toList();
+      if (!listEquals(present.keys.toList(), previous) ||
+          listEquals(previous, next)) {
+        return data;
+      }
+      var i = 0;
+      applied = true;
+      return data.copyWith(
+        albums: [
+          for (final a in data.albums)
+            if (present.containsKey(a.id)) present[next[i++]]! else a,
+        ],
+      );
+    });
+    return applied;
+  }
 
   Future<void> rename(String id, String name) async {
     if (isFixedGallery(id)) throw StateError('固定入口不能改名');

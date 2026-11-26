@@ -40,6 +40,7 @@ void main() {
   late ProviderContainer container;
   late _FolderPicker picker;
   late ResultImage image;
+  late SaveSettings initialSettings;
   final galCalls = <String>[];
   final messenger =
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
@@ -88,7 +89,7 @@ void main() {
       seed: 123,
       bytes: Uint8List.fromList(img.encodePng(png)),
     );
-    await container.read(saveSettingsProvider.future);
+    initialSettings = await container.read(saveSettingsProvider.future);
   });
   tearDown(() async {
     messenger.setMockMethodCallHandler(const MethodChannel('gal'), null);
@@ -158,7 +159,7 @@ void main() {
       );
       expect(await tester.runAsync(() => extractImageMetadata(bytes!)), isNull);
       expect(picker.calls, 0);
-      expect(container.read(saveSettingsProvider).value, const SaveSettings());
+      expect(container.read(saveSettingsProvider).value, initialSettings);
       await tester.pumpWidget(const SizedBox());
     },
     variant: platforms,
@@ -182,7 +183,7 @@ void main() {
       final expected = img.encodeJpg(img.decodePng(image.bytes!)!, quality: 40);
       expect(bytes, expected);
       expect(img.decodeJpg(bytes!)!.width, 128);
-      expect(container.read(saveSettingsProvider).value, const SaveSettings());
+      expect(container.read(saveSettingsProvider).value, initialSettings);
       await tester.pumpWidget(const SizedBox());
     },
     variant: platforms,

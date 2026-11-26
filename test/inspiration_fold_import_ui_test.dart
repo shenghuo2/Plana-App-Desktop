@@ -7,12 +7,20 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:plana_app/core/platform/desktop.dart';
+import 'package:plana_app/core/util/prompt_block.dart';
+import 'package:plana_app/features/assistant/assistant_models.dart';
+import 'package:plana_app/features/assistant/assistant_state.dart'
+    show proposalSendState;
+import 'package:plana_app/features/assistant/widgets/proposal_blocks.dart';
+
 import 'package:plana_app/core/store/app_stores.dart';
 import 'package:plana_app/core/theme/app_theme.dart';
+import 'package:plana_app/core/theme/theme_settings.dart';
 import 'package:plana_app/features/editor/data/tag_translation_service.dart';
 import 'package:plana_app/features/editor/editor_models.dart';
 import 'package:plana_app/features/editor/editor_settings.dart';
 import 'package:plana_app/features/editor/widgets/chip_flow_view.dart';
+import 'package:plana_app/features/editor/widgets/tag_panel.dart';
 import 'package:plana_app/features/generate/generate_state.dart';
 import 'package:plana_app/features/generate/models.dart';
 import 'package:plana_app/features/generate/prompt_presets.dart';
@@ -28,6 +36,7 @@ import 'package:plana_app/features/inspiration/tag_library.dart';
 import 'package:plana_app/features/inspiration/tag_models.dart';
 import 'package:plana_app/features/shell/shell_state.dart';
 import 'support/desktop_capture.dart';
+import 'support/pump_until.dart';
 
 class _MemoryPresets extends PromptPresetsNotifier {
   @override
@@ -139,7 +148,7 @@ void main() {
   CharacterPrompt character(String id) =>
       gen.state.characters.singleWhere((c) => c.id == id);
 
-  Future<void> mount(WidgetTester tester) async {
+  Future<void> mount(WidgetTester tester, {Widget? proposal}) async {
     tester.view.physicalSize = const Size(1300, 1000);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
@@ -170,6 +179,7 @@ void main() {
                         child: SingleChildScrollView(
                           child: Column(
                             children: [
+                              ?proposal,
                               if (ref.watch(generateProvider).sections.isEmpty)
                                 const DesktopPromptCard()
                               else
@@ -290,6 +300,301 @@ void main() {
     container.read(shellIndexProvider.notifier).select(kTabCreate);
     await tester.pumpAndSettle();
   }
+
+  for (final (inCanvas, paired, unlabelled) in [
+    (false, false, false),
+    (true, false, false),
+    (false, true, false),
+    (true, true, false),
+    (false, false, true),
+    (true, false, true),
+  ]) {
+    testWidgets(
+      'AI temporary block opens and saves with the library editor, canvas=$inCanvas paired=$paired unlabelled=$unlabelled',
+      (tester) async {
+        const body = 'moonlight, pale clouds';
+        const exclusion = 'fog, 0.7::sunlight::';
+        final name = unlabelled ? '环境与构图' : '月下庭院';
+        final positive = unlabelled ? 'high complexity,\n$body' : body;
+        final wire = {
+          'positive': positive,
+          'negative': paired ? exclusion : '',
+          if (!unlabelled)
+            'blocks': {
+              'positive': [paired ? '场景·月下庭院' : '场景·月下庭院:moon'],
+              if (paired) 'negative': ['场景·月下庭院・mOoN'],
+            },
+        };
+        final draw = DrawProposal(
+          positive: positive,
+          negative: paired ? exclusion : '',
+          blocks: PromptBlock.fromDraw(
+            wire,
+            wire,
+            (s) => s,
+            recoverWith: const {},
+          ),
+        );
+        if (inCanvas) {
+          var i = 0;
+          final s = proposalSendState(
+            gen.state,
+            draw,
+            SectionImport.clear,
+            allowEditNegative: true,
+            newId: () => 'id${i++}',
+          );
+          gen.setPrompts(
+            positive: s.prompt,
+            positiveRaw: s.promptRaw,
+            negative: s.negativePrompt,
+            negativeRaw: s.negativePromptRaw,
+            promptFoldLinks: s.promptFoldLinks,
+          );
+        }
+        container.read(shellIndexProvider.notifier).select(kTabCreate);
+        await mount(
+          tester,
+          proposal: inCanvas ? null : ProposalBlocks(draw: draw),
+        );
+        if (inCanvas) {
+          final flow = tester.widget<ChipFlowView>(flowIn('desktop-prompt'));
+          expect(
+            flow.controller.foldIcons.values,
+            contains(Icons.dark_mode_outlined),
+          );
+          final moon = String.fromCharCode(Icons.dark_mode_outlined.codePoint);
+          expect(
+            tester
+                .widgetList<Text>(
+                  find.descendant(
+                    of: flowIn('desktop-prompt'),
+                    matching: find.byType(Text),
+                  ),
+                )
+                .any(
+                  (w) =>
+                      w.textSpan
+                          ?.toPlainText(includeSemanticsLabels: false)
+                          .contains(moon) ==
+                      true,
+                ),
+            isTrue,
+          );
+          final anchor = tester
+              .state<ChipFlowViewState>(flowIn('desktop-prompt'))
+              .chipAnchor(unlabelled ? 1 : 0)!;
+          await tester.tapAt(anchor.center);
+          await tester.pumpAndSettle();
+          expect(
+            tester
+                .widget<TagPanel>(key('fold-inspector'))
+                .titleSpan!
+                .toPlainText(includeSemanticsLabels: false),
+            contains(moon),
+          );
+          if (paired) await tap(tester, key('fold-inspector-负面'));
+          await tap(tester, find.byTooltip('存为灵感块'));
+        } else {
+          expect(find.byIcon(Icons.dark_mode_outlined), findsOneWidget);
+          await tap(tester, find.widgetWithText(ChoiceChip, '$name · 场景'));
+          expect(find.text(body), findsOneWidget);
+          if (paired) {
+            await tap(tester, find.widgetWithText(ChoiceChip, '负面'));
+            expect(find.text(exclusion), findsOneWidget);
+          }
+          await tap(tester, find.text('存为灵感块'));
+        }
+        await pumpUntil(
+          tester,
+          () => key('tag-editor-dialog').evaluate().isNotEmpty,
+        );
+        expect(find.text('新建场景'), findsOneWidget);
+        expect(find.widgetWithText(TextField, body), findsOneWidget);
+        expect(
+          container.read(tagLibraryProvider).requireValue.entries,
+          hasLength(entries.length),
+        );
+        await tester.tap(
+          find.descendant(
+            of: key('tag-editor-save-actions'),
+            matching: find.text('保存'),
+          ),
+        );
+        await pumpUntil(
+          tester,
+          () => key('tag-editor-dialog').evaluate().isEmpty,
+        );
+        final saved = container
+            .read(tagLibraryProvider)
+            .requireValue
+            .entries
+            .singleWhere((e) => e.category == TagCategory.scene);
+        expect(saved.positive, body);
+        expect(saved.negative, paired ? exclusion : '');
+        expect(saved.name, name);
+        if (inCanvas) {
+          expect(gen.state.prompt, positive);
+          expect(gen.state.promptFoldLinks.single.sourceEntryId, saved.id);
+          expect(gen.state.promptFoldLinks.single.temporaryCategory, isNull);
+        } else {
+          expect(gen.state.prompt, isNot(body));
+        }
+        await finish(tester);
+      },
+    );
+  }
+
+  for (final merge in [true, false]) {
+    testWidgets(
+      'selection opens the library editor and respects auto-merge=$merge',
+      (tester) async {
+        gen.setPrompts(
+          positive: 'sun, 0.8::mist::, snow, tree',
+          negative: 'blur',
+        );
+        container.read(shellIndexProvider.notifier).select(kTabCreate);
+        expect(
+          container.read(themeSettingsProvider).foldAfterInspirationSave,
+          isTrue,
+        );
+        if (!merge) {
+          container
+              .read(themeSettingsProvider.notifier)
+              .patch((s) => s.copyWith(foldAfterInspirationSave: false));
+        }
+        await mount(tester);
+        final flow = flowIn('desktop-prompt');
+        final notifier = tester.state<ChipFlowViewState>(flow);
+        await tester.tapAt(notifier.chipAnchor(1)!.center);
+        await tester.pumpAndSettle();
+        await tester.tapAt(notifier.chipAnchor(2)!.center);
+        await tester.pumpAndSettle();
+        await tap(tester, find.byTooltip('存为灵感块'));
+        await pumpUntil(
+          tester,
+          () => key('tag-editor-dialog').evaluate().isNotEmpty,
+          reason: 'The shortcut opens the existing desktop editor',
+        );
+        expect(key('tag-editor-dialog'), findsOneWidget);
+        expect(
+          find.widgetWithText(TextField, '0.8::mist::, snow'),
+          findsOneWidget,
+        );
+        await tap(tester, find.byTooltip('关闭编辑器'));
+        expect(
+          container.read(tagLibraryProvider).value!.entries,
+          hasLength(entries.length),
+        );
+        expect(gen.state.promptRaw, isEmpty);
+
+        if (find.byTooltip('存为灵感块').evaluate().isEmpty) {
+          await tester.tapAt(notifier.chipAnchor(1)!.center);
+          await tester.pumpAndSettle();
+          await tester.tapAt(notifier.chipAnchor(2)!.center);
+          await tester.pumpAndSettle();
+        }
+        await tap(tester, find.byTooltip('存为灵感块'));
+        final nameField = find.byWidgetPredicate(
+          (w) => w is TextField && w.decoration?.hintText == '给角色起个名字',
+        );
+        await tester.enterText(nameField, '冬日');
+        await tester.tap(find.text('保存到本地'));
+        await pumpUntil(
+          tester,
+          () => key('tag-editor-dialog').evaluate().isEmpty,
+        );
+        await tester.pumpAndSettle();
+        final library = container.read(tagLibraryProvider).requireValue;
+        final saved = library.entries.singleWhere((e) => e.name == '冬日');
+        expect(saved.positive, '0.8::mist::, snow');
+        expect(gen.state.prompt, 'sun, 0.8::mist::, snow, tree');
+        expect(gen.state.negativePrompt, 'blur');
+        expect(
+          gen.state.promptRaw,
+          merge ? 'sun, <#冬日: 0.8::mist::, snow#>, tree' : '',
+        );
+        if (merge) {
+          expect(gen.state.promptFoldLinks.single.sourceEntryId, saved.id);
+          final anchor = tester.state<ChipFlowViewState>(flow).chipAnchor(1)!;
+          await tester.tapAt(anchor.center);
+          await tester.pump(const Duration(milliseconds: 350));
+          await tester.pumpAndSettle();
+          await tap(tester, find.byTooltip('编辑灵感'));
+          expect(find.text('编辑角色'), findsOneWidget);
+          await tester.enterText(find.widgetWithText(TextField, '冬日'), '雪景');
+          await tester.enterText(
+            find.widgetWithText(TextField, saved.positive),
+            'ice, snow',
+          );
+          await tester.tap(find.text('保存修改'));
+          await pumpUntil(
+            tester,
+            () => key('tag-editor-dialog').evaluate().isEmpty,
+          );
+          await tester.pumpAndSettle();
+          final edited = container
+              .read(tagLibraryProvider)
+              .requireValue
+              .entries
+              .singleWhere((e) => e.id == saved.id);
+          expect(edited.name, '雪景');
+          expect(edited.positive, 'ice, snow');
+          expect(gen.state.promptRaw, 'sun, <#雪景: ice, snow#>, tree');
+          expect(gen.state.negativePrompt, 'blur');
+        }
+        final disk =
+            jsonDecode(File('${temp.path}/tag_library.json').readAsStringSync())
+                as Map;
+        final onDisk = (disk['entries'] as List).cast<Map>().singleWhere(
+          (entry) => entry['id'] == saved.id,
+        );
+        expect(onDisk['name'], merge ? '雪景' : '冬日');
+        await finish(tester);
+      },
+    );
+  }
+
+  testWidgets(
+    'highlighted text from the expanded editor saves at the original position',
+    (tester) async {
+      gen.setPrompts(positive: 'before, red hair, blue eyes, after');
+      container.read(shellIndexProvider.notifier).select(kTabCreate);
+      await mount(tester);
+      await tap(tester, key('desktop-prompt-mode'));
+      final field = find.descendant(
+        of: key('desktop-prompt-text'),
+        matching: find.byType(TextField),
+      );
+      await tester.tapAt(tester.getTopLeft(field) + const Offset(15, 15));
+      final controller = tester.widget<TextField>(field).controller!;
+      controller.selection = TextSelection(
+        baseOffset: controller.text.indexOf('red'),
+        extentOffset: controller.text.indexOf(', after'),
+      );
+      await tester.pumpAndSettle();
+      await tap(tester, find.byTooltip('存为灵感块'));
+      expect(
+        find.widgetWithText(TextField, 'red hair, blue eyes'),
+        findsOneWidget,
+      );
+      await tester.enterText(
+        find.byWidgetPredicate(
+          (w) => w is TextField && w.decoration?.hintText == '给角色起个名字',
+        ),
+        '人像',
+      );
+      await tester.tap(find.text('保存到本地'));
+      await pumpUntil(
+        tester,
+        () => key('tag-editor-dialog').evaluate().isEmpty,
+      );
+      await tester.pumpAndSettle();
+      expect(gen.state.promptRaw, 'before, <#人像: red hair, blue eyes#>, after');
+      expect(gen.state.prompt, 'before, red hair, blue eyes, after');
+      await finish(tester);
+    },
+  );
 
   for (final artist in [false, true]) {
     testWidgets(

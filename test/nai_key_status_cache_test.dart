@@ -18,6 +18,7 @@ NaiSubscription _sub({bool empty = false, double pct = 50}) => (
     isNegative: empty,
     secondsToNextPct: 0,
     accounts: 1,
+    purchasedPercent: 0.0,
   ),
 );
 

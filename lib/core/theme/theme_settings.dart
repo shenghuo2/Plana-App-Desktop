@@ -66,6 +66,23 @@ double _textScale(Object? value) => value is num && value.isFinite
     : 1.0;
 
 /// 桌面「我的」页面右侧内容区的水平对齐方式。
+enum GalleryDragFeel {
+  crisp(170, 150, Cubic(.2, .8, .2, 1), 1.03, 0),
+  smooth(240, 195, Cubic(.22, 1, .36, 1), 1.045, 2.2),
+  bouncy(300, 230, Cubic(.22, 1.16, .36, 1), 1.055, 2.8);
+
+  const GalleryDragFeel(
+    this.moveMs,
+    this.settleMs,
+    this.curve,
+    this.scale,
+    this.maxTilt,
+  );
+  final int moveMs, settleMs;
+  final Curve curve;
+  final double scale, maxTilt;
+}
+
 enum PageAlignment { center, left }
 
 /// 外观与体验设置(持久化):主题、导航、触感与桌面字号、内容对齐。
@@ -80,7 +97,11 @@ class ThemeSettings {
     this.textScale = 1.0,
     this.compactCharCards = false,
     this.collapsiblePromptCards = true,
+    this.foldAfterInspirationSave = true,
     this.codexHoverPreview = true,
+    this.galleryDragFeel = GalleryDragFeel.smooth,
+    this.inspirationRowSnap = false,
+    this.inspirationMatchAnyTag = false,
     this.language = 'zh',
   });
 
@@ -116,7 +137,11 @@ class ThemeSettings {
 
   /// 桌面主体、分区和角色提示词卡允许手动折叠，默认开启。
   final bool collapsiblePromptCards;
+  final bool foldAfterInspirationSave;
   final bool codexHoverPreview;
+  final GalleryDragFeel galleryDragFeel;
+  final bool inspirationRowSnap;
+  final bool inspirationMatchAnyTag;
 
   ThemeSeed get seed => themeSeeds.firstWhere(
     (s) => s.key == seedKey,
@@ -133,7 +158,11 @@ class ThemeSettings {
     double? textScale,
     bool? compactCharCards,
     bool? collapsiblePromptCards,
+    bool? foldAfterInspirationSave,
     bool? codexHoverPreview,
+    GalleryDragFeel? galleryDragFeel,
+    bool? inspirationRowSnap,
+    bool? inspirationMatchAnyTag,
     String? language,
   }) => ThemeSettings(
     mode: mode ?? this.mode,
@@ -147,7 +176,13 @@ class ThemeSettings {
     compactCharCards: compactCharCards ?? this.compactCharCards,
     collapsiblePromptCards:
         collapsiblePromptCards ?? this.collapsiblePromptCards,
+    foldAfterInspirationSave:
+        foldAfterInspirationSave ?? this.foldAfterInspirationSave,
     codexHoverPreview: codexHoverPreview ?? this.codexHoverPreview,
+    galleryDragFeel: galleryDragFeel ?? this.galleryDragFeel,
+    inspirationRowSnap: inspirationRowSnap ?? this.inspirationRowSnap,
+    inspirationMatchAnyTag:
+        inspirationMatchAnyTag ?? this.inspirationMatchAnyTag,
   );
 
   /// 脏数据(旧版本/已下架的档位,如早先那档深蓝)回退默认。
@@ -164,7 +199,13 @@ class ThemeSettings {
     textScale: _textScale(j['textScale']),
     compactCharCards: j['compactCharCards'] == true,
     collapsiblePromptCards: j['collapsiblePromptCards'] != false,
+    foldAfterInspirationSave: j['foldAfterInspirationSave'] != false,
     codexHoverPreview: j['codexHoverPreview'] != false,
+    galleryDragFeel:
+        GalleryDragFeel.values.asNameMap()[j['galleryDragFeel']] ??
+        GalleryDragFeel.smooth,
+    inspirationRowSnap: j['inspirationRowSnap'] == true,
+    inspirationMatchAnyTag: j['inspirationMatchAnyTag'] == true,
   );
 
   Map<String, dynamic> toJson() => {
@@ -178,7 +219,11 @@ class ThemeSettings {
     'textScale': textScale,
     'compactCharCards': compactCharCards,
     'collapsiblePromptCards': collapsiblePromptCards,
+    'foldAfterInspirationSave': foldAfterInspirationSave,
     'codexHoverPreview': codexHoverPreview,
+    'galleryDragFeel': galleryDragFeel.name,
+    'inspirationRowSnap': inspirationRowSnap,
+    'inspirationMatchAnyTag': inspirationMatchAnyTag,
   };
 
   @override
@@ -194,7 +239,11 @@ class ThemeSettings {
       other.textScale == textScale &&
       other.compactCharCards == compactCharCards &&
       other.collapsiblePromptCards == collapsiblePromptCards &&
-      other.codexHoverPreview == codexHoverPreview;
+      other.foldAfterInspirationSave == foldAfterInspirationSave &&
+      other.codexHoverPreview == codexHoverPreview &&
+      other.galleryDragFeel == galleryDragFeel &&
+      other.inspirationRowSnap == inspirationRowSnap &&
+      other.inspirationMatchAnyTag == inspirationMatchAnyTag;
 
   @override
   int get hashCode => Object.hash(
@@ -208,7 +257,11 @@ class ThemeSettings {
     textScale,
     compactCharCards,
     collapsiblePromptCards,
+    foldAfterInspirationSave,
     codexHoverPreview,
+    galleryDragFeel,
+    inspirationRowSnap,
+    inspirationMatchAnyTag,
   );
 }
 

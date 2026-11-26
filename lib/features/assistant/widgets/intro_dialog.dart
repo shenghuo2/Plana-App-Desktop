@@ -15,6 +15,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/ui/setting_row.dart';
 import '../agent_model.dart' show assistantBotAuthorizedProvider;
 import '../assistant_settings.dart';
+import 'library_scope_picker.dart';
 
 final _introCoordinatorProvider = Provider((ref) => _IntroCoordinator());
 
@@ -65,16 +66,12 @@ class _IntroDialogState extends ConsumerState<_IntroDialog> {
   void _edit(AssistantSettings Function(AssistantSettings) change) =>
       setState(() => _draft = change(_draft));
 
-  Future<void> _done(bool authorized) async {
-    final scope = effectiveLibraryScope(
-      _draft.libraryScope,
-      botAuthorized: authorized,
-    );
+  Future<void> _done() async {
     await ref
         .read(assistantSettingsProvider.notifier)
         .patch(
           (o) => o.copyWith(
-            libraryScope: scope,
+            sourceSelection: _draft.libraries,
             autoGenerate: _draft.autoGenerate,
             inlineImage: _draft.inlineImage,
             autoImport: _draft.autoImport,
@@ -89,29 +86,13 @@ class _IntroDialogState extends ConsumerState<_IntroDialog> {
     crossAxisAlignment: CrossAxisAlignment.stretch,
     children: [
       settingSection(context, l10nNow.libraryScope),
-      RadioGroup<LibraryScope>(
-        groupValue: effectiveLibraryScope(
-          _draft.libraryScope,
+      SizedBox(
+        width: 440,
+        height: MediaQuery.textScalerOf(context).scale(20) * 2 + 20,
+        child: LibraryScopePicker(
+          selection: _draft.libraries,
           botAuthorized: authorized,
-        ),
-        onChanged: (v) {
-          if (v != null) _edit((o) => o.copyWith(libraryScope: v));
-        },
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            for (final o in LibraryScope.values)
-              RadioListTile<LibraryScope>(
-                value: o,
-                enabled: libraryScopeAllowed(o, botAuthorized: authorized),
-                title: Text(libraryScopeLabel(o)),
-                subtitle: Text(
-                  libraryScopeAllowed(o, botAuthorized: authorized)
-                      ? libraryScopeDesc(o)
-                      : '需要 Bot 授权',
-                ),
-              ),
-          ],
+          onChanged: (v) => _edit((o) => o.copyWith(sourceSelection: v)),
         ),
       ),
     ],
@@ -196,10 +177,7 @@ class _IntroDialogState extends ConsumerState<_IntroDialog> {
               onPressed: () => setState(() => _page = 0),
               child: Text(l10nNow.previous),
             ),
-            FilledButton(
-              onPressed: () => _done(authorized),
-              child: Text(l10nNow.getStarted),
-            ),
+            FilledButton(onPressed: _done, child: Text(l10nNow.getStarted)),
           ],
         ],
       ),

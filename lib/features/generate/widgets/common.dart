@@ -22,6 +22,9 @@ export '../../../core/ui/param_help.dart';
 // 所以本体在 core/ui,这里只转出去。
 export '../../../core/ui/param_input.dart';
 
+/// Fade the whole card against its actual canvas, including its border.
+double promptCardOpacity(bool enabled) => enabled ? 1 : .5;
+
 /// 拖动排序的浮起样式:替换 ReorderableListView 默认代理
 /// (Material 白底 + 阴影),改为微放大、无底色 —— 圆角卡片/缩略图不穿帮。
 Widget dragProxy(Widget child, int index, Animation<double> animation) =>
@@ -529,8 +532,8 @@ class InfoNote extends StatelessWidget {
 ///
 /// 不做成泛型:调用点都不接收返回值,带上 `<T>` 只会让每处推断失败退化成
 /// dynamic。将来真有页面要回传结果,再单独加一个泛型版本。
-Route<void> sharedAxisRoute(Widget page) =>
-    MaterialPageRoute<void>(builder: (_) => page);
+Route<T> sharedAxisRoute<T>(Widget page) =>
+    MaterialPageRoute<T>(builder: (_) => page);
 
 /// 参考图横条里的可选缩略图 —— Vibe / 角色参考 共用。
 /// 不带删除角标(移除统一走详情区按钮),长按由外层拖动排序接管。
@@ -773,7 +776,9 @@ class RefDetailHeader extends ConsumerWidget {
         ],
       );
     }
-    return LayoutBuilder(builder: (context, cons) => _row(context, cons.maxWidth));
+    return LayoutBuilder(
+      builder: (context, cons) => _row(context, cons.maxWidth),
+    );
   }
 
   Widget _row(BuildContext context, double maxWidth) {
@@ -950,7 +955,7 @@ void dropFocusSoon() {
   );
 }
 
-// ---- 顶部悬浮提示(全 app 统一;替代底部 SnackBar) ----
+// ---- 悬浮短提示 ----
 
 OverlayEntry? _activeToast;
 
@@ -960,7 +965,7 @@ void _removeActiveToast() {
   if (e != null && e.mounted) e.remove();
 }
 
-/// 轻提示:顶部悬浮 toast(root overlay,pop 路由也不消失)。
+/// 默认在顶部居中显示。传入 [atBottom] 可在底部显示同款短条。
 /// 3 秒自动消失(带动作按钮 4 秒),点击提示本体立即关闭,新提示顶掉旧提示。
 /// 可选 [actionLabel]+[onAction] 提供一个动作按钮(如「撤销」「去设置」)。
 void hintSnack(
@@ -969,6 +974,7 @@ void hintSnack(
   IconData icon = Icons.info_outline,
   String? actionLabel,
   VoidCallback? onAction,
+  bool atBottom = false,
 }) {
   final overlay = Overlay.of(context, rootOverlay: true);
   _removeActiveToast();
@@ -979,9 +985,10 @@ void hintSnack(
   }
 
   entry = OverlayEntry(
-    builder: (_) => _TopToast(
+    builder: (_) => _HintToast(
       text: text,
       icon: icon,
+      atBottom: atBottom,
       actionLabel: actionLabel,
       onAction: onAction,
       duration: Duration(seconds: actionLabel != null ? 4 : 3),
@@ -992,10 +999,11 @@ void hintSnack(
   overlay.insert(entry);
 }
 
-class _TopToast extends StatefulWidget {
-  const _TopToast({
+class _HintToast extends StatefulWidget {
+  const _HintToast({
     required this.text,
     required this.icon,
+    required this.atBottom,
     required this.duration,
     required this.onDismissed,
     this.actionLabel,
@@ -1004,16 +1012,17 @@ class _TopToast extends StatefulWidget {
 
   final String text;
   final IconData icon;
+  final bool atBottom;
   final Duration duration;
   final VoidCallback onDismissed;
   final String? actionLabel;
   final VoidCallback? onAction;
 
   @override
-  State<_TopToast> createState() => _TopToastState();
+  State<_HintToast> createState() => _HintToastState();
 }
 
-class _TopToastState extends State<_TopToast>
+class _HintToastState extends State<_HintToast>
     with SingleTickerProviderStateMixin {
   late final AnimationController _c = AnimationController(
     vsync: this,
@@ -1047,18 +1056,26 @@ class _TopToastState extends State<_TopToast>
   @override
   Widget build(BuildContext context) {
     final scheme = context.scheme;
+    final padding = MediaQuery.paddingOf(context);
     return Positioned(
-      top: MediaQuery.paddingOf(context).top + 12,
+      top: widget.atBottom ? null : padding.top + 12,
+      bottom: widget.atBottom
+          ? padding.bottom + MediaQuery.viewInsetsOf(context).bottom + 12
+          : null,
       left: 16,
       right: 16,
       child: SlideTransition(
-        position: Tween(begin: const Offset(0, -0.8), end: Offset.zero).animate(
-          CurvedAnimation(
-            parent: _c,
-            curve: Motion.emphasized,
-            reverseCurve: Motion.standard,
-          ),
-        ),
+        position:
+            Tween(
+              begin: Offset(0, widget.atBottom ? .8 : -.8),
+              end: Offset.zero,
+            ).animate(
+              CurvedAnimation(
+                parent: _c,
+                curve: Motion.emphasized,
+                reverseCurve: Motion.standard,
+              ),
+            ),
         child: FadeTransition(
           opacity: _c,
           child: Center(

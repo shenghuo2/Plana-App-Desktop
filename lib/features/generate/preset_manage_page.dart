@@ -3,12 +3,15 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path/path.dart' as p;
 
 import '../../core/platform/desktop.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/ui/image_drop.dart';
 import '../../core/ui/settings_scaffold.dart';
 import 'preset_file.dart';
 import 'prompt_presets.dart';
@@ -70,49 +73,122 @@ class _PromptPresetManagePageState
   bool _editing = false;
   final _messages = GlobalKey<ScaffoldMessengerState>();
 
-  Future<void> _importFile() async {
+  Future<List<PromptPreset>> _readPresets(
+    PlatformFile file,
+    AppLocalizations l10n,
+  ) async {
+    const maxBytes = 5 * 1024 * 1024;
+    if (p.extension(file.name).toLowerCase() != '.json') {
+      throw FormatException(l10n.promptPresetSelectJson);
+    }
+    var bytes = file.bytes;
+    if (file.size > maxBytes) {
+      throw FormatException(l10n.promptPresetFileTooLarge);
+    }
+    if (bytes == null) {
+      final path = file.path;
+      if (path == null) throw FormatException(l10n.fileReadFailed);
+      final source = File(path);
+      if (await source.length() > maxBytes) {
+        throw FormatException(l10n.promptPresetFileTooLarge);
+      }
+      bytes = await source.readAsBytes();
+    }
+    if (bytes.length > maxBytes) {
+      throw FormatException(l10n.promptPresetFileTooLarge);
+    }
+    return parsePresetFile(utf8.decode(bytes));
+  }
+
+  Future<void> _importFiles([List<String>? dropped]) async {
     if (_importing) return;
     setState(() => _importing = true);
+    final l10n = context.l10n;
     try {
-      final selected = await FilePicker.platform.pickFiles(
-        dialogTitle: '导入提示词预设',
-        type: FileType.custom,
-        allowedExtensions: const ['json'],
-        withData: true,
-        lockParentWindow: true,
+      final files = dropped == null
+          ? (await FilePicker.platform.pickFiles(
+              dialogTitle: l10n.desktopImportPresetsJSON,
+              type: FileType.custom,
+              allowedExtensions: const ['json'],
+              allowMultiple: true,
+              withData: kIsWeb,
+              lockParentWindow: true,
+            ))?.files
+          : [
+              for (final path in dropped)
+                PlatformFile(name: p.basename(path), path: path, size: 0),
+            ];
+      if (!mounted || files == null || files.isEmpty) return;
+      final byId = <String, PromptPreset>{};
+      final failures = <String>[];
+      for (final file in files) {
+        if (!mounted) return;
+        try {
+          for (final preset in await _readPresets(file, l10n)) {
+            byId[preset.id] = preset;
+          }
+        } on FormatException catch (error) {
+          failures.add('${file.name} · ${error.message}');
+        } on FileSystemException {
+          failures.add('${file.name} · ${l10n.fileReadFailed}');
+        }
+      }
+      if (!mounted) return;
+      var count = 0;
+      if (byId.isNotEmpty) {
+        try {
+          count = await ref
+              .read(promptPresetsProvider.notifier)
+              .importPresets(byId.values.toList(), requirePersistence: true);
+        } catch (_) {
+          if (mounted) _message(l10n.promptPresetSaveFailed);
+          return;
+        }
+      }
+      if (!mounted) return;
+      final summary = [
+        if (count > 0) l10n.promptPresetsImported(count),
+        if (failures.length == 1) l10n.importFailed(failures.single),
+        if (failures.length > 1) l10n.filesImportFailed(failures.length),
+      ];
+      _message(
+        summary.isEmpty ? l10n.nothingToImport : summary.join('\n'),
+        failures: failures,
       );
-      if (!mounted || selected == null || selected.files.isEmpty) return;
-      final file = selected.files.single;
-      const maxBytes = 5 * 1024 * 1024;
-      if (file.size > maxBytes) {
-        throw const FormatException('预设文件不能超过 5 MB');
-      }
-      final bytes =
-          file.bytes ??
-          (file.path == null ? null : await File(file.path!).readAsBytes());
-      if (bytes == null) throw const FormatException('无法读取预设文件');
-      if (bytes.length > maxBytes) {
-        throw const FormatException('预设文件不能超过 5 MB');
-      }
-      final presets = parsePresetFile(utf8.decode(bytes));
-      if (!mounted) return;
-      final count = await ref
-          .read(promptPresetsProvider.notifier)
-          .importPresets(presets);
-      if (!mounted) return;
-      _message(count == 0 ? '文件中没有可导入的自定义预设' : '已导入 $count 个预设，相同编号已更新');
-    } on FormatException catch (error) {
-      if (mounted) _message('导入失败：${error.message}');
     } catch (_) {
-      if (mounted) _message('导入失败，请检查文件是否可读取后重试');
+      if (mounted) _message(l10n.importFailed(l10n.fileReadFailed));
     } finally {
       if (mounted) setState(() => _importing = false);
     }
   }
 
-  void _message(String text) {
+  void _message(String text, {List<String> failures = const []}) {
     (_messages.currentState ?? ScaffoldMessenger.of(context)).showSnackBar(
-      SnackBar(content: Text(text)),
+      SnackBar(
+        content: Text(text),
+        action: failures.length > 1
+            ? SnackBarAction(
+                label: context.l10n.desktopViewDetails,
+                onPressed: () {
+                  if (!mounted) return;
+                  showDialog<void>(
+                    context: context,
+                    builder: (ctx) => AlertDialog(
+                      title: Text(ctx.l10n.filesImportFailed(failures.length)),
+                      scrollable: true,
+                      content: SelectableText(failures.join('\n')),
+                      actions: [
+                        TextButton(
+                          onPressed: () => Navigator.pop(ctx),
+                          child: Text(ctx.l10n.close),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              )
+            : null,
+      ),
     );
   }
 
@@ -197,7 +273,7 @@ class _PromptPresetManagePageState
     final actions = <Widget>[
       IconButton(
         tooltip: l10nNow.desktopImportPresetsJSON,
-        onPressed: s == null || _importing ? null : _importFile,
+        onPressed: s == null || _importing ? null : () => _importFiles(),
         icon: _importing
             ? const SizedBox.square(
                 dimension: 20,
@@ -229,9 +305,8 @@ class _PromptPresetManagePageState
                 Padding(
                   padding: const EdgeInsets.fromLTRB(6, 2, 6, 12),
                   child: Text(
-                    '激活的预设在生成时按指定位置拼接正/负提示词，不占用输入框。'
-                    '默认预设不可修改;右上角可新建或导入 JSON 预设。'
-                    '${desktop ? '按住鼠标并移动可调整顺序。' : '长按预设可调整顺序。'}',
+                    '${context.l10n.presetPageIntro} '
+                    '${desktop ? context.l10n.promptPresetDesktopImportHint : context.l10n.promptPresetTouchImportHint}',
                     style: context.texts.bodySmall!.copyWith(
                       color: scheme.onSurfaceVariant,
                       height: 1.5,
@@ -267,48 +342,58 @@ class _PromptPresetManagePageState
                 ),
             ],
           );
-    if (widget.compact) {
-      return ScaffoldMessenger(
-        key: _messages,
-        child: Scaffold(
-          backgroundColor: scheme.surface,
-          body: Column(
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 12, 12, 12),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        l10nNow.promptPresets,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: context.texts.titleLarge!.copyWith(
-                          fontWeight: FontWeight.w700,
+    final page = widget.compact
+        ? ScaffoldMessenger(
+            key: _messages,
+            child: Scaffold(
+              backgroundColor: scheme.surface,
+              body: Column(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 12, 12, 12),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            l10nNow.promptPresets,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: context.texts.titleLarge!.copyWith(
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
                         ),
-                      ),
+                        ...actions,
+                        IconButton(
+                          key: const ValueKey('prompt-preset-manager-close'),
+                          tooltip: l10nNow.desktopClosePresets,
+                          onPressed: () => Navigator.pop(context),
+                          icon: const Icon(Icons.close),
+                        ),
+                      ],
                     ),
-                    ...actions,
-                    IconButton(
-                      key: const ValueKey('prompt-preset-manager-close'),
-                      tooltip: l10nNow.desktopClosePresets,
-                      onPressed: () => Navigator.pop(context),
-                      icon: const Icon(Icons.close),
-                    ),
-                  ],
-                ),
+                  ),
+                  const Divider(height: 1),
+                  Expanded(child: body),
+                ],
               ),
-              const Divider(height: 1),
-              Expanded(child: body),
-            ],
-          ),
-        ),
-      );
-    }
-    return SettingsScaffold(
-      appBar: AppBar(title: Text(l10nNow.promptPresets), actions: actions),
-      body: body,
-    );
+            ),
+          )
+        : SettingsScaffold(
+            appBar: AppBar(
+              title: Text(l10nNow.promptPresets),
+              actions: actions,
+            ),
+            body: body,
+          );
+    return desktop
+        ? ImageDropRegion.files(
+            label: context.l10n.desktopImportPresetsJSON,
+            enabled: s != null && !_importing,
+            onFiles: _importFiles,
+            child: page,
+          )
+        : page;
   }
 }
 

@@ -26,18 +26,24 @@ abstract final class RemoteImageStore {
   static Directory? _dir;
 
   /// 磁盘缓存上限;超出时 [trim] 删最久未用的(启动后台维护里跑一次)。
-  static const maxBytes = 128 << 20;
+  static const maxBytes = 512 << 20;
 
   /// 命中后回写 mtime 的最小间隔 —— 滚动列表每帧都 touch 一次太浪费,
   /// 天级粒度足够把「常看的」和「一年没碰的」区分开。
   static const _touchAfter = Duration(days: 1);
 
-  /// 验证器旁文件的后缀。内容 = 服务端给的 ETag **原样**(含引号,
-  /// If-None-Match 要逐字回传);它自己的 mtime = 上次验证的时刻。
+  /// 验证器旁文件的后缀。内容第一行 = 服务端给的 ETag **原样**(含引号,
+  /// If-None-Match 要逐字回传,没给为空行),第二行 [_immutableMark] = 服务端
+  /// 声明过 `Cache-Control: immutable`;它自己的 mtime = 上次验证的时刻。
   ///
   /// 单开一个文件而不是塞进主文件:主文件是喂给解码器的裸字节,
   /// 加个头就得所有读路径都先剥一层,还会把老缓存全作废。
   static const _validatorExt = '.v';
+
+  static const _immutableMark = 'immutable';
+
+  static String _validatorText(String? etag, {required bool immutable}) =>
+      immutable ? '${etag ?? ''}\n$_immutableMark' : etag ?? '';
 
   /// 内容变了就给这个 URL 换一个**缓存键**(见 [RemoteImageProvider.version])。
   ///
@@ -90,28 +96,46 @@ abstract final class RemoteImageStore {
     return f == null ? null : File('${f.path}$_validatorExt');
   }
 
-  /// 上次验证的结果:(ETag 原文, 验证时刻)。没有旁文件(老缓存/服务端没给
-  /// ETag)返回 null —— 调用方按「该验一次」处理,一次 200 回来就补上了。
-  static Future<({String etag, DateTime at})?> validator(String url) async {
+  /// 上次验证的结果:(ETag 原文, 验证时刻, 是否 immutable)。没有旁文件(老缓存/
+  /// 服务端既没给 ETag 也没声明 immutable)返回 null —— 调用方按「该验一次」处理,
+  /// 一次 200 回来就补上了。
+  static Future<({String etag, DateTime at, bool immutable})?> validator(
+    String url,
+  ) async {
     final f = _validatorOf(url);
     if (f == null) return null;
     try {
       final st = await f.stat();
       if (st.type == FileSystemEntityType.notFound) return null;
-      final etag = (await f.readAsString()).trim();
-      if (etag.isEmpty) return null;
-      return (etag: etag, at: st.modified);
+      final lines = (await f.readAsString()).split('\n');
+      final etag = lines.first.trim();
+      final immutable = lines.skip(1).any((l) => l.trim() == _immutableMark);
+      if (etag.isEmpty && !immutable) return null;
+      return (etag: etag, at: st.modified, immutable: immutable);
     } catch (_) {
       return null;
     }
   }
 
   /// 304 之后刷新新鲜期:内容没变,但「刚验过」这件事要记下来。
-  static Future<void> touchValidator(String url) async {
+  /// [immutable] = 这次响应声明了 immutable,补记进旁文件。
+  static Future<void> touchValidator(
+    String url, {
+    bool immutable = false,
+  }) async {
     final f = _validatorOf(url);
     if (f == null) return;
     try {
-      if (await f.exists()) await f.setLastModified(DateTime.now());
+      if (!await f.exists()) return;
+      if (immutable) {
+        final etag = (await f.readAsString()).split('\n').first.trim();
+        await writeBytesAtomic(
+          f,
+          utf8.encode(_validatorText(etag, immutable: true)),
+        );
+      } else {
+        await f.setLastModified(DateTime.now());
+      }
     } catch (_) {}
   }
 
@@ -149,13 +173,15 @@ abstract final class RemoteImageStore {
   /// 原子写:文件名是 **URL** 的哈希而非内容的,半截文件没法自证损坏,
   /// 会被后续 [read] 当成有效缓存直接喂给解码器。
   ///
-  /// [etag] 是服务端这次给的验证器,一并落到旁文件(见 [_validatorExt])。
+  /// [etag] 是服务端这次给的验证器,[immutable] 是这次响应声明了 immutable,
+  /// 一并落到旁文件(见 [_validatorExt])。
   /// [replaced] = 这次是换掉了已有的内容(而不是首次下载),那就要给这个 URL
   /// 换一个缓存键,把内存里那份旧位图顶掉。
   static Future<void> write(
     String url,
     Uint8List bytes, {
     String? etag,
+    bool immutable = false,
     bool replaced = false,
   }) async {
     final f = _fileOf(url);
@@ -164,8 +190,11 @@ abstract final class RemoteImageStore {
       await writeBytesAtomic(f, bytes);
       final v = _validatorOf(url);
       if (v != null) {
-        if (etag != null && etag.isNotEmpty) {
-          await writeBytesAtomic(v, Uint8List.fromList(utf8.encode(etag)));
+        if ((etag != null && etag.isNotEmpty) || immutable) {
+          await writeBytesAtomic(
+            v,
+            utf8.encode(_validatorText(etag, immutable: immutable)),
+          );
         } else if (await v.exists()) {
           // 服务端这次没给 ETag:旧验证器已经对不上内容了,留着会误判 304
           await v.delete();
@@ -245,10 +274,15 @@ abstract final class RemoteImageStore {
 /// 网络恢复了也不会重试)。
 @immutable
 class RemoteImageProvider extends ImageProvider<RemoteImageProvider> {
-  const RemoteImageProvider(this.url, {this.scale = 1.0, this.version = 0});
+  const RemoteImageProvider(this.url, {this.scale = 1.0, this.version = 0})
+    : _coverSize = null;
+
+  const RemoteImageProvider._cover(this.url, this.version, this._coverSize)
+    : scale = 1.0;
 
   final String url;
   final double scale;
+  final ({int width, int height})? _coverSize;
 
   /// 内容版本(见 [RemoteImageStore.versionOf])。**只为缓存键存在**:
   /// 同一个 URL 换了内容时它 +1,于是内存里那份解码后的旧位图不再命中。
@@ -263,9 +297,9 @@ class RemoteImageProvider extends ImageProvider<RemoteImageProvider> {
 
   /// 缓存命中后多久才值得再问一次服务端。
   ///
-  /// 服务端给这些图发的是 `Cache-Control: no-cache`(每次都该验),但一屏几十张
-  /// 图逐张验太吵;留一分钟的窗口,进出页面不会重复问,而作者改完图最多一分钟
-  /// 就能在 app 上看见。
+  /// 没声明 immutable 的图按 `Cache-Control: no-cache` 对待(每次都该验),但一屏
+  /// 几十张图逐张验太吵;留一分钟的窗口,进出页面不会重复问,而作者改完图最多
+  /// 一分钟就能在 app 上看见。声明了 immutable 的不再验。
   static const _revalidateAfter = Duration(minutes: 1);
 
   /// 正在回源验证的 URL。一张图会被多个 widget(或反复重建)同时解析,
@@ -286,8 +320,29 @@ class RemoteImageProvider extends ImageProvider<RemoteImageProvider> {
     ImageDecoderCallback decode,
   ) {
     final chunks = StreamController<ImageChunkEvent>();
+    final cover = key._coverSize;
     return MultiFrameImageStreamCompleter(
-      codec: _load(key, decode, chunks),
+      codec: _load(
+        key,
+        cover == null
+            ? decode
+            : (buffer, {getTargetSize}) => decode(
+                buffer,
+                getTargetSize: (width, height) {
+                  // Fill both physical dimensions before cropping. Keep the source
+                  // aspect ratio and never manufacture pixels beyond its native size.
+                  if (cover.width * height >= cover.height * width) {
+                    return ui.TargetImageSize(
+                      width: cover.width.clamp(1, width),
+                    );
+                  }
+                  return ui.TargetImageSize(
+                    height: cover.height.clamp(1, height),
+                  );
+                },
+              ),
+        chunks,
+      ),
       chunkEvents: chunks.stream,
       scale: key.scale,
       debugLabel: key.url,
@@ -330,7 +385,14 @@ class RemoteImageProvider extends ImageProvider<RemoteImageProvider> {
     if (_downloading[url] case final f?) return f;
     final f = _fetch(url, chunks);
     _downloading[url] = f;
-    f.then((_) {}, onError: (_) => _downloading.remove(url));
+    unawaited(
+      f.then<void>(
+        (_) {},
+        onError: (Object _) {
+          _downloading.remove(url);
+        },
+      ),
+    );
     return f;
   }
 
@@ -339,7 +401,10 @@ class RemoteImageProvider extends ImageProvider<RemoteImageProvider> {
     String url,
     StreamController<ImageChunkEvent>? chunks,
   ) async {
-    final (:bytes, :etag) = await _download(url, chunks).timeout(_timeout);
+    final (:bytes, :etag, :immutable) = await _download(
+      url,
+      chunks,
+    ).timeout(_timeout);
     // 落盘是旁路:写失败只是下次还得重下,不该连累这一次显示。
     // 落盘完成前别从 _downloading 里摘掉,这段时间里来要字节的直接拿这一份
     unawaited(
@@ -347,6 +412,7 @@ class RemoteImageProvider extends ImageProvider<RemoteImageProvider> {
         url,
         bytes,
         etag: etag,
+        immutable: immutable,
       ).whenComplete(() => _downloading.remove(url)),
     );
     return bytes;
@@ -367,18 +433,22 @@ class RemoteImageProvider extends ImageProvider<RemoteImageProvider> {
       // 新鲜期对「验过没有」生效,而不是对「有没有 ETag」生效
       if (RemoteImageStore.checkedRecently(url, _revalidateAfter)) return;
       final v = await RemoteImageStore.validator(url);
+      if (v != null && v.immutable) return;
       if (v != null && DateTime.now().difference(v.at) < _revalidateAfter) {
         return; // 上个进程刚验过(旁文件的 mtime 跨启动还在)
       }
       final req = http.Request('GET', Uri.parse(url));
-      if (v != null) req.headers['If-None-Match'] = v.etag;
+      if (v != null && v.etag.isNotEmpty) req.headers['If-None-Match'] = v.etag;
       final resp = await _client.send(req).timeout(_revalidateTimeout);
       // 拿到任何一个完整响应就算验过。放在分支之前:非 200 那条也得记,
       // 否则一个稳定报 403 的地址会被每次加载重试一遍。
       RemoteImageStore.markChecked(url);
       if (resp.statusCode == 304) {
         await resp.stream.drain<void>();
-        await RemoteImageStore.touchValidator(url);
+        await RemoteImageStore.touchValidator(
+          url,
+          immutable: _isImmutable(resp.headers),
+        );
         return;
       }
       if (resp.statusCode != 200) {
@@ -394,6 +464,7 @@ class RemoteImageProvider extends ImageProvider<RemoteImageProvider> {
         url,
         bytes,
         etag: resp.headers['etag'],
+        immutable: _isImmutable(resp.headers),
         replaced: !same,
       );
     } catch (_) {
@@ -413,7 +484,12 @@ class RemoteImageProvider extends ImageProvider<RemoteImageProvider> {
   }
 
   /// [chunks] = null:不关心进度([fetchRemoteImageBytes] 那条路会用到)。
-  static Future<({Uint8List bytes, String? etag})> _download(
+  static bool _isImmutable(Map<String, String> headers) =>
+      (headers['cache-control'] ?? '')
+          .split(',')
+          .any((d) => d.trim().toLowerCase() == 'immutable');
+
+  static Future<({Uint8List bytes, String? etag, bool immutable})> _download(
     String url,
     StreamController<ImageChunkEvent>? chunks,
   ) async {
@@ -437,7 +513,13 @@ class RemoteImageProvider extends ImageProvider<RemoteImageProvider> {
     }
     final bytes = buf.takeBytes();
     if (bytes.isEmpty) throw Exception('空响应');
-    return (bytes: bytes, etag: resp.headers['etag']);
+    // A different thumbnail size can read these same bytes immediately.
+    RemoteImageStore.markChecked(url);
+    return (
+      bytes: bytes,
+      etag: resp.headers['etag'],
+      immutable: _isImmutable(resp.headers),
+    );
   }
 
   @override
@@ -445,10 +527,11 @@ class RemoteImageProvider extends ImageProvider<RemoteImageProvider> {
       other is RemoteImageProvider &&
       other.url == url &&
       other.scale == scale &&
-      other.version == version;
+      other.version == version &&
+      other._coverSize == _coverSize;
 
   @override
-  int get hashCode => Object.hash(url, scale, version);
+  int get hashCode => Object.hash(url, scale, version, _coverSize);
 
   @override
   String toString() => 'RemoteImageProvider("$url")';
@@ -476,12 +559,14 @@ Future<Uint8List> fetchRemoteImageBytes(
     (e) => onProgress(e.cumulativeBytesLoaded, e.expectedTotalBytes),
   );
   try {
-    final (:bytes, :etag) = await RemoteImageProvider._download(
+    final (:bytes, :etag, :immutable) = await RemoteImageProvider._download(
       url,
       chunks,
     ).timeout(timeout);
     // 落盘是旁路:写失败只是下次还得重下,不该连累这一次
-    unawaited(RemoteImageStore.write(url, bytes, etag: etag));
+    unawaited(
+      RemoteImageStore.write(url, bytes, etag: etag, immutable: immutable),
+    );
     return bytes;
   } finally {
     unawaited(sub.cancel());
@@ -503,6 +588,7 @@ class RemoteImage extends StatelessWidget {
     this.url, {
     super.key,
     this.fit,
+    this.alignment = Alignment.center,
     this.width,
     this.height,
     this.decodeWidth,
@@ -517,14 +603,15 @@ class RemoteImage extends StatelessWidget {
 
   final String url;
   final BoxFit? fit;
+  final AlignmentGeometry alignment;
   final double? width;
   final double? height;
 
   /// 解码宽度上限(**逻辑像素**,内部乘 dpr);null = 取布局约束宽。
   final double? decodeWidth;
 
-  /// Optional height cap for contained thumbnails. Limiting width alone can
-  /// decode tall images far beyond the height actually displayed in a card.
+  /// Logical height of the displayed image. With both dimensions supplied,
+  /// cover decodes enough pixels to fill the crop and contain caps both axes.
   final double? decodeHeight;
 
   final FilterQuality filterQuality;
@@ -538,12 +625,15 @@ class RemoteImage extends StatelessWidget {
   final RemoteImageProviderDecorator? providerDecorator;
 
   Widget _image(int? cacheWidth, int? cacheHeight) {
-    final base = RemoteImageProvider(
-      url,
-      version: RemoteImageStore.versionOf(url),
-    );
+    final version = RemoteImageStore.versionOf(url);
+    final base = RemoteImageProvider(url, version: version);
     final ImageProvider<Object> provider =
-        cacheWidth == null && cacheHeight == null
+        fit == BoxFit.cover && cacheWidth != null && cacheHeight != null
+        ? RemoteImageProvider._cover(url, version, (
+            width: cacheWidth,
+            height: cacheHeight,
+          ))
+        : cacheWidth == null && cacheHeight == null
         ? base
         : ResizeImage(
             base,
@@ -554,6 +644,7 @@ class RemoteImage extends StatelessWidget {
     return Image(
       image: providerDecorator?.call(provider) ?? provider,
       fit: fit,
+      alignment: alignment,
       width: width,
       height: height,
       filterQuality: filterQuality,

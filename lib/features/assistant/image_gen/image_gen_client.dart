@@ -63,7 +63,8 @@ ImageGenClient imageGenClientFor(
       channel: c.model,
     );
   }
-  return e.format == AgentApiFormat.google
+  if (e.preset?.label == 'OpenRouter') return OpenRouterImageClient(e, c.model);
+  return e.usesGoogleImages
       ? GeminiImageClient(e, c.model)
       : OpenAiImageClient(e, c.model);
 }
@@ -227,11 +228,10 @@ class OpenAiImageClient implements ImageGenClient {
     ImageGenInput input, {
     required http.Client client,
   }) async {
-    final base = endpoint.effectiveBase;
     final size = sizeOf(input.aspect);
     final http.BaseRequest req;
     if (input.images.isEmpty) {
-      req = http.Request('POST', Uri.parse('$base/images/generations'))
+      req = http.Request('POST', endpoint.uriForPath('/images/generations'))
         ..headers.addAll({'Content-Type': 'application/json', ..._auth})
         ..bodyBytes = utf8.encode(
           jsonEncode({
@@ -243,7 +243,7 @@ class OpenAiImageClient implements ImageGenClient {
         );
     } else {
       final field = input.images.length > 1 ? 'image[]' : 'image';
-      req = http.MultipartRequest('POST', Uri.parse('$base/images/edits'))
+      req = http.MultipartRequest('POST', endpoint.uriForPath('/images/edits'))
         ..headers.addAll(_auth)
         ..fields.addAll({
           'model': model,
@@ -279,6 +279,108 @@ class OpenAiImageClient implements ImageGenClient {
   }
 }
 
+/// Discover the route before issuing a billable request. OpenRouter also
+/// exposes image-output models that are served through chat completions.
+class OpenRouterImageClient implements ImageGenClient {
+  OpenRouterImageClient(this.endpoint, this.model);
+  final CustomEndpoint endpoint;
+  final String model;
+  Future<bool>? _dedicated;
+
+  Future<bool> _usesImages(http.Client client) async {
+    final req = http.Request('GET', endpoint.uriForPath('/images/models'))
+      ..headers.addAll(
+        endpoint.withHeaders({
+          'Authorization': 'Bearer ${endpoint.apiKey.trim()}',
+        }),
+      );
+    final Object? result;
+    try {
+      result = _json(await _send(client, req, const Duration(seconds: 20)));
+    } on AgentFailure catch (error) {
+      if (error.status == 404 || error.status == 405) return false;
+      rethrow;
+    }
+    if (result is! Map || result['data'] is! List) {
+      throw AgentFailure(l10nNow.epNoModels);
+    }
+    return (result['data'] as List).whereType<Map>().any(
+      (e) => e['id'] == model,
+    );
+  }
+
+  @override
+  Future<Uint8List> generate(
+    ImageGenInput input, {
+    required http.Client client,
+  }) async {
+    final dedicated = await (_dedicated ??= _usesImages(client));
+    final references = [
+      for (final image in input.images)
+        {
+          'type': 'image_url',
+          'image_url': {'url': 'data:${image.mime};base64,${image.data}'},
+        },
+    ];
+    final req =
+        http.Request(
+            'POST',
+            endpoint.uriForPath(dedicated ? '/images' : '/chat/completions'),
+          )
+          ..headers.addAll(
+            endpoint.withHeaders({
+              'Authorization': 'Bearer ${endpoint.apiKey.trim()}',
+              'Content-Type': 'application/json',
+            }),
+          )
+          ..bodyBytes = utf8.encode(
+            jsonEncode({
+              'model': model,
+              if (dedicated) ...{
+                'prompt': input.prompt,
+                if (references.isNotEmpty) 'input_references': references,
+                if (input.size.isNotEmpty) 'resolution': input.size,
+                if (input.aspect.isNotEmpty) 'aspect_ratio': input.aspect,
+              } else ...{
+                'modalities': ['image', 'text'],
+                'messages': [
+                  {
+                    'role': 'user',
+                    'content': [
+                      {'type': 'text', 'text': input.prompt},
+                      ...references,
+                    ],
+                  },
+                ],
+                if (input.size.isNotEmpty || input.aspect.isNotEmpty)
+                  'image_config': {
+                    if (input.size.isNotEmpty) 'image_size': input.size,
+                    if (input.aspect.isNotEmpty) 'aspect_ratio': input.aspect,
+                  },
+              },
+            }),
+          );
+    final response = _json(await _send(client, req, _customTimeout));
+    if (response case {'data': [{'b64_json': final String bytes}, ...]}) {
+      return base64Decode(bytes);
+    }
+    if (response case {
+      'choices': [
+        {
+          'message': {
+            'images': [{'image_url': {'url': final String url}}, ...],
+          },
+        },
+        ...,
+      ],
+    }) {
+      final data = Uri.tryParse(url)?.data;
+      if (data != null) return data.contentAsBytes();
+    }
+    throw AgentFailure(l10nNow.imageGenNoImage);
+  }
+}
+
 /// Gemini 格式:`generateContent`,要图片输出;参考图跟在文字后面。
 class GeminiImageClient implements ImageGenClient {
   GeminiImageClient(this.endpoint, this.model);
@@ -291,7 +393,10 @@ class GeminiImageClient implements ImageGenClient {
     ImageGenInput input, {
     required http.Client client,
   }) async {
-    final req = http.Request('POST', endpoint.forModel(model).chatUri)
+    final path = endpoint.route == EndpointRoute.gemini
+        ? endpoint.forModel(model).chatUri
+        : endpoint.uriForPath('/models/$model:generateContent');
+    final req = http.Request('POST', path)
       ..headers.addAll(
         endpoint.withHeaders({
           'Content-Type': 'application/json',

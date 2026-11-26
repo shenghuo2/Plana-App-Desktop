@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart' show compute;
 import 'package:flutter_test/flutter_test.dart';
@@ -58,6 +59,33 @@ void main() {
       const e2 = CodexEntry(id: 'x', title: 'x', tags: 'x');
       expect(codexImageUrl(meta, e2, media), isNull);
       expect(e2.hasImage, isFalse);
+    });
+
+    test('多图词条可用首图作封面，缺少原图时沿用缩略图地址', () {
+      const single = CodexEntry(
+        id: 'x',
+        title: '',
+        tags: '',
+        images: [CodexImage('a.jpg', null)],
+      );
+      final thumb = codexImageUrl(meta, single, media);
+      expect(
+        thumb,
+        'https://assets.quicktagcloud.com/images/composition_style/a.jpg',
+      );
+      expect(codexImageUrl(meta, single, media, original: true), isNull);
+      expect(codexImageItemUrl(meta, single, media, 0, original: true), thumb);
+      const multi = CodexEntry(
+        id: 'x',
+        title: '',
+        tags: '',
+        images: [CodexImage('a.jpg', 'a.png')],
+        assetRev: 'r1',
+      );
+      expect(
+        codexImageUrl(meta, multi, media, original: true),
+        'https://assets.quicktagcloud.com/originals/composition_style/a.png?v=r1',
+      );
     });
   });
 
@@ -229,7 +257,7 @@ void main() {
       expect(codexPathUnder(const ['OC杂项'], const ['OC杂项', '单机角色']), isFalse);
     });
 
-    test('effectiveTree:无 tree 时从词条 path 首级合成扁平树(带计数)', () {
+    test('effectiveTree:无 tree 时从完整词条路径合成分类树(带计数)', () {
       final d = CodexData.parse({
         'id': 'x',
         'type': 'codex',
@@ -258,6 +286,7 @@ void main() {
       final t = d.effectiveTree;
       expect(t.map((n) => n.name), ['甲', '乙']);
       expect(t.firstWhere((n) => n.name == '甲').count, 2);
+      expect(t.first.children.map((n) => n.name), ['子', '丑']);
     });
 
     test('tree 缺失时 topCategories 从词条 path 首级兜底', () {
@@ -339,6 +368,23 @@ void main() {
     );
   });
 
+  test('codexParsePayload:正文源可以是盘上文件或字节', () async {
+    const raw =
+        '{"id":"t","title":"样本","version":"1",'
+        '"entries":[{"id":"e1","title":"标题","tags":"a"}]}';
+    final dir = await Directory.systemTemp.createTemp('codex_src_');
+    addTearDown(() => dir.delete(recursive: true));
+    final f = File('${dir.path}/t@1.json')..writeAsStringSync(raw);
+
+    final fromFile = await compute(codexParsePayload, <Object?>[f, null]);
+    final fromBytes = await compute(codexParsePayload, <Object?>[
+      Uint8List.fromList(utf8.encode(raw)),
+      null,
+    ]);
+
+    expect(fromFile.entries.single.title, '标题');
+    expect(fromBytes.entries.single.title, '标题');
+  });
   // 落盘缓存:半截快照自愈、离线读索引副本、门户页不顶掉好副本。
   group('CodexService 落盘缓存', () {
     late Directory dir;
@@ -401,6 +447,19 @@ void main() {
       expect(File('${dir.path}/meta/codexes.json').readAsStringSync(), index);
     });
 
+    test('cachedIndex 只读副本:没联网拿到过就是 null', () async {
+      final svc = CodexService(
+        cacheDir: dir,
+        client: MockClient((_) async => ok(index)),
+      );
+      expect(await svc.cachedIndex(), isNull);
+      await svc.fetchIndex();
+      final copy = await CodexService(
+        cacheDir: dir,
+        client: offline,
+      ).cachedIndex();
+      expect(copy!.single.version, 'v1');
+    });
     test('无网也无副本:索引照常报错', () {
       final svc = CodexService(cacheDir: dir, client: offline);
       expect(svc.fetchIndex(), throwsA(isA<SocketException>()));

@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:io';
 
 import 'package:archive/archive.dart';
@@ -183,23 +182,11 @@ void main() {
     await tester.pumpWidget(const SizedBox());
     await tester.pump(const Duration(seconds: 1));
     stores.flushNow();
-    var done = false;
-    unawaited(
-      Future.wait([
-        stores.gallery.idle,
-        stores.albums.idle,
-      ]).then((_) => done = true),
+    await pumpUntilComplete(
+      tester,
+      Future.wait([stores.gallery.idle, stores.albums.idle]),
+      reason: 'Pending gallery writes must finish',
     );
-    // Real disk writes may take longer when the full suite runs concurrently.
-    // Keep pumping FakeAsync microtasks until the queue finishes, with a bound.
-    final wait = Stopwatch()..start();
-    while (!done && wait.elapsed < const Duration(seconds: 10)) {
-      await tester.runAsync(
-        () => Future<void>.delayed(const Duration(milliseconds: 10)),
-      );
-      await tester.pump();
-    }
-    expect(done, isTrue, reason: 'Pending gallery writes must finish');
     expect(tester.takeException(), isNull);
   }
 
@@ -221,13 +208,8 @@ void main() {
           key('gallery-export-dialog').evaluate().isEmpty &&
           tester.widget<FilledButton>(key('gallery-batch-export')).onPressed !=
               null,
-      reason: 'Export must finish before another export or cancellation',
+      reason: 'The export must finish and release the batch controls',
     );
-    expect(
-      tester.widget<FilledButton>(key('gallery-batch-export')).onPressed,
-      isNotNull,
-    );
-    expect(key('gallery-export-dialog'), findsNothing);
     await tester.pumpAndSettle();
   }
 

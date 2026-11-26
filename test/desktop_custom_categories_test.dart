@@ -181,10 +181,25 @@ void main() {
       final region = tester.widget<ImageDropRegion>(
         key('tag-preview-image-drop'),
       );
-      await region.onDrop([
+      await region.onDrop!([
         PickedImage('cover.png', bytes),
       ], ImageDropPayload.image(name: 'cover.png', load: () async => bytes));
       await tester.pumpAndSettle();
+      await tester.tap(key('tag-editor-category'));
+      await tester.pumpAndSettle();
+      final title = tester.getRect(key('tag-editor-category'));
+      final firstOption = tester.getRect(
+        key('tag-editor-destination-character'),
+      );
+      expect(
+        firstOption.top,
+        inInclusiveRange(title.bottom, title.bottom + 24),
+      );
+      expect(firstOption.left, closeTo(title.left, 12));
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+      expect(key('tag-editor-dialog'), findsOneWidget);
+      expect(key('tag-editor-destination-character'), findsNothing);
       await tester.tap(key('tag-editor-category'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('服装'));

@@ -18,8 +18,8 @@ final naiProxyProvider = NotifierProvider<NaiProxyNotifier, bool>(
 /// 开关底下那行小字。账号页与引导页共用,两处说法不会各写各的。
 const kNaiProxyTitle = 'NovelAI 云端转发';
 const kNaiProxyHint =
-    '经 Plana 的 Cloudflare 服务转发到 NovelAI；不是 Clash，也不是 Bot 生成。'
-    '仅影响官方接口，令牌及请求内容会经过该服务。已有 Clash 时通常保持关闭。';
+    '无本机代理且直连 NovelAI 失败时可开启：通过 Plana 的 Cloudflare 中转访问官方接口（账号令牌与请求内容会经由该服务）。'
+    '已有 Clash 等代理软件或使用 Bot 生成时通常保持关闭。';
 
 const _key = 'nai_proxy';
 

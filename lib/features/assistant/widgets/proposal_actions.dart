@@ -22,7 +22,7 @@ import '../../../core/net/anlas_provider.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../generate/cost.dart';
 import '../../generate/vibe_encoder.dart';
-import '../../generate/widgets/bottom_action_bar.dart' show CostPill;
+import '../../generate/widgets/bottom_action_bar.dart' show GenerationCostPill;
 import '../../generate/widgets/common.dart'
     show confirmDialog, dropFocusSoon, hintSnack;
 import '../assistant_models.dart';
@@ -85,14 +85,17 @@ class ProposalActions extends ConsumerWidget {
 
   /// 这一版要花多少点。与吸底栏那颗按钮同一套算法(含 Vibe 编码费单列),
   /// 免得同一份状态在两处报出两个数。助手不产重绘,所以不走 inpaint 那条公式。
-  int _cost(WidgetRef ref) {
+  Widget _costPill(WidgetRef ref) {
     final sent = ref.read(assistantProvider.notifier).previewSendState(msg.id);
-    if (sent == null) return 0;
+    if (sent == null) return const SizedBox.shrink();
     final isOpus = ref.watch(anlasProvider).asData?.value?.isOpus ?? false;
     final v5Charged = ref.watch(v5ChargedProvider);
     final fee = ref.watch(vibeEncodeFeeProvider(vibeEncodeFeeKey(sent))).value;
-    return estimateCost(sent, isOpus: isOpus, v5Charged: v5Charged) +
-        (fee ?? 0);
+    return GenerationCostPill(
+      model: sent.params.model,
+      cost:
+          estimateCost(sent, isOpus: isOpus, v5Charged: v5Charged) + (fee ?? 0),
+    );
   }
 
   @override
@@ -139,7 +142,7 @@ class ProposalActions extends ConsumerWidget {
                   Text(l10nNow.generate),
                   const SizedBox(width: 7),
                   // 与吸底栏同一颗胶囊:点了要不要花钱、花多少,按之前就该知道。
-                  CostPill(cost: _cost(ref)),
+                  _costPill(ref),
                 ],
               ),
             ),

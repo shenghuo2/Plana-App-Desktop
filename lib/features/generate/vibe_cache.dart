@@ -30,8 +30,12 @@ class VibeEncodeCache {
 
   static String _normModel(String model) => kModelToEncodingKey[model] ?? model;
 
-  static String _fileName(String imageHash, String model, double ie) =>
+  /// 某条编码在缓存目录里的文件名。
+  static String fileNameOf(String imageHash, String model, double ie) =>
       '${imageHash}_${_normModel(model)}_${jsNum(ie)}.enc';
+
+  /// 缓存目录。
+  String get dirPath => _dir.path;
 
   static Future<VibeEncodeCache> load({Directory? supportRoot}) async {
     Directory? dir;
@@ -57,7 +61,7 @@ class VibeEncodeCache {
               final ie = double.tryParse(parts[2]);
               if (ie == null) continue;
               await File(
-                '${dir.path}/${_fileName(parts[0], parts[1], ie)}',
+                '${dir.path}/${fileNameOf(parts[0], parts[1], ie)}',
               ).writeAsString(v);
             }
           }
@@ -76,7 +80,7 @@ class VibeEncodeCache {
           if (first > 0 && last > first) {
             final ie = double.tryParse(stem.substring(last + 1));
             if (ie != null && ie.isFinite) {
-              canonical = _fileName(
+              canonical = fileNameOf(
                 stem.substring(0, first),
                 stem.substring(first + 1, last),
                 ie,
@@ -100,7 +104,7 @@ class VibeEncodeCache {
   }
 
   Future<String?> get(String imageHash, String model, double ie) async {
-    final n = _fileName(imageHash, model, ie);
+    final n = fileNameOf(imageHash, model, ie);
     final mem = _mem[n];
     if (mem != null) return mem;
     if (!_names.contains(n)) return null;
@@ -112,13 +116,26 @@ class VibeEncodeCache {
     }
   }
 
+  /// 这条编码从哪读:只在内存里的给编码串,落了盘的给文件路径;没有为 null。
+  ({String? path, String? encoding})? sourceOf(
+    String imageHash,
+    String model,
+    double ie,
+  ) {
+    final n = fileNameOf(imageHash, model, ie);
+    final mem = _mem[n];
+    if (mem != null) return (path: null, encoding: mem);
+    if (!_names.contains(n)) return null;
+    return (path: '${_dir.path}/$n', encoding: null);
+  }
+
   Future<void> put(
     String imageHash,
     String model,
     double ie,
     String encoding,
   ) async {
-    final n = _fileName(imageHash, model, ie);
+    final n = fileNameOf(imageHash, model, ie);
     try {
       await File('${_dir.path}/$n').writeAsString(encoding);
       _names.add(n);

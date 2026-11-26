@@ -1,5 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:plana_app/features/inspiration/tag_models.dart';
+import 'package:plana_app/features/inspiration/public_tag_blocks.dart';
+import 'package:plana_app/features/assistant/runtime/reference_library.dart';
 import 'package:plana_app/features/inspiration/widgets/tag_filter_sheet.dart';
 
 TagEntry _e(
@@ -24,6 +26,58 @@ TagEntry _e(
 );
 
 void main() {
+  test(
+    'blocked public copies and their saved resources stay excluded while independent local entries keep their identity',
+    () {
+      const cat = TagCategory.character;
+      const linked = TagEntry(
+        id: 'local-copy',
+        category: cat,
+        name: '旧收藏',
+        origin: TagOrigin.favorited,
+        positive: 'blocked prompt',
+      );
+      const original = TagEntry(
+        id: 'pub_oc',
+        publicId: 'oc',
+        category: cat,
+        name: '旧收藏',
+        createdBy: 'owner',
+        positive: 'blocked prompt',
+      );
+      const personal = TagEntry(
+        id: 'own',
+        category: cat,
+        name: '旧收藏',
+        positive: 'local prompt',
+      );
+      const rule = PublicTagRule(authors: {'owner': {}});
+      final refs = AssistantReferences(
+        cat,
+        [linked, personal],
+        [original],
+        rule,
+      );
+      expect(refs.entries, [personal]);
+      expect(
+        refs.wire(includePublic: true).single['tag_group'],
+        'local prompt',
+      );
+      expect(refs.allowsResource('旧收藏', 'blocked prompt'), isFalse);
+      expect(refs.allowsResource('旧收藏', 'local prompt'), isTrue);
+      final exception = rule.selectItems([original], false);
+      expect(
+        AssistantReferences(cat, [linked], [original], exception).entries,
+        [linked],
+      );
+      expect(
+        PublicTagRule.fromJson(exception.toJson()).hides(original),
+        isFalse,
+      );
+      expect(rule.selectAuthor('owner', [original], false).active, isFalse);
+    },
+  );
+
   test('分类注册表:web id 与能力对齐', () {
     expect(tagCategoryDef(TagCategory.artist).webId, 'artist-style');
     expect(tagCategoryByWebId('artist-style'), TagCategory.artist);

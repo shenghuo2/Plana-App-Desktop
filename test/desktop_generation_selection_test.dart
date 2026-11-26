@@ -26,6 +26,8 @@ import 'package:plana_app/features/gallery/widgets/result_canvas.dart';
 import 'package:plana_app/features/generate/generate_state.dart';
 import 'package:plana_app/features/generate/generation_controller.dart';
 
+import 'support/pump_until.dart';
+
 class _Auth extends AuthModeNotifier {
   @override
   Future<AuthMode?> build() async => AuthMode.token;
@@ -202,14 +204,7 @@ void main() {
               client.frames.add((step: 27, isFinal: false, bytes: resultBytes));
               await tester.pump(const Duration(milliseconds: 50));
               client.frames.add((step: 28, isFinal: true, bytes: resultBytes));
-              GenOutcome? outcome;
-              unawaited(generation.then((value) => outcome = value));
-              for (var i = 0; i < 200 && outcome == null; i++) {
-                await tester.runAsync(
-                  () => Future<void>.delayed(const Duration(milliseconds: 10)),
-                );
-                await tester.pump(const Duration(milliseconds: 16));
-              }
+              final outcome = await pumpUntilComplete(tester, generation);
               expect(outcome, GenOutcome.ok);
               await tester.pumpAndSettle(
                 const Duration(milliseconds: 100),

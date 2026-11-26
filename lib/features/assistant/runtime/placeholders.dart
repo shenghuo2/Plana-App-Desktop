@@ -4,7 +4,7 @@ library;
 
 import 'package:unorm_dart/unorm_dart.dart' as unorm;
 
-import '../tools/my_library.dart' show LibArtist;
+import '../tools/my_library.dart' show LibArtist, LibOc;
 
 /// 画师串占位符 `__ARTIST_A1__`。写歪了也认:大小写、两头多了空格。
 final artistTokenRe = RegExp(
@@ -59,6 +59,17 @@ String ocPlaceholder(String name) => '__OC_${artistTokenBody(name)}__';
 
 class OcPlan {
   final _entries = <String, ArtistHit>{};
+  final _aliases = <String, ArtistHit>{};
+
+  String addOc(LibOc oc) {
+    final token = add(oc.label, oc.tagGroup);
+    final hit = (name: oc.label, content: oc.tagGroup);
+    for (final alias in [oc.enName, ...oc.aliases]) {
+      final key = _tokenKey(alias);
+      if (key.isNotEmpty) _aliases.putIfAbsent(key, () => hit);
+    }
+    return token;
+  }
 
   String add(String name, String tags) {
     final key = _tokenKey(name);
@@ -68,7 +79,10 @@ class OcPlan {
     return ocPlaceholder(name);
   }
 
-  ArtistHit? get(String body) => _entries[_tokenKey(body)];
+  ArtistHit? get(String body) {
+    final key = _tokenKey(body);
+    return _entries[key] ?? _aliases[key];
+  }
 
   Map<String, String> get tokens => {
     for (final e in _entries.values) ocPlaceholder(e.name): e.content,
@@ -189,7 +203,7 @@ Iterable<String> drawTexts(Map<String, dynamic> draw) sync* {
 }
 
 /// 画面里每段文字都过一遍 [fix]。
-Map<String, dynamic> _mapDrawTexts(
+Map<String, dynamic> mapDrawTexts(
   Map<String, dynamic> draw,
   String Function(Object?) fix,
 ) => {
@@ -217,7 +231,7 @@ Map<String, dynamic>? expandDraw(
   if (draw == null || !drawTexts(draw).any(artistTokenRe.hasMatch)) {
     return draw;
   }
-  return _mapDrawTexts(draw, (v) => expandArtistText('$v', resolve).text);
+  return mapDrawTexts(draw, (v) => expandArtistText('$v', resolve).text);
 }
 
 /// 一段文字里的 OC 占位符 → 完整 tag 组。规则同 [expandArtistText]。
@@ -243,7 +257,7 @@ String expandOcText(String text, OcPlan plan) {
 /// 画面里各处的 OC 占位符都换回完整 tag 组。没有占位符原样返回(同一个对象)。
 Map<String, dynamic>? expandOcDraw(Map<String, dynamic>? draw, OcPlan plan) {
   if (draw == null || !drawTexts(draw).any(ocTokenRe.hasMatch)) return draw;
-  return _mapDrawTexts(draw, (v) => expandOcText('$v', plan));
+  return mapDrawTexts(draw, (v) => expandOcText('$v', plan));
 }
 
 /// 给用户看的正文里出现的 OC 占位符换成名字。

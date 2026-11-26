@@ -1,19 +1,14 @@
-import 'dart:async';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../core/net/anlas_provider.dart';
-import '../../core/theme/app_theme.dart';
 import '../generate/models.dart';
-import '../generate/widgets/common.dart' show hintSnack;
+import '../generate/generation_controller.dart';
 import 'albums/album_models.dart';
 import 'gallery_state.dart';
-import 'models.dart';
 import 'upscale_model.dart';
-import 'upscale_nai.dart';
 
 /// 导入图片按实际像素校验，再把 JPEG 等格式转成 NAI 接受的 PNG。
 /// PNG 原样保留，转换不裁切、不缩小、不填充背景。
@@ -73,100 +68,16 @@ Future<void> superResolveImage(
   GenerateState? input,
 }) async {
   _checkSize(width, height);
-  // 在等待网络前取出长期存活的 provider，入口关闭后仍能保存已提交的结果。
   final gallery = ref.read(galleryProvider.notifier);
-  final run = ref.read(naiUpscaleRunnerProvider);
-  final refresh = ref.read(anlasProvider.notifier).refresh;
-  final stage = ValueNotifier<String>('准备…');
-  final navigator = Navigator.of(context, rootNavigator: true);
-  final progress = DialogRoute<void>(
-    context: context,
-    barrierDismissible: false,
-    builder: (_) => PopScope(
-      canPop: false,
-      child: _SuperResolutionProgress(
-        key: const ValueKey('upscale-progress'),
-        stage: stage,
-      ),
-    ),
-  );
-  unawaited(navigator.push(progress));
-  try {
-    final result = await run(
-      png,
-      width: width,
-      height: height,
-      onStage: (s) => stage.value = s,
-    );
-    await gallery.addResultToGallery(
-      target: target,
-      canSelect: () => gallery.selectionRevision == selectionRevision,
-      bytes: result.png,
-      width: result.width,
-      height: result.height,
-      seed: seed,
-      badge: ResultBadge.upscaled2x,
-      input: input,
-    );
-    unawaited(refresh());
-    if (context.mounted) {
-      hintSnack(
-        context,
-        '超分辨率完成 ${result.width}×${result.height},已存入图库',
-        icon: Icons.check_circle_outline,
+  await ref
+      .read(generationProvider.notifier)
+      .upscale(
+        source: png,
+        width: width,
+        height: height,
+        seed: seed,
+        galleryTarget: target,
+        input: input,
+        canSelect: () => gallery.selectionRevision == selectionRevision,
       );
-    }
-  } catch (e) {
-    if (context.mounted) {
-      hintSnack(context, '超分失败: $e', icon: Icons.error_outline);
-    }
-  } finally {
-    if (navigator.mounted && progress.isActive) navigator.removeRoute(progress);
-    await progress.completed;
-    stage.dispose();
-  }
-}
-
-class _SuperResolutionProgress extends StatelessWidget {
-  const _SuperResolutionProgress({super.key, required this.stage});
-
-  final ValueNotifier<String> stage;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = context.scheme;
-    return AlertDialog(
-      title: Row(
-        children: [
-          Icon(Icons.blur_on, size: 20, color: scheme.primary),
-          const SizedBox(width: 8),
-          Text(
-            '${UpscaleMethod.naiV5.label} · ${UpscaleMethod.naiV5.badge}',
-            style: const TextStyle(fontSize: 16),
-          ),
-        ],
-      ),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          ValueListenableBuilder<String>(
-            valueListenable: stage,
-            builder: (_, value, _) => Text(
-              value,
-              style: TextStyle(fontSize: 13, color: scheme.onSurfaceVariant),
-            ),
-          ),
-          const SizedBox(height: 16),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(4),
-            child: LinearProgressIndicator(
-              minHeight: 8,
-              backgroundColor: scheme.surfaceContainerHighest,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
 }

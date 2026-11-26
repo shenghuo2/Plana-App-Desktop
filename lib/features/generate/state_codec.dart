@@ -119,6 +119,7 @@ Future<EncodedState> encodeGenerateState(
       'name': r.name,
       'enabled': r.enabled,
       'mode': r.mode.name,
+      'preferSameOutfit': r.preferSameOutfit,
       'strength': r.strength,
       'infoExtracted': r.infoExtracted,
       'image': await putImg(r.image, known: r.imageHash),
@@ -437,6 +438,9 @@ Future<GenerateState> decodeGenerateState(
           name: e['name'] is String ? e['name'] as String : '',
           enabled: e['enabled'] != false,
           mode: _enumByName(CharRefMode.values, e['mode']) ?? CharRefMode.both,
+          preferSameOutfit: e['preferSameOutfit'] is bool
+              ? e['preferSameOutfit'] as bool
+              : null,
           strength: (e['strength'] as num?)?.toDouble() ?? 1.0,
           infoExtracted: (e['infoExtracted'] as num?)?.toDouble() ?? 1.0,
           image: bytes,

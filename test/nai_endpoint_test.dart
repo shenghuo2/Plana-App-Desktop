@@ -214,6 +214,42 @@ void main() {
     });
   });
 
+  test('收到流式预览后取消，不必等下一帧或服务器关闭响应', () async {
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    addTearDown(() => server.close(force: true));
+    server.listen((req) async {
+      req.response.bufferOutput = false;
+      req.response.add(
+        _frame({
+          'event_type': 'intermediate',
+          'step_ix': 0,
+          'image': Uint8List.fromList([1]),
+        }),
+      );
+      await req.response.flush();
+    });
+    final client = NaiClient(base: 'http://127.0.0.1:${server.port}');
+    final abort = GenAbort();
+    final preview = Completer<void>();
+    await withRealHttp(() async {
+      final stream = client.generateImageStream(
+        token: 'tok',
+        body: const {'input': 'x'},
+        abort: abort,
+      );
+      final stopped = expectLater(
+        stream.forEach((frame) {
+          expect(frame.isFinal, isFalse);
+          preview.complete();
+        }),
+        throwsA(isA<NaiException>()),
+      );
+      await preview.future.timeout(const Duration(seconds: 5));
+      abort.abort();
+      await stopped.timeout(const Duration(seconds: 3));
+    });
+  });
+
   test('非流式生成也能取消:abort 一响就断连接', () async {
     // 收下请求但永远不回,让取消成为唯一的结束方式
     final arrived = Completer<void>();

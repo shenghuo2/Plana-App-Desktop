@@ -29,6 +29,7 @@ import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 
 import '../../core/net/agent_stream.dart';
+import '../../core/util/prompt_block.dart' show assistantSectionName;
 import '../../core/net/backend_client.dart';
 import '../../core/util/image_ops.dart' show styleRefResizeJpg;
 import 'agent_trace.dart';
@@ -478,8 +479,10 @@ AgentResult _toResult(
   final d = draw ?? const <String, dynamic>{};
   return AgentResult(
     replyText: reply.isNotEmpty ? reply : '本喵在喵~',
+    section: assistantSectionName(d['section']),
     positive: d['positive']?.toString() ?? '',
     negative: d['negative']?.toString() ?? '',
+    specifiedNegative: d['negative'] is String,
     characters: [
       for (final c in (d['characters'] as List? ?? const []))
         if (c is Map<String, dynamic>) AgentCharacter.fromJson(c),

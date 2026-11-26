@@ -12,6 +12,9 @@
 #include <vector>
 
 namespace {
+std::filesystem::path profile;
+std::string app_version;
+volatile LONG recording = 0;
 HANDLE log_file = INVALID_HANDLE_VALUE;
 wchar_t dump_path[32768] = {};
 LONG handling_crash = 0;
@@ -21,7 +24,7 @@ DumpWriter dump_writer = nullptr;
 LPTOP_LEVEL_EXCEPTION_FILTER previous_filter = nullptr;
 
 void WriteLog(const char* message) {
-  if (log_file == INVALID_HANDLE_VALUE) return;
+  if (!RuntimeDiagnosticsEnabled()) return;
   DWORD written = 0;
   WriteFile(log_file, message, static_cast<DWORD>(std::strlen(message)),
             &written, nullptr);
@@ -29,7 +32,8 @@ void WriteLog(const char* message) {
 }
 
 LONG WINAPI RecordCrash(EXCEPTION_POINTERS* exception) {
-  if (InterlockedCompareExchange(&handling_crash, 1, 0) == 0) {
+  if (RuntimeDiagnosticsEnabled() &&
+      InterlockedCompareExchange(&handling_crash, 1, 0) == 0) {
     const auto* record = exception ? exception->ExceptionRecord : nullptr;
     char line[1024];
     HMODULE fault_module = nullptr;
@@ -74,48 +78,35 @@ LONG WINAPI RecordCrash(EXCEPTION_POINTERS* exception) {
   return previous_filter ? previous_filter(exception) : EXCEPTION_CONTINUE_SEARCH;
 }
 
-void TrimReports(const std::filesystem::path& directory) {
+void TrimReports(const std::filesystem::path& directory, const wchar_t* extension,
+                 size_t keep) {
   std::vector<std::filesystem::path> reports;
   std::error_code error;
   for (const auto& entry : std::filesystem::directory_iterator(directory, error)) {
     if (entry.path().filename().wstring().rfind(L"native-", 0) == 0 &&
-        entry.path().extension() == L".log") {
+        entry.path().extension() == extension && entry.is_regular_file(error)) {
       reports.push_back(entry.path());
     }
   }
   std::sort(reports.begin(), reports.end());
-  for (size_t i = 0; i + 9 < reports.size(); ++i) {
-    auto dump = reports[i];
-    dump.replace_extension(L".dmp");
+  for (size_t i = 0; i + keep < reports.size(); ++i) {
     std::filesystem::remove(reports[i], error);
-    std::filesystem::remove(dump, error);
   }
 }
-}  // namespace
 
-bool InitializeRuntimeDiagnostics(const char* version,
-                                  const std::wstring& directory_override) {
-  if (log_file != INVALID_HANDLE_VALUE) return true;
-  try {
-    std::filesystem::path directory(directory_override);
-    if (directory.empty()) {
-      PWSTR local_app_data = nullptr;
-      const HRESULT status = SHGetKnownFolderPath(
-          FOLDERID_LocalAppData, KF_FLAG_CREATE, nullptr, &local_app_data);
-      if (SUCCEEDED(status) && local_app_data) directory = local_app_data;
-      CoTaskMemFree(local_app_data);
-      if (directory.empty()) {
-        wchar_t temporary[MAX_PATH] = {};
-        if (!GetTempPathW(MAX_PATH, temporary)) return false;
-        directory = temporary;
-      }
-      directory /= L"Plana App Desktop";
-      directory /= L"diagnostics";
-    }
+std::filesystem::path PreferencePath() {
+  return profile / L"write-diagnostic-logs.enabled";
+}
+
+// Keep the handle valid until process exit. A fault can arrive on another
+// thread while the UI toggles recording; the exception filter never takes a lock.
+bool PrepareLog() {
+  if (log_file == INVALID_HANDLE_VALUE) {
+    const std::filesystem::path directory(RuntimeLogDirectory());
     std::error_code error;
     std::filesystem::create_directories(directory, error);
     if (error) return false;
-    TrimReports(directory);
+    TrimReports(directory, L".log", 9);
     SYSTEMTIME now = {};
     GetSystemTime(&now);
     wchar_t name[100];
@@ -128,8 +119,12 @@ bool InitializeRuntimeDiagnostics(const char* version,
                           FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
                           CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
     if (log_file == INVALID_HANDLE_VALUE) return false;
-    const auto dump = stem.wstring() + L".dmp";
-    if (dump.size() < std::size(dump_path)) {
+    // A memory dump is private. Only text files belong in the shareable folder.
+    const auto dumps = profile / L"diagnostics";
+    std::filesystem::create_directories(dumps, error);
+    const auto dump = (dumps / name).wstring() + L".dmp";
+    if (!error && dump.size() < std::size(dump_path)) {
+      TrimReports(dumps, L".dmp", 9);
       std::copy(dump.begin(), dump.end(), dump_path);
       dump_path[dump.size()] = L'\0';
     }
@@ -142,10 +137,43 @@ bool InitializeRuntimeDiagnostics(const char* version,
       std::memcpy(&dump_writer, &address, sizeof(dump_writer));
     }
     previous_filter = SetUnhandledExceptionFilter(RecordCrash);
-    char line[256];
-    std::snprintf(line, sizeof(line), "session-start version=%s pid=%lu\r\n",
-                  version, GetCurrentProcessId());
-    WriteLog(line);
+  }
+  return true;
+}
+
+void StartRecording() {
+  InterlockedExchange(&recording, 1);
+  char line[256];
+  std::snprintf(line, sizeof(line), "session-start version=%s pid=%lu\r\n",
+                app_version.c_str(), GetCurrentProcessId());
+  WriteLog(line);
+}
+}  // namespace
+
+std::wstring RuntimeLogDirectory() {
+  return profile.empty() ? std::wstring() : (profile / L"logs").wstring();
+}
+
+bool RuntimeDiagnosticsEnabled() {
+  return InterlockedCompareExchange(&recording, 0, 0) != 0;
+}
+
+bool InitializeRuntimeDiagnostics(const char* version, const std::wstring& profile_override) {
+  try {
+    app_version = version;
+    profile = profile_override;
+    if (profile.empty()) {
+      PWSTR local = nullptr;
+      const HRESULT status = SHGetKnownFolderPath(
+          FOLDERID_LocalAppData, KF_FLAG_DEFAULT, nullptr, &local);
+      if (SUCCEEDED(status) && local) profile = std::filesystem::path(local) / L"Plana App Desktop";
+      CoTaskMemFree(local);
+      if (profile.empty()) return false;
+    }
+    if (std::filesystem::is_regular_file(PreferencePath())) {
+      if (!PrepareLog()) return false;
+      StartRecording();
+    }
     return true;
   } catch (...) {
     // Diagnostics must not make application startup fail.
@@ -153,7 +181,33 @@ bool InitializeRuntimeDiagnostics(const char* version,
   }
 }
 
+bool SetRuntimeDiagnosticsEnabled(bool enabled) {
+  try {
+    if (profile.empty()) return false;
+    if (enabled) {
+      if (!PrepareLog()) return false;
+      HANDLE marker = CreateFileW(PreferencePath().c_str(), GENERIC_WRITE,
+                                  FILE_SHARE_READ, nullptr, OPEN_ALWAYS,
+                                  FILE_ATTRIBUTE_NORMAL, nullptr);
+      if (marker == INVALID_HANDLE_VALUE) return false;
+      CloseHandle(marker);
+      if (!RuntimeDiagnosticsEnabled()) StartRecording();
+    } else {
+      if (!DeleteFileW(PreferencePath().c_str())) {
+        const DWORD error = GetLastError();
+        if (error != ERROR_FILE_NOT_FOUND && error != ERROR_PATH_NOT_FOUND) return false;
+      }
+      if (RuntimeDiagnosticsEnabled()) RecordRuntimeEvent("recording-stopped");
+      InterlockedExchange(&recording, 0);
+    }
+    return true;
+  } catch (...) {
+    return false;
+  }
+}
+
 void RecordRuntimeEvent(const char* event, DWORD error) {
+  if (!RuntimeDiagnosticsEnabled()) return;
   SYSTEMTIME now = {};
   GetSystemTime(&now);
   char line[512];

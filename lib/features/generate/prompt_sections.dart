@@ -15,6 +15,7 @@ import '../editor/editor_models.dart'
 import '../inspiration/tag_models.dart'
     show TagCategory, TagEntry, foldTagEntry;
 import 'models.dart';
+import 'prompt_import_binding.dart';
 
 /// 主提示词分区的纯函数:拼接、计数口径、列表整理。状态写入在 GenerateNotifier
 /// 与 CanvasWorkspaceNotifier.updatePrompts。
@@ -158,83 +159,299 @@ String dropSectionWords(
   );
 }
 
-/// AI 助手的提议写进创作页的方式。
-enum SectionImport {
-  /// 只换主体,分区留着;分区里已有的词不再写进主体。
-  main,
+/// AI 助手的提议写进创作页的方式。存档用枚举名。
+enum SectionImport { aiSection, appendMain, main, newSection, clear }
 
-  /// 接在最后新建一格,原有的不动;已有的词不再写进这一格。
-  newSection,
+typedef ImportBlockDecorator =
+    PromptSection Function(
+      PromptSection row,
+      String Function(String, bool) retained,
+      Set<String> reservedNames,
+    );
 
-  /// 分区整列清掉,整份写进主体。
-  clear,
-}
-
-/// 一组正负向按 [mode] 写进 [s]。导入和「直接生成」共用,两条路出同一张图。
-/// [sectionName] 是「新建分区」那一格的名字。
+/// Decorate the actual destination before merging it into the canvas. Both
+/// generation and import use this projection; only committing an import saves
+/// the returned ownership in the conversation.
 GenerateState importPromptsInto(
   GenerateState s,
   String positive,
   String negative,
   SectionImport mode, {
   required String Function() newId,
-  String sectionName = 'AI',
+  String sectionName = '',
+  String fallbackName = 'AI',
+  bool allowEditNegative = true,
+  bool clearNegative = false,
+  PromptImportBinding binding = const PromptImportBinding(),
+  void Function(PromptImportBinding)? onBinding,
+  ImportBlockDecorator? decorate,
 }) {
-  final mainMode = mode == SectionImport.main && s.sections.isNotEmpty;
-  if (mode == SectionImport.newSection) {
-    final pos = dropSectionWords(
-      positive,
-      s.sections,
-      s.prompt,
-      positive: true,
-      withMain: true,
+  final dedicated = mode == SectionImport.aiSection;
+  final append = mode == SectionImport.appendMain;
+  final section = dedicated || mode == SectionImport.newSection;
+  final target = dedicated
+      ? s.sections
+            .where((r) => !r.isMain && r.id == binding.sectionId)
+            .firstOrNull
+      : null;
+  final others = target == null
+      ? s.sections
+      : s.sections.where((r) => r.id != target.id).toList();
+  final writeNeg =
+      allowEditNegative &&
+      (negative.trim().isNotEmpty ||
+          clearNegative ||
+          mode == SectionImport.clear);
+  final mainPos = pickEditorText(s.promptRaw, s.prompt);
+  final mainNeg = pickEditorText(s.negativePromptRaw, s.negativePrompt);
+  final posSlot = append
+      ? PromptInsertSlot.locate(
+          mainPos,
+          binding.positive,
+          s.promptFoldLinks,
+          negative: false,
+        )
+      : null;
+  final negSlot = append && writeNeg
+      ? PromptInsertSlot.locate(
+          mainNeg,
+          binding.negative,
+          s.promptFoldLinks,
+          negative: true,
+        )
+      : null;
+  final basePos = posSlot == null ? s.prompt : outputOf(posSlot.remainder);
+  final baseNeg = negSlot == null
+      ? s.negativePrompt
+      : outputOf(negSlot.remainder);
+  String retained(String text, bool neg) {
+    if (neg && !writeNeg) return '';
+    if (mode == SectionImport.clear) return text;
+    return dropSectionWords(
+      text,
+      others,
+      neg ? baseNeg : basePos,
+      positive: !neg,
+      withMain: section || append,
     );
-    final neg = dropSectionWords(
-      negative,
-      s.sections,
-      s.negativePrompt,
-      positive: false,
-      withMain: true,
-    );
-    if (pos.trim().isEmpty && neg.trim().isEmpty) return s;
+  }
+
+  final pos = retained(positive, false);
+  final neg = retained(negative, true);
+  if (section && target == null && pos.trim().isEmpty && neg.trim().isEmpty) {
+    return s;
+  }
+  final old =
+      target ??
+      (append || section
+          ? null
+          : PromptSection(
+              id: kMainSectionId,
+              name: '',
+              positive: s.prompt,
+              negative: s.negativePrompt,
+              positiveRaw: s.promptRaw,
+              negativeRaw: s.negativePromptRaw,
+              foldLinks: s.promptFoldLinks,
+            ));
+  final oldLinks = old?.foldLinks ?? const <PromptFoldLink>[];
+  final preservePos = !dedicated && old?.positive == pos;
+  final preserveNeg = !writeNeg || !dedicated && old?.negative == neg;
+  var row = PromptSection(
+    id: target?.id ?? (section ? newId() : kMainSectionId),
+    name: sectionName.isNotEmpty ? sectionName : target?.name ?? fallbackName,
+    enabled: target?.enabled ?? true,
+    artist: target?.artist ?? false,
+    sources: target?.sources ?? const [],
+    positive: pos,
+    negative: writeNeg ? neg : old?.negative ?? '',
+    positiveRaw: preservePos ? old!.positiveRaw : '',
+    negativeRaw: preserveNeg ? old?.negativeRaw ?? '' : '',
+    foldLinks: [
+      for (final link in oldLinks)
+        if (preservePos && preserveNeg)
+          link
+        else if (preserveNeg && link.negativeName.isNotEmpty)
+          link.copyWith(positiveName: '', positiveBody: '')
+        else if (preservePos && link.positiveName.isNotEmpty)
+          link.copyWith(negativeName: '', negativeBody: ''),
+    ],
+  );
+  if (decorate != null) {
+    final reserved = <String>{
+      if (posSlot != null)
+        for (final f in parseFolds(posSlot.remainder)) f.name,
+      if (append)
+        for (final f in parseFolds(negSlot?.remainder ?? mainNeg)) f.name,
+    };
+    row = decorate(row, retained, reserved);
+  }
+  if (section) {
+    if (dedicated) {
+      onBinding?.call(
+        PromptImportBinding(
+          sectionId: row.id,
+          positive: binding.positive,
+          negative: binding.negative,
+        ),
+      );
+    }
+    if (target != null) {
+      return s.copyWith(
+        sections: [for (final r in s.sections) r.id == target.id ? row : r],
+      );
+    }
     final rows = s.sections.isEmpty
         ? const [PromptSection.main()]
         : withMainRow(s.sections, s.prompt);
-    return s.copyWith(
-      sections: [
-        ...rows,
-        PromptSection(
-          id: newId(),
-          name: sectionName,
-          positive: pos,
-          negative: neg,
-        ),
-      ],
-    );
+    return s.copyWith(sections: [...rows, row]);
   }
-  final pos = mainMode
-      ? dropSectionWords(positive, s.sections, s.prompt, positive: true)
-      : positive;
-  final neg = mainMode
-      ? dropSectionWords(
-          negative,
-          s.sections,
-          s.negativePrompt,
-          positive: false,
-        )
-      : negative;
+  if (append) {
+    return _appendMainImport(s, row, posSlot!, negSlot, binding, onBinding);
+  }
+  onBinding?.call(
+    PromptImportBinding(
+      sectionId: binding.sectionId,
+      negative: writeNeg ? null : binding.negative,
+    ),
+  );
   return s.copyWith(
     prompt: pos,
-    promptRaw: pos == s.prompt ? s.promptRaw : '',
-    negativePrompt: neg,
-    negativePromptRaw: neg == s.negativePrompt ? s.negativePromptRaw : '',
-    sections: !mainMode
-        ? const []
-        : [
-            for (final x in withMainRow(s.sections, pos))
-              x.isMain && pos.trim().isNotEmpty ? x.copyWith(enabled: true) : x,
-          ],
+    promptRaw: row.positiveRaw,
+    negativePrompt: row.negative,
+    negativePromptRaw: row.negativeRaw,
+    promptFoldLinks: row.foldLinks,
+    sections: _sectionsAfterMainImport(s.sections, pos, mode, writeNeg),
   );
+}
+
+GenerateState _appendMainImport(
+  GenerateState state,
+  PromptSection row,
+  PromptInsertSlot positiveSlot,
+  PromptInsertSlot? negativeSlot,
+  PromptImportBinding binding,
+  void Function(PromptImportBinding)? onBinding,
+) {
+  final mainNeg = pickEditorText(state.negativePromptRaw, state.negativePrompt);
+  final (rawNeg, nextNeg) =
+      negativeSlot?.insert(pickEditorText(row.negativeRaw, row.negative), [
+        for (final link in row.foldLinks)
+          if (link.negativeName.isNotEmpty) link.id,
+      ]) ??
+      (mainNeg, binding.negative);
+  final posRest = positiveSlot.remainder,
+      negRest = negativeSlot?.remainder ?? mainNeg;
+  final surviving = validPromptFoldLinks(
+    posRest,
+    negRest,
+    state.promptFoldLinks,
+  );
+  final survivingIds = surviving.map((link) => link.id).toSet();
+  // When one side of a pair was replaced, the untouched side keeps its identity.
+  final singles = validPromptFoldLinks(posRest, negRest, [
+    for (final link in state.promptFoldLinks)
+      if (link.paired && !survivingIds.contains(link.id)) ...[
+        link.copyWith(positiveName: '', positiveBody: ''),
+        link.copyWith(negativeName: '', negativeBody: ''),
+      ],
+  ]);
+  final placed = [...row.foldLinks];
+  if (negativeSlot == null && singles.isNotEmpty) {
+    // The canvas negative was omitted. Keep its link ID when the same
+    // conversation replaces the other half of this exact named pair.
+    final ownedPairs = state.promptFoldLinks.where(
+      (l) =>
+          l.paired &&
+          binding.positive?.linkIds.contains(l.id) == true &&
+          binding.negative?.linkIds.contains(l.id) == true,
+    );
+    for (var i = 0; i < placed.length; i++) {
+      final fresh = placed[i];
+      if (fresh.paired || fresh.temporaryCategory == null) continue;
+      final old = ownedPairs
+          .where(
+            (l) =>
+                l.positiveName == fresh.positiveName &&
+                l.temporaryCategory == fresh.temporaryCategory,
+          )
+          .singleOrNull;
+      final kept = singles
+          .where((s) => s.id == old?.id && s.negativeName.isNotEmpty)
+          .singleOrNull;
+      if (kept == null) continue;
+      placed[i] = kept.copyWith(
+        positiveName: fresh.positiveName,
+        positiveBody: fresh.positiveBody,
+      );
+      singles.remove(kept);
+    }
+  }
+  final (rawPos, nextPos) = positiveSlot.insert(
+    pickEditorText(row.positiveRaw, row.positive),
+    [
+      for (final link in placed)
+        if (link.positiveName.isNotEmpty) link.id,
+    ],
+  );
+  onBinding?.call(
+    PromptImportBinding(
+      sectionId: binding.sectionId,
+      positive: nextPos,
+      negative: nextNeg,
+    ),
+  );
+  final samePos = rawPos == pickEditorText(state.promptRaw, state.prompt);
+  final pos = samePos ? state.prompt : outputOf(rawPos);
+  final neg = rawNeg == mainNeg ? state.negativePrompt : outputOf(rawNeg);
+  return state.copyWith(
+    prompt: pos,
+    promptRaw: samePos ? state.promptRaw : draftOf(rawPos, pos),
+    negativePrompt: neg,
+    negativePromptRaw: rawNeg == mainNeg
+        ? state.negativePromptRaw
+        : draftOf(rawNeg, neg),
+    promptFoldLinks: [...surviving, ...singles, ...placed],
+    sections: withMainRow(state.sections, pos),
+  );
+}
+
+List<PromptSection> _sectionsAfterMainImport(
+  List<PromptSection> sections,
+  String positive,
+  SectionImport mode,
+  bool writeNegative,
+) {
+  final rows = withMainRow(sections, positive);
+  if (mode != SectionImport.clear) {
+    return [
+      for (final row in rows)
+        row.isMain && positive.trim().isNotEmpty
+            ? row.copyWith(enabled: true)
+            : row,
+    ];
+  }
+  // Clearing positives must keep each locked exclusion in its original row.
+  bool hasNegative(PromptSection row) =>
+      row.negative.isNotEmpty || row.negativeRaw.isNotEmpty;
+  if (writeNegative || !rows.any((row) => !row.isMain && hasNegative(row))) {
+    return const [];
+  }
+  return [
+    for (final row in rows)
+      if (row.isMain)
+        row.copyWith(enabled: true)
+      else if (hasNegative(row))
+        row.copyWith(
+          positive: '',
+          positiveRaw: '',
+          foldLinks: [
+            for (final link in row.foldLinks)
+              if (link.negativeName.isNotEmpty)
+                link.copyWith(positiveName: '', positiveBody: ''),
+          ],
+        ),
+  ];
 }
 
 /// Compose raw drafts as well as their paired-fold provenance. Fold names and
@@ -300,14 +517,18 @@ GenerateState importPromptsInto(
     if (_clean(neg).isNotEmpty) negatives.add(_clean(neg));
     final posFolds = parseFolds(pos), negFolds = parseFolds(neg);
     for (final link in valid) {
-      final pn = posNames[link.positiveName]!,
-          nn = negNames[link.negativeName]!;
+      final pn = posNames[link.positiveName] ?? '',
+          nn = negNames[link.negativeName] ?? '';
       final pf = posFolds.where((f) => f.name == pn).firstOrNull;
       final nf = negFolds.where((f) => f.name == nn).firstOrNull;
-      if (pf == null ||
-          nf == null ||
-          pos.substring(pf.bodyStart, pf.bodyEnd).trim().isEmpty ||
-          neg.substring(nf.bodyStart, nf.bodyEnd).trim().isEmpty) {
+      final pb = pf == null
+          ? ''
+          : pos.substring(pf.bodyStart, pf.bodyEnd).trim();
+      final nb = nf == null
+          ? ''
+          : neg.substring(nf.bodyStart, nf.bodyEnd).trim();
+      if ((link.positiveName.isNotEmpty && pb.isEmpty) ||
+          (link.negativeName.isNotEmpty && nb.isEmpty)) {
         continue;
       }
       var id = link.id;
@@ -315,12 +536,12 @@ GenerateState importPromptsInto(
         id = '${link.id}:$suffix';
       }
       links.add(
-        PromptFoldLink(
+        link.copyWith(
           id: id,
           positiveName: pn,
-          positiveBody: pos.substring(pf.bodyStart, pf.bodyEnd).trim(),
+          positiveBody: pb,
           negativeName: nn,
-          negativeBody: neg.substring(nf.bodyStart, nf.bodyEnd).trim(),
+          negativeBody: nb,
         ),
       );
     }

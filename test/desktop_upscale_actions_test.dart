@@ -1,3 +1,4 @@
+import 'package:plana_app/core/net/gen_abort.dart' show GenAbort;
 import 'package:plana_app/features/generate/canvas_state.dart';
 import 'dart:async';
 import 'dart:convert';
@@ -75,6 +76,7 @@ class _Upscaler {
     required int width,
     required int height,
     void Function(String stage)? onStage,
+    GenAbort? abort,
   }) async {
     calls.add((bytes: bytes, width: width, height: height));
     onStage?.call('模拟超分处理中');
@@ -482,7 +484,11 @@ void main() {
         expect(getPanel(), findsNothing);
         expect(find.byType(BottomSheet), findsNothing);
         expect(find.byType(SegmentedButton<bool>), findsNothing);
-        expect(key('upscale-progress'), findsOneWidget);
+        expect(key('upscale-progress'), findsNothing);
+        expect(
+          container.read(generationProvider).jobs.single.kind,
+          GenJobKind.upscale,
+        );
         expect(upscale.calls.single, (bytes: red, width: 128, height: 128));
         expect(generation.calls, isEmpty);
         upscale.pending!.complete((png: output, width: 256, height: 256));
@@ -490,7 +496,7 @@ void main() {
           tester,
           () =>
               container.read(galleryProvider).results.length == 3 &&
-              key('upscale-progress').evaluate().isEmpty,
+              container.read(generationProvider).jobs.isEmpty,
         );
         final result = container.read(galleryProvider).results.first;
         expect(result.id, isNot(source.id));
@@ -595,9 +601,15 @@ void main() {
       await tester.tap(button('超分辨率'));
       await spinUntil(tester, () => upscale.calls.isNotEmpty);
       upscale.pending!.completeError(StateError('simulated failure'));
-      await spinUntil(tester, () => key('upscale-progress').evaluate().isEmpty);
+      await spinUntil(
+        tester,
+        () => container.read(generationProvider).jobs.isEmpty,
+      );
       await tester.pumpAndSettle();
-      expect(find.textContaining('超分失败'), findsOneWidget);
+      expect(
+        container.read(generationProvider).error,
+        contains('simulated failure'),
+      );
       expect(container.read(galleryProvider), same(before));
       expect(
         await tester.runAsync(() => stores.gallery.readImage(source.id)),
@@ -660,7 +672,7 @@ void main() {
       tester,
       () =>
           container.read(galleryProvider).results.length == 3 &&
-          key('upscale-progress').evaluate().isEmpty,
+          container.read(generationProvider).jobs.isEmpty,
     );
     expect(upscale.calls, hasLength(1));
     await finish(tester);
@@ -685,7 +697,7 @@ void main() {
         tester,
         () =>
             container.read(galleryProvider).results.length == 3 &&
-            key('upscale-progress').evaluate().isEmpty,
+            container.read(generationProvider).jobs.isEmpty,
       );
       final result = container.read(galleryProvider).results.first;
       expect(result.seed, source.seed);

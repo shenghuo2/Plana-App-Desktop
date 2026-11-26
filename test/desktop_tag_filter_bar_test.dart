@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:plana_app/core/theme/app_theme.dart';
 import 'package:plana_app/features/inspiration/widgets/desktop_tag_filter_bar.dart';
+import 'package:plana_app/features/inspiration/widgets/tag_filter_chips.dart';
 
 void main() {
   setUpAll(() async {
@@ -19,7 +20,7 @@ void main() {
   });
 
   final tags = [for (var i = 0; i < 40; i++) 'tag-$i'];
-  final picked = <String?>[];
+  final picked = <InspirationTagFilter>[];
   Finder chip(String label) => find.widgetWithText(ChoiceChip, label);
   Finder getStrip() => find.byKey(const ValueKey('inspiration-tag-strip'));
 
@@ -60,10 +61,8 @@ void main() {
               width: width,
               child: DesktopTagFilterBar(
                 tags: tags,
-                selectedTag: selected,
-                favoritesSelected: false,
-                onTagSelected: picked.add,
-                onFavoritesSelected: () {},
+                filter: InspirationTagFilter(tags: {?selected}),
+                onChanged: picked.add,
                 onManage: (_) {},
               ),
             ),
@@ -86,6 +85,19 @@ void main() {
     expect(selected.left, greaterThanOrEqualTo(viewport.left - .5));
     expect(selected.right, lessThanOrEqualTo(viewport.right + .5));
   }
+
+  testWidgets(
+    'all, favorites and custom tags share a center with and without overflow',
+    (tester) async {
+      prepare(tester);
+      for (final pool in [tags.take(2).toList(), tags]) {
+        await mount(tester, width: 1320, tags: pool);
+        final custom = tester.getCenter(chip('tag-0')).dy;
+        expect(tester.getCenter(chip('全部')).dy, closeTo(custom, .5));
+        expect(tester.getCenter(chip('收藏')).dy, closeTo(custom, .5));
+      }
+    },
+  );
 
   testWidgets('long and short tags settle across narrow overflow boundaries', (
     tester,
@@ -149,6 +161,17 @@ void main() {
   ) async {
     prepare(tester);
     await mount(tester, width: 300, tags: tags, selected: 'tag-20');
+    final scroll = tester.widget<SingleChildScrollView>(getStrip()).controller!;
+    final initial = scroll.offset;
+    await tester.sendEventToBinding(
+      PointerScrollEvent(
+        position: tester.getCenter(getStrip()),
+        scrollDelta: const Offset(0, -60),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(scroll.offset, initial);
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
     await tester.sendEventToBinding(
       PointerScrollEvent(
         position: tester.getCenter(getStrip()),
@@ -156,13 +179,21 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
     await mount(tester, width: 300, tags: [...tags], selected: 'tag-20');
-    final scroll = tester.widget<SingleChildScrollView>(getStrip()).controller!;
     expect(scroll.offset, 0);
     expect(chip('tag-20').hitTestable(), findsNothing);
     await tester.drag(
       getStrip(),
       const Offset(-120, 0),
+      kind: PointerDeviceKind.mouse,
+    );
+    await tester.pumpAndSettle();
+    expect(scroll.offset, 0);
+    final viewport = tester.getRect(getStrip());
+    await tester.dragFrom(
+      Offset(viewport.left + 8, viewport.bottom - 4),
+      const Offset(100, 0),
       kind: PointerDeviceKind.mouse,
     );
     await tester.pumpAndSettle();

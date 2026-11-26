@@ -19,6 +19,7 @@ import '../../generate/widgets/common.dart'
     show ExpandBody, hintSnack, sharedAxisRoute;
 import '../../import/import_panel.dart';
 import '../../generate/generation_controller.dart';
+import '../../desktop/desktop_library_picker.dart';
 import '../../desktop/desktop_library_state.dart';
 import '../gallery_date_filter.dart';
 import '../albums/album_state.dart';
@@ -64,14 +65,59 @@ typedef GalleryLibraryChooser =
 /// 进入多选后可继续拖动勾选，右键打开图片菜单;
 /// 段头可整段全选,底部批量保存相册 / 分享 /
 /// 打包 ZIP / 批量删除。导出所选后，可按确认的选项清理整个当前图库。
-Future<void> showGalleryGrid(
+/// [pickImage] opens the same browser for a single image, with its own album
+/// and filters. Tapping a result returns it to the caller.
+Future<ResultImage?> showGalleryGrid(
   BuildContext context, {
   bool desktop = false,
+  bool pickImage = false,
   GalleryLibraryChooser? onChooseAlbum,
 }) {
+  final contentKey = GlobalKey<GalleryGridContentState>();
+  Widget panel(BuildContext route) => Column(
+    children: [
+      Padding(
+        padding: const EdgeInsets.fromLTRB(20, 10, 10, 4),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(
+                pickImage
+                    ? route.l10n.pickFromGallery
+                    : route.l10n.desktopQuickBrowseAndBatchExport,
+                style: const TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+            IconButton(
+              tooltip: pickImage
+                  ? route.l10n.close
+                  : route.l10n.desktopCloseQuickBrowse,
+              onPressed: () => Navigator.pop(route),
+              icon: const Icon(Icons.close),
+            ),
+          ],
+        ),
+      ),
+      const Divider(height: 1),
+      Expanded(
+        child: GalleryGridContent(
+          key: contentKey,
+          desktop: desktop,
+          embedded: true,
+          onChooseAlbum: onChooseAlbum,
+          onClose: () => Navigator.pop(route),
+          onPickImage: pickImage
+              ? (image) => Navigator.pop(route, image)
+              : null,
+        ),
+      ),
+    ],
+  );
   if (desktop) {
-    final contentKey = GlobalKey<GalleryGridContentState>();
-    return showDialog<void>(
+    return showDialog<ResultImage>(
       context: context,
       builder: (dialogContext) => Focus(
         // The close button is outside the grid's own focus subtree. Keep the
@@ -82,50 +128,29 @@ Future<void> showGalleryGrid(
         child: Dialog(
           insetPadding: const EdgeInsets.all(32),
           child: SizedBox(
-            key: const ValueKey('desktop-quick-gallery'),
+            key: ValueKey(
+              pickImage ? 'gallery-image-picker' : 'desktop-quick-gallery',
+            ),
             width: 1160,
             height: 820,
-            child: Column(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 10, 10, 4),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          l10nNow.desktopQuickBrowseAndBatchExport,
-                          style: TextStyle(
-                            fontSize: 20,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ),
-                      IconButton(
-                        tooltip: l10nNow.desktopCloseQuickBrowse,
-                        onPressed: () => Navigator.pop(dialogContext),
-                        icon: const Icon(Icons.close),
-                      ),
-                    ],
-                  ),
-                ),
-                const Divider(height: 1),
-                Expanded(
-                  child: GalleryGridContent(
-                    key: contentKey,
-                    desktop: true,
-                    embedded: true,
-                    onChooseAlbum: onChooseAlbum,
-                    onClose: () => Navigator.pop(dialogContext),
-                  ),
-                ),
-              ],
-            ),
+            child: panel(dialogContext),
           ),
         ),
       ),
     );
   }
-  return showMobileGalleryGrid(context);
+  if (pickImage) {
+    return showModalBottomSheet<ResultImage>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (sheet) => SizedBox(
+        height: MediaQuery.sizeOf(sheet).height * .82,
+        child: panel(sheet),
+      ),
+    );
+  }
+  return showMobileGalleryGrid(context).then((_) => null);
 }
 
 /// 首次打开快速浏览时说明当前平台的长按与右键操作。
@@ -185,6 +210,7 @@ class GalleryGridContent extends ConsumerStatefulWidget {
     this.desktop = false,
     this.onClose,
     this.onChooseAlbum,
+    this.onPickImage,
     this.libraryLabel,
     this.browser,
   });
@@ -193,6 +219,7 @@ class GalleryGridContent extends ConsumerStatefulWidget {
   final bool desktop;
   final VoidCallback? onClose;
   final GalleryLibraryChooser? onChooseAlbum;
+  final ValueChanged<ResultImage>? onPickImage;
   final String? libraryLabel;
   final GalleryGridBrowser? browser;
 
@@ -217,7 +244,11 @@ class GalleryGridContentState extends ConsumerState<GalleryGridContent>
   bool _sharing = false;
   bool _zipping = false;
   bool _organizing = false;
-  String? get _scope => widget.browser != null
+  bool get _picking => widget.onPickImage != null;
+  String? _pickerAlbumId;
+  String? get _scope => _picking
+      ? _pickerAlbumId
+      : widget.browser != null
       ? widget.browser!.albumId
       : ref.read(galleryBrowseAlbumProvider);
   late String _scopeKey = _scope ?? '';
@@ -242,17 +273,19 @@ class GalleryGridContentState extends ConsumerState<GalleryGridContent>
   String? _modelFilter; // null=全部;''=未知(无参数快照的老图)
   bool _favoritesOnly = false;
   // 保存日历日期；相对日期跨日与恢复前台时重新计算。
-  late GalleryDateFilter _dateFilter = widget.browser == null
+  late GalleryDateFilter _dateFilter = widget.browser == null && !_picking
       ? ref.read(uiPrefsProvider).dateFilter
       : const GalleryDateFilter.all();
   late final Timer _dateTick;
 
   // 分组维度,同样记住上次的。存的是枚举名,不是下标 —— 将来插一档不会把
   // 老用户的选择挪到别的维度去。
-  late GalleryGroupBy _groupBy = GalleryGroupBy.values.firstWhere(
-    (e) => e.name == ref.read(uiPrefsProvider).galleryGroupBy,
-    orElse: () => GalleryGroupBy.day,
-  );
+  late GalleryGroupBy _groupBy = _picking
+      ? GalleryGroupBy.day
+      : GalleryGroupBy.values.firstWhere(
+          (e) => e.name == ref.read(uiPrefsProvider).galleryGroupBy,
+          orElse: () => GalleryGroupBy.day,
+        );
 
   // ---- 双指捏合改列数 ----
   //
@@ -477,6 +510,7 @@ class GalleryGridContentState extends ConsumerState<GalleryGridContent>
     _morph.addListener(_onMorphTick);
     _open.addListener(_onOpenTick);
     _ctrl.addListener(_remember);
+    if (_picking) return;
     // 换过分组维度的记忆不认:那一堆、那个位置在这个维度下都不存在
     final memory = _gridMemories[_memoryKey];
     if (memory != null && memory.groupBy == _groupBy) {
@@ -571,7 +605,12 @@ class GalleryGridContentState extends ConsumerState<GalleryGridContent>
   /// 是没筛的列表,拿筛过的位置去落只会错位 —— 停在筛之前记的那一次上。进出堆的
   /// 过场中也不记:新内容的位置要到帧后才落。
   void _remember() {
-    if (_query.isNotEmpty || _modelFilter != null || _open.isAnimating) return;
+    if (_picking ||
+        _query.isNotEmpty ||
+        _modelFilter != null ||
+        _open.isAnimating) {
+      return;
+    }
     if (!_ctrl.hasClients || _ctrl.positions.length != 1) return;
     final p = _ctrl.position;
     if (!p.hasContentDimensions) return;
@@ -827,14 +866,16 @@ class GalleryGridContentState extends ConsumerState<GalleryGridContent>
       menuPosition: widget.desktop ? _filterPosition(_dateAnchor) : null,
     );
     if (filter == null || !mounted) return;
-    ref
-        .read(uiPrefsProvider.notifier)
-        .patch(
-          (p) => p.copyWith(
-            galleryDateFilter: filter,
-            galleryGroupBy: GalleryGroupBy.day.name,
-          ),
-        );
+    if (!_picking) {
+      ref
+          .read(uiPrefsProvider.notifier)
+          .patch(
+            (p) => p.copyWith(
+              galleryDateFilter: filter,
+              galleryGroupBy: GalleryGroupBy.day.name,
+            ),
+          );
+    }
     // 日期入口同时负责回到按天排列；取消日历时不改变原筛选或分组。
     setState(() {
       _dateFilter = filter;
@@ -846,11 +887,13 @@ class GalleryGridContentState extends ConsumerState<GalleryGridContent>
   void _clearFilters() {
     _searchDebounce?.cancel();
     _searchCtrl.clear();
-    ref
-        .read(uiPrefsProvider.notifier)
-        .patch(
-          (p) => p.copyWith(galleryDateFilter: const GalleryDateFilter.all()),
-        );
+    if (!_picking) {
+      ref
+          .read(uiPrefsProvider.notifier)
+          .patch(
+            (p) => p.copyWith(galleryDateFilter: const GalleryDateFilter.all()),
+          );
+    }
     setState(() {
       _query = '';
       _modelFilter = null;
@@ -922,9 +965,11 @@ class GalleryGridContentState extends ConsumerState<GalleryGridContent>
           (v.label, v, null),
       ],
       onPick: (v) {
-        ref
-            .read(uiPrefsProvider.notifier)
-            .patch((p) => p.copyWith(galleryGroupBy: v.name));
+        if (!_picking) {
+          ref
+              .read(uiPrefsProvider.notifier)
+              .patch((p) => p.copyWith(galleryGroupBy: v.name));
+        }
         setState(() {
           _groupBy = v;
           _openKey = null; // 换了维度,原来点开的那一堆不存在了
@@ -1074,12 +1119,23 @@ class GalleryGridContentState extends ConsumerState<GalleryGridContent>
     ),
   );
 
-  void _chooseAlbum() {
+  Future<void> _chooseAlbum() async {
+    if (_picking) {
+      final album = await showLibraryChoiceDialog(
+        context,
+        browseOnly: true,
+        browseAlbumId: _pickerAlbumId,
+      );
+      if (album != null && mounted) {
+        setState(() => _pickerAlbumId = album.albumId);
+      }
+      return;
+    }
     final choose = widget.onChooseAlbum;
     if (choose != null) {
       choose(context, ref);
     } else {
-      showAlbumLibrary(context);
+      await showAlbumLibrary(context);
     }
   }
 
@@ -1109,9 +1165,9 @@ class GalleryGridContentState extends ConsumerState<GalleryGridContent>
               key: ValueKey(
                 '${widget.browser == null ? 'quick-gallery-image' : 'desktop-image'}-${r.id}',
               ),
-              fit: widget.desktop ? BoxFit.contain : BoxFit.cover,
+              fit: widget.desktop || _picking ? BoxFit.contain : BoxFit.cover,
               result: r,
-              selected: !_selecting && r.id == selectedId,
+              selected: !_picking && !_selecting && r.id == selectedId,
               picked: _selecting && _picked.contains(r.id),
               selecting: _selecting,
               mouseDragSelect: widget.desktop || widget.browser != null,
@@ -1119,7 +1175,9 @@ class GalleryGridContentState extends ConsumerState<GalleryGridContent>
                   ? () => toggleGalleryFavorite(context, r.id)
                   : null,
               onTap: () {
-                if (_selecting) {
+                if (widget.onPickImage case final pick?) {
+                  pick(r);
+                } else if (_selecting) {
                   _toggle(r.id);
                 } else if (widget.browser != null) {
                   widget.browser!.onOpenImage(
@@ -1138,7 +1196,7 @@ class GalleryGridContentState extends ConsumerState<GalleryGridContent>
               longPressDuration: widget.desktop || widget.browser != null
                   ? gallerySelectionHold
                   : const Duration(milliseconds: 500),
-              onLongPress: _pinching
+              onLongPress: _picking || _pinching
                   ? null
                   : widget.desktop || widget.browser != null
                   ? (_) {
@@ -1154,7 +1212,7 @@ class GalleryGridContentState extends ConsumerState<GalleryGridContent>
                   : (from) => _thumbMenu(r.id, from),
               // Right click keeps the existing per-image menu and never
               // enters selection. Touch holds and primary mouse drags select.
-              onSecondaryTap: _selecting || _pinching
+              onSecondaryTap: _picking || _selecting || _pinching
                   ? null
                   : (from) => _thumbMenu(r.id, from),
             ),
@@ -1205,7 +1263,7 @@ class GalleryGridContentState extends ConsumerState<GalleryGridContent>
                   _setOpen(g.key);
                 }
               }),
-              onLongPress: widget.desktop && !_pinching
+              onLongPress: !_picking && widget.desktop && !_pinching
                   ? () => setState(() {
                       _selection.enter();
                       _picked.addAll(ids);
@@ -1286,6 +1344,7 @@ class GalleryGridContentState extends ConsumerState<GalleryGridContent>
 
   KeyEventResult _onDesktopKey(FocusNode node, KeyEvent event) {
     if (!widget.desktop ||
+        _picking ||
         event.logicalKey != LogicalKeyboardKey.escape ||
         ModalRoute.of(context)?.isCurrent == false) {
       return KeyEventResult.ignored;
@@ -1309,6 +1368,12 @@ class GalleryGridContentState extends ConsumerState<GalleryGridContent>
   final _dragSelectionKey = GlobalKey<GalleryDragSelectionState>();
 
   /// Visible image order across date sections or within the opened group.
+  Object? _filterKey, _groupKey;
+  List<ResultImage> _scopeImages = const [],
+      _filtered = const [],
+      _groupImages = const [],
+      _orderedImages = const [];
+  List<GalleryGroup> _groups = const [];
   List<String> _order = const [];
 
   double get _span {
@@ -1325,7 +1390,7 @@ class GalleryGridContentState extends ConsumerState<GalleryGridContent>
   bool get _pinching => _pointers.length >= 2;
 
   void _persistCols() {
-    if (_cols == ref.read(uiPrefsProvider).galleryColumns) return;
+    if (_picking || _cols == ref.read(uiPrefsProvider).galleryColumns) return;
     ref
         .read(uiPrefsProvider.notifier)
         .patch((p) => p.copyWith(galleryColumns: _cols));
@@ -1880,13 +1945,15 @@ class GalleryGridContentState extends ConsumerState<GalleryGridContent>
   @override
   Widget build(BuildContext context) {
     final browser = widget.browser;
-    final state = browser == null
+    final creationScope = browser == null && !_picking;
+    final state = creationScope
         ? ref.watch(galleryViewProvider)
         : ref.watch(galleryProvider);
-    final scope = browser != null
-        ? browser.albumId
-        : ref.watch(galleryBrowseAlbumProvider);
     final albums = ref.watch(albumsProvider);
+    if (_picking && !albums.exists(_pickerAlbumId)) _pickerAlbumId = null;
+    final scope = creationScope
+        ? ref.watch(galleryBrowseAlbumProvider)
+        : (browser?.albumId ?? _pickerAlbumId);
     final now = DateTime.now();
     if (_scopeKey != (scope ?? '')) {
       _scopeKey = scope ?? '';
@@ -1901,24 +1968,7 @@ class GalleryGridContentState extends ConsumerState<GalleryGridContent>
         if (mounted && _ctrl.hasClients) _ctrl.jumpTo(0);
       });
     }
-    final results = scope == favoritesId
-        ? state.results.where((r) => r.favorite).toList()
-        : browser == null || scope == null
-        ? state.results
-        : state.results.where((r) => albums.contains(scope, r.id)).toList();
     final search = ref.watch(gallerySearchProvider);
-
-    // 筛选管线(先廉价的时间,再查表)
-    final filtered = filterGalleryImages(
-      images: results,
-      date: _dateFilter,
-      now: now,
-      byId: search.byId,
-      query: _query,
-      model: _modelFilter,
-      favoritesOnly: _favoritesOnly,
-      includeImageDetails: widget.desktop || browser != null,
-    );
     final filtering =
         _query.isNotEmpty ||
         _modelFilter != null ||
@@ -1938,10 +1988,55 @@ class GalleryGridContentState extends ConsumerState<GalleryGridContent>
     // 只有从没算出过结果时才提示。增量重算(每出一张新图)也会 isLoading 一帧,
     // 那一下闪字纯属噪音 —— 旧结果还在,画面根本没变。
     final grouping = tags.isLoading && !tags.hasValue;
-    final groups = _groupBy.stacked
-        ? groupByTags(filtered, tags.value ?? const {})
-        : groupByDay(filtered, DateTime.now());
-
+    final day = DateTime(now.year, now.month, now.day);
+    final filterKey = (
+      state.results,
+      creationScope,
+      scope,
+      albums,
+      _dateFilter,
+      day,
+      search.byId,
+      _query,
+      _modelFilter,
+      _favoritesOnly,
+      widget.desktop || browser != null,
+    );
+    if (_filterKey != filterKey) {
+      _filterKey = filterKey;
+      _scopeImages = scope == favoritesId
+          ? state.results.where((r) => r.favorite).toList()
+          : creationScope || scope == null
+          ? state.results
+          : state.results.where((r) => albums.contains(scope, r.id)).toList();
+      _filtered = filterGalleryImages(
+        images: _scopeImages,
+        date: _dateFilter,
+        now: now,
+        byId: search.byId,
+        query: _query,
+        model: _modelFilter,
+        favoritesOnly: _favoritesOnly,
+        includeImageDetails: widget.desktop || browser != null,
+      );
+    }
+    final results = _scopeImages;
+    final filtered = _filtered;
+    final groupKey = (
+      filtered,
+      _groupBy,
+      tags.value,
+      day,
+      Localizations.localeOf(context),
+    );
+    if (_groupKey != groupKey) {
+      _groupKey = groupKey;
+      _groups = _groupBy.stacked
+          ? groupByTags(filtered, tags.value ?? const {})
+          : groupByDay(filtered, now);
+      _groupImages = [for (final group in _groups) ...group.items];
+    }
+    final groups = _groups;
     // 点开的那一堆:筛选变了/图删了可能已经不在,不在就自动退回封面墙
     final open = _openKey == null
         ? null
@@ -1950,15 +2045,15 @@ class GalleryGridContentState extends ConsumerState<GalleryGridContent>
     // Select all action must not include images hidden in other groups.
     final selectable = open?.items ?? filtered;
     _selection.retainVisible(selectable);
-    final viewing = open?.items ?? [for (final group in groups) ...group.items];
+    final viewing = open?.items ?? _groupImages;
     _inStack = open != null;
-    _order = [
-      if (open != null)
-        for (final r in open.items) r.id
-      else if (!_groupBy.stacked)
-        for (final g in groups)
-          for (final r in g.items) r.id,
-    ];
+    final ordered = open != null || !_groupBy.stacked
+        ? viewing
+        : const <ResultImage>[];
+    if (!identical(ordered, _orderedImages)) {
+      _orderedImages = ordered;
+      _order = [for (final image in ordered) image.id];
+    }
 
     final scheme = context.scheme;
     final h = MediaQuery.of(context).size.height * 0.82;
@@ -2058,7 +2153,7 @@ class GalleryGridContentState extends ConsumerState<GalleryGridContent>
                                     open?.label ??
                                         browser?.title ??
                                         widget.libraryLabel ??
-                                        (widget.desktop
+                                        (widget.desktop && !_picking
                                             ? desktopLibraryLabel(
                                                 ref.watch(
                                                   desktopLibraryProvider,
@@ -2104,7 +2199,7 @@ class GalleryGridContentState extends ConsumerState<GalleryGridContent>
                                     : scheme.onSurfaceVariant,
                               ),
                             ),
-                          if (browser == null && !widget.desktop)
+                          if (browser == null && !widget.desktop && !_picking)
                             TextButton(
                               style: _headerBtn,
                               onPressed: () => _enterSelect(),

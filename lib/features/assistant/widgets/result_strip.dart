@@ -155,6 +155,7 @@ class _ResultStripState extends ConsumerState<ResultStrip>
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           ProposalDetails(
+                            draw: p,
                             diff: diff,
                             words: markChangedWords(diff),
                             positive: p.positive,

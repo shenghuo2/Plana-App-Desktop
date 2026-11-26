@@ -265,6 +265,7 @@ class CodexEntry {
     this.assetRev,
     this.assetCodexId,
     this.isNew = false,
+    this.postCount,
     this.images = const [],
     this.characters = const [],
   });
@@ -289,6 +290,7 @@ class CodexEntry {
   /// 跨法典引用时图归属的法典 id(极少;默认用所属法典 id)。
   final String? assetCodexId;
   final bool isNew;
+  final int? postCount;
   final List<CodexImage> images;
 
   /// 词条自带的角色段。**数据源里这是与 [tags] 平级的独立字段**,不在 tags 里 ——
@@ -347,6 +349,7 @@ class CodexEntry {
           ? j['assetCodexId'] as String
           : null,
       isNew: j['isNew'] == true,
+      postCount: j['post'] is num ? (j['post'] as num).toInt() : null,
       images: images,
       characters: [
         if (j['characterPrompts'] is List)
@@ -362,21 +365,23 @@ class CodexEntry {
     );
   }
 
-  CodexEntry copyWith({String? title, List<String>? path}) => CodexEntry(
-    id: id,
-    title: title ?? this.title,
-    tags: tags,
-    path: path ?? this.path,
-    image: image,
-    original: original,
-    imageWidth: imageWidth,
-    imageHeight: imageHeight,
-    assetRev: assetRev,
-    assetCodexId: assetCodexId,
-    isNew: isNew,
-    images: images,
-    characters: characters,
-  );
+  CodexEntry copyWith({String? title, List<String>? path, int? postCount}) =>
+      CodexEntry(
+        id: id,
+        title: title ?? this.title,
+        tags: tags,
+        path: path ?? this.path,
+        image: image,
+        original: original,
+        imageWidth: imageWidth,
+        imageHeight: imageHeight,
+        assetRev: assetRev,
+        assetCodexId: assetCodexId,
+        isNew: isNew,
+        postCount: postCount ?? this.postCount,
+        images: images,
+        characters: characters,
+      );
 
   /// 回写(收藏夹存词条快照用)。只落非空字段:收藏文件里几百条,
   /// 每条多带一串 null 白占体积。
@@ -392,6 +397,7 @@ class CodexEntry {
     if (assetRev != null) 'assetRev': assetRev,
     if (assetCodexId != null) 'assetCodexId': assetCodexId,
     if (isNew) 'isNew': true,
+    if (postCount != null) 'post': postCount,
     if (images.isNotEmpty)
       'images': [
         for (final im in images)
@@ -448,18 +454,26 @@ class CodexData {
     return out;
   }
 
-  /// 分类树:有 tree 用 tree;没有则从词条 path 首级合成扁平树(带计数),
-  /// 让每部法典都能走同一套层级筛选。
+  /// Some books provide only entry paths. Build every level in source order
+  /// so both the directory and the next-level category buttons can use them.
   List<CodexNode> get effectiveTree {
     if (tree.isNotEmpty) return tree;
-    final counts = <String, int>{};
-    for (final e in entries) {
-      final top = e.path.isNotEmpty ? e.path.first : '';
-      if (top.isNotEmpty) counts[top] = (counts[top] ?? 0) + 1;
+    final children = <String, Map<String, int>>{};
+    for (final entry in entries) {
+      var parent = '';
+      for (final name in entry.path) {
+        if (name.isEmpty) break;
+        final level = children[parent] ??= {};
+        level.update(name, (n) => n + 1, ifAbsent: () => 1);
+        parent = '$parent\u0000$name';
+      }
     }
-    return [
-      for (final e in counts.entries) CodexNode(e.key, e.value, const []),
+    List<CodexNode> nodes(String parent) => [
+      for (final item
+          in children[parent]?.entries ?? const <MapEntry<String, int>>[])
+        CodexNode(item.key, item.value, nodes('$parent\u0000${item.key}')),
     ];
+    return nodes('');
   }
 
   /// 顶层分类名(去重、保序),筛选 chip 用。
@@ -587,7 +601,15 @@ String? _mediaPath(
   CodexMedia media, {
   required bool original,
 }) {
-  final file = original ? e.original : e.image;
+  final first = e.images.firstOrNull;
+  final cover = (e.image?.isNotEmpty ?? false) ? e.image : first?.path;
+  var file = cover;
+  if (original) {
+    file = e.original;
+    if ((file == null || file.isEmpty) && first?.path == cover) {
+      file = first?.original;
+    }
+  }
   if (file == null || file.isEmpty) return null;
   if (_isAbsolute(file)) return file;
   if (codex.isRelativeAssets) return _encodeAssetPath(file);
@@ -629,7 +651,9 @@ String? codexImageItemUrl(
             : const <CodexImage>[]);
   if (i < 0 || i >= items.length) return null;
   final it = items[i];
-  final file = original ? (it.original ?? it.path) : it.path;
+  final originalFile = (it.original?.isNotEmpty ?? false)
+      ? it.original
+      : (i == 0 && it.path == e.image ? e.original : null);
   // 复用封面构造:把该图当作单图词条塞进去
   return codexImageUrl(
     codex,
@@ -637,12 +661,12 @@ String? codexImageItemUrl(
       id: e.id,
       title: e.title,
       tags: e.tags,
-      image: file,
-      original: it.original ?? it.path,
+      image: it.path,
+      original: originalFile,
       assetRev: e.assetRev,
       assetCodexId: e.assetCodexId,
     ),
     media,
-    original: original,
+    original: original && (originalFile?.isNotEmpty ?? false),
   );
 }

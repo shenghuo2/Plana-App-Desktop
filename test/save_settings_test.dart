@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:plana_app/core/platform/desktop.dart';
 import 'package:plana_app/core/store/app_stores.dart';
 import 'package:plana_app/core/util/webp_to_png.dart';
 import 'package:plana_app/features/gallery/phone_image_date.dart';
@@ -13,9 +14,78 @@ import 'package:plana_app/features/gallery/save_pipeline.dart';
 import 'package:plana_app/features/gallery/save_settings.dart';
 import 'package:plana_app/features/gallery/zip_pipeline.dart';
 import 'package:plana_app/features/import/image_metadata.dart';
+import 'package:plana_app/features/tools/metadata_draft.dart';
+import 'package:plana_app/features/tools/metadata_processing.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  test(
+    'a cold desktop gallery uses the toolbox draft even with an empty positive prompt',
+    () async {
+      var stores = AppStores.ephemeral();
+      ProviderContainer session() => ProviderContainer(
+        overrides: [
+          appStoresProvider.overrideWithValue(stores),
+          desktopModeProvider.overrideWithValue(true),
+        ],
+      );
+      await stores.prefs.write(
+        key: 'save_settings',
+        value: '{"meta":"custom","customPrompt":"legacy"}',
+      );
+      final first = session();
+      final png = img.encodePng(img.Image(width: 24, height: 16));
+      final template = await writeImageMetadataPng(
+        png,
+        source: 'Template model',
+        comment: {
+          'prompt': 'template',
+          'uc': 'before',
+          'steps': 28,
+          'extra': 'from toolbox',
+          'v4_prompt': {
+            'caption': {'base_caption': 'template', 'char_captions': []},
+          },
+        },
+      );
+      final edits = first.read(metadataDraftProvider.notifier);
+      edits.readImage(await extractImageMetadata(template), null);
+      edits.editFields({
+        'prompt': '',
+        'uc': 'negative only',
+        'seed': '987',
+        'steps': '19',
+      });
+      await stores.flushForExit();
+      first.dispose();
+      stores = await AppStores.open(
+        rootOverride: stores.desktopOutput.root.parent,
+      );
+      final cold = session();
+      addTearDown(cold.dispose);
+      final settings = await cold.read(saveSettingsProvider.future);
+      final target = await writeImageMetadataPng(
+        png,
+        comment: {'prompt': 'private target', 'target_only': true},
+      );
+      for (final format in [SaveFormat.png, SaveFormat.webp]) {
+        final result = await processForSave(
+          target,
+          settings.copyWith(format: format),
+        );
+        final meta = (await extractImageMetadata(result))!;
+        final comment = metadataComment(meta);
+        expect(meta.prompt, isEmpty);
+        expect(meta.negativePrompt, 'negative only');
+        expect(meta.steps, '19');
+        expect(meta.seed, '987');
+        expect(comment['extra'], 'from toolbox');
+        expect(comment['v4_prompt']['caption']['base_caption'], isEmpty);
+        expect(comment.containsKey('target_only'), isFalse);
+      }
+    },
+  );
 
   test(
     'legacy WebP retention migrates once while an explicit JPG choice wins',

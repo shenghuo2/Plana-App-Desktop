@@ -47,6 +47,7 @@ class ToolContext {
     required this.texts,
     this.artists = const [],
     this.ocs = const [],
+    this.searchOcLibrary,
     this.remembered = const {},
     this.offline,
     this.online,
@@ -63,6 +64,7 @@ class ToolContext {
   /// 画风库 / OC 库。
   final List<LibArtist> artists;
   final List<LibOc> ocs;
+  final Future<List<LibOc>> Function(String query)? searchOcLibrary;
 
   /// 上一轮记下的账本。
   final Map<String, Map<String, String>> remembered;

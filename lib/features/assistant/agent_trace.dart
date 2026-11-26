@@ -27,6 +27,7 @@ class AgentTrace {
 
   static const routeBackend = 'backend';
   static const routeCustom = 'custom';
+  static const routePlan = 'chatgpt';
 
   final String userText;
 
@@ -185,7 +186,11 @@ String renderTraceExport({
         : '失败:${t.error}';
     head(
       '第 ${i + 1} 轮 · ${traceTimestamp(t.startedAt)} · '
-      '${t.route == AgentTrace.routeCustom ? '自定义接口' : '后端渠道'}'
+      '${switch (t.route) {
+        AgentTrace.routePlan => 'ChatGPT 订阅',
+        AgentTrace.routeCustom => '自定义接口',
+        _ => '后端渠道',
+      }}'
       '${end == null ? '' : ' · ${_secs(end - t.startedAt)}'} · $status',
     );
     b

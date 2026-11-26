@@ -2,12 +2,14 @@ import '../util/canonical_number.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 import 'dart:typed_data';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
 
 import '../util/log.dart';
+import '../util/prompt_block.dart';
 import 'backend_config.dart';
 import 'backend_http.dart';
 import 'nai_client.dart' show NaiUsage, parseNaiUsage;
@@ -316,8 +318,8 @@ class NaiQuota {
     this.relayEnabled = false,
     this.relayAvailable = true,
     this.relayPrice = 0.05,
-    this.relayPriceLegacy = 0.05,
-  });
+    double? relayPriceLegacy,
+  }) : _reportedLegacyPrice = relayPriceLegacy;
 
   /// 今日余额(张)。服务端按秒连续回充,所以带小数 —— 显示时**向下**取整,
   /// 免得报了 1 张、点进去却扣不动。
@@ -358,7 +360,11 @@ class NaiQuota {
 
   /// 中转单价(元 / 张):V5 / V4.5 及更早。
   final double relayPrice;
-  final double relayPriceLegacy;
+  final double? _reportedLegacyPrice;
+  double get relayPriceLegacy => _reportedLegacyPrice ?? relayPrice;
+
+  /// 后端没有单独报价时，Bot 中转的 NAI 4.5 按免费显示。
+  double get relayPrice45 => _reportedLegacyPrice ?? 0;
 
   /// 现在能出几张(余额 + 赠送)。
   int get available => (balance + extra).floor();
@@ -378,7 +384,7 @@ class NaiQuota {
     relayEnabled: relayEnabled ?? this.relayEnabled,
     relayAvailable: relayAvailable ?? this.relayAvailable,
     relayPrice: relayPrice,
-    relayPriceLegacy: relayPriceLegacy,
+    relayPriceLegacy: _reportedLegacyPrice,
   );
 
   factory NaiQuota.fromJson(Map<String, dynamic> j) {
@@ -395,7 +401,7 @@ class NaiQuota {
       relayEnabled: j['relay_enabled'] == true,
       relayAvailable: j['relay_available'] != false,
       relayPrice: price,
-      relayPriceLegacy: (j['relay_price_legacy'] as num?)?.toDouble() ?? price,
+      relayPriceLegacy: (j['relay_price_legacy'] as num?)?.toDouble(),
     );
   }
 }
@@ -1603,16 +1609,21 @@ class AgentCharacter {
 /// 不出结果卡、不点导航角标。
 class AgentResult {
   const AgentResult({
+    this.section = '',
     this.replyText = '',
     this.reasoning = '',
+    this.blocks = const [],
     this.positive = '',
     this.negative = '',
+    this.specifiedNegative = false,
     this.characters = const [],
     this.resources = const {},
   });
 
   /// 发给用户的角色语气正文(后端字段名是 `thinking`)。
   final String replyText;
+  final String section;
+  final List<PromptBlock> blocks;
 
   /// 模型原生思考。不进对话历史,只供当轮展示/排查。
   final String reasoning;
@@ -1620,6 +1631,7 @@ class AgentResult {
   final String positive;
   final String negative;
   final List<AgentCharacter> characters;
+  final bool specifiedNegative;
 
   /// 沿用中的资源账本(画师串 / OC):`{kind: {名字: 内容}}`。
   ///
@@ -1633,23 +1645,40 @@ class AgentResult {
   /// 这一轮有没有产出画面改动。见类文档:服务端不下发 `should_draw`。
   bool get hasDraw => positive.trim().isNotEmpty || characters.isNotEmpty;
 
-  factory AgentResult.fromJson(Map<String, dynamic> j) => AgentResult(
-    replyText: j['thinking']?.toString().trim() ?? '',
-    reasoning: j['reasoning']?.toString().trim() ?? '',
-    positive: j['positive']?.toString() ?? '',
-    negative: j['negative']?.toString() ?? '',
-    characters: [
-      for (final c in (j['characters'] as List? ?? const []))
-        if (c is Map<String, dynamic>) AgentCharacter.fromJson(c),
-    ],
-    resources: {
+  factory AgentResult.fromJson(
+    Map<String, dynamic> j, {
+    bool recoverBlocks = false,
+  }) {
+    final resources = {
       for (final e in (j['resources'] as Map? ?? const {}).entries)
         if (e.value is Map)
           '${e.key}': {
             for (final r in (e.value as Map).entries) '${r.key}': '${r.value}',
           },
-    },
-  );
+    };
+    final saved = PromptBlock.decode(j['promptBlocks']);
+    return AgentResult(
+      section: assistantSectionName(j['section']),
+      replyText: j['thinking']?.toString().trim() ?? '',
+      blocks: saved.isNotEmpty
+          ? saved
+          : PromptBlock.fromDraw(
+              j,
+              j,
+              (line) => line,
+              recoverWith: recoverBlocks ? resources : null,
+            ),
+      reasoning: j['reasoning']?.toString().trim() ?? '',
+      positive: j['positive']?.toString() ?? '',
+      negative: j['negative']?.toString() ?? '',
+      specifiedNegative: j['negative'] is String,
+      characters: [
+        for (final c in (j['characters'] as List? ?? const []))
+          if (c is Map<String, dynamic>) AgentCharacter.fromJson(c),
+      ],
+      resources: resources,
+    );
+  }
 }
 
 /// Plana 后端客户端(当前仅含 bot 授权四端点里 App 要用的三个;
@@ -1657,6 +1686,22 @@ class AgentResult {
 ///
 /// 全站约定:auth 端点失败也返 200,要看 body 的 verified/valid 字段;
 /// 其余端点非 2xx + `{"detail": ...}`。
+/// 后端支持的较新传法,见 [BackendClient.caps]。
+class BackendCaps {
+  const BackendCaps({this.img2imgFit = false, this.upscaleBinary = false});
+
+  factory BackendCaps.fromJson(Map<String, dynamic> j) => BackendCaps(
+    img2imgFit: j['img2img_fit'] == true,
+    upscaleBinary: j['upscale_binary'] == true,
+  );
+
+  /// 出图请求的 img2img 可以发原图 + `fit: cover`,由后端放大到出图尺寸。
+  final bool img2imgFit;
+
+  /// 有 `/upscale/binary`。
+  final bool upscaleBinary;
+}
+
 class BackendClient {
   BackendClient(this.baseUrl);
 
@@ -1706,6 +1751,16 @@ class BackendClient {
       throw BackendException('无法连接后端,请检查地址与网络');
     }
 
+    // 大响应(整条 vibe、灵感库备份)在后台解析
+    if (resp.statusCode >= 200 &&
+        resp.statusCode < 300 &&
+        resp.bodyBytes.length > 256 * 1024) {
+      try {
+        final j = await _jsonOfBytesInIsolate(resp.bodyBytes);
+        if (j is Map<String, dynamic>) return j;
+      } catch (_) {}
+      throw BackendException('后端返回格式异常');
+    }
     return _decode(resp);
   }
 
@@ -1747,6 +1802,27 @@ class BackendClient {
   /// 没有分片提交入口的后端(旧版),之后直接走 JSON。
   static final _noMultipart = <String>{};
 
+  /// 按后端地址缓存的 [caps] 结果与过期时刻。
+  static final _caps = <String, (BackendCaps, DateTime)>{};
+
+  /// 后端支持哪些较新的传法(`GET /caps`)。旧后端没有这个地址,当作都不支持。
+  /// 支持的一直记着;不支持或没问到的 10 分钟后再问,后端升级后不用重启 App。
+  Future<BackendCaps> caps() async {
+    final hit = _caps[baseUrl];
+    if (hit != null &&
+        (hit.$1.upscaleBinary || DateTime.now().isBefore(hit.$2))) {
+      return hit.$1;
+    }
+    var c = const BackendCaps();
+    try {
+      c = BackendCaps.fromJson(
+        await _getJson('/caps', null, const Duration(seconds: 8)),
+      );
+    } catch (_) {}
+    _caps[baseUrl] = (c, DateTime.now().add(const Duration(minutes: 10)));
+    return c;
+  }
+
   static final _b64 = RegExp(r'^[A-Za-z0-9+/]+={0,2}$');
 
   /// 把 [v] 里的长 base64 串(图片、Vibe 编码)抽进 [parts],原处换成 `@part:名字`。
@@ -1769,7 +1845,8 @@ class BackendClient {
     }
     if (v is Map) {
       return <String, dynamic>{
-        for (final e in v.entries) '${e.key}': _extractParts(e.value, parts, seen),
+        for (final e in v.entries)
+          '${e.key}': _extractParts(e.value, parts, seen),
       };
     }
     if (v is List) return [for (final x in v) _extractParts(x, parts, seen)];
@@ -1890,8 +1967,7 @@ class BackendClient {
     };
     Future<Map<String, dynamic>> submit() async {
       if (!_noMultipart.contains(baseUrl)) {
-        final parts = <String, Uint8List>{};
-        final mpBody = _extractParts(body, parts, {}) as Map<String, dynamic>;
+        final (mpBody, parts) = await _extractPartsInIsolate(body);
         if (parts.isNotEmpty) {
           try {
             return await _postMultipart(
@@ -1910,6 +1986,7 @@ class BackendClient {
       return _postJson('/bot/generate', body, sessionId);
     }
 
+    final sw = Stopwatch()..start();
     Map<String, dynamic> j;
     try {
       j = await submit();
@@ -1918,6 +1995,12 @@ class BackendClient {
       logi('[net] 提交出图没拿到响应,带同一个幂等键重发: ${e.message}');
       j = await submit();
     }
+    final i2i = params['img2img'];
+    final img = i2i is Map ? i2i['imageBase64'] : null;
+    logi(
+      '[net] 提交出图 ${sw.elapsedMilliseconds}ms'
+      '${img is String ? ' · 底图 ${img.length * 3 ~/ 4 ~/ 1024} KiB' : ''}',
+    );
     return (
       success: j['success'] == true,
       taskId: j['task_id'] as String?,
@@ -2759,11 +2842,12 @@ class BackendClient {
   ///  - `legacy`(默认):api 子域传统超分,4×,仅 832×1216/1216×832/1024²,固定 7 点
   ///  - `nai5`:image 子域 V5 扩散超分,固定 2×、输入尺寸无白名单,按源图 1–4 点
   ///
-  /// 后端要远程转发 NAI,给足超时(V5 扩散比传统超分慢得多)。
-  /// ⚠️ 失败也返 200,看 success/message。→ (是否成功, 结果图 base64?, 文案)
-  Future<({bool success, String? imageBase64, String message})> upscale({
+  /// 后端要远程转发 NAI,给足超时(V5 扩散比传统超分慢得多)。后端支持时图片双向走
+  /// 二进制(`/upscale/binary`),否则走 JSON base64。
+  /// ⚠️ 失败也返 200,看 success/message。→ (是否成功, 结果图?, 文案)
+  Future<({bool success, Uint8List? image, String message})> upscale({
     required String sessionId,
-    required String imageBase64,
+    required Uint8List image,
     required int width,
     required int height,
     int scale = 4,
@@ -2771,23 +2855,88 @@ class BackendClient {
     String? model,
     double? declaredBlurSigma,
   }) async {
-    final j = await _postJson(
-      '/upscale',
-      {
-        'image': imageBase64,
-        'width': width,
-        'height': height,
-        'scale': scale,
-        'mode': mode,
-        'model': ?model,
-        'declared_blur_sigma': ?declaredBlurSigma,
-      },
-      sessionId,
-      Duration(seconds: mode == 'nai5' ? 300 : 120),
+    final sw = Stopwatch()..start();
+    final fields = <String, dynamic>{
+      'width': width,
+      'height': height,
+      'scale': scale,
+      'mode': mode,
+      'model': ?model,
+      'declared_blur_sigma': ?declaredBlurSigma,
+    };
+    final timeout = Duration(seconds: mode == 'nai5' ? 300 : 120);
+    final binary = (await caps()).upscaleBinary;
+    final ({bool success, Uint8List? image, String message}) r;
+    if (binary) {
+      r = await _upscaleBinary(sessionId, image, fields, timeout);
+    } else {
+      final j = await _postJson(
+        '/upscale',
+        {'image': base64Encode(image), ...fields},
+        sessionId,
+        timeout,
+      );
+      final out = j['image'];
+      r = (
+        success: j['success'] == true,
+        image: out is String && out.isNotEmpty ? base64Decode(out) : null,
+        message: (j['message'] as String?) ?? '',
+      );
+    }
+    logi(
+      '[net] 超分${binary ? '(二进制)' : ''} ${sw.elapsedMilliseconds}ms · '
+      '源图 ${image.length >> 10} KiB · 结果 ${(r.image?.length ?? 0) >> 10} KiB',
     );
+    return r;
+  }
+
+  /// `/upscale/binary`:request 分片是不带图的请求体,image 分片是原图;成功回图片
+  /// 字节,失败回 JSON。
+  Future<({bool success, Uint8List? image, String message})> _upscaleBinary(
+    String sessionId,
+    Uint8List image,
+    Map<String, dynamic> fields,
+    Duration timeout,
+  ) async {
+    if (baseUrl.isEmpty) throw BackendException('未配置后端地址');
+    final req = http.MultipartRequest('POST', _u('/upscale/binary'))
+      ..headers['Authorization'] = 'Bearer $sessionId'
+      ..files.add(
+        http.MultipartFile.fromBytes(
+          'request',
+          utf8.encode(jsonEncode(fields)),
+          filename: 'blob',
+          contentType: http.MediaType('application', 'json'),
+        ),
+      )
+      ..files.add(
+        http.MultipartFile.fromBytes(
+          'image',
+          image,
+          filename: 'blob',
+          contentType: http.MediaType('image', 'png'),
+        ),
+      );
+    final http.Response resp;
+    try {
+      resp = await http.Response.fromStream(
+        await _http.send(req),
+      ).timeout(_sendTimeout(image.length, timeout));
+    } on TimeoutException {
+      throw BackendException('连接后端超时,请检查地址与网络');
+    } catch (_) {
+      throw BackendException('无法连接后端,请检查地址与网络');
+    }
+    final type = resp.headers['content-type'] ?? '';
+    if (resp.statusCode >= 200 &&
+        resp.statusCode < 300 &&
+        type.startsWith('image/')) {
+      return (success: true, image: resp.bodyBytes, message: '');
+    }
+    final j = _decode(resp);
     return (
-      success: j['success'] == true,
-      imageBase64: j['image'] as String?,
+      success: false,
+      image: null,
       message: (j['message'] as String?) ?? '',
     );
   }
@@ -3038,7 +3187,8 @@ class BackendClient {
   /// 撤销一把,立即生效。已经撤销过 / 不是自己的回 404。
   Future<void> revokeApiKey(String sessionId, int id) async {
     await _handle(
-      () => _http.delete(_u('/user/api-keys/$id'), headers: _headers(sessionId)),
+      () =>
+          _http.delete(_u('/user/api-keys/$id'), headers: _headers(sessionId)),
     );
   }
 
@@ -3393,3 +3543,16 @@ final backendClientProvider = Provider<BackendClient>((ref) {
   final base = ref.watch(backendBaseProvider).value ?? '';
   return BackendClient(base);
 });
+
+/// 后台 isolate:抽出 [body] 里的长 base64 串(见 [BackendClient._extractParts])。
+Future<(Map<String, dynamic>, Map<String, Uint8List>)> _extractPartsInIsolate(
+  Map<String, dynamic> body,
+) => Isolate.run(() {
+  final parts = <String, Uint8List>{};
+  final mp =
+      BackendClient._extractParts(body, parts, {}) as Map<String, dynamic>;
+  return (mp, parts);
+});
+
+Future<Object?> _jsonOfBytesInIsolate(Uint8List bytes) =>
+    Isolate.run(() => jsonDecode(utf8.decode(bytes)));

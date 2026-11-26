@@ -1,8 +1,11 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/store/app_stores.dart';
+import '../../core/platform/desktop.dart';
+import '../tools/metadata_draft.dart';
 
 /// 保存到相册的元数据处理方式(对齐 web SaveModal)。
 enum SaveMeta { original, clean, custom }
@@ -17,6 +20,7 @@ class SaveSettings {
     this.format = SaveFormat.png,
     this.quality = 0.92,
     this.customPrompt = '',
+    this.metadataDraft,
     this.recentAlbums = const [],
   });
 
@@ -29,6 +33,9 @@ class SaveSettings {
   /// meta = custom 时写入的提示词。
   final String customPrompt;
 
+  /// Desktop exports use the toolbox draft. It is persisted by the toolbox.
+  final MetadataDraft? metadataDraft;
+
   /// 用过的自定义相册名(最近在前,上限 [maxRecentAlbums])。
   /// 只记名字不记路径 —— 手机相册固定写 `Pictures/<名字>/`。
   final List<String> recentAlbums;
@@ -40,12 +47,14 @@ class SaveSettings {
     SaveFormat? format,
     double? quality,
     String? customPrompt,
+    MetadataDraft? metadataDraft,
     List<String>? recentAlbums,
   }) => SaveSettings(
     meta: meta ?? this.meta,
     format: format ?? this.format,
     quality: quality ?? this.quality,
     customPrompt: customPrompt ?? this.customPrompt,
+    metadataDraft: metadataDraft ?? this.metadataDraft,
     recentAlbums: recentAlbums ?? this.recentAlbums,
   );
 
@@ -91,6 +100,7 @@ class SaveSettings {
       other.format == format &&
       other.quality == quality &&
       other.customPrompt == customPrompt &&
+      other.metadataDraft == metadataDraft &&
       _sameList(other.recentAlbums, recentAlbums);
 
   static bool _sameList(List<String> a, List<String> b) {
@@ -107,6 +117,7 @@ class SaveSettings {
     format,
     quality,
     customPrompt,
+    metadataDraft,
     Object.hashAll(recentAlbums),
   );
 }
@@ -127,18 +138,22 @@ final saveSettingsProvider =
 
 class SaveSettingsNotifier extends AsyncNotifier<SaveSettings> {
   @override
-  Future<SaveSettings> build() async {
+  FutureOr<SaveSettings> build() {
+    MetadataDraft? draft;
     try {
+      if (ref.watch(desktopModeProvider)) {
+        draft = ref.watch(metadataDraftProvider);
+      }
       final prefs = ref.read(prefsStoreProvider);
-      final raw = await prefs.read(key: _key);
+      final raw = prefs.get(_key);
       final data = raw == null || raw.isEmpty
           ? <String, dynamic>{}
           : jsonDecode(raw) as Map<String, dynamic>;
-      final saved = SaveSettings.fromJson(data);
+      final saved = SaveSettings.fromJson(data).copyWith(metadataDraft: draft);
       if (data['formatVersion'] == 2 || saved.format != SaveFormat.png) {
         return saved;
       }
-      final old = await prefs.read(key: 'gen_settings');
+      final old = prefs.get('gen_settings');
       if (old != null && old.isNotEmpty) {
         try {
           if (jsonDecode(old) case {'keepWebp': true}) {
@@ -150,7 +165,7 @@ class SaveSettingsNotifier extends AsyncNotifier<SaveSettings> {
       }
       return saved;
     } catch (_) {
-      return const SaveSettings();
+      return SaveSettings(metadataDraft: draft);
     }
   }
 

@@ -1,3 +1,4 @@
+import 'fold_icon.dart';
 import '../../../l10n/l10n.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -26,12 +27,16 @@ class FoldInspector extends ConsumerStatefulWidget {
     required this.tapGroupId,
     required this.onClose,
     required this.onDelete,
+    this.onEditInspiration,
+    this.initialPositive,
     this.fullscreen = false,
   });
   final String name;
   final Object tapGroupId;
   final VoidCallback onClose, onDelete;
+  final ValueChanged<String>? onEditInspiration;
   final bool fullscreen;
+  final bool? initialPositive;
 
   @override
   ConsumerState<FoldInspector> createState() => _FoldInspectorState();
@@ -43,6 +48,8 @@ class _FoldInspectorState extends ConsumerState<FoldInspector> {
   final _scroll = ScrollController(keepScrollOffset: false);
   final _fieldKey = GlobalKey<AnnotatedFieldState>();
   late String _name;
+  bool? _missingPositive;
+  bool _attachingSide = false;
   String _previous = '';
   bool _muting = false;
   bool _cursorDragging = false;
@@ -58,6 +65,10 @@ class _FoldInspectorState extends ConsumerState<FoldInspector> {
   void initState() {
     super.initState();
     _name = widget.name;
+    final link = ref.read(editorProvider).placementOf(_name)?.link;
+    if (link != null && widget.initialPositive != null) {
+      _selectSide(link, widget.initialPositive!);
+    }
     _loadBody();
     _controller.addListener(_onController);
   }
@@ -67,12 +78,15 @@ class _FoldInspectorState extends ConsumerState<FoldInspector> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.name != widget.name) {
       _name = widget.name;
+      _missingPositive = null;
       _loadBody();
     }
   }
 
   void _loadBody() {
-    final body = ref.read(editorProvider).foldBodies[_name] ?? '';
+    final body = _missingPositive == null
+        ? ref.read(editorProvider).foldBodies[_name] ?? ''
+        : '';
     if (body == _previous && _controller.text == body) return;
     _muting = true;
     _controller.value = TextEditingValue(
@@ -96,7 +110,25 @@ class _FoldInspectorState extends ConsumerState<FoldInspector> {
     if (_muting) return;
     if (_previous != _controller.text) {
       _previous = _controller.text;
-      _editor.editFoldBody(_name, _controller.text);
+      if (_missingPositive case final positive?) {
+        if (_previous.trim().isEmpty) return;
+        _attachingSide = true;
+        try {
+          final name = _editor.addTemporaryFoldSide(
+            widget.name,
+            positive: positive,
+            body: _previous,
+          );
+          if (name != null) {
+            _name = name;
+            _missingPositive = null;
+          }
+        } finally {
+          _attachingSide = false;
+        }
+      } else {
+        _editor.editFoldBody(_name, _controller.text);
+      }
       setState(() => _selected = null);
     } else {
       _route();
@@ -141,11 +173,23 @@ class _FoldInspectorState extends ConsumerState<FoldInspector> {
     }
   }
 
+  void _selectSide(PromptFoldLink link, bool positive) {
+    final name = positive ? link.positiveName : link.negativeName;
+    _missingPositive = name.isEmpty ? positive : null;
+    _name = name.isEmpty ? widget.name : name;
+    _selected = null;
+    _loadBody();
+  }
+
   void _openFullscreen() {
     if (_openingFullscreen) return;
     _openingFullscreen = true;
-    final name = _name;
+    final name = widget.name;
+    final link = ref.read(editorProvider).placementOf(name)?.link;
+    final side =
+        _missingPositive ?? (link == null ? null : link.positiveName == _name);
     final delete = widget.onDelete;
+    final edit = widget.onEditInspiration;
     final group = Object();
     // The modal keeps this editor session, but replaces the small popover.
     // Capture actions before dismissing: the parent no longer has a selection.
@@ -154,8 +198,10 @@ class _FoldInspectorState extends ConsumerState<FoldInspector> {
       context,
       builder: (context) => FoldInspector(
         name: name,
+        initialPositive: side,
         fullscreen: true,
         tapGroupId: group,
+        onEditInspiration: edit,
         onClose: () => Navigator.of(context).pop(),
         onDelete: () {
           delete();
@@ -202,7 +248,21 @@ class _FoldInspectorState extends ConsumerState<FoldInspector> {
   @override
   Widget build(BuildContext context) {
     ref.listen(editorProvider, (_, next) {
-      if (next.foldBodies[_name] != _controller.text) {
+      if (_attachingSide) return;
+      final link = next.foldLinks
+          .where(
+            (l) =>
+                l.positiveName == widget.name || l.negativeName == widget.name,
+          )
+          .firstOrNull;
+      if (_missingPositive == null &&
+          link != null &&
+          _name != widget.name &&
+          link.positiveName != _name &&
+          link.negativeName != _name) {
+        setState(() => _selectSide(link, link.positiveName.isEmpty));
+      } else if (_missingPositive == null &&
+          next.foldBodies[_name] != _controller.text) {
         setState(_loadBody);
       }
     });
@@ -220,7 +280,7 @@ class _FoldInspectorState extends ConsumerState<FoldInspector> {
       (t) => (t.effMult - tokens.first.effMult).abs() > .0001,
     );
     final mult = tokens.isEmpty || mixed ? 1.0 : tokens.first.effMult;
-    final disabled = tokens.isNotEmpty && tokens.every((t) => t.disabled);
+    final disabled = allFoldMembersDisabled(tokens);
     final blockTok = Tok(
       segStart: 0,
       segEnd: _name.length,
@@ -252,26 +312,31 @@ class _FoldInspectorState extends ConsumerState<FoldInspector> {
         spacing: 12,
         children: [
           Text('内容 ${tokens.length} 项', style: context.texts.labelMedium),
-          if (link != null)
+          if (link != null && (link.paired || link.temporaryCategory != null))
             Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                for (final (name, label) in [
-                  (link.positiveName, '正面'),
-                  (link.negativeName, '负面'),
+                for (final (positive, name, label) in [
+                  (true, link.positiveName, '正面'),
+                  (false, link.negativeName, '负面'),
                 ])
                   TextButton(
                     key: ValueKey('fold-inspector-$label'),
                     style: TextButton.styleFrom(
-                      backgroundColor: _name == name
+                      backgroundColor:
+                          (_missingPositive == null
+                              ? _name == name
+                              : _missingPositive == positive)
                           ? context.scheme.primaryContainer
                           : null,
                     ),
-                    onPressed: () => setState(() {
-                      _name = name;
-                      _loadBody();
-                    }),
-                    child: Text(label),
+                    onPressed: () =>
+                        setState(() => _selectSide(link, positive)),
+                    child: Text(
+                      positive
+                          ? context.l10n.positiveShort
+                          : context.l10n.negativeShort,
+                    ),
                   ),
               ],
             ),
@@ -292,7 +357,13 @@ class _FoldInspectorState extends ConsumerState<FoldInspector> {
         controller: _controller,
         focusNode: _focus,
         onCursorDrag: (dragging) => setState(() => _cursorDragging = dragging),
-        hint: '输入块内提示词…',
+        hint: switch (_missingPositive) {
+          true => context.l10n.emptyTemporaryPrompt(context.l10n.positiveShort),
+          false => context.l10n.emptyTemporaryPrompt(
+            context.l10n.negativeShort,
+          ),
+          null => '输入块内提示词…',
+        },
         showTrans: settings.showTranslation,
         showWeightWash: settings.showWeightWash,
         fontSize: settings.fontSize,
@@ -332,6 +403,11 @@ class _FoldInspectorState extends ConsumerState<FoldInspector> {
       child: TagPanel(
         key: const ValueKey('fold-inspector'),
         tok: blockTok,
+        titleSpan: foldLabelSpan(
+          _name,
+          foldIconsOf(state.foldLinks)[_name],
+          hash: true,
+        ),
         count: null,
         related: const [],
         showWiki: false,
@@ -341,7 +417,15 @@ class _FoldInspectorState extends ConsumerState<FoldInspector> {
         contentFooter: footer,
         constrainContent: true,
         expandContent: widget.fullscreen,
+        temporaryInspiration: link?.temporaryCategory != null,
         onFullscreen: widget.fullscreen ? null : _openFullscreen,
+        onEditInspiration: widget.onEditInspiration == null
+            ? null
+            : () {
+                final name = _name;
+                if (widget.fullscreen) widget.onClose();
+                widget.onEditInspiration!(name);
+              },
         mixedWeight: mixed,
         weightStep: settings.weightStep,
         onWrap: (up) =>

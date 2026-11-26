@@ -2,6 +2,8 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:plana_app/core/net/remote_image.dart';
 
 Uint8List _bytes(int n, {int fill = 7}) =>
@@ -116,6 +118,36 @@ void main() {
       expect(RemoteImageStore.versionOf(url), before + 1);
     });
 
+    test('immutable 记进旁文件;没给 etag 也有验证器', () async {
+      await RemoteImageStore.write(
+        url,
+        _bytes(8),
+        etag: '"i"',
+        immutable: true,
+      );
+      final v = await RemoteImageStore.validator(url);
+      expect(v!.immutable, isTrue);
+      expect(v.etag, '"i"');
+
+      await RemoteImageStore.write(
+        'https://x/noetag',
+        _bytes(8),
+        immutable: true,
+      );
+      final w = await RemoteImageStore.validator('https://x/noetag');
+      expect(w!.immutable, isTrue);
+      expect(w.etag, isEmpty);
+    });
+
+    test('304 带 immutable:老验证器补记,etag 保留', () async {
+      await RemoteImageStore.write(url, _bytes(8), etag: '"old"');
+      expect((await RemoteImageStore.validator(url))!.immutable, isFalse);
+      await RemoteImageStore.touchValidator(url, immutable: true);
+      final v = await RemoteImageStore.validator(url);
+      expect(v!.immutable, isTrue);
+      expect(v.etag, '"old"');
+    });
+
     test('trim 删主文件时验证器跟着走,不留孤儿', () async {
       await RemoteImageStore.write('https://x/old', _bytes(3000), etag: '"o"');
       // mtime 拉开,保证 old 先被淘汰
@@ -136,6 +168,31 @@ void main() {
   // 相等性变化 → 重建 → 再加载 → 再回源,肉眼看就是图在不停刷新。
   group('回源新鲜期:与 ETag 无关', () {
     const url = 'https://x.test/no-etag.png';
+
+    test('刚下载的图片在其他卡片尺寸中复用时仍然新鲜', () async {
+      const downloaded = 'https://x.test/fresh-download.png';
+      final server = MockClient(
+        (_) async => http.Response.bytes(_bytes(8), 200),
+      );
+      await http.runWithClient(() async {
+        await fetchRemoteImageBytes(downloaded);
+        expect(
+          RemoteImageStore.checkedRecently(
+            downloaded,
+            const Duration(minutes: 1),
+          ),
+          isTrue,
+        );
+        for (
+          var i = 0;
+          i < 100 && await RemoteImageStore.cachedPath(downloaded) == null;
+          i++
+        ) {
+          await Future<void>.delayed(const Duration(milliseconds: 10));
+        }
+        expect(await RemoteImageStore.read(downloaded), _bytes(8));
+      }, () => server);
+    });
 
     test('标记过就算刚验过,没标记过就该验', () {
       expect(

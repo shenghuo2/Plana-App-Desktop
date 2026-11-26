@@ -19,7 +19,8 @@ import '../../../core/theme/app_theme.dart';
 import '../../generate/char_position.dart' show positionChipLabel;
 import '../../generate/widgets/common.dart' show dropFocusSoon;
 import '../../inspiration/widgets/prompt_chips.dart';
-import '../assistant_models.dart' show AssistantMsg;
+import '../assistant_models.dart' show AssistantMsg, DrawProposal;
+import 'proposal_blocks.dart';
 import '../prompt_diff.dart';
 import 'proposal_actions.dart';
 import 'tag_diff.dart';
@@ -102,6 +103,7 @@ class _ProposalSheet extends StatelessWidget {
                 padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
                 children: [
                   ProposalDetails(
+                    draw: msg.draw,
                     diff: diff,
                     words: words,
                     positive: positive,
@@ -162,12 +164,14 @@ class _ProposalSheet extends StatelessWidget {
 class ProposalDetails extends StatelessWidget {
   const ProposalDetails({
     super.key,
+    this.draw,
     required this.diff,
     required this.words,
     required this.positive,
     required this.characters,
     required this.emptyNote,
   });
+  final DrawProposal? draw;
   final PromptDiff diff;
   final ChangedWords words;
   final String positive;
@@ -182,6 +186,14 @@ class ProposalDetails extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        if (draw?.section.isNotEmpty == true) ...[
+          _label(context, scheme, draw!.section),
+          const SizedBox(height: 8),
+        ],
+        if (draw != null && draw!.blocks.isNotEmpty) ...[
+          ProposalBlocks(draw: draw!),
+          const SizedBox(height: 16),
+        ],
         if (added.isEmpty && removed.isEmpty)
           Text(
             emptyNote,

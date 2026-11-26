@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/net/anlas_provider.dart';
-import '../../../core/auth/auth_mode.dart';
+import '../bot_image_price.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/ui/param_input.dart';
 import '../../../core/util/haptics.dart';
@@ -20,8 +20,7 @@ import '../models.dart'
         stepsRangeOf,
         isAnimaModel,
         isKreaModel,
-        isNai5MediumModel,
-        isNai5Model;
+        isNai5MediumModel;
 import '../vibe_encoder.dart';
 import '../../import/import_panel.dart';
 import 'advanced_sheet.dart';
@@ -659,27 +658,22 @@ class _GenerateButton extends StatelessWidget {
 /// 按钮)全是布局层面的,analyze 一条都查不出来,历史上连着栽过三次。
 /// 直接 pump 它比经由整页去凑一个免费/收费状态可靠得多,见 widget_test。
 class GenerationCostPill extends ConsumerWidget {
-  const GenerationCostPill({super.key, required this.cost});
+  const GenerationCostPill({super.key, required this.cost, this.model});
   final int cost;
+  final String? model;
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final bot = ref.watch(authModeProvider).asData?.value == AuthMode.bot;
-    final model = ref.watch(generateProvider.select((s) => s.params.model));
-    final quota = bot && model.startsWith('NAI ')
-        ? ref.watch(naiQuotaProvider).asData?.value
-        : null;
-    if (quota == null || !quota.relayOnly) return CostPill(cost: cost);
-    final price = isNai5Model(model)
-        ? quota.relayPrice
-        : quota.relayPriceLegacy;
-    final label = !quota.relayAvailable
-        ? '中转不可用'
-        : !quota.relayEnabled
-        ? '中转未启用'
-        : '¥${price.toStringAsFixed(2)}/张';
+    final requestedModel =
+        model ??
+        ref.watch<String>(generateProvider.select((s) => s.params.model));
+    final quote = ref.watch(botImagePriceProvider(requestedModel));
+    if (quote == null) return CostPill(cost: cost);
+    if (quote.free) return const CostPill(cost: 0);
     return Tooltip(
-      message: l10nNow.desktopTheRelayChargesPerImageCheckWalletTransactions,
-      child: CostPill(cost: cost, relayLabel: label),
+      message:
+          quote.status ??
+          l10nNow.desktopTheRelayChargesPerImageCheckWalletTransactions,
+      child: CostPill(cost: 0, relayLabel: quote.label),
     );
   }
 }
@@ -783,7 +777,14 @@ class CostPill extends StatelessWidget {
                       ),
                     ]
                   : !paid
-                  ? [Text(l10nNow.free, maxLines: 1, softWrap: false, style: style)]
+                  ? [
+                      Text(
+                        l10nNow.free,
+                        maxLines: 1,
+                        softWrap: false,
+                        style: style,
+                      ),
+                    ]
                   : [
                       Icon(Icons.toll, size: _icon, color: fg),
                       const SizedBox(width: _gap),
@@ -1177,8 +1178,6 @@ class _ReadoutChip extends StatelessWidget {
           color: context.scheme.onSurfaceVariant,
         )
       : mono(context, size: 13);
-
-
 
   @override
   Widget build(BuildContext context) {

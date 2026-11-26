@@ -1,30 +1,26 @@
 import '../../../l10n/l10n.dart';
-import 'package:flutter/foundation.dart' show listEquals;
-import 'package:flutter/gestures.dart';
+import 'package:flutter/foundation.dart' show listEquals, setEquals;
+import '../../../core/ui/horizontal_scroll_strip.dart';
+import 'tag_filter_chips.dart';
 import 'package:flutter/material.dart';
 
 import '../../../core/theme/app_theme.dart';
 import '../../../core/ui/desktop_popover.dart';
 
-/// Browse the full tag pool horizontally with drag, wheel and arrow controls.
-/// The searchable picker provides a shortcut to a specific tag.
+/// Desktop tag filters and a searchable multi-select popover.
 class DesktopTagFilterBar extends StatefulWidget {
   const DesktopTagFilterBar({
     super.key,
     required this.tags,
-    required this.selectedTag,
-    required this.favoritesSelected,
-    required this.onTagSelected,
-    required this.onFavoritesSelected,
-    required this.onManage,
+    required this.filter,
+    required this.onChanged,
+    this.onManage,
   });
 
   final List<String> tags;
-  final String? selectedTag;
-  final bool favoritesSelected;
-  final ValueChanged<String?> onTagSelected;
-  final VoidCallback onFavoritesSelected;
-  final ValueChanged<BuildContext> onManage;
+  final InspirationTagFilter filter;
+  final ValueChanged<InspirationTagFilter> onChanged;
+  final ValueChanged<BuildContext>? onManage;
 
   @override
   State<DesktopTagFilterBar> createState() => _DesktopTagFilterBarState();
@@ -33,26 +29,22 @@ class DesktopTagFilterBar extends StatefulWidget {
 class _DesktopTagFilterBarState extends State<DesktopTagFilterBar> {
   final _scroll = ScrollController();
   final _selectedChip = GlobalKey();
-  double _stripWidth = 0;
   double? _viewportWidth;
   double? _contentWidth;
   bool _revealScheduled = false;
-  bool _overflow = false;
-  bool _canScrollBack = false;
-  bool _canScrollForward = false;
   bool _pickerOpen = false;
+  bool _overflow = false;
 
   @override
   void initState() {
     super.initState();
-    _scroll.addListener(_syncScrollControls);
     _revealSelection();
   }
 
   @override
   void didUpdateWidget(DesktopTagFilterBar oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.selectedTag != widget.selectedTag ||
+    if (!setEquals(oldWidget.filter.tags, widget.filter.tags) ||
         !listEquals(oldWidget.tags, widget.tags)) {
       _revealSelection();
     }
@@ -64,29 +56,8 @@ class _DesktopTagFilterBarState extends State<DesktopTagFilterBar> {
     super.dispose();
   }
 
-  void _syncScrollControls() {
-    if (!mounted || !_scroll.hasClients) return;
-    final position = _scroll.position;
-    if (!position.hasContentDimensions) return;
-    final overflow =
-        position.maxScrollExtent + position.viewportDimension >
-        _stripWidth + .5;
-    final back = overflow && position.pixels > position.minScrollExtent + .5;
-    final forward = overflow && position.pixels < position.maxScrollExtent - .5;
-    if (overflow == _overflow &&
-        back == _canScrollBack &&
-        forward == _canScrollForward) {
-      return;
-    }
-    setState(() {
-      _overflow = overflow;
-      _canScrollBack = back;
-      _canScrollForward = forward;
-    });
-  }
-
   void _revealSelection() {
-    if (_revealScheduled || widget.selectedTag == null) return;
+    if (_revealScheduled || widget.filter.tags.isEmpty) return;
     _revealScheduled = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _revealScheduled = false;
@@ -110,51 +81,31 @@ class _DesktopTagFilterBarState extends State<DesktopTagFilterBar> {
         _contentWidth != contentWidth) {
       _viewportWidth = metrics.viewportDimension;
       _contentWidth = contentWidth;
+      final overflowing = metrics.maxScrollExtent > 0;
+      if (overflowing != _overflow) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && _scroll.hasClients) {
+            setState(() => _overflow = _scroll.position.maxScrollExtent > 0);
+          }
+        });
+      }
       _revealSelection();
     }
-    _syncScrollControls();
     return false;
-  }
-
-  void _scrollBy(int direction) {
-    final position = _scroll.position;
-    final target =
-        (position.pixels + direction * position.viewportDimension * .8).clamp(
-          position.minScrollExtent,
-          position.maxScrollExtent,
-        );
-    _scroll.animateTo(target, duration: Motion.fast, curve: Curves.easeOut);
-  }
-
-  void _onWheel(PointerSignalEvent event) {
-    if (event is! PointerScrollEvent || !_scroll.hasClients) return;
-    final position = _scroll.position;
-    final delta = event.scrollDelta.dx != 0
-        ? event.scrollDelta.dx
-        : event.scrollDelta.dy;
-    final target = (position.pixels + delta).clamp(
-      position.minScrollExtent,
-      position.maxScrollExtent,
-    );
-    if (target == position.pixels) return;
-    GestureBinding.instance.pointerSignalResolver.register(
-      event,
-      (_) => _scroll.jumpTo(target),
-    );
   }
 
   Future<void> _pickTag(BuildContext anchor) async {
     if (_pickerOpen) return;
     _pickerOpen = true;
     try {
-      final picked = await showDesktopPopover<({String? tag})>(
+      await showDesktopTagPicker(
         anchor,
-        width: 360,
-        maxHeight: 460,
-        builder: (_) =>
-            _TagPicker(tags: widget.tags, selectedTag: widget.selectedTag),
+        tags: widget.tags,
+        selectedTags: widget.filter.tags,
+        onChanged: (tags) {
+          if (mounted) widget.onChanged(widget.filter.withTags(tags));
+        },
       );
-      if (mounted && picked != null) widget.onTagSelected(picked.tag);
     } finally {
       _pickerOpen = false;
     }
@@ -173,6 +124,12 @@ class _DesktopTagFilterBarState extends State<DesktopTagFilterBar> {
           runSpacing: 6,
           crossAxisAlignment: WrapCrossAlignment.center,
           children: [
+            if (widget.filter.tags.length >= 2)
+              TextButton(
+                key: const ValueKey('inspiration-clear-tags'),
+                onPressed: () => widget.onChanged(widget.filter.withTags({})),
+                child: Text(context.l10n.clear),
+              ),
             if (widget.tags.isNotEmpty)
               Builder(
                 builder: (anchor) => OutlinedButton(
@@ -195,20 +152,21 @@ class _DesktopTagFilterBarState extends State<DesktopTagFilterBar> {
                   ),
                 ),
               ),
-            Builder(
-              builder: (anchor) => TextButton.icon(
-                key: const ValueKey('inspiration-manage-tags'),
-                onPressed: () => widget.onManage(anchor),
-                style: TextButton.styleFrom(
-                  minimumSize: const Size(0, 40),
-                  padding: const EdgeInsets.symmetric(horizontal: 8),
-                  visualDensity: VisualDensity.compact,
-                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            if (widget.onManage != null)
+              Builder(
+                builder: (anchor) => TextButton.icon(
+                  key: const ValueKey('inspiration-manage-tags'),
+                  onPressed: () => widget.onManage!(anchor),
+                  style: TextButton.styleFrom(
+                    minimumSize: const Size(0, 40),
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    visualDensity: VisualDensity.compact,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                  icon: const Icon(Icons.settings_outlined, size: 18),
+                  label: Text(l10nNow.manageTags),
                 ),
-                icon: const Icon(Icons.settings_outlined, size: 18),
-                label: Text(l10nNow.manageTags),
               ),
-            ),
           ],
         );
         final textScale = MediaQuery.textScalerOf(context).scale(14) / 14;
@@ -243,15 +201,15 @@ class _DesktopTagFilterBarState extends State<DesktopTagFilterBar> {
         _chip(
           context,
           label: l10nNow.all,
-          selected: widget.selectedTag == null && !widget.favoritesSelected,
-          onTap: () => widget.onTagSelected(null),
+          selected: !widget.filter.active,
+          onTap: () => widget.onChanged(const InspirationTagFilter()),
         ),
         _chip(
           context,
           label: l10nNow.favorites,
           icon: Icons.star_rounded,
-          selected: widget.favoritesSelected,
-          onTap: widget.onFavoritesSelected,
+          selected: widget.filter.favorites,
+          onTap: () => widget.onChanged(widget.filter.toggleFavorites()),
         ),
       ],
     );
@@ -278,120 +236,47 @@ class _DesktopTagFilterBarState extends State<DesktopTagFilterBar> {
 
   Widget _tagStrip(BuildContext context) => LayoutBuilder(
     builder: (context, constraints) {
-      _stripWidth = constraints.maxWidth;
-      // Keep chip widths independent of arrow visibility. Otherwise showing
-      // the arrows can shrink the content enough to hide them again forever.
-      // Reserve both arrows so a long chip also fits the smaller viewport.
-      final labelWidth = (_stripWidth - 56 - 40).clamp(40.0, 220.0);
-      return Row(
-        children: [
-          if (_overflow)
-            _scrollArrow(
-              key: const ValueKey('inspiration-tags-left'),
-              tooltip: l10nNow.desktopScrollTagsLeft,
-              icon: Icons.chevron_left,
-              enabled: _canScrollBack,
-              direction: -1,
+      final labelWidth = (constraints.maxWidth - 44).clamp(24.0, 220.0);
+      return NotificationListener<ScrollMetricsNotification>(
+        onNotification: _metricsChanged,
+        child: HorizontalScrollStrip.scrollable(
+          controller: _scroll,
+          shiftWheelOnly: true,
+          showTrack: _overflow,
+          child: SingleChildScrollView(
+            key: const ValueKey('inspiration-tag-strip'),
+            controller: _scroll,
+            primary: false,
+            scrollDirection: Axis.horizontal,
+            padding: EdgeInsets.symmetric(
+              vertical: _overflow ? HorizontalScrollStrip.dragAreaHeight : 0,
             ),
-          Expanded(
-            key: const ValueKey('inspiration-tag-viewport'),
-            child: MouseRegion(
-              cursor: _overflow
-                  ? SystemMouseCursors.grab
-                  : SystemMouseCursors.basic,
-              child: Listener(
-                onPointerSignal: _onWheel,
-                child: NotificationListener<ScrollMetricsNotification>(
-                  onNotification: _metricsChanged,
-                  child: SizedBox(
-                    height: MediaQuery.textScalerOf(context).scale(13) + 28,
-                    child: ScrollConfiguration(
-                      behavior: ScrollConfiguration.of(context).copyWith(
-                        scrollbars: false,
-                        dragDevices: {
-                          ...ScrollConfiguration.of(context).dragDevices,
-                          PointerDeviceKind.mouse,
-                        },
-                      ),
-                      child: Scrollbar(
-                        controller: _scroll,
-                        thumbVisibility: _overflow,
-                        interactive: true,
-                        thickness: 3,
-                        scrollbarOrientation: ScrollbarOrientation.bottom,
-                        child: SingleChildScrollView(
-                          key: const ValueKey('inspiration-tag-strip'),
-                          controller: _scroll,
-                          primary: false,
-                          scrollDirection: Axis.horizontal,
-                          physics: const ClampingScrollPhysics(),
-                          child: SizedBox(
-                            height:
-                                MediaQuery.textScalerOf(context).scale(13) + 28,
-                            child: Row(
-                              children: [
-                                for (final tag in widget.tags)
-                                  Padding(
-                                    key: widget.selectedTag == tag
-                                        ? _selectedChip
-                                        : null,
-                                    padding: const EdgeInsets.only(right: 8),
-                                    child: Tooltip(
-                                      message: tag,
-                                      child: _chip(
-                                        context,
-                                        label: tag,
-                                        labelWidth: labelWidth,
-                                        selected: widget.selectedTag == tag,
-                                        onTap: () => widget.onTagSelected(
-                                          widget.selectedTag == tag
-                                              ? null
-                                              : tag,
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                              ],
-                            ),
-                          ),
-                        ),
+            child: Row(
+              children: [
+                for (final tag in widget.tags)
+                  Padding(
+                    key: widget.filter.tags.lastOrNull == tag
+                        ? _selectedChip
+                        : null,
+                    padding: const EdgeInsets.only(right: 8),
+                    child: Tooltip(
+                      message: tag,
+                      child: _chip(
+                        context,
+                        label: tag,
+                        labelWidth: labelWidth,
+                        selected: widget.filter.tags.contains(tag),
+                        onTap: () =>
+                            widget.onChanged(widget.filter.toggle(tag)),
                       ),
                     ),
                   ),
-                ),
-              ),
+              ],
             ),
           ),
-          if (_overflow)
-            _scrollArrow(
-              key: const ValueKey('inspiration-tags-right'),
-              tooltip: l10nNow.desktopScrollTagsRight,
-              icon: Icons.chevron_right,
-              enabled: _canScrollForward,
-              direction: 1,
-            ),
-        ],
+        ),
       );
     },
-  );
-
-  Widget _scrollArrow({
-    required Key key,
-    required String tooltip,
-    required IconData icon,
-    required bool enabled,
-    required int direction,
-  }) => IconButton(
-    key: key,
-    tooltip: tooltip,
-    onPressed: enabled ? () => _scrollBy(direction) : null,
-    style: IconButton.styleFrom(
-      padding: EdgeInsets.zero,
-      minimumSize: const Size(28, 36),
-      maximumSize: const Size(28, 36),
-      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-    ),
-    icon: Icon(icon, size: 20),
   );
 
   Widget _chip(
@@ -431,11 +316,96 @@ class _DesktopTagFilterBarState extends State<DesktopTagFilterBar> {
   }
 }
 
+class SelectedInspirationTags extends StatefulWidget {
+  const SelectedInspirationTags({
+    super.key,
+    required this.tags,
+    required this.onChanged,
+  });
+  final Set<String> tags;
+  final ValueChanged<Set<String>> onChanged;
+
+  @override
+  State<SelectedInspirationTags> createState() =>
+      _SelectedInspirationTagsState();
+}
+
+class _SelectedInspirationTagsState extends State<SelectedInspirationTags> {
+  final _scroll = ScrollController();
+  @override
+  void dispose() {
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.fromLTRB(14, 5, 14, 0),
+    child: Row(
+      children: [
+        Expanded(
+          child: HorizontalScrollStrip(
+            controller: _scroll,
+            shiftWheelOnly: true,
+            child: Row(
+              children: [
+                for (final tag in widget.tags)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 5),
+                    child: InputChip(
+                      label: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 160),
+                        child: Text(
+                          tag,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      onDeleted: () =>
+                          widget.onChanged({...widget.tags}..remove(tag)),
+                      deleteIcon: const Icon(Icons.close, size: 15),
+                      visualDensity: VisualDensity.compact,
+                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+        if (widget.tags.length >= 2)
+          TextButton(
+            key: const ValueKey('sidebar-clear-tags'),
+            onPressed: () => widget.onChanged({}),
+            child: Text(context.l10n.clear),
+          ),
+      ],
+    ),
+  );
+}
+
+Future<void> showDesktopTagPicker(
+  BuildContext anchor, {
+  required List<String> tags,
+  required Set<String> selectedTags,
+  required ValueChanged<Set<String>> onChanged,
+}) => showDesktopPopover<void>(
+  anchor,
+  width: 360,
+  maxHeight: 460,
+  builder: (_) =>
+      _TagPicker(tags: tags, selected: selectedTags, onChanged: onChanged),
+);
+
 class _TagPicker extends StatefulWidget {
-  const _TagPicker({required this.tags, required this.selectedTag});
+  const _TagPicker({
+    required this.tags,
+    required this.selected,
+    required this.onChanged,
+  });
 
   final List<String> tags;
-  final String? selectedTag;
+  final Set<String> selected;
+  final ValueChanged<Set<String>> onChanged;
 
   @override
   State<_TagPicker> createState() => _TagPickerState();
@@ -445,6 +415,14 @@ class _TagPickerState extends State<_TagPicker> {
   final _search = TextEditingController();
   final _scroll = ScrollController();
   String _query = '';
+  late final _selected = {...widget.selected};
+
+  void _toggle(String tag) {
+    setState(() {
+      if (!_selected.add(tag)) _selected.remove(tag);
+    });
+    widget.onChanged({..._selected});
+  }
 
   @override
   void dispose() {
@@ -472,7 +450,12 @@ class _TagPickerState extends State<_TagPicker> {
           padding: const EdgeInsets.fromLTRB(16, 8, 8, 0),
           child: Row(
             children: [
-              Expanded(child: Text(l10nNow.desktopFilterByTag, style: context.texts.titleSmall)),
+              Expanded(
+                child: Text(
+                  l10nNow.desktopFilterByTag,
+                  style: context.texts.titleSmall,
+                ),
+              ),
               const CloseButton(),
             ],
           ),
@@ -489,7 +472,7 @@ class _TagPickerState extends State<_TagPicker> {
               final index = widget.tags.indexWhere(
                 (tag) => tag.toLowerCase().contains(query),
               );
-              if (index >= 0) Navigator.pop(context, (tag: widget.tags[index]));
+              if (index >= 0) _toggle(widget.tags[index]);
             },
             decoration: InputDecoration(
               hintText: l10nNow.desktopSearchTags,
@@ -511,18 +494,25 @@ class _TagPickerState extends State<_TagPicker> {
             ),
           ),
         ),
-        ListTile(
-          key: const ValueKey('inspiration-tag-clear'),
-          dense: true,
-          title: Text(l10nNow.desktopClearTagFilter),
-          onTap: () => Navigator.pop(context, (tag: null)),
-        ),
+        if (_selected.length >= 2)
+          ListTile(
+            key: const ValueKey('inspiration-tag-clear'),
+            dense: true,
+            title: Text(context.l10n.clear),
+            onTap: () {
+              setState(_selected.clear);
+              widget.onChanged({});
+            },
+          ),
         const Divider(height: 1),
         Flexible(
           child: hits.isEmpty
               ? Padding(
                   padding: EdgeInsets.all(24),
-                  child: Text(l10nNow.desktopNoMatchingTags, textAlign: TextAlign.center),
+                  child: Text(
+                    l10nNow.desktopNoMatchingTags,
+                    textAlign: TextAlign.center,
+                  ),
                 )
               : Scrollbar(
                   controller: _scroll,
@@ -536,7 +526,7 @@ class _TagPickerState extends State<_TagPicker> {
                     itemCount: hits.length,
                     itemBuilder: (context, index) {
                       final tag = hits[index];
-                      final selected = tag == widget.selectedTag;
+                      final selected = _selected.contains(tag);
                       return ListTile(
                         dense: true,
                         selected: selected,
@@ -545,7 +535,7 @@ class _TagPickerState extends State<_TagPicker> {
                         trailing: selected
                             ? const Icon(Icons.check, size: 18)
                             : null,
-                        onTap: () => Navigator.pop(context, (tag: tag)),
+                        onTap: () => _toggle(tag),
                       );
                     },
                   ),

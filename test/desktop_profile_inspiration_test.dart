@@ -1,3 +1,5 @@
+import 'package:plana_app/features/profile/backup_page.dart';
+import 'support/pump_until.dart';
 import 'dart:io';
 import 'dart:ui' as ui;
 
@@ -12,6 +14,7 @@ import 'package:plana_app/core/store/app_stores.dart';
 import 'package:plana_app/core/theme/app_theme.dart';
 import 'package:plana_app/core/theme/theme_settings.dart';
 import 'package:plana_app/features/desktop/desktop_profile_page.dart';
+import 'package:plana_app/features/gallery/save_settings.dart';
 import 'package:plana_app/features/generate/generate_state.dart';
 import 'package:plana_app/features/inspiration/tag_editor_page.dart';
 import 'package:plana_app/features/inspiration/inspiration_page.dart';
@@ -25,6 +28,7 @@ import 'package:plana_app/features/profile/token_manage_page.dart';
 import 'package:plana_app/features/shell/shell_state.dart';
 import 'package:plana_app/features/tools/tools_page.dart';
 import 'package:plana_app/features/tools/metadata_tool_page.dart';
+import 'package:plana_app/l10n/l10n.dart';
 
 void main() {
   late ProviderContainer c;
@@ -308,6 +312,58 @@ void main() {
   );
 
   testWidgets(
+    'profile links and diagnostic controls render the inspiration row typography',
+    (tester) async {
+      await pumpUntilComplete(
+        tester,
+        c
+            .read(saveSettingsProvider.notifier)
+            .patch((settings) => settings.copyWith(meta: SaveMeta.custom)),
+      );
+      await mount(tester, const DesktopProfilePage());
+
+      Future<void> reveal(String label) => tester.scrollUntilVisible(
+        find.text(label),
+        300,
+        scrollable: find
+            .descendant(
+              of: key('profile-content'),
+              matching: find.byType(Scrollable),
+            )
+            .first,
+      );
+      TextStyle renderedStyle(String label) =>
+          tester.renderObject<RenderParagraph>(find.text(label)).text.style!;
+
+      final l = l10nNow;
+      await section(tester, 'appearance');
+      await reveal(l.publicLibraryBlocklist);
+      final title = renderedStyle(l.desktopCodexHoverPreview);
+      final subtitle = renderedStyle(l.desktopCodexImageHoverHint);
+      void checkRow(String name, String hint) {
+        expect(renderedStyle(name), title, reason: name);
+        expect(renderedStyle(hint), subtitle, reason: hint);
+      }
+
+      checkRow(l.publicLibraryBlocklist, l.publicLibraryBlocklistHint);
+      if (Platform.isWindows) {
+        await section(tester, 'about');
+        await reveal(l.copyDiagnostics);
+        checkRow(l.writeDiagnosticLogs, l.writeDiagnosticLogsHint);
+        checkRow(l.diagnosticDirectory, l.diagnosticDirectoryHint);
+        checkRow(l.copyDiagnostics, l.copyDiagnosticsHint);
+      }
+      await section(tester, 'generation');
+      await reveal(l.customMetadata);
+      checkRow(l.customMetadata, l.toolboxMetadataSource);
+      await section(tester, 'dataImport');
+      await reveal(l.externalOcLibraries);
+      checkRow(l.externalOcLibraries, l.externalOcImportHint);
+      await finish(tester);
+    },
+  );
+
+  testWidgets(
     'settings title and cards share the same scroll while sidebar stays put',
     (tester) async {
       await mount(
@@ -340,6 +396,40 @@ void main() {
       await tester.pumpAndSettle();
       expect(heading.hitTestable(), findsNothing);
       await screenshot(tester, 'windows13-settings-scroll');
+      await finish(tester);
+    },
+  );
+
+  testWidgets(
+    'backup title scrolls with the settings list and uses its sidebar label',
+    (tester) async {
+      await mount(
+        tester,
+        const DesktopProfilePage(),
+        size: const Size(1100, 390),
+      );
+      await section(tester, 'dataImport');
+      final page = find.byType(BackupPage);
+      final title = find.descendant(
+        of: page,
+        matching: key('settings-scrolling-heading'),
+      );
+      expect(
+        find.descendant(of: title, matching: find.text('备份与导入')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: page, matching: find.byType(AppBar)),
+        findsNothing,
+      );
+      final scroll = tester.state<ScrollableState>(
+        find.descendant(of: page, matching: find.byType(Scrollable)).first,
+      );
+      expect(scroll.position.maxScrollExtent, greaterThanOrEqualTo(24));
+      final top = tester.getTopLeft(title).dy;
+      scroll.position.jumpTo(24);
+      await tester.pumpAndSettle();
+      expect(tester.getTopLeft(title).dy, closeTo(top - 24, 1));
       await finish(tester);
     },
   );
@@ -472,7 +562,7 @@ void main() {
       await screenshot(tester, 'windows12-tag-backup');
       tester.view.physicalSize = const Size(720, 480);
       await tester.pumpAndSettle();
-      await tester.ensureVisible(find.text('其他'));
+      await tester.ensureVisible(find.text('其它'));
       await tester.sendKeyEvent(LogicalKeyboardKey.escape);
       await tester.pumpAndSettle();
       expect(key('tag-backup-dialog'), findsNothing);
@@ -591,7 +681,7 @@ void main() {
       await tester.sendKeyEvent(LogicalKeyboardKey.escape);
       await tester.pumpAndSettle();
       expect(key('tag-editor-dialog'), findsNothing);
-      for (final category in ['画风', '场景', '提示词', '角色']) {
+      for (final category in ['画风', '场景', '其它', '角色']) {
         await tester.tap(find.widgetWithText(TextButton, category));
         await tester.pumpAndSettle();
         await tester.tap(create);

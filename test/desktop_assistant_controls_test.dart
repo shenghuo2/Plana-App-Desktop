@@ -6,12 +6,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:plana_app/core/platform/desktop.dart';
 import 'package:plana_app/core/store/app_stores.dart';
 import 'package:plana_app/core/theme/app_theme.dart';
 import 'package:plana_app/features/assistant/image_gen/image_models.dart';
 import 'package:plana_app/features/assistant/agent_model.dart';
+import 'package:plana_app/features/assistant/custom_endpoint.dart';
 import 'package:plana_app/features/assistant/assistant_mode.dart';
 import 'package:plana_app/features/assistant/assistant_page.dart';
 import 'package:plana_app/features/assistant/assistant_settings.dart';
@@ -21,6 +23,7 @@ import 'package:plana_app/features/assistant/rules_page.dart';
 import 'package:plana_app/features/assistant/widgets/model_sheet.dart';
 import 'package:plana_app/features/assistant/widgets/settings_sheet.dart';
 import 'package:plana_app/core/ui/setting_row.dart';
+import 'package:plana_app/core/ui/image_drop.dart';
 
 class _LoadingRules extends RulesLibraryNotifier {
   _LoadingRules(this.ready);
@@ -53,7 +56,7 @@ void main() {
       }
     }
   });
-  setUp(() {
+  setUp(() async {
     stores = AppStores.ephemeral();
     c = ProviderContainer(
       overrides: [
@@ -89,6 +92,10 @@ void main() {
           ),
         ),
       ],
+    );
+    await c.read(rulesLibraryProvider.future);
+    await Future.wait(
+      RulesFamily.values.map((f) => c.read(defaultRulesProvider(f).future)),
     );
   });
   tearDown(() {
@@ -176,6 +183,89 @@ void main() {
     await tester.pump(const Duration(seconds: 1));
   }
 
+  testWidgets(
+    'Explorer drop imports presets in order and preserves the active rule selection',
+    (tester) async {
+      final dir = Directory.systemTemp.createTempSync('plana_rule_drop_');
+      addTearDown(() => dir.deleteSync(recursive: true));
+      final yaml = File('${dir.path}/画图.yaml')
+        ..writeAsStringSync(
+          'name: 水彩\nmodels: [nai45]\nsections:\n  - name: ink\n    content: wash',
+        );
+      final json = File('${dir.path}/绘图.JSON')
+        ..writeAsStringSync(
+          '{"name":"风景","models":["nai5"],"sections":[{"name":"color","content":"green"}]}',
+        );
+      final original = c.read(rulesLibraryProvider).requireValue;
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: c,
+          child: const MaterialApp(
+            home: DesktopImageDropHost(child: RulesPresetPage()),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final point = tester.getCenter(
+        find.byKey(const ValueKey('rules-preset-groups')),
+      );
+      final scale = tester.view.devicePixelRatio;
+      void native(String method, List<String> paths) {
+        unawaited(
+          tester.binding.defaultBinaryMessenger.handlePlatformMessage(
+            DesktopImageDropHost.channel.name,
+            const StandardMethodCodec().encodeMethodCall(
+              MethodCall(method, {
+                'x': point.dx * scale,
+                'y': point.dy * scale,
+                'paths': paths,
+              }),
+            ),
+            (_) {},
+          ),
+        );
+      }
+
+      native('over', []);
+      await tester.pump();
+      expect(find.text('松开以导入规则预设'), findsOneWidget);
+      native('drop', ['${dir.path}/不支持.png', yaml.path, json.path]);
+      Future<void> waitFor(bool Function() ready) async {
+        for (var attempts = 0; !ready() && attempts < 60; attempts++) {
+          await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 5)),
+          );
+          await tester.pump(const Duration(milliseconds: 100));
+        }
+        expect(ready(), true);
+        await tester.pumpAndSettle();
+      }
+
+      for (final name in ['水彩', '风景']) {
+        await waitFor(
+          () => find
+              .byType(TextField)
+              .evaluate()
+              .any((e) => (e.widget as TextField).controller?.text == name),
+        );
+        await tester.tap(find.widgetWithText(FilledButton, '导入'));
+        await tester.pump();
+      }
+      await waitFor(
+        () =>
+            c.read(rulesLibraryProvider).requireValue.presets.length ==
+            original.presets.length + 2,
+      );
+      final result = c.read(rulesLibraryProvider).requireValue;
+      expect(
+        result.presets.map((p) => p.name),
+        containsAllInOrder(['水彩', '风景']),
+      );
+      expect(result.active, original.active);
+      await finish(tester);
+    },
+  );
+
   for (final embedded in [false, true]) {
     testWidgets(
       'image model is hosted and its three option menus open above their own chips (embedded=$embedded)',
@@ -195,6 +285,7 @@ void main() {
                   (
                     key: 'sample',
                     name: 'Hosted image',
+                    health: ModelHealth.unknown,
                     sizes: ['2K', '4K'],
                     aspects: ['1:1', '3:2'],
                   ),
@@ -367,10 +458,11 @@ void main() {
       await mount(tester);
       await tester.tap(find.byKey(const ValueKey('assistant-model-button')));
       await tester.pumpAndSettle();
-      expect(find.text('添加接口'), findsOneWidget);
+      expect(find.text('添加接口'), findsNothing);
+      expect(find.text('管理接口与订阅'), findsOneWidget);
       await tester.sendKeyEvent(LogicalKeyboardKey.escape);
       await tester.pumpAndSettle();
-      expect(find.text('添加接口'), findsNothing);
+      expect(find.text('管理接口与订阅'), findsNothing);
       await finish(tester);
     },
   );
@@ -401,9 +493,69 @@ void main() {
   });
 
   testWidgets(
+    'thinking levels anchor above their chip, retain the selected value and scroll in a short window',
+    (tester) async {
+      FlutterSecureStorage.setMockInitialValues({});
+      const ep = CustomEndpoint(
+        id: 'thinking-test',
+        name: 'OpenAI',
+        format: AgentApiFormat.openai,
+        baseUrl: 'https://api.openai.com/v1',
+        apiKey: 'test',
+        model: 'example',
+      );
+      await tester.runAsync(() async {
+        await c.read(customEndpointsProvider.future);
+        await c.read(customEndpointsProvider.notifier).put(ep);
+        await c
+            .read(assistantModelPrefProvider.notifier)
+            .set(customModelKey(ep.id, ep.model));
+      });
+      await mount(tester, realAssistant: true);
+      Finder chip(String name) => find.widgetWithText(FilterChip, '思考 $name');
+      await tester.ensureVisible(chip('自动'));
+      await tester.tap(chip('自动'));
+      await tester.pumpAndSettle();
+      final panel = find.byKey(const ValueKey('desktop-popover'));
+      final rect = tester.getRect(panel);
+      expect(rect.width, 280);
+      expect(rect.bottom, closeTo(tester.getTopLeft(chip('自动')).dy - 8, 1));
+      await screenshot(tester, 'assistant-thinking-menu');
+      expect(find.byType(BottomSheet), findsNothing);
+      expect(
+        find.descendant(of: panel, matching: find.byType(Slider)),
+        findsNothing,
+      );
+      expect(
+        tester.widget<ListTile>(find.widgetWithText(ListTile, '自动')).selected,
+        true,
+      );
+      await tester.tap(find.widgetWithText(ListTile, '高'));
+      await tester.pumpAndSettle();
+      expect(
+        c.read(assistantSettingsProvider).value!.thinkLevel,
+        ThinkLevel.high,
+      );
+      expect(panel, findsNothing);
+      tester.view.physicalSize = const Size(900, 420);
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(chip('高'));
+      await tester.tap(chip('高'));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.widgetWithText(ListTile, '超高'));
+      expect(find.widgetWithText(ListTile, '超高').hitTestable(), findsOneWidget);
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+      expect(panel, findsNothing);
+      expect(chip('高'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await finish(tester);
+    },
+  );
+
+  testWidgets(
     'preset navigation and repeated mode changes preserve the assistant and draft',
     (tester) async {
-      await c.read(rulesLibraryProvider.future);
       final customId = await tester.runAsync(
         () => c
             .read(rulesLibraryProvider.notifier)
@@ -439,16 +591,18 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(
         find.widgetWithText(
-          CheckboxListTile,
+          CheckboxMenuButton,
           rulesFamilyLabel(RulesFamily.nai45),
         ),
       );
-      await tester.tap(find.text('确认'));
+      await tester.pumpAndSettle();
+      expect(find.byType(CheckboxMenuButton), findsOneWidget);
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
       await tester.pumpAndSettle();
       await tester.pageBack();
       await tester.pumpAndSettle();
       expect(
-        c.read(rulesLibraryProvider).value!.activeFor(RulesFamily.nai45).id,
+        c.read(rulesLibraryProvider).value!.activeFor(RulesFamily.nai45)?.id,
         customId,
       );
       await tester.pageBack();

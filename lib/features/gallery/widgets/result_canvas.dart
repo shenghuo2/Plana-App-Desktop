@@ -1,3 +1,4 @@
+import '../../generate/bot_image_price.dart';
 import '../albums/album_state.dart';
 import '../albums/album_models.dart';
 import '../albums/album_ui.dart';
@@ -780,7 +781,8 @@ class _ActionRailState extends ConsumerState<ResultActions> {
                       crossAxisAlignment: WrapCrossAlignment.center,
                       children: [
                         Tooltip(
-                          message: l10nNow.desktopSaveToTheSelectedFolderRightClickOr,
+                          message: l10nNow
+                              .desktopSaveToTheSelectedFolderRightClickOr,
                           child: GestureDetector(
                             onSecondaryTap: canAct
                                 ? () => _openSaveSheet(context, ref)
@@ -915,7 +917,11 @@ class _ActionRailState extends ConsumerState<ResultActions> {
         );
       ref.read(shellIndexProvider.notifier).select(kTabCreate);
       ref.read(desktopImg2ImgRevealProvider.notifier).request();
-      hintSnack(context, l10nNow.desktopCurrentImageSetAsTheBaseImage, icon: Icons.image_outlined);
+      hintSnack(
+        context,
+        l10nNow.desktopCurrentImageSetAsTheBaseImage,
+        icon: Icons.image_outlined,
+      );
     } catch (error) {
       if (mounted) {
         hintSnack(context, '基础图像载入失败：$error', icon: Icons.error_outline);
@@ -1034,7 +1040,10 @@ class _ActionRailState extends ConsumerState<ResultActions> {
                 children: [
                   Icon(Icons.compare, size: 17, color: context.scheme.primary),
                   const SizedBox(width: 4),
-                  Text(l10nNow.desktopOriginal, style: TextStyle(color: context.scheme.primary)),
+                  Text(
+                    l10nNow.desktopOriginal,
+                    style: TextStyle(color: context.scheme.primary),
+                  ),
                 ],
               ),
             ),
@@ -1080,14 +1089,22 @@ class _ActionRailState extends ConsumerState<ResultActions> {
       final bytes = await (_comparison ??= _loadComparison(image));
       if (!mounted || !active()) return;
       if (bytes == null) {
-        hintSnack(context, l10nNow.desktopNoOriginalInpaintDataIsAvailableForThis);
+        hintSnack(
+          context,
+          l10nNow.desktopNoOriginalInpaintDataIsAvailableForThis,
+        );
         return;
       }
       await precacheImage(MemoryImage(bytes), context);
       if (active()) _comparisonNotifier.show(image.id, bytes, this);
     } catch (_) {
       _comparison = null;
-      if (mounted && active()) hintSnack(context, l10nNow.desktopCouldNotReadThisImageSOriginalInpaint);
+      if (mounted && active()) {
+        hintSnack(
+          context,
+          l10nNow.desktopCouldNotReadThisImageSOriginalInpaint,
+        );
+      }
     }
   }
 
@@ -1196,7 +1213,11 @@ class _ActionRailState extends ConsumerState<ResultActions> {
     }
     final w = source.width, h = source.height;
     if (w <= 0 || h <= 0) {
-      hintSnack(context, l10nNow.desktopInvalidImageDimensions, icon: Icons.error_outline);
+      hintSnack(
+        context,
+        l10nNow.desktopInvalidImageDimensions,
+        icon: Icons.error_outline,
+      );
       return;
     }
     final naiV5Ok = naiV5UpscaleSupportsSize(w, h);
@@ -1227,8 +1248,9 @@ class _ActionRailState extends ConsumerState<ResultActions> {
         source.input ??
         (source.hasInput ? await store.readInput(source.id) : null);
     if (!context.mounted) return;
-    final curModel = ref.read(generateProvider).params.model;
-    // 换了模型的快照要按新模型的能力面重新裁一遍(V5 没有 Vibe / 角色参考)
+    final currentParams = ref.read(generateProvider).params;
+    final curModel = currentParams.model;
+    // 换了模型的快照要按新模型的能力面重新裁一遍(V5 没有 Vibe)
     final redrawInput = snapshot == null
         ? null
         : retargetModel(snapshot, curModel);
@@ -1451,7 +1473,11 @@ class _ActionRailState extends ConsumerState<ResultActions> {
           await processForSave(bytes, settings),
         );
         if (context.mounted) {
-          hintSnack(context, l10nNow.desktopImageSaved, icon: Icons.check_circle_outline);
+          hintSnack(
+            context,
+            l10nNow.desktopImageSaved,
+            icon: Icons.check_circle_outline,
+          );
         }
         return;
       }
@@ -2234,7 +2260,11 @@ class _UpscalePanelState extends ConsumerState<_UpscalePanel> {
   /// tertiaryContainer 的浅粉(角色计数、灵感「随机」徽章同款),
   /// 免费或算不出时才是中性半透明。
   Widget _cta(ColorScheme scheme, ({int w, int h}) t, int? cost) {
-    final paid = cost != null && cost > 0;
+    final input = widget.redrawInput;
+    final quote = _isRedraw && input != null && cost != null
+        ? ref.watch(botImagePriceProvider(input.params.model))
+        : null;
+    final paid = quote != null ? !quote.free : cost != null && cost > 0;
     // 底色换了字色就得跟着换到配套那支;中性底那档才走按钮的 onPrimary。
     final fg = paid ? scheme.onTertiaryContainer : scheme.onPrimary;
     return FilledButton(
@@ -2287,9 +2317,11 @@ class _UpscalePanelState extends ConsumerState<_UpscalePanel> {
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(Icons.toll, size: 12, color: fg),
-                  const SizedBox(width: 3),
-                  Text('${cost ?? '—'}', style: _pill(fg)),
+                  if (quote == null) ...[
+                    Icon(Icons.toll, size: 12, color: fg),
+                    const SizedBox(width: 3),
+                  ],
+                  Text(quote?.label ?? '${cost ?? '—'}', style: _pill(fg)),
                 ],
               ),
             ),

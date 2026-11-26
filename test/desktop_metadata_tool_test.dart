@@ -13,14 +13,19 @@ import 'package:plana_app/core/store/app_stores.dart';
 import 'package:plana_app/core/theme/app_theme.dart';
 import 'package:plana_app/core/util/png_meta.dart';
 import 'package:plana_app/features/import/image_metadata.dart';
+import 'package:plana_app/features/generate/models.dart' show samplers;
 import 'package:plana_app/features/gallery/models.dart';
 import 'package:plana_app/features/gallery/gallery_state.dart';
+import 'package:plana_app/features/gallery/save_settings.dart';
+import 'package:plana_app/features/gallery/result_clipboard.dart';
+import 'package:plana_app/features/tools/metadata_draft.dart';
+import 'package:plana_app/features/tools/metadata_processing.dart';
 import 'package:plana_app/features/tools/metadata_tool_page.dart';
-
 import 'support/pump_until.dart';
 
 class _Picker extends FilePicker {
   late Uint8List bytes;
+  String? path;
   String? directory;
   @override
   Future<FilePickerResult?> pickFiles({
@@ -37,7 +42,12 @@ class _Picker extends FilePicker {
     bool lockParentWindow = false,
     bool readSequential = false,
   }) async => FilePickerResult([
-    PlatformFile(name: 'sample.png', size: bytes.length, bytes: bytes),
+    PlatformFile(
+      name: 'sample.png',
+      path: path,
+      size: bytes.length,
+      bytes: bytes,
+    ),
   ]);
   @override
   Future<String?> getDirectoryPath({
@@ -170,9 +180,13 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  Future<void> screenshot(WidgetTester tester, String name) async {
+  Future<void> screenshot(
+    WidgetTester tester,
+    String name, {
+    bool showHeading = true,
+  }) async {
     if (Platform.environment['PLANA_DESKTOP_CAPTURE'] != '1') return;
-    await tester.ensureVisible(find.text('单张处理'));
+    if (showHeading) await tester.ensureVisible(find.text('单张处理'));
     await tester.runAsync(
       () => Future<void>.delayed(const Duration(milliseconds: 200)),
     );
@@ -321,6 +335,190 @@ void main() {
     },
   );
 
+  testWidgets(
+    'sampler filters typed names and always opens the full list below the arrow',
+    (tester) async {
+      await mount(tester, size: const Size(900, 640));
+      final field = key('metadata-field-sampler');
+      final toggle = key('metadata-sampler-toggle');
+      final menu = key('metadata-sampler-options');
+      final seed = key('metadata-field-seed');
+      String value() => tester.widget<TextField>(field).controller!.text;
+
+      await Scrollable.ensureVisible(tester.element(field), alignment: 1);
+      await tester.pumpAndSettle();
+      expect(value(), 'k_euler_ancestral');
+      await tester.tap(toggle, kind: PointerDeviceKind.mouse);
+      await tester.pumpAndSettle();
+      final anchor = tester.getRect(field);
+      final panel = tester.getRect(menu);
+      expect(panel.left, closeTo(anchor.left, 1));
+      expect(panel.width, closeTo(anchor.width, 1));
+      expect(panel.top, closeTo(anchor.bottom, 3));
+      expect(panel.height, greaterThanOrEqualTo(80));
+      expect(panel.bottom, lessThanOrEqualTo(640));
+      Iterable<String?> menuLabels() => tester
+          .widgetList<Text>(
+            find.descendant(of: menu, matching: find.byType(Text)),
+          )
+          .map((label) => label.data);
+      expect(menuLabels(), orderedEquals(samplers));
+      expect(find.text('DPM++ SDE').hitTestable(), findsOneWidget);
+      await screenshot(tester, 'metadata-sampler-dropdown', showHeading: false);
+
+      await tester.enterText(field, 'dpm++');
+      await tester.pumpAndSettle();
+      expect(
+        menuLabels(),
+        orderedEquals(['DPM++ 2S A', 'DPM++ 2M SDE', 'DPM++ 2M', 'DPM++ SDE']),
+      );
+      await tester.enterText(field, 'my_sampler_v3');
+      await tester.pumpAndSettle();
+      expect(find.text('没有匹配的采样器'), findsOneWidget);
+      await tester.tap(toggle);
+      await tester.pumpAndSettle();
+      expect(value(), 'my_sampler_v3');
+      expect(menuLabels(), orderedEquals(samplers));
+      await tester.tap(find.text('Euler').hitTestable());
+      await tester.pumpAndSettle();
+      expect(value(), 'k_euler');
+      expect(menu, findsNothing);
+
+      await tester.enterText(field, 'K_DpMpP_2s');
+      await tester.pumpAndSettle();
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pumpAndSettle();
+      expect(value(), 'k_dpmpp_2s_ancestral');
+      expect(menu, findsNothing);
+
+      await tester.enterText(field, 'custom-A/2');
+      await tester.pumpAndSettle();
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+      expect(menu, findsNothing);
+      expect(value(), 'custom-A/2');
+      await tester.tap(toggle);
+      await tester.pumpAndSettle();
+      await tester.tap(seed);
+      await tester.pumpAndSettle();
+      expect(menu, findsNothing);
+      expect(value(), 'custom-A/2');
+      await tester.tap(toggle);
+      await tester.pumpAndSettle();
+      await tester.tapAt(const Offset(4, 4));
+      await tester.pumpAndSettle();
+      expect(menu, findsNothing);
+      expect(value(), 'custom-A/2');
+      await tester.pumpWidget(const SizedBox());
+      await pumpUntilComplete(tester, stores.flushForExit());
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.windows),
+  );
+
+  testWidgets(
+    'closing the app preserves the single-image edits used by gallery exports',
+    (tester) async {
+      final source = File('${temp.path}/sample.png')
+        ..writeAsBytesSync(picker.bytes);
+      picker.path = source.path;
+      await pumpUntilComplete(
+        tester,
+        stores.prefs.write(
+          key: 'save_settings',
+          value: '{"meta":"custom","customPrompt":"旧版提示词"}',
+        ),
+      );
+      await mount(tester);
+      String field(String name) => tester
+          .widget<TextField>(key('metadata-field-$name'))
+          .controller!
+          .text;
+      expect(field('prompt'), '旧版提示词');
+      await tapIO(tester, key('metadata-select-image'));
+      await tester.enterText(key('metadata-field-prompt'), '正向, cat');
+      await tester.enterText(key('metadata-field-uc'), '负向, blur');
+      await tester.enterText(key('metadata-field-sampler'), 'custom-A/2');
+      await tester.tap(key('metadata-field-seed'));
+      await tester.ensureVisible(find.text('SMEA'));
+      await tester.tap(find.text('SMEA'));
+      await tester.pump();
+      await tester.tap(find.text('SMEA Dynamic'));
+      await tester.ensureVisible(find.text('更多参数'));
+      await tester.tap(find.text('更多参数'));
+      await tester.pumpAndSettle();
+      await tester.enterText(key('metadata-field-strength'), '0.42');
+      await tester.enterText(key('metadata-output-directory'), temp.path);
+      // Close with an unfinished numeric edit, before the autosave timer fires.
+      await tester.enterText(key('metadata-field-steps'), '');
+      await tester.pumpWidget(const SizedBox());
+      await pumpUntilComplete(tester, stores.flushForExit());
+      stores = (await tester.runAsync(
+        () => AppStores.open(rootOverride: stores.desktopOutput.root.parent),
+      ))!;
+      await mount(tester);
+      await pumpUntil(tester, () => find.text('完整信息与导入').evaluate().isNotEmpty);
+      expect(field('prompt'), '正向, cat');
+      expect(field('uc'), '负向, blur');
+      expect(field('sampler'), 'custom-A/2');
+      expect(field('steps'), '');
+      expect(field('strength'), '0.42');
+      expect(
+        tester
+            .widget<TextField>(key('metadata-output-directory'))
+            .controller!
+            .text,
+        temp.path,
+      );
+      expect(
+        tester
+            .widget<FilterChip>(find.widgetWithText(FilterChip, 'SMEA Dynamic'))
+            .selected,
+        isTrue,
+      );
+      final container = ProviderScope.containerOf(
+        tester.element(key('desktop-metadata-tool')),
+        listen: false,
+      );
+      Future<Uint8List> transfer(SaveFormat format) async {
+        final settings = await container.read(saveSettingsProvider.future);
+        return (await prepareImageTransfer(
+          load: () async => picker.bytes,
+          settings: Future.value(settings.copyWith(format: format)),
+        )).bytes;
+      }
+
+      await tester.runAsync(() async {
+        await expectLater(
+          transfer(SaveFormat.png),
+          throwsA(isA<MetadataFieldErrors>()),
+        );
+      });
+      await tester.enterText(key('metadata-field-steps'), '41');
+      await tester.enterText(key('metadata-field-seed'), '123456');
+      final single = File('${temp.path}/sample_custom.png');
+      await tapIO(tester, key('metadata-write-single'), output: single);
+      await tester.runAsync(() async {
+        final expected = metadataComment(
+          await extractImageMetadata(await single.readAsBytes()),
+        );
+        expect(expected, containsPair('sampler', 'custom-A/2'));
+        expect(expected, containsPair('steps', 41));
+        expect(expected, containsPair('seed', 123456));
+        expect(expected, containsPair('strength', .42));
+        expect(expected, containsPair('sm_dyn', true));
+        expect(expected, containsPair('prompt', '正向, cat'));
+        expect(expected, containsPair('uc', '负向, blur'));
+        for (final format in [SaveFormat.png, SaveFormat.webp]) {
+          final actual = await extractImageMetadata(await transfer(format));
+          expect(metadataComment(actual), expected, reason: format.name);
+        }
+      });
+      await tester.pumpWidget(const SizedBox());
+      await pumpUntilComplete(tester, stores.flushForExit());
+    },
+  );
+
   testWidgets('advanced parameters survive reopening and resizing', (
     tester,
   ) async {
@@ -408,6 +606,8 @@ void main() {
       final output = Directory('${temp.path}/output')..createSync();
       final a = File('${input.path}/a.png')..writeAsBytesSync(picker.bytes);
       File('${input.path}/b.png').writeAsBytesSync(picker.bytes);
+      final removed = File('${input.path}/c.png')
+        ..writeAsBytesSync(picker.bytes);
       await mount(tester);
       await tester.enterText(key('metadata-field-prompt'), 'batch prompt');
       await tester.enterText(key('metadata-field-uc'), 'batch negative');
@@ -418,6 +618,16 @@ void main() {
       await tapIO(tester, key('metadata-browse-input'));
       expect(key('metadata-thumbnail-a.png'), findsOneWidget);
       expect(key('metadata-thumbnail-b.png'), findsOneWidget);
+      expect(find.text('图片预览 · 3 张 · 已选 3'), findsOneWidget);
+      final remove = find.byTooltip('从本批次移除 c.png');
+      final imageRect = tester.getRect(key('metadata-thumbnail-c.png'));
+      expect(tester.getCenter(remove).dx, greaterThan(imageRect.center.dx));
+      expect(tester.getCenter(remove).dy, lessThan(imageRect.center.dy));
+      await tester.tap(remove);
+      await tester.pumpAndSettle();
+      expect(find.byType(Dialog), findsNothing);
+      expect(key('metadata-thumbnail-c.png'), findsNothing);
+      expect(find.text('图片预览 · 2 张 · 已选 2'), findsOneWidget);
       await tester.pumpAndSettle();
       expect(
         tester
@@ -456,6 +666,11 @@ void main() {
         expect(meta.prompt, 'batch prompt');
         expect(meta.negativePrompt, 'batch negative');
         expect(await a.readAsBytes(), picker.bytes);
+        expect(await removed.readAsBytes(), picker.bytes);
+        expect(
+          await File('${output.path}/metadata_edited/c_custom.png').exists(),
+          false,
+        );
       });
       tester.view.physicalSize = const Size(540, 650);
       await tester.pumpAndSettle();
@@ -505,6 +720,10 @@ void main() {
       expect(key('metadata-thumbnail-gen101.png'), findsOneWidget);
       expect(key('metadata-thumbnail-gen102.png'), findsOneWidget);
       expect(find.text('图片预览 · 2 张 · 已选 2'), findsOneWidget);
+      await tester.tap(find.byTooltip('从本批次移除 gen101.png'));
+      await tester.pumpAndSettle();
+      expect(key('metadata-thumbnail-gen101.png'), findsNothing);
+      expect(find.text('图片预览 · 1 张 · 已选 1'), findsOneWidget);
       await tapIO(tester, key('metadata-history-batch'));
       await tester.tap(key('history-image-gen101'));
       await tester.pumpAndSettle();

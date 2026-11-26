@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/net/anlas_provider.dart';
 import '../../../core/theme/app_theme.dart';
+import '../bot_image_price.dart';
 import '../cost.dart';
 import '../gen_modules.dart';
 import '../generate_state.dart';
@@ -91,13 +92,16 @@ class _SetupState extends ConsumerState<_Setup> {
     final n = p.loopCount;
 
     final l = context.l10n;
-    final free = cost == 0 && vibeFee == 0;
-    final costText = free
-        ? l.free
-        : n > 0
-        ? l.costPerImageTotal(cost, cost * n + vibeFee)
-        : '${l.costPerImage(cost)}'
-              '${vibeFee > 0 ? l.costEncodeExtra(vibeFee) : ''}';
+    final quote = ref.watch(botImagePriceProvider(sent.params.model));
+    final free = quote?.free ?? (cost == 0 && vibeFee == 0);
+    final costText =
+        quote?.forCount(n) ??
+        (free
+            ? l.free
+            : n > 0
+            ? l.costPerImageTotal(cost, cost * n + vibeFee)
+            : '${l.costPerImage(cost)}'
+                  '${vibeFee > 0 ? l.costEncodeExtra(vibeFee) : ''}');
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -204,11 +208,14 @@ class _SetupState extends ConsumerState<_Setup> {
               : () async {
                   // 无限 + 收费档:没有张数上限就没有花费上限,且退到后台仍会继续,
                   // 所以开跑前确认一次。免费档或有限张数不打扰。
-                  if (n == 0 && (cost > 0 || vibeFee > 0)) {
+                  if (n == 0 &&
+                      (quote == null ? !free : (quote.yuan ?? 0) > 0)) {
                     final ok = await confirmDialog(
                       context,
-                      title: l.infiniteLoopTitle,
-                      message: vibeFee > 0
+                      title: quote == null ? l.infiniteLoopTitle : '无限循环生成',
+                      message: quote != null
+                          ? '每张按 ${formatRelayPrice(quote.yuan!)} 计费，将持续生成直到停止。'
+                          : vibeFee > 0
                           ? l.infiniteLoopBodyFee(cost, vibeFee)
                           : l.infiniteLoopBody(cost),
                       confirmLabel: l.start,

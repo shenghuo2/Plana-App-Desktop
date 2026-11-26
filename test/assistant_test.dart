@@ -391,9 +391,9 @@ void main() {
       expect(s.characters, isEmpty, reason: '画布上的初音和镜音铃不能混进来');
     });
 
-    test('AI 没写负向,负向就是空', () {
+    test('缺少全局负面时沿用画布主负面', () {
       final s = send(const DrawProposal(positive: '1girl'));
-      expect(s.negativePrompt, '');
+      expect(s.negativePrompt, 'my curated negatives');
     });
 
     test('正向词只认 AI 的,编辑器草稿也不带', () {
@@ -1277,10 +1277,9 @@ void main() {
     });
 
     test('OC 认中文名、别名和去掉 OC_ 的键名,命中的名字越长越靠前', () {
-      // DeepSeek 8 个字排在「小小纺」3 个字前面;同一个 OC 命中的名字按库里的顺序连起来
       expect(matchOcs('阿纺、小小纺和 deep seek', ocs), [
         ('DeepSeek', 'blue hair'),
-        ('小小纺、阿纺', 'silver hair, twin braids'),
+        ('小小纺', 'silver hair, twin braids'),
       ]);
     });
 

@@ -229,14 +229,32 @@ Uint8List _styleRefResizeJpg((Uint8List, int, int) arg) {
   return Uint8List.fromList(img.encodeJpg(canvas, quality: quality));
 }
 
-/// 角色参考(CR)预处理,复刻 web `processCRImage`:按宽高比选目标画布,
-/// contain(整图可见、按比例缩放)+ 黑边居中填充,输出 PNG。
-/// 方形(0.8≤AR≤1.25)→1472²;横图→1536×1024;竖图→1024×1536。
-Future<Uint8List> crResizePng(Uint8List src) async {
+/// 4.5 在三种尺寸的黑底画布内完整显示参考图。V5 按最近的宽高比居中裁切并保留透明度。
+Future<Uint8List> crResizePng(Uint8List src, {bool v5 = false}) async {
   return withDecodedImage(src, (img) async {
     final iw = img.width.toDouble();
     final ih = img.height.toDouble();
     final ar = iw / ih;
+    if (v5) {
+      final (width, height) = _v5ReferenceSize(ar);
+      final scale = math.max(width / iw, height / ih);
+      final sw = math.max(width, (iw * scale).round());
+      final sh = math.max(height, (ih * scale).round());
+      final recorder = ui.PictureRecorder();
+      final canvas = ui.Canvas(recorder);
+      canvas.drawImageRect(
+        img,
+        ui.Rect.fromLTWH(0, 0, iw, ih),
+        ui.Rect.fromLTWH(
+          -((sw - width) ~/ 2).toDouble(),
+          -((sh - height) ~/ 2).toDouble(),
+          sw.toDouble(),
+          sh.toDouble(),
+        ),
+        ui.Paint()..filterQuality = ui.FilterQuality.high,
+      );
+      return pictureToPng(recorder.endRecording(), width, height);
+    }
 
     int cw, ch;
     if (ar >= 0.8 && ar <= 1.25) {
@@ -273,4 +291,23 @@ Future<Uint8List> crResizePng(Uint8List src) async {
     final picture = recorder.endRecording();
     return pictureToPng(picture, cw, ch);
   });
+}
+
+// V5 chooses the nearest log aspect ratio in its 1-megapixel, 64-pixel grid.
+(int, int) _v5ReferenceSize(double ratio) {
+  final target = math.log(ratio);
+  var result = (1024, 1024);
+  var distance = double.infinity;
+  // Traverse portrait to landscape to preserve the official tie order.
+  for (var step = -48; step <= 48; step++) {
+    final long = 1024 + 64 * step.abs();
+    final short = (1024 * 1024 ~/ (64 * long)) * 64;
+    final (width, height) = step < 0 ? (short, long) : (long, short);
+    final delta = (math.log(width / height) - target).abs();
+    if (delta < distance) {
+      distance = delta;
+      result = (width, height);
+    }
+  }
+  return result;
 }

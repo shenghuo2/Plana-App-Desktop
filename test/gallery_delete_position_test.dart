@@ -125,8 +125,11 @@ void main() {
     await tester.pumpAndSettle();
 
     final strip = find.byType(FilmStrip);
-    final list = find.descendant(of: strip, matching: find.byType(ListView));
-    final scroll = tester.widget<ListView>(list).controller!;
+    final list = find.descendant(
+      of: strip,
+      matching: find.byType(CustomScrollView),
+    );
+    final scroll = tester.widget<CustomScrollView>(list).controller!;
     scroll.jumpTo(500);
     await tester.pumpAndSettle();
     expect(scroll.offset, closeTo(500, 1));
@@ -190,8 +193,11 @@ void main() {
     await tester.pumpAndSettle();
 
     final strip = find.byType(FilmStrip);
-    final list = find.descendant(of: strip, matching: find.byType(ListView));
-    final scroll = tester.widget<ListView>(list).controller!;
+    final list = find.descendant(
+      of: strip,
+      matching: find.byType(CustomScrollView),
+    );
+    final scroll = tester.widget<CustomScrollView>(list).controller!;
     scroll.jumpTo(500);
     await tester.pumpAndSettle();
 

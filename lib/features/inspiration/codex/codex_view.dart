@@ -1,7 +1,9 @@
 import '../../../l10n/l10n.dart';
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -12,7 +14,9 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/ui/pinch_columns.dart';
 import '../../../core/ui/scroll_memory.dart';
 import '../../generate/widgets/common.dart' show hintSnack;
+import '../widgets/desktop_inspiration_search.dart';
 import 'codex_card.dart';
+import 'codex_catalog.dart';
 import 'codex_block.dart';
 import 'codex_favorites.dart';
 import 'codex_image_loading.dart';
@@ -26,9 +30,15 @@ import 'codex_random_workspace.dart';
 /// 顶部选法典 + 来源;下面搜索 + 顶级分类筛选 + 瀑布流(双指捏合换列数)。
 /// 只读,点词条看详情。
 class CodexView extends ConsumerStatefulWidget {
-  const CodexView({super.key, this.desktop = false, this.embedded = false});
+  const CodexView({
+    super.key,
+    this.desktop = false,
+    this.embedded = false,
+    this.desktopHeaderBuilder,
+  });
   final bool desktop;
   final bool embedded;
+  final Widget Function(Widget search)? desktopHeaderBuilder;
 
   @override
   ConsumerState<CodexView> createState() => _CodexViewState();
@@ -45,6 +55,8 @@ class _CodexViewState extends ConsumerState<CodexView>
     with SingleTickerProviderStateMixin, PinchColumnsMixin {
   String _search = '';
   bool _favoritesOnly = false;
+  bool _newOnly = false;
+  final _searchFocus = FocusNode();
   bool _randomWorkspace = false;
   List<String> _catPath = const []; // 分类树选中路径(空=全部;前缀匹配词条 path)
   Timer? _debounce;
@@ -58,7 +70,10 @@ class _CodexViewState extends ConsumerState<CodexView>
   /// 每部法典各记各的搜索词与分类筛选,换走再换回来原样还原。
   /// 滚动位置记在 [ScrollMemory] 里,键带法典 id。
   final _views =
-      <String, ({String search, List<String> cat, bool favoritesOnly})>{};
+      <
+        String,
+        ({String search, List<String> cat, bool favoritesOnly, bool newOnly})
+      >{};
 
   late final _scroll = MemoScrollController.keyed(
     () =>
@@ -73,6 +88,7 @@ class _CodexViewState extends ConsumerState<CodexView>
   @override
   void dispose() {
     _debounce?.cancel();
+    _searchFocus.dispose();
     _searchCtrl.dispose();
     _scroll.dispose();
     _imageLoading.dispose();
@@ -108,7 +124,9 @@ class _CodexViewState extends ConsumerState<CodexView>
     // 上万词条,逐键过滤会卡;250ms 防抖
     _debounce = Timer(const Duration(milliseconds: 250), () {
       if (mounted) {
-        if (_scroll.hasClients) _scroll.jumpTo(0);
+        if ((!widget.desktop || widget.embedded) && _scroll.hasClients) {
+          _scroll.jumpTo(0);
+        }
         setState(() => _search = v);
       }
     });
@@ -121,18 +139,21 @@ class _CodexViewState extends ConsumerState<CodexView>
     CodexData d,
     CodexBlock block,
     Set<String> favorites,
-    String search,
-  ) {
+    String search, {
+    List<String>? category,
+  }) {
     final q = search.trim().toLowerCase();
     return d.onePerArtist([
       for (final e in d.entries)
-        if (_underCat(e) &&
+        if (codexPathUnder(e.path, category ?? _catPath) &&
             !block.hides(e.path) &&
+            (!_newOnly || e.isNew) &&
             (!_favoritesOnly ||
                 favorites.contains(codexFavKey(d.meta.id, e.id))) &&
             (q.isEmpty ||
                 e.title.toLowerCase().contains(q) ||
                 e.tags.toLowerCase().contains(q) ||
+                e.path.any((p) => p.toLowerCase().contains(q)) ||
                 e.characters.any((c) => c.prompt.toLowerCase().contains(q))))
           e,
     ]);
@@ -148,8 +169,6 @@ class _CodexViewState extends ConsumerState<CodexView>
     }
     return _browse;
   }
-
-  bool _underCat(CodexEntry e) => codexPathUnder(e.path, _catPath);
 
   @override
   Widget build(BuildContext context) {
@@ -170,6 +189,7 @@ class _CodexViewState extends ConsumerState<CodexView>
           search: _searchCtrl.text,
           cat: _catPath,
           favoritesOnly: _favoritesOnly,
+          newOnly: _newOnly,
         );
       }
       final to = _views[next];
@@ -178,10 +198,11 @@ class _CodexViewState extends ConsumerState<CodexView>
         _catPath = to?.cat ?? const [];
         _search = to?.search ?? '';
         _favoritesOnly = to?.favoritesOnly ?? false;
+        _newOnly = to?.newOnly ?? false;
       });
     });
     final indexAsync = ref.watch(codexIndexProvider);
-    return indexAsync.when(
+    final body = indexAsync.when(
       loading: () => const Center(child: CircularProgressIndicator()),
       error: (e, _) => _error(
         context.l10n.codexIndexFailed,
@@ -195,6 +216,31 @@ class _CodexViewState extends ConsumerState<CodexView>
         if (ref.watch(codexIntroProvider) == false) _maybeShowIntro();
         return _body(index, meta);
       },
+    );
+    if (!widget.desktop || widget.embedded) return body;
+    final search = buildDesktopInspirationSearch(
+      context,
+      key: const ValueKey('desktop-codex-search'),
+      controller: _searchCtrl,
+      focusNode: _searchFocus,
+      onChanged: _onSearch,
+      hint: context.l10n.searchTitlePromptHint,
+    );
+    return CallbackShortcuts(
+      bindings: {
+        const SingleActivator(LogicalKeyboardKey.keyK, control: true): () =>
+            _searchFocus.requestFocus(),
+      },
+      child: Column(
+        children: [
+          widget.desktopHeaderBuilder?.call(search) ??
+              Align(
+                alignment: Alignment.centerRight,
+                child: SizedBox(width: 300, child: search),
+              ),
+          Expanded(child: body),
+        ],
+      ),
     );
   }
 
@@ -244,11 +290,15 @@ class _CodexViewState extends ConsumerState<CodexView>
 
   Widget _body(List<CodexMeta> index, CodexMeta meta) {
     final dataAsync = ref.watch(codexDataProvider(meta.id));
+    // 索引后台刷新出新版本时,新数据到手前继续显示旧的
     return dataAsync.when(
+      skipLoadingOnReload: true,
+      skipError: true,
       loading: () => Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            if (widget.desktop && !widget.embedded) const CodexPickerButton(),
             const CircularProgressIndicator(),
             const SizedBox(height: 12),
             Text(
@@ -260,9 +310,16 @@ class _CodexViewState extends ConsumerState<CodexView>
           ],
         ),
       ),
-      error: (e, _) => _error(
-        context.l10n.codexLoadFailed,
-        () => ref.invalidate(codexDataProvider(meta.id)),
+      error: (e, _) => Column(
+        children: [
+          if (widget.desktop && !widget.embedded) const CodexPickerButton(),
+          Expanded(
+            child: _error(
+              context.l10n.codexLoadFailed,
+              () => ref.invalidate(codexDataProvider(meta.id)),
+            ),
+          ),
+        ],
       ),
       data: (d) {
         // 词条到手就把这部的中文对照也拉上:点开详情时表多半已就绪,芯片不用
@@ -301,9 +358,27 @@ class _CodexViewState extends ConsumerState<CodexView>
   }
 
   void _selectCategory(List<String> path) {
-    if (_scroll.hasClients) _scroll.jumpTo(0);
+    if ((!widget.desktop || widget.embedded) && _scroll.hasClients) {
+      _scroll.jumpTo(0);
+    }
     setState(() => _catPath = path);
   }
+
+  Widget _embeddedSearch() => TextField(
+    key: const ValueKey('desktop-codex-search'),
+    controller: _searchCtrl,
+    focusNode: _searchFocus,
+    onChanged: _onSearch,
+    decoration: InputDecoration(
+      hintText: l10nNow.searchTitlePromptHint,
+      prefixIcon: const Icon(Icons.search, size: 20),
+      isDense: true,
+      filled: true,
+      fillColor: context.scheme.surfaceContainerLowest,
+      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+    ),
+  );
 
   Widget _desktopBody(
     CodexData data,
@@ -316,185 +391,180 @@ class _CodexViewState extends ConsumerState<CodexView>
     final scheme = context.scheme;
     return LayoutBuilder(
       builder: (context, box) {
-        final sidebar =
-            !widget.embedded &&
-            box.maxWidth >= 940 &&
-            data.effectiveTree.isNotEmpty;
         final edge = widget.embedded ? 12.0 : 24.0;
-        final search = SizedBox(
-          width: widget.embedded ? null : (box.maxWidth < 700 ? 250 : 300),
-          child: TextField(
-            key: const ValueKey('desktop-codex-search'),
-            controller: _searchCtrl,
-            onChanged: _onSearch,
-            decoration: InputDecoration(
-              hintText: l10nNow.searchTitlePromptHint,
-              prefixIcon: const Icon(Icons.search, size: 20),
-              isDense: true,
-              filled: true,
-              fillColor: scheme.surfaceContainerLowest,
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-              contentPadding: const EdgeInsets.symmetric(
-                horizontal: 12,
-                vertical: 14,
-              ),
-            ),
-          ),
+        final category = _catButton(data, meta, block);
+        final favorite = _favButton();
+        final random = _desktopFilterButton(
+          key: const ValueKey('desktop-codex-random'),
+          selected: _randomWorkspace,
+          onPressed: _toggleRandomWorkspace,
+          icon: _randomWorkspace ? Icons.casino : Icons.casino_outlined,
+          label: context.l10n.desktopRandomInspiration,
         );
-        final filters = <Widget>[
-          _catButton(data, meta, block),
-          _favButton(),
-          _desktopFilterButton(
-            key: const ValueKey('desktop-codex-random'),
-            selected: _randomWorkspace,
-            onPressed: _toggleRandomWorkspace,
-            icon: _randomWorkspace ? Icons.casino : Icons.casino_outlined,
-            label: l10nNow.desktopRandomInspiration,
-          ),
-        ];
-        final actions = Wrap(
-          spacing: 10,
-          runSpacing: 10,
-          crossAxisAlignment: WrapCrossAlignment.center,
-          children: [if (!widget.embedded) search, ...filters],
-        );
+        final scope = _catPath.isEmpty
+            ? context.l10n.codexAllEntries
+            : _catPath.join(' / ');
+        final itemCount = context.l10n.itemsN(entries.length);
+        final summary = '$scope · $itemCount';
+        final mainDraw = widget.embedded
+            ? false
+            : ref.watch(codexMainDrawProvider);
+        final drawing = widget.embedded ? _randomWorkspace : mainDraw;
+        final deck = drawing
+            ? CodexRandomWorkspace(
+                key: ValueKey('draw-${meta.id}'),
+                wide: !widget.embedded && CodexCatalog.hasRail(box),
+                onBrowseCategory: (path) {
+                  _selectCategory(path);
+                  _toggleRandomWorkspace();
+                },
+                scope: ([category]) => [
+                  (category ?? _catPath).isEmpty
+                      ? context.l10n.allCategories
+                      : (category ?? _catPath).join(' / '),
+                  if (_favoritesOnly) context.l10n.codexOnlyFavorites,
+                  if (_newOnly) context.l10n.codexRecentAdditions,
+                  if (_searchCtrl.text.trim().isNotEmpty)
+                    '“${_searchCtrl.text.trim()}”',
+                ].join(' · '),
+                scopeKey: ([category]) => jsonEncode([
+                  meta.id,
+                  // An entry recalled from a different branch uses that branch's round.
+                  category != null && !codexPathUnder(category, _catPath)
+                      ? category
+                      : _catPath,
+                  _favoritesOnly,
+                  _newOnly,
+                  _searchCtrl.text.trim().toLowerCase(),
+                  block.paths.map(jsonEncode).toList()..sort(),
+                ]),
+                codex: meta,
+                entries: entries,
+                candidatesForDraw: ([category]) {
+                  final query = _searchCtrl.text;
+                  if (category != null && !codexPathUnder(category, _catPath)) {
+                    return _filtered(
+                      data,
+                      block,
+                      favorites,
+                      query,
+                      category: category,
+                    );
+                  }
+                  final pool = query == _search
+                      ? entries
+                      : _filtered(data, block, favorites, query);
+                  return category == null
+                      ? pool
+                      : pool
+                            .where((e) => codexPathUnder(e.path, category))
+                            .toList();
+                },
+                bookPicker: const CodexPickerButton(expanded: true),
+                categoryPicker: category,
+                favoritesOnly: _favoritesOnly,
+                onFavorites: _toggleFavorites,
+                query: _search.trim(),
+                onClearQuery: () {
+                  _debounce?.cancel();
+                  _searchCtrl.clear();
+                  setState(() => _search = '');
+                },
+                newOnly: _newOnly,
+                onToggleNew: () => setState(() => _newOnly = !_newOnly),
+                media: media,
+                onClose: _toggleRandomWorkspace,
+              )
+            : null;
+        if (!widget.embedded) {
+          return CodexCatalog(
+            key: ValueKey('book-${meta.id}'),
+            data: data,
+            media: media,
+            entries: entries,
+            favorites: favorites,
+            block: block,
+            path: _catPath,
+            query: _search,
+            favoritesOnly: _favoritesOnly,
+            newOnly: _newOnly,
+            categoryPicker: category,
+            bookPicker: const CodexPickerButton(expanded: true),
+            onCategory: _selectCategory,
+            onFavorites: _toggleFavorites,
+            onRecent: () => setState(() => _newOnly = !_newOnly),
+            onDraw: _toggleRandomWorkspace,
+            onReset: () {
+              _debounce?.cancel();
+              _searchCtrl.clear();
+              setState(() {
+                _search = '';
+                _catPath = const [];
+                _favoritesOnly = false;
+                _newOnly = false;
+              });
+            },
+            drawWorkspace: deck,
+          );
+        }
+        if (deck != null) {
+          return KeyedSubtree(
+            key: const ValueKey('desktop-codex-browser'),
+            child: deck,
+          );
+        }
         return Column(
           key: const ValueKey('desktop-codex-browser'),
           children: [
             Padding(
-              padding: EdgeInsets.fromLTRB(
-                edge,
-                widget.embedded ? 12 : 0,
-                edge,
-                16,
-              ),
-              child: widget.embedded
-                  ? Column(
-                      key: const ValueKey('embedded-codex-toolbar'),
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Flexible(flex: 5, child: const CodexPickerButton()),
-                            const SizedBox(width: 10),
-                            Expanded(flex: 6, child: search),
-                          ],
-                        ),
-                        const SizedBox(height: 10),
-                        Text(
-                          '${_catPath.isEmpty ? '全部词条' : _catPath.join(' / ')} · ${entries.length} 条',
-                          style: context.texts.titleSmall,
-                        ),
-                        const SizedBox(height: 10),
-                        actions,
-                      ],
-                    )
-                  : box.maxWidth < 1060
-                  ? Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          '${_catPath.isEmpty ? '全部词条' : _catPath.join(' / ')} · ${entries.length} 条',
-                          style: context.texts.titleSmall,
-                        ),
-                        const SizedBox(height: 12),
-                        actions,
-                      ],
-                    )
-                  : Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            '${_catPath.isEmpty ? '全部词条' : _catPath.join(' / ')} · ${entries.length} 条',
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: context.texts.titleSmall,
-                          ),
-                        ),
-                        const SizedBox(width: 16),
-                        actions,
-                      ],
-                    ),
-            ),
-            Expanded(
-              child: Row(
+              padding: EdgeInsets.fromLTRB(edge, 12, edge, 8),
+              child: Column(
+                key: const ValueKey('embedded-codex-toolbar'),
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  if (sidebar)
-                    Container(
-                      key: const ValueKey('desktop-codex-categories'),
-                      width: 212,
-                      margin: const EdgeInsets.fromLTRB(24, 0, 0, 20),
-                      decoration: BoxDecoration(
-                        color: scheme.surfaceContainerLowest,
-                        borderRadius: BorderRadius.circular(14),
-                        border: Border.all(color: scheme.outlineVariant),
+                  Row(
+                    children: [
+                      const Expanded(
+                        flex: 6,
+                        child: CodexPickerButton(expanded: true),
                       ),
-                      child: ListView(
-                        padding: const EdgeInsets.all(10),
-                        children: [
-                          Padding(
-                            padding: const EdgeInsets.fromLTRB(10, 10, 10, 14),
-                            child: Text(
-                              l10nNow.desktopBrowseCategories,
-                              style: context.texts.titleSmall,
+                      const SizedBox(width: 8),
+                      Expanded(flex: 5, child: category),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  _embeddedSearch(),
+                  const SizedBox(height: 6),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Tooltip(
+                          message: summary,
+                          child: DefaultTextStyle(
+                            style: context.texts.bodyMedium!.copyWith(
+                              color: scheme.onSurfaceVariant,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            child: Wrap(
+                              key: const ValueKey('embedded-codex-summary'),
+                              spacing: 4,
+                              children: [Text(scope), Text('· $itemCount')],
                             ),
                           ),
-                          _desktopCategoryTile(
-                            '全部分类',
-                            _browseEntries(data)
-                                .where((e) => !block.hides(e.path))
-                                .length,
-                            const [],
-                          ),
-                          for (final node in data.effectiveTree)
-                            ..._desktopCategoryNodes(
-                              node,
-                              const [],
-                              data,
-                              block,
-                            ),
-                        ],
+                        ),
                       ),
-                    ),
-                  Expanded(
-                    child: _randomWorkspace
-                        ? CodexRandomWorkspace(
-                            scope: [
-                              meta.displayTitle,
-                              _catPath.isEmpty ? '全部分类' : _catPath.join(' / '),
-                              _favoritesOnly ? '仅收藏' : '全部内容',
-                              if (_search.trim().isNotEmpty)
-                                '搜索：${_search.trim()}',
-                            ].join(' · '),
-                            codex: meta,
-                            candidateCount: entries.length,
-                            // A draw can happen before the search debounce fires.
-                            candidatesForDraw: () => _searchCtrl.text == _search
-                                ? entries
-                                : _filtered(
-                                    data,
-                                    block,
-                                    favorites,
-                                    _searchCtrl.text,
-                                  ),
-                            media: media,
-                            embedded: widget.embedded,
-                            onClose: _toggleRandomWorkspace,
-                            candidates: _desktopGrid(
-                              meta,
-                              media,
-                              entries,
-                              favorites,
-                              edge,
-                            ),
-                          )
-                        : _desktopGrid(meta, media, entries, favorites, edge),
+                      const SizedBox(width: 6),
+                      favorite,
+                      const SizedBox(width: 4),
+                      random,
+                    ],
                   ),
                 ],
               ),
+            ),
+            Expanded(
+              child: _desktopGrid(meta, media, entries, favorites, edge),
             ),
           ],
         );
@@ -512,11 +582,11 @@ class _CodexViewState extends ConsumerState<CodexView>
       ? _msg(_favoritesOnly ? '没有匹配的收藏词条' : '没有匹配的词条')
       : LayoutBuilder(
           builder: (context, gridBox) {
-            final columns = ((gridBox.maxWidth - edge * 2 + 16) / 230)
-                .floor()
-                .clamp(1, 10);
-            final cardWidth =
-                (gridBox.maxWidth - edge * 2 - (columns - 1) * 16) / columns;
+            final layout = CodexCard.desktopGrid(
+              context,
+              gridBox.maxWidth - edge * 2,
+              embedded: widget.embedded,
+            );
             return Scrollbar(
               controller: _scroll,
               thumbVisibility: true,
@@ -527,12 +597,7 @@ class _CodexViewState extends ConsumerState<CodexView>
                 // entire remote collection alive.
                 scrollCacheExtent: const ScrollCacheExtent.pixels(692),
                 padding: EdgeInsets.fromLTRB(edge, 0, edge, 24),
-                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: columns,
-                  crossAxisSpacing: 16,
-                  mainAxisSpacing: 16,
-                  mainAxisExtent: 330,
-                ),
+                gridDelegate: layout.delegate,
                 itemCount: entries.length,
                 itemBuilder: (_, i) => CodexCard(
                   key: ValueKey('desktop-codex-card-${entries[i].id}'),
@@ -540,8 +605,9 @@ class _CodexViewState extends ConsumerState<CodexView>
                   entry: entries[i],
                   media: media,
                   desktop: true,
+                  embedded: widget.embedded,
                   imageLoading: _imageLoading,
-                  decodeWidth: cardWidth,
+                  decodeWidth: layout.width,
                   favorite: favorites.contains(
                     codexFavKey(meta.id, entries[i].id),
                   ),
@@ -568,74 +634,6 @@ class _CodexViewState extends ConsumerState<CodexView>
             );
           },
         );
-
-  List<Widget> _desktopCategoryNodes(
-    CodexNode node,
-    List<String> parent,
-    CodexData data,
-    CodexBlock block,
-  ) {
-    final path = [...parent, node.name];
-    return [
-      _desktopCategoryTile(
-        node.name,
-        _browseEntries(data)
-            .where((e) => codexPathUnder(e.path, path) && !block.hides(e.path))
-            .length,
-        path,
-        blocked: block.hides(path),
-        branch: node.children.isNotEmpty,
-      ),
-      if (codexPathUnder(_catPath, path))
-        for (final child in node.children)
-          ..._desktopCategoryNodes(child, path, data, block),
-    ];
-  }
-
-  Widget _desktopCategoryTile(
-    String title,
-    int count,
-    List<String> path, {
-    bool branch = false,
-    bool blocked = false,
-  }) {
-    final selected =
-        path.length == _catPath.length && codexPathUnder(_catPath, path);
-    return Padding(
-      padding: EdgeInsets.only(
-        left: path.length > 1 ? (path.length - 1) * 8.0 : 0,
-        bottom: 4,
-      ),
-      child: Material(
-        type: MaterialType.transparency,
-        child: ListTile(
-          key: ValueKey('codex-category-${path.join('/')}'),
-          selected: selected,
-          selectedTileColor: context.scheme.primaryContainer,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
-          dense: true,
-          contentPadding: const EdgeInsets.symmetric(horizontal: 10),
-          minTileHeight: 44,
-          title: Text(title, maxLines: 2, overflow: TextOverflow.ellipsis),
-          trailing: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text('$count', style: context.texts.labelSmall),
-              if (branch)
-                Icon(
-                  codexPathUnder(_catPath, path)
-                      ? Icons.expand_more
-                      : Icons.chevron_right,
-                  size: 16,
-                ),
-            ],
-          ),
-          enabled: !blocked,
-          onTap: blocked ? null : () => _selectCategory(path),
-        ),
-      ),
-    );
-  }
 
   Widget _searchRow() {
     final scheme = context.scheme;
@@ -692,13 +690,18 @@ class _CodexViewState extends ConsumerState<CodexView>
   }
 
   void _toggleFavorites() {
-    if (_scroll.hasClients) _scroll.jumpTo(0);
+    if ((!widget.desktop || widget.embedded) && _scroll.hasClients) {
+      _scroll.jumpTo(0);
+    }
     setState(() => _favoritesOnly = !_favoritesOnly);
   }
 
   void _toggleRandomWorkspace() {
-    if (_scroll.hasClients) _scroll.jumpTo(0);
-    setState(() => _randomWorkspace = !_randomWorkspace);
+    if (widget.embedded) {
+      setState(() => _randomWorkspace = !_randomWorkspace);
+    } else {
+      ref.read(codexMainDrawProvider.notifier).toggle();
+    }
   }
 
   Widget _desktopFilterButton({
@@ -714,8 +717,15 @@ class _CodexViewState extends ConsumerState<CodexView>
       onPressed: onPressed,
       style: OutlinedButton.styleFrom(
         backgroundColor: selected ? context.scheme.primaryContainer : null,
+        minimumSize: widget.embedded ? const Size(0, 36) : null,
+        padding: widget.embedded
+            ? const EdgeInsets.symmetric(horizontal: 8)
+            : null,
+        tapTargetSize: widget.embedded
+            ? MaterialTapTargetSize.shrinkWrap
+            : null,
       ),
-      icon: Icon(icon, size: 19),
+      icon: Icon(icon, size: widget.embedded ? 16 : 19),
       label: Text(label),
     ),
   );
@@ -776,13 +786,14 @@ class _CodexViewState extends ConsumerState<CodexView>
     final scheme = context.scheme;
     final on = _catPath.isNotEmpty;
     final label = on ? _catPath.last : '全部分类';
+    final radius = BorderRadius.circular(widget.embedded ? 10 : 20);
     return Builder(
       builder: (anchorContext) => Material(
         key: const ValueKey('codex-category-picker'),
         color: on ? scheme.primary : scheme.surfaceContainerHigh,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: radius,
         child: InkWell(
-          borderRadius: BorderRadius.circular(20),
+          borderRadius: radius,
           onTap: () async {
             final picked = await showCodexCategorySheet(
               anchorContext,
@@ -793,7 +804,10 @@ class _CodexViewState extends ConsumerState<CodexView>
             );
             if (picked != null && mounted) _selectCategory(picked);
           },
-          child: Padding(
+          child: Container(
+            constraints: widget.embedded
+                ? const BoxConstraints(minHeight: 36)
+                : null,
             padding: const EdgeInsets.fromLTRB(12, 8, 10, 8),
             child: Row(
               mainAxisSize: MainAxisSize.min,
@@ -805,6 +819,7 @@ class _CodexViewState extends ConsumerState<CodexView>
                 ),
                 const SizedBox(width: 6),
                 Flexible(
+                  fit: widget.embedded ? FlexFit.tight : FlexFit.loose,
                   child: Text(
                     label,
                     maxLines: 1,
@@ -1018,7 +1033,9 @@ CodexMeta resolveSelectedCodex(List<CodexMeta> index, String? sel) {
 /// 放在灵感页法典模式顶栏右侧的空位,替代原 CodexView 头部整行。
 /// 换法典只改 [selectedCodexProvider],正文的分类筛选由 CodexView 监听联动重置。
 class CodexPickerButton extends ConsumerWidget {
-  const CodexPickerButton({super.key});
+  const CodexPickerButton({super.key, this.expanded = false});
+
+  final bool expanded;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -1056,7 +1073,16 @@ class CodexPickerButton extends ConsumerWidget {
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  if (expanded) ...[
+                    Icon(
+                      Icons.menu_book_outlined,
+                      size: 16,
+                      color: scheme.onSurfaceVariant,
+                    ),
+                    const SizedBox(width: 6),
+                  ],
                   Flexible(
+                    fit: expanded ? FlexFit.tight : FlexFit.loose,
                     child: Text(
                       meta.displayTitle,
                       maxLines: 1,
@@ -1087,6 +1113,24 @@ class CodexPickerButton extends ConsumerWidget {
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+class CodexMainDrawButton extends ConsumerWidget {
+  const CodexMainDrawButton({super.key});
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final open = ref.watch(codexMainDrawProvider);
+    return FilledButton.tonalIcon(
+      key: const ValueKey('codex-main-draw-toggle'),
+      onPressed: ref.read(codexMainDrawProvider.notifier).toggle,
+      icon: const Icon(Icons.casino_outlined, size: 18),
+      label: Text(
+        open
+            ? context.l10n.codexCloseDrawDesk
+            : context.l10n.desktopRandomInspiration,
       ),
     );
   }

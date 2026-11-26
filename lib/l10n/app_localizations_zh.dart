@@ -9,6 +9,153 @@ class AppLocalizationsZh extends AppLocalizations {
   AppLocalizationsZh([String locale = 'zh']) : super(locale);
 
   @override
+  String get downloadWindowsPackage => '下载 Windows 版';
+
+  @override
+  String get preciseRefUsesHigh => '已切换到 High，以启用精确参考。';
+
+  @override
+  String get mediumPausesPreciseRefs => 'Medium 已暂停精确参考。';
+
+  @override
+  String get catalogAll => '显示全部类型';
+
+  @override
+  String get catalogBoth => '对话和出图';
+
+  @override
+  String get catalogEmbedding => '向量嵌入';
+
+  @override
+  String get catalogTranscription => '语音识别';
+
+  @override
+  String get catalogSpeech => '语音合成';
+
+  @override
+  String get catalogAuto => '恢复自动判断';
+
+  @override
+  String get catalogOther => '其他用途';
+
+  @override
+  String get catalogAssign => '指定模型用途';
+
+  @override
+  String get planHub => '接口与订阅';
+
+  @override
+  String get planManageHub => '管理接口与订阅';
+
+  @override
+  String get planSources => '订阅登录';
+
+  @override
+  String get planQuickSwitch => '快捷切换订阅账户';
+
+  @override
+  String get planMenuPreview => '助手下拉菜单预览';
+
+  @override
+  String get planWorkspaces => '已登录账户与工作区';
+
+  @override
+  String get planActive => '当前生效';
+
+  @override
+  String get planUsageShort => '管理用量';
+
+  @override
+  String get planSelectedModels => '选择的模型';
+
+  @override
+  String get planNoSelected => '点击「重新拉取模型」选择要使用的模型。';
+
+  @override
+  String get planNoAccounts => '尚未登录订阅账户';
+
+  @override
+  String get planCachedModels => '正在使用上次拉取的模型列表';
+
+  @override
+  String get planSection => 'ChatGPT 订阅';
+
+  @override
+  String get planLogin => '使用 ChatGPT 登录';
+
+  @override
+  String get planManage => '管理账户与工作区';
+
+  @override
+  String get planAdd => '添加账户或工作区';
+
+  @override
+  String get planNotice => '使用 ChatGPT 订阅须知';
+
+  @override
+  String get planDisclosure =>
+      '你将前往 OpenAI 官方登录页，选择账户和工作区并授权 Plana。订阅模型会收到你的消息、对话上下文、附图和主动引用的画布，以及按资料库设置匹配的画风编号和角色参考。符合条件的请求将计入该工作区的套餐或获准使用的点数。登录凭据加密保存在本机，可随时退出并在 ChatGPT 设置中撤销授权。';
+
+  @override
+  String get planConduct =>
+      '请遵守 OpenAI 使用政策和登录条款。请勿使用意图绕过安全限制的预设或提示词。Plana 会把当前启用的绘图规则作为创作参考发给 OpenAI，模型拒答时直接显示原回复。实际出图使用创作页选中的服务。';
+
+  @override
+  String get recoverDrawProposal => '识别为绘图方案';
+
+  @override
+  String get invalidDrawProposal => '这条回复里没有完整的绘图方案。';
+
+  @override
+  String get planTerms => '登录条款';
+
+  @override
+  String get planPolicy => '使用政策';
+
+  @override
+  String get planConfirm => '我已阅读并知悉';
+
+  @override
+  String get planUsage => '管理 ChatGPT 用量';
+
+  @override
+  String get planWaiting => '请在浏览器中完成 OpenAI 授权';
+
+  @override
+  String get planReady =>
+      '符合条件的助手请求将使用所选 ChatGPT 工作区的额度。可在 ChatGPT 设置中查看或调整用量。';
+
+  @override
+  String get planRelogin => '重新登录';
+
+  @override
+  String get planLogout => '退出此工作区';
+
+  @override
+  String get planRevocation => '本机已退出。远程撤销未获确认，可在 ChatGPT 设置中断开 Plana。';
+
+  @override
+  String get planEmpty => '此工作区未列出可选模型';
+
+  @override
+  String get planAccountLabel => '工作区显示名称';
+
+  @override
+  String get catalogUnknown => '未分类 · 勾选以指定用途';
+
+  @override
+  String get catalogAssigned => '已手动指定';
+
+  @override
+  String get catalogRemote => '服务商声明';
+
+  @override
+  String get catalogDirectory => '模型目录匹配';
+
+  @override
+  String get catalogRefresh => '重新拉取模型';
+
+  @override
   String get language => '语言';
 
   @override
@@ -208,6 +355,28 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get refStyle => '风格';
+
+  @override
+  String get v5PreciseReference => '精确参考';
+
+  @override
+  String get refOutfit => '服装';
+
+  @override
+  String get refPreferSameOutfit => '偏好相同服装';
+
+  @override
+  String get v5ReferenceInpaint => 'NAI 5 重绘会暂停使用精确参考。';
+
+  @override
+  String get outfitNeedsV5 => '服装参考仅在 NAI 5 下生效。';
+
+  @override
+  String get rulesLocalGroup => '破限';
+
+  @override
+  String get rulesLocalOnly =>
+      '按模型启用后，Plana 渠道和自定义 API 会在普通规则后发送这里的补充说明。Codex、反重力等订阅会跳过此分区。';
 
   @override
   String get refCharacterStyle => '角色&风格';
@@ -640,6 +809,78 @@ class AppLocalizationsZh extends AppLocalizations {
   String get clearPromptAndSections => '清空提示词和分区';
 
   @override
+  String get inspirationTagMatch => '灵感标签匹配';
+
+  @override
+  String get inspirationTagMatchHint => '收藏始终只显示已加星的结果。';
+
+  @override
+  String get tagIntersection => '交集';
+
+  @override
+  String get tagUnion => '并集';
+
+  @override
+  String get librarySelectionOff => '不使用';
+
+  @override
+  String get librarySourcePriority => '拖动调整优先级，靠前的库优先';
+
+  @override
+  String get allExternalLibraries => '全部外部库';
+
+  @override
+  String get selectLibrarySource => '切换资料库';
+
+  @override
+  String get externalOcResetTags => '删除这个条目的本地标签修改后，将重新显示来源中的标签。';
+
+  @override
+  String get externalOcLibraries => '外部库';
+
+  @override
+  String get externalOcImportHint => '从网址或本地 JSON 添加角色库';
+
+  @override
+  String get externalOcUrl => '资料库网址';
+
+  @override
+  String get externalOcFile => '本地 JSON 文件';
+
+  @override
+  String get externalOcName => '显示名称（可选）';
+
+  @override
+  String get externalOcPassword => '访客口令（如需要）';
+
+  @override
+  String get externalOcConnect => '连接';
+
+  @override
+  String get externalOcRefresh => '更新连接';
+
+  @override
+  String get externalOcRemove => '移除此来源';
+
+  @override
+  String get externalOcSearch => '搜索角色、作者、形态或标签';
+
+  @override
+  String get externalOcImages => '形态图片';
+
+  @override
+  String get publicLibraryBlocklist => '公共库黑名单';
+
+  @override
+  String get publicLibraryBlocklistHint => '分别屏蔽角色和画风，可按作者或单个条目选择。';
+
+  @override
+  String get blockPublicAuthor => '屏蔽此作者的全部条目';
+
+  @override
+  String get searchPublicEntries => '搜索作者、名称或编号';
+
+  @override
   String get inspirationLibrary => '灵感库';
 
   @override
@@ -736,8 +977,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get editPreset => '编辑预设';
 
   @override
-  String get presetPageIntro =>
-      '激活的预设在生成时自动作为前缀拼进正/负提示词,不占用输入框。默认预设不可修改;右上角可新建自定义预设。';
+  String get presetPageIntro => '生成时会按指定位置拼入预设的正负提示词。内置预设为只读，右上角可新建预设。';
 
   @override
   String get presetGroupLegacy => '4.5 及更早';
@@ -822,9 +1062,6 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get importCharRef => '导入角色参考图';
-
-  @override
-  String get charRefOnly45 => '角色参考仅 4.5 模型支持,当前模型生成时不会发送。';
 
   @override
   String filesImportFailed(int n) {
@@ -2307,6 +2544,9 @@ class AppLocalizationsZh extends AppLocalizations {
   String get guide => '引导';
 
   @override
+  String get userManual => '使用手册';
+
+  @override
   String get reviewGuide => '重新查看引导';
 
   @override
@@ -2529,6 +2769,12 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get customPrompt => '自定义提示词';
+
+  @override
+  String get customMetadata => '自定义元数据';
+
+  @override
+  String get toolboxMetadataSource => '使用「工具箱 → 图片元数据 → 单张处理」中填写的参数';
 
   @override
   String get customPromptHint => '写入图片的提示词(其余参数清除)…';
@@ -4213,7 +4459,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get catScene => '场景';
 
   @override
-  String get catOther => '其他';
+  String get catOther => '其它';
 
   @override
   String get searchCharHint => '搜索角色 / 别名…';
@@ -6683,6 +6929,9 @@ class AppLocalizationsZh extends AppLocalizations {
   String get desktopRandomInspiration => '随机灵感';
 
   @override
+  String get codexAllEntries => '全部词条';
+
+  @override
   String get desktopBrowseCategories => '分类浏览';
 
   @override
@@ -6741,6 +6990,11 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get desktopSavedAndSynced => '已保存并同步';
+
+  @override
+  String tagSavedLocallySyncFailed(String reason) {
+    return '已保存到本机，公共库同步失败（$reason）。';
+  }
 
   @override
   String get desktopSavedAsALocalCopy => '已存为本地副本';
@@ -7048,11 +7302,11 @@ class AppLocalizationsZh extends AppLocalizations {
       '开启时在顶部导航显示，关闭后移回「我的」';
 
   @override
-  String get desktopCodexHoverPreview => '法典悬停信息卡片';
+  String get desktopCodexHoverPreview => '法典悬停预览大图';
 
   @override
-  String get desktopHoverForAbout15SecondsToPreview =>
-      '停留约 1.5 秒预览提示词；关闭后仍可使用悬停操作按钮';
+  String get desktopCodexImageHoverHint =>
+      '鼠标在词条图片上停留约 0.4 秒可查看大图，单击、移开或滚动即可收起。';
 
   @override
   String get desktopNoLocalContentToBackUp => '本地没有可备份的内容';
@@ -7124,14 +7378,14 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get desktopConnectThroughClashOrAnotherProxyAppStart =>
-      '通过 Clash 或其他代理软件连接网络。请先启动代理软件。';
+      '让 Plana 经由 Clash 等本机代理软件联网（请先启动代理软件；已开启系统 TUN 全局接管时通常无需额外配置）。';
 
   @override
   String get desktopUseLocalHTTPProxy => '使用本机 HTTP 代理';
 
   @override
   String get desktopTakesEffectImmediatelyUsingTheSavedAddress =>
-      '开关立即生效，使用已保存的地址';
+      '立即启用或关闭，按下方已保存的代理地址生效';
 
   @override
   String get desktopRetrySavingProxyToggle => '重试保存开关';
@@ -7141,7 +7395,7 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get desktop7890IsAnExampleUseYourProxyApp =>
-      '7890 仅为示例，请以代理软件的 HTTP / Mixed 端口为准。不要填订阅链接、控制端口或 SOCKS 端口。';
+      '请填写代理软件中的 HTTP / Mixed 端口（7890 仅为常见示例，勿填订阅链接、控制端口或 SOCKS 端口）；也可点击上方「本机代理」展开，直接粘贴或拖入设置截图自动识别。';
 
   @override
   String get desktopUnsavedChangesExpandToSave => '有未应用的修改，展开后保存';
@@ -7151,7 +7405,7 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get desktopCopyAScreenshotOrAddressThenChoosePaste =>
-      '复制截图或文字地址后点「粘贴识别」。也可直接在本页粘贴或拖入截图；图片仅在本机识别。';
+      '复制代理设置截图或端口文字后点「粘贴识别」，也可在本页直接 Ctrl+V 或拖入截图；识别全程在本机完成，不会上传。';
 
   @override
   String get desktopAppNameForTheConnectionPath => '软件名称（用于路线显示）';
@@ -7164,18 +7418,18 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get desktopBypassLocalhostLocalNamesAndPrivateIPAddresses =>
-      '跳过 localhost、.local 名称和私有 IP 地址';
+      '访问本机（localhost）、.local 与局域网设备时不走代理，避免本地服务无法连接';
 
   @override
   String get desktopUnappliedChanges => '有未应用的修改';
 
   @override
   String get desktopSaveAndApplyUpdatesTheAddressAppName =>
-      '「保存并应用」仅保存地址、软件名称和局域网直连设置，不改变开关。';
+      '「保存并应用」会更新代理地址、软件名称与直连规则，不会改动上方代理开关。';
 
   @override
   String get desktopTestTheEnteredProxyWithNovelAITestingDoes =>
-      '测试只用所填代理访问 NovelAI，不携带令牌、不生成图片，也不会自动启用或保存设置。';
+      '「测试代理」仅检测当前所填地址能否连通 NovelAI，不发送账号令牌、不消耗点数，也不会自动保存或启用代理。';
 
   @override
   String get desktopActiveConnectionPath => '当前已应用的路线';
@@ -7185,11 +7439,11 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get desktopTheLocalProxyAppliesToPlanaNetworkRequests =>
-      '本机代理适用于 Plana 的联网请求，包括 NovelAI、Bot 后端、AI 助手和下载。此处按应用设置显示路线；系统 TUN 等外部接管不在识别范围。';
+      '• 生效范围：本机代理对 Plana 全部联网请求生效（NovelAI、Bot 后端、AI 助手与资源下载）；云端转发仅影响 NovelAI 官方接口，不影响第三方接口与 Bot 后端。';
 
   @override
   String get desktopThePathAboveIsForOfficialNovelAIRequests =>
-      '上方路线仅指官方 NovelAI 接口。第三方接口和 Bot 后端不受云端转发开关影响；两项都开启时，会先经过本机代理，再经过云端转发。';
+      '• 路线说明：上方路线仅反映 Plana 应用内设置（系统 TUN 等外部接管不在识别范围）；同时开启两项时，请求会先经过本机代理，再经过云端转发。';
 
   @override
   String get desktopClearAllGalleryData => '清空全部图库数据';
@@ -7639,4 +7893,482 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get useBundledDriveClient => '使用应用内置的 Google 客户端';
+
+  @override
+  String get sidebarEntryMenu => '菜单';
+
+  @override
+  String get sidebarPickEntry => '选择用于创作';
+
+  @override
+  String get sidebarSelectAndReturn => '选中并返回';
+
+  @override
+  String get sidebarDeselectAndReturn => '取消选择并返回';
+
+  @override
+  String get sidebarPreviousEntry => '上一项';
+
+  @override
+  String get sidebarNextEntry => '下一项';
+
+  @override
+  String get inspirationRowSnap => '灵感界面自动吸附';
+
+  @override
+  String get temporaryInspirationBlocks => '临时灵感块';
+
+  @override
+  String get semanticPromptGrouping => '语义分块';
+
+  @override
+  String get semanticPromptGroupingLite => '语义分块 · 轻量版';
+
+  @override
+  String get saveSelectionAsInspiration => '存为灵感块';
+
+  @override
+  String get editInspirationBlock => '编辑灵感';
+
+  @override
+  String get foldAfterInspirationSave => '保存后自动合并成块';
+
+  @override
+  String get foldAfterInspirationSaveHint => '把选中的提示词存入灵感库后，在原位置合并为一个命名块。';
+
+  @override
+  String get savedWithoutFolding => '已存入灵感库。当前选区已变化或与其他块共用权重，保留原文。';
+
+  @override
+  String get inspirationRowSnapHint => '在灵感主界面的分类栏滚动鼠标滚轮时，每次切换一排并自动对齐。';
+
+  @override
+  String sidebarLocalEntries(int n) {
+    return '$n 个本地条目';
+  }
+
+  @override
+  String codexDeckCandidates(int count) {
+    return '$count 候选';
+  }
+
+  @override
+  String get codexDeckSeen => '已阅';
+
+  @override
+  String get codexDeckNoRepeat => '不重复';
+
+  @override
+  String get codexDeckReshuffle => '重洗';
+
+  @override
+  String get codexDeckRecent => '最近抽取';
+
+  @override
+  String get codexDeckHistory => '全部历史';
+
+  @override
+  String get codexDeckBack => '返回随机灵感';
+
+  @override
+  String get codexDeckFirst => '抽一张看看';
+
+  @override
+  String get codexDeckDayBefore => '前天';
+
+  @override
+  String get codexDeckDates => '按日期跳转';
+
+  @override
+  String get codexDeckClear => '清空历史';
+
+  @override
+  String codexDeckClearMessage(int count) {
+    return '将清空所有法典的 $count 条抽取记录。';
+  }
+
+  @override
+  String get codexCloseDrawDesk => '收起随机灵感';
+
+  @override
+  String get codexMyFavorites => '我的收藏';
+
+  @override
+  String get codexRecentAdditions => '本次更新';
+
+  @override
+  String get codexGalleryView => '图册视图';
+
+  @override
+  String get codexGroupNavigation => '画风分组定位';
+
+  @override
+  String get codexGroupNavigationHint =>
+      '点击或拖动跳转分组。滚轮和上下方向键可切换分组，Home 和 End 可跳到首尾。';
+
+  @override
+  String get codexGroupedView => '按画风分组';
+
+  @override
+  String get codexListView => '紧凑列表';
+
+  @override
+  String get codexDensityCompact => '紧凑';
+
+  @override
+  String get codexDensityNormal => '标准';
+
+  @override
+  String get codexDensityLarge => '大图';
+
+  @override
+  String get codexCardDensity => '切换卡片密度';
+
+  @override
+  String get codexEntryDetails => '词条详情';
+
+  @override
+  String get codexCollapseTree => '全部收起';
+
+  @override
+  String get codexExpandTree => '展开目录';
+
+  @override
+  String get codexEnterCategory => '进入分类';
+
+  @override
+  String get codexDrawCategory => '仅抽此类';
+
+  @override
+  String get codexResetFilters => '重置筛选';
+
+  @override
+  String get codexCategoryless => '未分类';
+
+  @override
+  String get codexOnlyFavorites => '仅看收藏';
+
+  @override
+  String get codexEmptyFavorites => '没有匹配的收藏词条';
+
+  @override
+  String get codexFullDetails => '展开详情';
+
+  @override
+  String get codexAppendMain => '追加主提示词';
+
+  @override
+  String get codexNewSection => '导入新分区';
+
+  @override
+  String get codexDrawScope => '抽选范围';
+
+  @override
+  String get codexWideOriginal => '导入原图';
+
+  @override
+  String get codexWideSingle => '单张大展台';
+
+  @override
+  String get codexWideTrio => '三张并排挑';
+
+  @override
+  String get codexWideReshuffle => '重洗牌堆';
+
+  @override
+  String get codexWideSameCategory => '在此类中继续抽取';
+
+  @override
+  String get codexWideBrowseCategory => '去图鉴看全部';
+
+  @override
+  String get codexWideNext => '抽下一张';
+
+  @override
+  String get codexWideDeal => '换一批';
+
+  @override
+  String get codexWideHistory => '查看历史';
+
+  @override
+  String get codexWideHideHistory => '收起历史';
+
+  @override
+  String rulesDropUnsupported(String file) {
+    return '$file：请选择 YAML 或 JSON 规则预设';
+  }
+
+  @override
+  String rulesDropUnreadable(String file) {
+    return '无法读取 $file';
+  }
+
+  @override
+  String metadataRemoveBatchImage(String name) {
+    return '从本批次移除 $name';
+  }
+
+  @override
+  String get proxyExpandDetails => '展开详细设置';
+
+  @override
+  String get proxyCollapseDetails => '收起详细设置';
+
+  @override
+  String get promptPresetDesktopImportHint => '可拖入或多选 JSON 文件导入，拖动预设可调整顺序。';
+
+  @override
+  String get promptPresetTouchImportHint => '可多选 JSON 文件导入，长按预设可调整顺序。';
+
+  @override
+  String get promptPresetSelectJson => '请选择 JSON 预设文件';
+
+  @override
+  String get promptPresetFileTooLarge => '单个预设文件不能超过 5 MB';
+
+  @override
+  String promptPresetsImported(int count) {
+    return '已导入 $count 个预设，相同编号已更新';
+  }
+
+  @override
+  String get promptPresetSaveFailed => '预设保存失败，请检查存储空间和文件权限后重试。';
+
+  @override
+  String emptyTemporaryPrompt(String side) {
+    return '这个块还没有$side提示词，在这里输入即可添加';
+  }
+
+  @override
+  String releaseToAction(String action) {
+    return '松开以$action';
+  }
+
+  @override
+  String codexWideRelated(String category, int count) {
+    return '同属 $category · $count 条词条';
+  }
+
+  @override
+  String get savedEndpoints => '已保存的接口';
+
+  @override
+  String get endpointService => '服务商';
+
+  @override
+  String get endpointConnection => '连接设置';
+
+  @override
+  String get endpointName => '接口名称';
+
+  @override
+  String get endpointPath => '请求路径';
+
+  @override
+  String get chatModelField => '对话模型';
+
+  @override
+  String get galleryDragFeel => '拖动跟手曲线';
+
+  @override
+  String get galleryDragFeelHint => '调整拖动图库卡片时相邻卡片让位、松手后卡片归位的动画。';
+
+  @override
+  String get galleryDragCrisp => '利落';
+
+  @override
+  String get galleryDragSmooth => '丝滑';
+
+  @override
+  String get galleryDragBouncy => '微弹';
+
+  @override
+  String galleryMovedTo(String name, int position) {
+    return '已将「$name」移至第 $position 位';
+  }
+
+  @override
+  String get noImageModelsAvailable => '暂无可用的出图模型';
+
+  @override
+  String get noModelsInGroup => '这个接口没有列出此类模型，可手动填写模型 ID。';
+
+  @override
+  String get endpointModelTypeMismatch => '请将此模型填入对应的模型栏。';
+
+  @override
+  String get diagnosticLogs => '日志诊断';
+
+  @override
+  String get writeDiagnosticLogs => '写入日志文件';
+
+  @override
+  String get writeDiagnosticLogsHint =>
+      '排查问题时开启，记录启动、页面切换和错误。文本日志不含提示词、API Key 或登录凭据。';
+
+  @override
+  String get diagnosticDirectory => '日志目录';
+
+  @override
+  String get diagnosticDirectoryHint => '在资源管理器中查看当前用户的日志文件。';
+
+  @override
+  String get diagnosticOpen => '打开';
+
+  @override
+  String get copyDiagnostics => '复制诊断信息';
+
+  @override
+  String get copyDiagnosticsHint => '复制版本、系统、显卡和本机服务配置状态，方便反馈问题。';
+
+  @override
+  String get diagnosticWriteFailed => '无法更改日志设置，请检查用户数据目录是否可写。';
+
+  @override
+  String get diagnosticOpenFailed => '无法打开日志目录，请检查当前用户是否有访问权限。';
+
+  @override
+  String get diagnosticCopyFailed => '复制诊断信息失败，请重试。';
+
+  @override
+  String get diagnosticTimestamp => '记录时间 (UTC)';
+
+  @override
+  String get diagnosticOperatingSystem => '操作系统';
+
+  @override
+  String get diagnosticDisplayAdapters => '显卡';
+
+  @override
+  String get diagnosticAccountMode => '账号接入方式';
+
+  @override
+  String get diagnosticNaiAccount => 'NovelAI 直连配置';
+
+  @override
+  String get diagnosticBotSession => 'Bot 本地授权';
+
+  @override
+  String get diagnosticEnabledEndpoints => '已启用的 AI 接口数量';
+
+  @override
+  String get diagnosticHttpProxy => '本机 HTTP 代理';
+
+  @override
+  String get diagnosticConfigured => '已配置';
+
+  @override
+  String get diagnosticExpired => '已过期';
+
+  @override
+  String get compareImages => '图片比对';
+
+  @override
+  String get swapAB => '交换 A / B';
+
+  @override
+  String get onlyInA => '仅 A';
+
+  @override
+  String get onlyInB => '仅 B';
+
+  @override
+  String get weightChanged => '权重不同';
+
+  @override
+  String get orderChanged => '位置不同';
+
+  @override
+  String get identical => '相同';
+
+  @override
+  String identicalN(int n) {
+    return '$n 项相同';
+  }
+
+  @override
+  String differentN(int n) {
+    return '$n 项不同';
+  }
+
+  @override
+  String get retryStripImage => '最后一次重试不带图';
+
+  @override
+  String get retryStripImageDesc => '最后一次失败重试时去掉附图';
+
+  @override
+  String get compareSideBySide => '并排对照';
+
+  @override
+  String get compareContain => '完整';
+
+  @override
+  String get compareCover => '铺满';
+
+  @override
+  String get compareResetView => '重置视图';
+
+  @override
+  String get compareClear => '清空槽位';
+
+  @override
+  String get compareOpenFile => '打开本地文件';
+
+  @override
+  String get comparePickGallery => '从图库选图';
+
+  @override
+  String compareDrop(String slot) {
+    return '拖入图片到槽位 $slot';
+  }
+
+  @override
+  String get comparePairHint => '一次选择两张可同时填入 A 和 B';
+
+  @override
+  String compareEmptySlot(String slot) {
+    return '未选择图 $slot';
+  }
+
+  @override
+  String get compareEmpty => '选择两张带生成信息的图片';
+
+  @override
+  String get compareInspectHint => '可对比生成参数、正负向提示词、权重和角色坐标。';
+
+  @override
+  String get compareAllChanges => '全部变更';
+
+  @override
+  String get compareDiffOnly => '仅看差异词';
+
+  @override
+  String get compareNoMatches => '没有这类差异';
+
+  @override
+  String compareUseSide(String slot) {
+    return '导入图 $slot 参数';
+  }
+
+  @override
+  String get compareCopyReport => '复制差异报告';
+
+  @override
+  String get compareOriginals => '查看 A / B 原文';
+
+  @override
+  String get compareReady => '两张图已就绪';
+
+  @override
+  String get compareZoomIn => '放大';
+
+  @override
+  String get compareZoomOut => '缩小';
+
+  @override
+  String get compareTagPosition => '位置';
+
+  @override
+  String get compareMetadataHint => '使用带生成信息的原图可同时比对提示词';
 }

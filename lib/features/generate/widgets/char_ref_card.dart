@@ -24,7 +24,7 @@ import 'reference_strip.dart';
 String _sha256Hex(Uint8List bytes) => sha256.convert(bytes).toString();
 
 /// 角色参考卡:缩略图横条 + 选中详情(迁移模式 · Strength · Fidelity)。
-/// 参考图约束角色长相/风格;仅 4.5 模型下发,原图 contain 处理后随生成发送(无编码调用)。
+/// 支持 4.5 角色参考与 V5 精确参考。
 class CharRefCard extends ConsumerStatefulWidget {
   const CharRefCard({super.key, this.reorderIndex});
 
@@ -47,7 +47,7 @@ class _CharRefCardState extends ConsumerState<CharRefCard> {
   Future<void> _addImages(List<PickedImage> files, String canvasId) async {
     bool left() => ref.read(canvasWorkspaceProvider).activeId != canvasId;
     // 互斥态在加图前取一次:加角色参考会顺手停掉 Vibe
-    final hadVibes = ref.read(generateProvider).enabledVibes > 0;
+    final previous = ref.read(generateProvider);
     String? lastId;
     for (final f in files) {
       final bytes = f.bytes;
@@ -67,24 +67,27 @@ class _CharRefCardState extends ConsumerState<CharRefCard> {
           .addCharRef(image: bytes, name: f.baseName, imageHash: hash);
     }
     if (lastId == null) return;
-    if (hadVibes) _mutexHint(); // 整批只提示一次
+    _mutexHint(previous); // 整批只提示一次
     setState(() => _selectedId = lastId);
   }
 
   void _toggle(String id, bool currentlyEnabled) {
-    final hadVibes = ref.read(generateProvider).enabledVibes > 0;
+    final previous = ref.read(generateProvider);
     ref
         .read(generateProvider.notifier)
         .setCharRefEnabled(id, !currentlyEnabled);
-    if (!currentlyEnabled && hadVibes) _mutexHint();
+    if (!currentlyEnabled) _mutexHint(previous);
   }
 
   /// 互斥切换提示:启用/加入角色参考导致 Vibe 被暂停时,弹一次 toast。
-  void _mutexHint() => hintSnack(
-    context,
-    context.l10n.refMutexVibePaused,
-    icon: Icons.swap_horiz,
-  );
+  void _mutexHint(GenerateState previous) {
+    final message = previous.params.isNaiMedium
+        ? context.l10n.preciseRefUsesHigh
+        : previous.enabledVibes > 0
+        ? context.l10n.refMutexVibePaused
+        : null;
+    if (message != null) hintSnack(context, message, icon: Icons.swap_horiz);
+  }
 
   void _remove(String id) {
     final refs = ref.read(generateProvider).charRefs;
@@ -106,6 +109,7 @@ class _CharRefCardState extends ConsumerState<CharRefCard> {
     final notifier = ref.read(generateProvider.notifier);
     final scheme = context.scheme;
     final refs = state.charRefs;
+    final v5 = isNai5Model(state.params.model);
     // 无内容时恒收起;头部「+」导入后(addCharRef 会 openPanel)自动展开。
     final expanded =
         state.openPanels.contains(Panel.charRef) && refs.isNotEmpty;
@@ -121,7 +125,9 @@ class _CharRefCardState extends ConsumerState<CharRefCard> {
 
     final card = SectionCard(
       icon: Icons.face_retouching_natural,
-      title: context.l10n.preciseReference,
+      title: v5
+          ? context.l10n.v5PreciseReference
+          : context.l10n.preciseReference,
       reorderIndex: widget.reorderIndex,
       badge: refs.isEmpty ? null : CountBadge('${refs.length}'),
       actions: [
@@ -146,15 +152,12 @@ class _CharRefCardState extends ConsumerState<CharRefCard> {
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          if (refs.isNotEmpty && !crSupportsModel(state.params.model)) ...[
-            InfoNote(
-              context.l10n.charRefOnly45,
-              icon: Icons.warning_amber_rounded,
-            ),
+          if (v5 && state.inpaint != null) ...[
+            InfoNote(context.l10n.v5ReferenceInpaint, icon: Icons.info_outline),
             const SizedBox(height: 12),
           ],
           ReferenceStrip(
-            previewTitle: '角色参考图',
+            previewTitle: v5 ? context.l10n.v5PreciseReference : '角色参考图',
             items: [
               for (final r in refs)
                 (id: r.id, image: r.image, enabled: r.enabled),
@@ -167,6 +170,7 @@ class _CharRefCardState extends ConsumerState<CharRefCard> {
             const SizedBox(height: 14),
             _CharRefDetail(
               item: selected,
+              model: state.params.model,
               index: refs.indexOf(selected) + 1,
               onRemove: () => _remove(selected!.id),
               onToggle: () => _toggle(selected!.id, selected.enabled),
@@ -194,12 +198,14 @@ class _CharRefCardState extends ConsumerState<CharRefCard> {
 class _CharRefDetail extends ConsumerWidget {
   const _CharRefDetail({
     required this.item,
+    required this.model,
     required this.index,
     required this.onRemove,
     required this.onToggle,
   });
 
   final CharRefItem item;
+  final String model;
   final int index;
   final VoidCallback onRemove;
   final VoidCallback onToggle;
@@ -207,6 +213,7 @@ class _CharRefDetail extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final notifier = ref.read(generateProvider.notifier);
+    final v5 = isNai5Model(model);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -215,47 +222,183 @@ class _CharRefDetail extends ConsumerWidget {
           name: refDisplayName(context.l10n, item.name),
           onRemove: onRemove,
           enableToggle: RefEnableToggle(enabled: item.enabled, onTap: onToggle),
-          leadingAction: DropdownButtonHideUnderline(
-            child: DropdownButton<CharRefMode>(
-              value: item.mode,
-              isDense: true,
-              borderRadius: BorderRadius.circular(10),
-              items: [
-                for (final mode in CharRefMode.values)
-                  DropdownMenuItem(
-                    value: mode,
-                    child: Text(switch (mode) {
-                      CharRefMode.character => context.l10n.refCharacter,
-                      CharRefMode.style => context.l10n.refStyle,
-                      CharRefMode.both => context.l10n.refCharacterStyle,
-                    }, style: const TextStyle(fontSize: 13)),
-                  ),
-              ],
-              onChanged: (mode) {
-                if (mode != null) notifier.updateCharRef(item.id, mode: mode);
-              },
-            ),
+          leadingAction: _ReferenceModeMenu(
+            value: item.mode,
+            v5: v5,
+            onChanged: (mode) => notifier.updateCharRef(item.id, mode: mode),
           ),
           leadingActionWidth: 100,
         ),
         const SizedBox(height: 14),
-        // 保持最低 0(非负,不采用 web 的 −10..+1);step 0.01。
+        if (!v5 && item.mode == CharRefMode.outfit)
+          InfoNote(context.l10n.outfitNeedsV5, icon: Icons.info_outline),
+        if (v5 && item.mode.hasOutfitPreference)
+          CheckboxListTile(
+            contentPadding: EdgeInsets.zero,
+            controlAffinity: ListTileControlAffinity.leading,
+            dense: true,
+            title: Text(context.l10n.refPreferSameOutfit),
+            value: item.preferSameOutfit,
+            onChanged: (checked) =>
+                notifier.updateCharRef(item.id, preferSameOutfit: checked),
+          ),
         LiveParamSlider(
           label: context.l10n.referenceStrength,
           help: Help.charRefStrength,
-          value: item.strength,
+          value: item.strengthFor(model),
+          max: v5 ? 5 : 1,
           divisions: 100,
           onCommit: (v) => notifier.updateCharRef(item.id, strength: v),
         ),
-        const SizedBox(height: 6),
-        LiveParamSlider(
-          label: context.l10n.fidelity,
-          help: Help.fidelity,
-          value: item.infoExtracted,
-          divisions: 100,
-          onCommit: (v) => notifier.updateCharRef(item.id, infoExtracted: v),
-        ),
+        if (!v5) ...[
+          const SizedBox(height: 6),
+          LiveParamSlider(
+            label: context.l10n.fidelity,
+            help: Help.fidelity,
+            value: item.infoExtracted,
+            divisions: 100,
+            onCommit: (v) => notifier.updateCharRef(item.id, infoExtracted: v),
+          ),
+        ],
       ],
+    );
+  }
+}
+
+class _ReferenceModeMenu extends StatefulWidget {
+  const _ReferenceModeMenu({
+    required this.value,
+    required this.v5,
+    required this.onChanged,
+  });
+
+  final CharRefMode value;
+  final bool v5;
+  final ValueChanged<CharRefMode> onChanged;
+
+  @override
+  State<_ReferenceModeMenu> createState() => _ReferenceModeMenuState();
+}
+
+class _ReferenceModeMenuState extends State<_ReferenceModeMenu> {
+  static const _gap = 3.0, _margin = 8.0;
+  double _maxHeight = 240;
+  final _focus = FocusNode();
+
+  @override
+  void dispose() {
+    _focus.dispose();
+    super.dispose();
+  }
+
+  double _room(BuildContext anchor) {
+    final overlay =
+        Overlay.of(anchor, rootOverlay: true).context.findRenderObject()!
+            as RenderBox;
+    final box = anchor.findRenderObject()! as RenderBox;
+    final bottom = box
+        .localToGlobal(Offset(0, box.size.height), ancestor: overlay)
+        .dy;
+    final media = MediaQuery.of(anchor);
+    return (overlay.size.height -
+            bottom -
+            media.viewPadding.bottom -
+            media.viewInsets.bottom -
+            _gap -
+            _margin)
+        .clamp(1.0, 240.0);
+  }
+
+  Future<void> _toggle(
+    BuildContext anchor,
+    MenuController menu,
+    int count,
+  ) async {
+    if (menu.isOpen) {
+      menu.close();
+      return;
+    }
+    if (_room(anchor) < count * 40 + 8) {
+      await Scrollable.ensureVisible(anchor, alignment: .15);
+      if (!anchor.mounted) return;
+    }
+    setState(() => _maxHeight = _room(anchor));
+    menu.open();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l = context.l10n;
+    final labels = {
+      CharRefMode.both: l.refCharacterStyle,
+      CharRefMode.character: l.refCharacter,
+      CharRefMode.style: l.refStyle,
+      CharRefMode.outfit: l.refOutfit,
+    };
+    final modes = (widget.v5 ? labels.keys : CharRefMode.values)
+        .where((m) => widget.v5 || m != CharRefMode.outfit || m == widget.value)
+        .toList();
+    final scheme = context.scheme;
+    return MenuAnchor(
+      childFocusNode: _focus,
+      useRootOverlay: true,
+      consumeOutsideTap: true,
+      reservedPadding: const EdgeInsets.all(_margin),
+      alignmentOffset: const Offset(0, _gap),
+      style: MenuStyle(
+        alignment: AlignmentDirectional.bottomStart,
+        maximumSize: WidgetStatePropertyAll(Size(double.infinity, _maxHeight)),
+        padding: const WidgetStatePropertyAll(
+          EdgeInsets.symmetric(vertical: 4),
+        ),
+      ),
+      menuChildren: [
+        for (final mode in modes)
+          MenuItemButton(
+            key: ValueKey(mode),
+            onPressed: widget.v5 || mode != CharRefMode.outfit
+                ? () => widget.onChanged(mode)
+                : null,
+            style: const ButtonStyle(
+              minimumSize: WidgetStatePropertyAll(Size(136, 40)),
+            ),
+            trailingIcon: mode == widget.value
+                ? Icon(Icons.check, size: 16, color: scheme.primary)
+                : const SizedBox(width: 16),
+            child: Text(labels[mode]!),
+          ),
+      ],
+      builder: (anchor, menu, _) => TextButton(
+        key: const ValueKey('reference-mode-menu'),
+        focusNode: _focus,
+        onPressed: () => _toggle(anchor, menu, modes.length),
+        style: ButtonStyle(
+          padding: const WidgetStatePropertyAll(EdgeInsets.zero),
+          minimumSize: const WidgetStatePropertyAll(Size(0, 26)),
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          foregroundColor: WidgetStatePropertyAll(scheme.onSurface),
+          overlayColor: const WidgetStatePropertyAll(Colors.transparent),
+          textStyle: WidgetStateProperty.resolveWith(
+            (states) => TextStyle(
+              fontSize: 13,
+              decoration: states.contains(WidgetState.focused)
+                  ? TextDecoration.underline
+                  : null,
+            ),
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(labels[widget.value]!),
+            Icon(
+              Icons.arrow_drop_down,
+              size: 20,
+              color: scheme.onSurfaceVariant,
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

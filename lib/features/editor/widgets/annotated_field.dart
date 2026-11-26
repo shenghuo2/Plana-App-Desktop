@@ -503,11 +503,17 @@ class AnnotatedFieldState extends State<AnnotatedField>
                         painter: _FoldPainter(
                           text: widget.controller.text,
                           bodies: widget.controller.foldBodies,
+                          icons: widget.controller.foldIcons,
+                          iconColor: scheme.primary,
+                          disabledIconColor: scheme.outline,
                           base: base,
                           maxWidth: width - _kCaretMargin,
                           scaler: scaler,
                           withSpacing: widget.showTrans,
                           title: scheme.primary.withValues(alpha: .16),
+                          disabledTitle: scheme.onSurface.withValues(
+                            alpha: .12,
+                          ),
                           revision: transCacheRev,
                         ),
                       ),
@@ -836,21 +842,28 @@ class _FoldPainter extends CustomPainter {
   _FoldPainter({
     required this.text,
     required this.bodies,
+    required this.icons,
+    required this.iconColor,
+    required this.disabledIconColor,
     required this.base,
     required this.maxWidth,
     required this.scaler,
     required this.withSpacing,
     required this.title,
+    required this.disabledTitle,
     required this.revision,
   });
 
   final String text;
   final Map<String, String> bodies;
+  final Map<String, IconData> icons;
+  final Color iconColor, disabledIconColor;
   final TextStyle base;
   final double maxWidth;
   final TextScaler scaler;
   final bool withSpacing;
   final Color title;
+  final Color disabledTitle;
   final int revision;
 
   @override
@@ -869,8 +882,10 @@ class _FoldPainter extends CustomPainter {
       maxLines: null,
     )..layout(maxWidth: maxWidth);
 
-    final paint = Paint()..color = title;
+    final paint = Paint();
     for (final r0 in refs) {
+      final disabled = foldBodyDisabled(bodies[r0.name]!);
+      paint.color = disabled ? disabledTitle : title;
       final (a, b) = r0.titleRange; // `#名字`
       for (final box in layout.getBoxesForSelection(
         TextSelection(baseOffset: a, extentOffset: b),
@@ -885,6 +900,33 @@ class _FoldPainter extends CustomPainter {
           paint,
         );
       }
+      if (icons[r0.name] case final icon?) {
+        final cell = layout
+            .getBoxesForSelection(
+              TextSelection(baseOffset: a + 1, extentOffset: a + 2),
+            )
+            .firstOrNull
+            ?.toRect();
+        if (cell == null || cell.width <= 0) continue;
+        final glyph = TextPainter(
+          text: TextSpan(
+            text: String.fromCharCode(icon.codePoint),
+            style: TextStyle(
+              fontFamily: icon.fontFamily,
+              package: icon.fontPackage,
+              fontSize: math.min(cell.width, scaler.scale(base.fontSize ?? 16)),
+              height: 1,
+              color: disabled ? disabledIconColor : iconColor,
+            ),
+          ),
+          textDirection: TextDirection.ltr,
+        )..layout();
+        glyph.paint(
+          canvas,
+          cell.center - Offset(glyph.width / 2, glyph.height / 2),
+        );
+        glyph.dispose();
+      }
     }
     layout.dispose();
   }
@@ -893,10 +935,14 @@ class _FoldPainter extends CustomPainter {
   bool shouldRepaint(covariant _FoldPainter old) =>
       old.text != text ||
       !mapEquals(old.bodies, bodies) ||
+      !mapEquals(old.icons, icons) ||
+      old.iconColor != iconColor ||
+      old.disabledIconColor != disabledIconColor ||
       old.base != base ||
       old.maxWidth != maxWidth ||
       old.withSpacing != withSpacing ||
       old.title != title ||
+      old.disabledTitle != disabledTitle ||
       old.revision != revision;
 }
 

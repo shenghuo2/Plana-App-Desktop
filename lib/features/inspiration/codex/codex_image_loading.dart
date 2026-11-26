@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
@@ -10,13 +11,22 @@ import '../../../core/net/remote_image.dart';
 class CodexImageLoadController {
   CodexImageLoadController({
     this.quietPeriod = const Duration(milliseconds: 140),
+    this.heldQuietPeriod = const Duration(seconds: 3),
     this.startsPerFrame = 3,
-  }) : assert(startsPerFrame > 0);
+    this.maxConcurrent = 4,
+  }) : assert(startsPerFrame > 0),
+       assert(maxConcurrent > 0);
 
   final Duration quietPeriod;
+  final Duration heldQuietPeriod;
   final int startsPerFrame;
+  final int maxConcurrent;
   final _positions = <ScrollPosition>{};
   final _waiting = <_CodexImageRequest, VoidCallback>{};
+  final _inFlight = Map<ImageStreamCompleter, ImageStreamListener>.identity();
+  int _activeTasks = 0;
+  int get _busy => _inFlight.length + _activeTasks;
+  CodexLoadTicket ticket() => CodexLoadTicket._(this);
   Timer? _quiet;
   bool _paused = false;
   bool _drainScheduled = false;
@@ -58,12 +68,8 @@ class CodexImageLoadController {
 
   void _activityChanged() {
     if (_disposed) return;
-    if (_scrolling) {
-      _paused = true;
-      _quiet?.cancel();
-    } else {
-      _waitForQuiet();
-    }
+    if (_scrolling) _paused = true;
+    _waitForQuiet();
   }
 
   void _moved() {
@@ -76,9 +82,9 @@ class CodexImageLoadController {
 
   void _waitForQuiet() {
     _quiet?.cancel();
-    _quiet = Timer(quietPeriod, () {
+    _quiet = Timer(_scrolling ? heldQuietPeriod : quietPeriod, () {
       _quiet = null;
-      if (_disposed || _scrolling) return;
+      if (_disposed) return;
       _paused = false;
       _scheduleDrain();
     });
@@ -91,14 +97,21 @@ class CodexImageLoadController {
   }
 
   void _scheduleDrain() {
-    if (_disposed || _paused || _drainScheduled || _waiting.isEmpty) return;
+    if (_disposed ||
+        _paused ||
+        _drainScheduled ||
+        _waiting.isEmpty ||
+        _busy >= maxConcurrent) {
+      return;
+    }
     _drainScheduled = true;
     // After layout, cards removed by scrolling/filtering have already canceled
     // their tickets. Start only a few remaining thumbnails in each frame.
     SchedulerBinding.instance.addPostFrameCallback((_) {
       _drainScheduled = false;
       if (_disposed || _paused) return;
-      final batch = _waiting.keys.take(startsPerFrame).toList();
+      final slots = math.min(startsPerFrame, maxConcurrent - _busy);
+      final batch = _waiting.keys.take(slots).toList();
       for (final request in batch) {
         final resolve = _waiting.remove(request);
         if (request.active) resolve?.call();
@@ -106,6 +119,24 @@ class CodexImageLoadController {
       _scheduleDrain();
     });
     SchedulerBinding.instance.scheduleFrame();
+  }
+
+  // A card can leave the viewport while its download or decode still runs.
+  // Hold that slot until the first frame or error, including for offscreen cards.
+  void _trackFirstFrame(ImageStreamCompleter completer) {
+    if (_inFlight.containsKey(completer)) return;
+    void finish() {
+      final listener = _inFlight.remove(completer);
+      if (listener != null) completer.removeListener(listener);
+      _scheduleDrain();
+    }
+
+    final listener = ImageStreamListener((image, _) {
+      image.dispose();
+      finish();
+    }, onError: (Object error, StackTrace? stack) => finish());
+    _inFlight[completer] = listener;
+    completer.addListener(listener);
   }
 
   void dispose() {
@@ -116,7 +147,14 @@ class CodexImageLoadController {
     for (final position in _positions.toList()) {
       detach(position);
     }
+    for (final ticket in _waiting.keys.whereType<CodexLoadTicket>().toList()) {
+      ticket.cancel();
+    }
     _waiting.clear();
+    for (final entry in _inFlight.entries) {
+      entry.key.removeListener(entry.value);
+    }
+    _inFlight.clear();
   }
 }
 
@@ -174,6 +212,48 @@ class _CodexImageRequest {
   }
 }
 
+/// Runs successive catalog reads through the same viewport queue as thumbnail
+/// decodes. A recycled card cancels its waiting read before it starts.
+class CodexLoadTicket extends _CodexImageRequest {
+  CodexLoadTicket._(super.controller);
+  VoidCallback? _cancelWaiting;
+
+  Future<void> waitForViewport() async {
+    if (controller._paused) await run(() async {});
+    if (!active) throw const CodexLoadCancelled();
+  }
+
+  Future<T> run<T>(Future<T> Function() work) {
+    if (!active) return Future.error(const CodexLoadCancelled());
+    final result = Completer<T>();
+    _cancelWaiting = () => result.completeError(const CodexLoadCancelled());
+    controller._enqueue(this, () async {
+      _cancelWaiting = null;
+      controller._activeTasks++;
+      try {
+        result.complete(await work());
+      } catch (error, stack) {
+        result.completeError(error, stack);
+      } finally {
+        controller._activeTasks--;
+        controller._scheduleDrain();
+      }
+    });
+    return result.future;
+  }
+
+  @override
+  void cancel() {
+    super.cancel();
+    _cancelWaiting?.call();
+    _cancelWaiting = null;
+  }
+}
+
+class CodexLoadCancelled implements Exception {
+  const CodexLoadCancelled();
+}
+
 @immutable
 class _CodexImageProvider extends ImageProvider<Object> {
   const _CodexImageProvider(this.source, this.request);
@@ -205,12 +285,17 @@ class _CodexImageProvider extends ImageProvider<Object> {
 
     void resolve() {
       if (!request.active) return;
-      if (request.controller._paused && !tracked()) {
+      final startsLoad = stream.completer == null && !tracked();
+      if (request.controller._paused && startsLoad) {
         request.controller._enqueue(request, resolve);
         return;
       }
       try {
         source.resolveStreamForKey(configuration, stream, key, handleError);
+        final completer = stream.completer;
+        if (startsLoad && completer != null) {
+          request.controller._trackFirstFrame(completer);
+        }
       } catch (error, stack) {
         handleError(error, stack);
       }

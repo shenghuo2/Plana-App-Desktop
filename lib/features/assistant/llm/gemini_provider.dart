@@ -29,16 +29,20 @@ class GeminiProvider extends HttpLlmProvider {
   /// 开流要换方法名、还得带 `alt=sse`(不带回的是一个要收完才能解析的大 JSON 数组)。
   /// 只在认得出 `:generateContent` 时替换;中转改过路径的原样用,按非流式回落。
   @override
-  Uri chatUri({required bool stream}) {
-    if (!stream) return endpoint.chatUri;
-    final u = Uri.parse(
-      '${endpoint.effectiveBase}${endpoint.effectivePath.replaceFirst(':generateContent', ':streamGenerateContent')}',
-    );
-    return u.replace(queryParameters: {...u.queryParameters, 'alt': 'sse'});
-  }
+  Uri chatUri({required bool stream}) =>
+      stream ? endpoint.chatStreamUri : endpoint.chatUri;
 
   @override
   Map<String, String> get authHeaders => {'x-goog-api-key': apiKey};
+
+  /// 放宽四项可配置安全阈值，避免二次元/绘画提示词被默认阈值误杀；
+  /// 不发已废弃的 `HARM_CATEGORY_CIVIC_INTEGRITY`，防止新模型报 400。
+  static const _safetySettings = [
+    {'category': 'HARM_CATEGORY_HARASSMENT', 'threshold': 'BLOCK_NONE'},
+    {'category': 'HARM_CATEGORY_HATE_SPEECH', 'threshold': 'BLOCK_NONE'},
+    {'category': 'HARM_CATEGORY_SEXUALLY_EXPLICIT', 'threshold': 'BLOCK_NONE'},
+    {'category': 'HARM_CATEGORY_DANGEROUS_CONTENT', 'threshold': 'BLOCK_NONE'},
+  ];
 
   @override
   Map<String, dynamic> requestBody(LlmRequest r, {required bool stream}) => {
@@ -61,6 +65,7 @@ class GeminiProvider extends HttpLlmProvider {
           ],
         },
     ],
+    'safetySettings': _safetySettings,
     ...thinkFields(r.think),
   };
 
@@ -77,7 +82,8 @@ class GeminiProvider extends HttpLlmProvider {
               'thinkingLevel': switch (level) {
                 ThinkLevel.medium => 'MEDIUM',
                 ThinkLevel.high => 'HIGH',
-                ThinkLevel.ultra => _hasXHigh(endpoint.model) ? 'XHIGH' : 'HIGH',
+                ThinkLevel.ultra =>
+                  _hasXHigh(endpoint.model) ? 'XHIGH' : 'HIGH',
                 _ => 'LOW',
               },
           },

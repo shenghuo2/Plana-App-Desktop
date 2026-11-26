@@ -53,7 +53,7 @@ bool _v5NoLongerFree(String model, bool v5Charged) =>
 /// 单张生成成本预估(对齐 web costCalculator):Opus 且 steps≤28 且
 /// 像素≤1048576 免费;否则走 [_baseCost](NAI 5 两档在那里 ×1.5),最低 2。
 /// 图生图按强度折算;Vibe 第 5 张起每张 +2、角色参考每张 +5(两者免费档也照收;
-/// CR 仅 4.5 模型实际下发,故按模型计费)。
+/// 参考图按当前模型和生成方式计费)。
 ///
 /// [v5Charged] = V5 额度已见底,免费尺寸转按 Anlas 计价,见 [_v5NoLongerFree]。
 int estimateCost(
@@ -77,14 +77,10 @@ int estimateCost(
   );
   final i2i = s.img2img;
   if (i2i?.image != null) baseCost = max(2, (baseCost * i2i!.strength).ceil());
-  // 两笔附加费都按**模型是否真会下发**计:V5 不支持 Vibe / 角色参考,载荷里
-  // 整组剥离(见 gen_modules.stripHiddenModules),再计费就是收一笔没发生的钱。
-  // 面板那条路径已经先剥过了,这里再挡一道是给快照复跑那条兜底 —— 它忠实执行
-  // 快照、不过模块配置。
   final vibeExtra = vibeSupportsModel(p.model)
       ? max(0, s.enabledVibes - 4) * 2
       : 0;
-  final crExtra = crSupportsModel(p.model) ? s.enabledCharRefs * 5 : 0;
+  final crExtra = s.usableCharRefs(inpaint: s.inpaint != null).length * 5;
   return (free ? 0 : baseCost) + vibeExtra + crExtra;
 }
 
@@ -117,6 +113,6 @@ int estimateInpaintCost(
   final vibeExtra = vibeSupportsModel(p.model)
       ? max(0, s.enabledVibes - 4) * 2
       : 0;
-  final crExtra = crSupportsModel(p.model) ? s.enabledCharRefs * 5 : 0;
+  final crExtra = s.usableCharRefs(inpaint: true).length * 5;
   return (free ? 0 : baseCost) + vibeExtra + crExtra;
 }

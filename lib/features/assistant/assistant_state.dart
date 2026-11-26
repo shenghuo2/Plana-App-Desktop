@@ -14,8 +14,10 @@ library;
 
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' show max;
 import 'package:http/http.dart' as http;
 import '../../core/util/image_ops.dart' show decodeImageSize, ensurePng;
+import '../../core/util/prompt_block.dart';
 import '../../l10n/l10n.dart';
 import '../gallery/albums/album_state.dart' show gallerySaveTargetProvider;
 import '../editor/data/tag_completion.dart' show tagCompletionProvider;
@@ -26,6 +28,11 @@ import 'image_gen/image_gen_client.dart';
 import 'image_gen/image_models.dart';
 import 'llm/llm_image.dart' show prepareLlmImage;
 import 'runtime/agent_runtime.dart';
+import 'runtime/library_reply.dart' show legacyLibraryReply;
+import 'runtime/placeholders.dart' show collapseArtistStrings;
+import 'tools/my_library.dart' show libArtistsOf, libOcsOf, matchArtists;
+import 'tools/oc_tool.dart';
+import 'tools/tool_context.dart' show ToolContext;
 import 'tools/offline_tags.dart';
 import 'tools/online_tags.dart';
 import 'tools/tool_settings.dart';
@@ -40,11 +47,15 @@ import '../../core/net/backend_client.dart';
 import '../../core/net/backend_config.dart';
 import '../../core/store/app_stores.dart';
 import '../generate/agent_chars.dart';
+import '../generate/prompt_import_binding.dart';
 import '../generate/canvas_state.dart';
 import '../generate/prompt_sections.dart'
     show composeSections, joinSections, SectionImport, importPromptsInto;
 import '../inspiration/public_tags.dart' show publicTagsProvider;
-import '../editor/editor_models.dart' show outputOf;
+import '../inspiration/public_tag_blocks.dart';
+import '../inspiration/external/oc_sources.dart';
+import 'runtime/reference_library.dart';
+import '../editor/editor_models.dart' show outputOf, parseFolds, pickEditorText;
 import '../editor/editor_state.dart' show editorSessionsProvider;
 import '../generate/char_position.dart';
 import '../gallery/gallery_state.dart' show galleryProvider;
@@ -59,11 +70,16 @@ import '../inspiration/tag_models.dart';
 import 'agent_model.dart';
 import 'agent_trace.dart';
 import 'assistant_mode.dart';
+import 'semantic_blocks.dart';
 import 'assistant_images.dart';
 import 'assistant_models.dart';
 import 'assistant_settings.dart';
 import 'custom_endpoint.dart' show CustomEndpoint, customEndpointsProvider;
 import 'preset_rules.dart';
+import 'subscription/plan_accounts.dart';
+import 'subscription/plan_runtime.dart';
+import 'protocol/reply_parser.dart' show parseReply, OutputFailure;
+import 'runtime/prompt_assets.dart' show PromptTexts;
 import 'session_store.dart';
 
 /// 正在跑时发的那几句:排着,上一轮跑完依次发出去。不落盘。
@@ -79,6 +95,7 @@ class QueuedAsk {
     required this.sourceCanvasId,
     required this.sourceState,
     required this.mode,
+    this.planSelection,
   });
 
   final String id;
@@ -93,6 +110,7 @@ class QueuedAsk {
   final String sourceCanvasId;
   final GenerateState sourceState;
   final AssistantMode mode;
+  final String? planSelection;
 }
 
 class AssistantState {
@@ -256,6 +274,9 @@ GenerateState proposalSendState(
   DrawProposal r,
   SectionImport mode, {
   required String Function() newId,
+  bool allowEditNegative = false,
+  PromptImportBinding binding = const PromptImportBinding(),
+  void Function(PromptImportBinding)? onBinding,
 }) {
   final built = buildAgentCharacters(
     [
@@ -270,14 +291,38 @@ GenerateState proposalSendState(
     model: canvas.params.model,
     newId: newId,
   );
+  final globals = r.blocks
+      .where((b) => b.character == -1 && (allowEditNegative || !b.negative))
+      .toList();
+  final firstSubject = r.blocks
+      .where(
+        (b) =>
+            !b.negative &&
+            (b.kind == PromptBlockKind.character ||
+                b.kind == PromptBlockKind.scene),
+      )
+      .firstOrNull;
+  final subjectName = assistantSectionName(
+    firstSubject?.name ?? r.characters.firstOrNull?.name,
+  );
   return importPromptsInto(
     canvas,
     r.positive,
     r.negative,
     mode,
     newId: newId,
+    sectionName: assistantSectionName(r.section),
+    fallbackName: subjectName.isEmpty ? 'AI' : subjectName,
+    binding: binding,
+    clearNegative: r.clearNegative,
+    allowEditNegative: allowEditNegative,
+    onBinding: onBinding,
+    decorate: globals.isEmpty
+        ? null
+        : (row, retained, reserved) =>
+              decorateProposalRow(row, globals, retained, reserved, newId),
   ).copyWith(
-    characters: built.chars,
+    characters: decorateProposalCharacters(built.chars, r.blocks, newId),
     charRefs: const [],
     img2img: null,
     inpaint: null,
@@ -288,31 +333,258 @@ GenerateState proposalSendState(
 /// 提议里用到的库内画师串,把它们的负面补进负向(去重,同灵感页加画风)。
 ///
 /// 画师串是占位符换回来的,内容逐字不动,按整串出现在正向(含角色正向)里认。
-String withArtistNegatives(DrawProposal r, Iterable<TagEntry> artists) {
+DrawProposal proposalWithArtistNegatives(
+  DrawProposal r,
+  Iterable<TagEntry> artists, {
+  Iterable<String> previousPositives = const [],
+  DrawProposal? previousDraw,
+}) {
+  if (previousDraw != null) r = _restoreRevisionBlocks(r, previousDraw);
+  if (r.clearNegative) return r;
+  final existing = {
+    ...previousPositives,
+    if (previousDraw != null) ...[
+      previousDraw.positive,
+      for (final c in previousDraw.characters) c.positive,
+    ],
+  }.map(outputOf).toList();
   final texts = [
     r.positive,
     for (final c in r.characters) c.positive,
   ].map(outputOf).toList(growable: false);
-  bool usedIn(String artist) {
-    // Match a complete prompt span, including inside weights, not a prefix of
-    // another artist name. Disabled text does not contribute negatives.
-    final pattern = RegExp(
-      r'(^|[,，{}\[\]\n]|::)\s*' +
-          RegExp.escape(artist) +
-          r'\s*(?=$|[,，{}\[\]\n]|::)',
+  final used = <TagEntry, RegExp>{};
+  for (final e in artists) {
+    final body = _libraryBody(e.positive);
+    if (body.isEmpty || _libraryBody(e.negative).isEmpty) continue;
+    final pattern = _librarySpan(body, insideWeight: true);
+    if (texts.any(pattern.hasMatch)) used[e] = pattern;
+  }
+  if (used.isEmpty) return r;
+
+  // Offset annotations refer to the returned prompt. Only its outer whitespace
+  // changes before the new library terms are appended.
+  final shift = r.negative.length - r.negative.trimLeft().length;
+  final blocks = [
+    for (final b in r.blocks)
+      if (shift > 0 && b.negative && b.character == -1)
+        b.atSpan(b.start - shift, b.text)
+      else
+        b,
+  ];
+  final added = <TagEntry, (int, String)>{};
+  final negative = appendTagNegatives(
+    r.negative,
+    used.keys.where((entry) => !existing.any(used[entry]!.hasMatch)),
+    onAdded: (entry, at, body) => added[entry] = (at, body),
+  );
+  final before = r.negative.trim();
+  final spec = {'positive': r.positive};
+  final recovered = PromptBlock.fromKnownParts(spec, {
+    'artist': {for (final e in used.keys) e.name: _libraryBody(e.positive)},
+  });
+  final styles = [
+    for (final b in blocks)
+      if (!b.negative && b.character == -1 && b.kind == PromptBlockKind.style)
+        b,
+    for (final b in completePromptBlocks(recovered, spec))
+      if (!blocks.any((existing) => _overlapsBlock(existing, b))) b,
+  ];
+  // Older chats and a first canvas reference may only have library text.
+  // Keep all used sources in the comparison so shared exclusions are ambiguous.
+  Map<TagEntry, (int, String)> legacySpans() {
+    final source = StringBuffer();
+    final entries = <PromptBlock, TagEntry>{};
+    for (final entry in used.keys) {
+      if (source.isNotEmpty) source.write(', ');
+      final text = _libraryBody(entry.negative);
+      entries[PromptBlock(
+            kind: PromptBlockKind.style,
+            name: entry.name,
+            text: text,
+            start: source.length,
+            negative: true,
+          )] =
+          entry;
+      source.write(text);
+    }
+    final spans = revisedNegativeSpans(
+      source.toString(),
+      entries.keys,
+      before,
+      libraryFallback: true,
     );
-    return texts.any(pattern.hasMatch);
+    return {for (final e in spans.entries) entries[e.key]!: e.value};
   }
 
-  final used = [
-    for (final e in artists)
-      if (e.negative.trim().isNotEmpty &&
-          e.positive.trim().isNotEmpty &&
-          usedIn(e.positive.trim()))
-        e,
-  ];
-  return used.isEmpty ? r.negative : appendTagNegatives(r.negative, used);
+  Map<TagEntry, (int, String)>? legacy;
+  for (final entry in used.keys) {
+    final owner = styles
+        .where((b) => used[entry]!.hasMatch(b.text))
+        .singleOrNull;
+    if (owner == null ||
+        used.values.where((match) => match.hasMatch(owner.text)).length != 1) {
+      continue;
+    }
+    if (blocks.any(
+      (b) =>
+          b.negative &&
+          b.character == -1 &&
+          b.kind == owner.kind &&
+          b.name == owner.name,
+    )) {
+      if (!blocks.contains(owner)) blocks.add(owner);
+      continue;
+    }
+    final sourceNegative = _libraryBody(entry.negative);
+    final copy = _librarySpan(sourceNegative).allMatches(before).singleOrNull;
+    // Prefer an exact copy or a span we appended ourselves.
+    final shared = used.keys.any(
+      (e) => e != entry && _libraryBody(e.negative) == sourceNegative,
+    );
+    var span = !shared && copy != null
+        ? (copy.end - copy[1]!.length, copy[1]!)
+        : added[entry];
+    final inferred = span == null;
+    if (span == null &&
+        !shared &&
+        existing.any(used[entry]!.hasMatch) &&
+        (previousDraw == null ||
+            previousDraw.negative.isNotEmpty &&
+                !previousDraw.blocks.any(
+                  (b) => b.negative && b.character == -1,
+                ))) {
+      span = (legacy ??= legacySpans())[entry];
+    }
+    if (span == null) continue;
+    final block = PromptBlock(
+      kind: owner.kind,
+      name: owner.name,
+      icon: owner.icon,
+      text: span.$2,
+      start: span.$1,
+      negative: true,
+    );
+    final overlap = blocks.where((b) => _overlapsBlock(b, block)).toList();
+    if (overlap.isNotEmpty) {
+      if (inferred) continue;
+      // An exact echo may already have a generic "exclusions" label.
+      // Never take part of a larger annotation or another style's pair.
+      final previous = overlap.singleOrNull;
+      if (previous == null ||
+          previous.text != block.text ||
+          previous.start != block.start ||
+          previous.counterpartIn(blocks) != null) {
+        continue;
+      }
+      blocks.remove(previous);
+    }
+    if (!blocks.contains(owner)) blocks.add(owner);
+    blocks.add(block);
+  }
+  return DrawProposal(
+    section: r.section,
+    positive: r.positive,
+    negative: negative,
+    clearNegative: r.clearNegative && negative.isEmpty,
+    characters: r.characters,
+  ).withValidatedBlocks(blocks);
 }
+
+DrawProposal _restoreRevisionBlocks(
+  DrawProposal current,
+  DrawProposal previous,
+) {
+  final spans = revisedNegativeSpans(
+    previous.negative,
+    previous.blocks,
+    current.negative,
+  );
+  final blocks = [...current.blocks];
+  // A negative-only edit may omit the positive labels as well.
+  if (current.positive == previous.positive) {
+    for (final b in previous.blocks) {
+      if (b.character == -1 &&
+          !b.negative &&
+          !blocks.any((other) => _overlapsBlock(b, other))) {
+        blocks.add(b);
+      }
+    }
+  }
+  for (final entry in spans.entries) {
+    final old = entry.key;
+    final (at, text) = entry.value;
+    final candidate = old.atSpan(at, text);
+    if (blocks.any(
+      (b) =>
+          _overlapsBlock(b, candidate) &&
+          (b.kind != old.kind || b.name != old.name),
+    )) {
+      continue;
+    }
+    var label = old;
+    final partner = old.counterpartIn(previous.blocks);
+    if (partner != null &&
+        !blocks.any(
+          (b) =>
+              !b.negative &&
+              b.character == -1 &&
+              b.kind == partner.kind &&
+              b.name == partner.name,
+        )) {
+      final match = _librarySpan(
+        partner.text,
+      ).allMatches(current.positive).singleOrNull;
+      if (match != null) {
+        final body = match[1]!;
+        final positive = partner.atSpan(match.end - body.length, body);
+        final overlap = blocks.where((b) => _overlapsBlock(b, positive));
+        if (overlap.isEmpty) {
+          blocks.add(positive);
+        } else if (overlap.singleOrNull case final b?
+            when b.start == positive.start &&
+                b.text == body &&
+                b.kind == partner.kind) {
+          label = b;
+        }
+      }
+    }
+    final block = label.atSpan(at, text, negative: true);
+    if (!blocks.any(
+      (b) =>
+          _overlapsBlock(b, block) ||
+          b.negative &&
+              b.character == -1 &&
+              b.kind == block.kind &&
+              b.name == block.name,
+    )) {
+      blocks.add(block);
+    }
+  }
+  return blocks.length == current.blocks.length
+      ? current
+      : current.withValidatedBlocks(blocks);
+}
+
+String _libraryBody(String text) =>
+    text.replaceAll(RegExp(r'^[,，\s]+|[,，\s]+$'), '');
+
+/// Match whole tags and tolerate spacing around separators while preserving
+/// all weight syntax. Capture only the body so its exact offsets survive.
+RegExp _librarySpan(String body, {bool insideWeight = false}) {
+  final terms = body.split(RegExp(r'\s*[,，]\s*')).map(RegExp.escape);
+  final edge = insideWeight ? r'[,，{}\[\]\n]|::' : r'[,，\n]';
+  final content = terms.join(r'\s*[,，]\s*');
+  return RegExp('(?:^|$edge)\\s*($content)(?=\\s*(?:\$|$edge))');
+}
+
+bool _overlapsBlock(PromptBlock a, PromptBlock b) =>
+    a.negative == b.negative &&
+    a.character == b.character &&
+    a.start < b.start + b.text.length &&
+    b.start < a.start + a.text.length;
+
+String withArtistNegatives(DrawProposal r, Iterable<TagEntry> artists) =>
+    proposalWithArtistNegatives(r, artists).negative;
 
 /// 创作页有没有可带给 AI 的东西。全空时「引用创作页」那颗按钮没意义,置灰。
 ///
@@ -321,6 +593,107 @@ String canvasPositive(GenerateState g) =>
     joinSections(g.sections, g.prompt, positive: true);
 String canvasNegative(GenerateState g) =>
     joinSections(g.sections, g.negativePrompt, positive: false);
+
+String assistantCanvasBlockSummary(
+  GenerateState canvas,
+  PromptImportBinding binding,
+) => assistantCanvasBlockContext(
+  canvas,
+  binding,
+  binding.sectionId != null
+      ? SectionImport.aiSection
+      : SectionImport.appendMain,
+).summary;
+
+/// Only folds at this conversation's import destination supply edit anchors.
+({String summary, DrawProposal? source}) assistantCanvasBlockContext(
+  GenerateState canvas,
+  PromptImportBinding binding,
+  SectionImport mode,
+) {
+  final dedicated = mode == SectionImport.aiSection;
+  final row = dedicated
+      ? canvas.sections
+            .where((r) => !r.isMain && r.id == binding.sectionId)
+            .firstOrNull
+      : null;
+  if (mode == SectionImport.newSection || dedicated && row == null) {
+    return (summary: '', source: null);
+  }
+  final links = row?.foldLinks ?? canvas.promptFoldLinks;
+  final positive = row?.positive ?? canvas.prompt;
+  final negativeText = row?.negative ?? canvas.negativePrompt;
+  final blocks = <PromptBlock>[];
+  final summary = <String>[if (row != null) 'AI 分区「${row.name}」'];
+  for (final negative in [false, true]) {
+    final plain = negative ? negativeText : positive;
+    final draft = pickEditorText(
+      negative
+          ? row?.negativeRaw ?? canvas.negativePromptRaw
+          : row?.positiveRaw ?? canvas.promptRaw,
+      plain,
+    );
+    final ids = (negative ? binding.negative : binding.positive)?.linkIds;
+    final byName = {
+      for (final link in links)
+        if (mode != SectionImport.appendMain || ids?.contains(link.id) == true)
+          (negative ? link.negativeName : link.positiveName): link,
+    };
+    final enabled =
+        row?.enabled ??
+        (negative ||
+            canvas.sections.where((s) => s.isMain).firstOrNull?.enabled !=
+                false);
+    final labels = <String>[];
+    for (final fold in parseFolds(draft)) {
+      final link = byName[fold.name];
+      if (mode == SectionImport.appendMain && link == null) continue;
+      final body = outputOf(draft.substring(fold.bodyStart, fold.bodyEnd));
+      final contents = negative && enabled && body.isNotEmpty
+          ? ' → ${jsonEncode(body)}'
+          : '';
+      labels.add('${labels.length + 1}. ${fold.name}$contents');
+      if (!enabled || body.isEmpty) continue;
+      // Use the existing category and editor title to recover the wire label.
+      // A manual fold can still be read by name without inventing a pairing.
+      final kind = PromptBlockKind.values
+          .where((k) => k.libraryId == link?.temporaryCategory)
+          .firstOrNull;
+      if (kind == null) continue;
+      final title = fold.name;
+      final suffix = title.lastIndexOf(' · ${kind.label}');
+      final prefix = '${kind.glyph} ';
+      if (!title.startsWith(prefix) || suffix <= prefix.length) continue;
+      final match = _librarySpan(body).allMatches(plain).singleOrNull;
+      if (match == null) continue;
+      final matched = match[1]!;
+      blocks.add(
+        PromptBlock(
+          kind: kind,
+          name: title.substring(prefix.length, suffix),
+          text: matched,
+          start: match.end - matched.length,
+          icon: link?.temporaryIcon,
+          negative: negative,
+        ),
+      );
+    }
+    if (labels.isNotEmpty) {
+      summary.add(
+        '${row == null ? "主体" : ""}${negative ? "负面" : ""}块顺序：${labels.join(negative ? "\n" : "、")}',
+      );
+    }
+  }
+  return (
+    summary: summary.join('\n'),
+    source: blocks.any((b) => b.negative)
+        ? DrawProposal(
+            positive: positive,
+            negative: negativeText,
+          ).withValidatedBlocks(blocks)
+        : null,
+  );
+}
 
 bool canvasHasContent(GenerateState g) {
   final composed = composeSections(g);
@@ -348,6 +721,7 @@ class AssistantNotifier extends Notifier<AssistantState> {
   int _seq = 0;
 
   String? _preparingQueueId;
+  QueuedAsk? _runningAsk;
 
   bool get _busy => state.running || _preparing;
 
@@ -451,6 +825,7 @@ class AssistantNotifier extends Notifier<AssistantState> {
       sourceCanvasId: ref.read(canvasWorkspaceProvider).activeId,
       sourceState: ref.read(generateProvider),
       mode: state.mode,
+      planSelection: _selectedPlan(),
     );
     _set(state.copyWith(queue: [...state.queue, ask]), persist: false);
     onAccepted?.call();
@@ -459,6 +834,11 @@ class AssistantNotifier extends Notifier<AssistantState> {
 
   /// 停下 / 出错之后接着发排着的。
   Future<void> resumeQueue() => _drain();
+
+  String? _selectedPlan() {
+    final key = ref.read(effectiveAssistantModelKeyProvider);
+    return planChoiceOf(key) == null ? null : key;
+  }
 
   void unqueue(String id) {
     _set(
@@ -560,53 +940,16 @@ class AssistantNotifier extends Notifier<AssistantState> {
         },
   ];
 
-  /// 用户自己那份画师串 / OC(灵感页的库)。
-  ///
-  /// **发上去之后服务端就只认这份**,不再并进它本机那份公共库 —— 预查询和
-  /// `search_artist` / `search_character` 里的 OC 那半边,口径都变成「用户手里有的」。
-  /// 公共库里有一万个画师串,而用户想用的是自己收藏的那几十个;拿全量去和
-  /// 一句话做匹配,捞上来的多半是他没见过的东西。
-  ///
-  /// 字段名按服务端 `_load_artists_from_web` / `_load_ocs_from_web` 认的那几个填。
-  /// 画师的 `id` 就是名字(`A1` 这种编号在公共库里本来就是主键),预查询按编号
-  /// 精确比对的正是它。
-  ///
-  /// **要 await**:灵感页没被打开过的话这个 provider 还没读过盘,同步取到的是
-  /// null,整份库就悄悄没发出去 —— 而服务端见「一份都没发」会回落它自己那份
-  /// 公共库,于是冷启动后的第一句话用的是公共库,和用户选的「本地库」正好相反。
-  Future<({List<Map<String, dynamic>> artists, List<Map<String, dynamic>> ocs})>
-  _webLibrary() async {
-    TagLibraryState? lib;
+  Future<List<TagEntry>> _turnCatalog(
+    TagCategory category,
+    LibraryScope scope,
+  ) async {
+    if (scope != LibraryScope.all) return const [];
     try {
-      lib = await ref.read(tagLibraryProvider.future);
+      return await ref.read(publicTagsProvider(category).future);
     } catch (_) {
-      lib = null; // 库文件读坏了:这轮不带库,总比整轮发不出去强
+      return const [];
     }
-    if (lib == null) {
-      return (
-        artists: const <Map<String, dynamic>>[],
-        ocs: const <Map<String, dynamic>>[],
-      );
-    }
-    return (
-      artists: [
-        for (final e in lib.entries)
-          if (e.category == TagCategory.artist && e.positive.trim().isNotEmpty)
-            {'id': e.name, 'name': e.name, 'prompt': e.positive},
-      ],
-      ocs: [
-        for (final e in lib.entries)
-          if (e.category == TagCategory.character &&
-              e.positive.trim().isNotEmpty)
-            {
-              // 没发布过的本地 OC 没有 en_name,拿本地 id 顶上(服务端只拿它当键)
-              'en_name': e.publicId ?? e.id,
-              'zh_name': e.name,
-              'zh_aliases': e.aliases,
-              'tag_group': e.positive,
-            },
-      ],
-    );
   }
 
   /// 发一轮。[images] 是用户带的全部原图，按顺序存进 blob。
@@ -674,9 +1017,11 @@ class AssistantNotifier extends Notifier<AssistantState> {
         throw StateError('图片附件为空，未发送本轮消息。');
       }
       // 界面已经挡了(见 _ModelGate),这儿再挡一道:自动生成、重试这些不经过界面。
+      await ref.read(assistantModelPrefProvider.future);
+      if (!valid()) return;
       final model = sourceState.params.model;
       final imageKey = imageChoiceKeyOf(
-        ref.read(assistantModelPrefProvider).value ?? '',
+        ref.read(effectiveAssistantModelKeyProvider),
       );
       if (imageKey == null && !assistantSupportsModel(model)) {
         _pushError(
@@ -686,14 +1031,31 @@ class AssistantNotifier extends Notifier<AssistantState> {
         return;
       }
 
-      final base = ref.read(backendBaseProvider).value ?? '';
-      final sid = (await ref.read(botSessionProvider.future))?.sessionId ?? '';
+      if (_selectedPlan() != null) {
+        await ref.read(planAccountsProvider.future);
+        if (!valid()) return;
+      }
+      final endpoint = ref.read(assistantEndpointProvider);
+      final plan = endpoint is PlanEndpoint;
+      final modelKey = ref.read(effectiveAssistantModelKeyProvider);
+      final acceptsApiSupplement =
+          !plan && customEndpointIdOf(modelKey) == endpoint?.id;
+      if (queued != null && queued.planSelection != _selectedPlan()) {
+        _pushError(
+          '排队时选择的 ChatGPT 账户或模型已有变化，请移除这条消息后重新发送。',
+          AssistErrorKind.auth,
+        );
+        return;
+      }
+      final base = plan ? '' : ref.read(backendBaseProvider).value ?? '';
+      final sid = plan
+          ? ''
+          : (await ref.read(botSessionProvider.future))?.sessionId ?? '';
       if (!valid()) {
         return;
       }
       // 选了自定义接口就在本机跑 agent 循环,否则打 Plana 后端那条 SSE。
       // 没有 Bot 授权只能走前一条:后端渠道要授权(界面上也不列)。
-      final endpoint = ref.read(assistantEndpointProvider);
       if (imageKey == null && sid.isEmpty && endpoint == null) {
         try {
           await ref.read(agentModelsProvider.future);
@@ -713,7 +1075,6 @@ class AssistantNotifier extends Notifier<AssistantState> {
 
       // 历史必须在把这条 user 消息追进去**之前**取,否则本轮问题会重复一遍。
       final preceding = original.take(replaceAt).toList();
-      final history = _history(preceding);
 
       // 画布是空的就当没勾 —— 记在消息上的也是这个结果,免得气泡挂着「引用了创作页」
       // 而实际什么都没发出去。
@@ -738,13 +1099,24 @@ class AssistantNotifier extends Notifier<AssistantState> {
         return;
       }
 
+      final askId = queued?.id ?? _newId();
+      _runningAsk = QueuedAsk(
+        id: askId,
+        text: trimmed,
+        at: _now,
+        images: images,
+        withCanvas: canvas,
+        sourceCanvasId: sourceCanvasId,
+        sourceState: sourceState,
+        mode: picked,
+      );
       _set(
         state.copyWith(
           currentMeta: _acceptedTurnMeta(),
           msgs: [
             ...preceding,
             AssistantMsg(
-              id: queued?.id ?? _newId(),
+              id: askId,
               role: MsgRole.user,
               text: trimmed,
               at: _now,
@@ -777,7 +1149,9 @@ class AssistantNotifier extends Notifier<AssistantState> {
       // 设置快照等那些取齐了再补上。
       final trace = AgentTrace(
         startedAt: _now,
-        route: endpoint != null
+        route: plan
+            ? AgentTrace.routePlan
+            : endpoint != null
             ? AgentTrace.routeCustom
             : AgentTrace.routeBackend,
         userText: trimmed,
@@ -785,37 +1159,168 @@ class AssistantNotifier extends Notifier<AssistantState> {
       );
       _liveTrace = trace;
 
-      // 「资料库范围」:默认只认用户自己那份库,选了「+ 公共库」才让服务端并进去,
-      // 选了「不使用」则一份都不发、也让服务端别回落公共库。
-      // 预匹配、工具代查、直连那条都吃同一个值 —— 分开传迟早有一处漏掉。
-      // 公共库要 Bot 授权,没授权时按本地库发(后端对匿名调用也只给本地库)。
-      final scope = effectiveLibraryScope(
-        assistantSettingsOf(ref).libraryScope,
-        botAuthorized: sid.isNotEmpty,
-      );
-      final lib = scope == LibraryScope.none
-          ? (
-              artists: const <Map<String, dynamic>>[],
-              ocs: const <Map<String, dynamic>>[],
-            )
-          : await _webLibrary();
-      final artistEntries = scope == LibraryScope.none
-          ? const <TagEntry>[]
-          : [
-              for (final e
-                  in ref.read(tagLibraryProvider).value?.entries ??
-                      const <TagEntry>[])
-                if (e.category == TagCategory.artist) e,
-            ];
-      // Freeze the chosen library for this request. Load public negatives even
-      // on the first use; a failed/old public endpoint still permits local use.
-      if (scope == LibraryScope.all) {
+      final preferences = await ref.read(assistantSettingsProvider.future);
+      final selection = preferences.libraries;
+      var libraryAuthorized = sid.isNotEmpty;
+      if (plan &&
+          !selection.paused &&
+          selection.enabled.contains(LibrarySelection.public)) {
         try {
-          artistEntries.addAll(
-            await ref.read(publicTagsProvider(TagCategory.artist).future),
+          libraryAuthorized = await ref.read(botSessionProvider.future) != null;
+        } catch (_) {
+          libraryAuthorized = false;
+        }
+      }
+      if (!ref.mounted || seq != _seq) return;
+      final usesExternal =
+          !selection.paused &&
+          selection.enabled.any(
+            (id) =>
+                id != LibrarySelection.local && id != LibrarySelection.public,
           );
+      final sources = usesExternal
+          ? await ref.read(ocSourcesProvider.future)
+          : const <OcSource>[];
+      if (!ref.mounted || seq != _seq) return;
+      final active = selection.active(
+        sources.map((s) => s.id),
+        botAuthorized: libraryAuthorized,
+      );
+      final scope = active.isEmpty
+          ? LibraryScope.none
+          : active.contains(LibrarySelection.public)
+          ? LibraryScope.all
+          : LibraryScope.local;
+      final strictScope =
+          preferences.sourceSelection != null || scope == LibraryScope.none;
+      var local = const <TagEntry>[];
+      if (active.contains(LibrarySelection.local)) {
+        try {
+          local = (await ref.read(tagLibraryProvider.future)).entries;
         } catch (_) {}
       }
+      if (!ref.mounted || seq != _seq) return;
+      final (publicArtists, publicOcs) = await (
+        _turnCatalog(TagCategory.artist, scope),
+        _turnCatalog(TagCategory.character, scope),
+      ).wait;
+      if (!ref.mounted || seq != _seq) return;
+      final blocks = ref.read(publicTagBlocksProvider);
+      final artists = AssistantReferences(
+        TagCategory.artist,
+        local,
+        publicArtists,
+        blocks[TagCategory.artist] ?? const PublicTagRule(),
+        order: active,
+        strictScope: strictScope,
+      );
+      final externalSources = sources
+          .where((s) => active.contains(s.id))
+          .toList();
+      final repository = externalSources.isEmpty
+          ? null
+          : ref.read(ocRepositoryProvider);
+      Future<AssistantReferences> ocReferences(
+        String? query, {
+        bool search = false,
+      }) async => AssistantReferences(
+        TagCategory.character,
+        local,
+        publicOcs,
+        blocks[TagCategory.character] ?? const PublicTagRule(),
+        order: active,
+        strictScope: strictScope,
+        external: repository == null
+            ? const {}
+            : await externalOcReferences(
+                repository,
+                externalSources,
+                query: query,
+                search: search,
+              ),
+      );
+      final lastDrawing = preceding.reversed
+          .map((m) => m.draw)
+          .nonNulls
+          .firstOrNull;
+      final ocs = await ocReferences(
+        [
+          trimmed,
+          if (canvas) ...[
+            canvasPositive(g),
+            for (final c in _charsForAgent(g)) ...[
+              c['name'] ?? '',
+              c['positive'] ?? '',
+            ],
+          ],
+          for (final message in preceding) ...[
+            ...?message.resources['oc']?.keys,
+            ...?message.resources['ocs']?.keys,
+          ],
+          for (final b in lastDrawing?.blocks ?? const <PromptBlock>[])
+            if (!b.negative && b.kind == PromptBlockKind.character) b.name,
+        ].join('\n'),
+      );
+      if (!ref.mounted || seq != _seq) return;
+      bool allowed(String kind, String name, String value) => switch (kind) {
+        'artist' || 'artists' => artists.allowsResource(name, value),
+        'oc' || 'ocs' => ocs.allowsResource(name, value),
+        _ => true,
+      };
+      final resources = <String, Map<String, String>>{
+        for (final kind in latestResources(preceding).entries)
+          kind.key: {
+            for (final e in kind.value.entries)
+              if (allowed(kind.key, e.key, e.value)) e.key: e.value,
+          },
+      };
+      // A reply can carry the previous lookup ledger even when its text is
+      // ordinary conversation. Only exclude content that replays a disabled
+      // reference or its drawing proposal; the transcript itself stays intact.
+      bool canReplay(AssistantMsg message) {
+        for (final b in message.draw?.blocks ?? const <PromptBlock>[]) {
+          if (b.libraryText case final body?) {
+            final kind = b.kind == PromptBlockKind.style ? 'artist' : 'oc';
+            if (!allowed(kind, b.name, body)) return false;
+          }
+        }
+        final text = message.text.toLowerCase();
+        for (final kind in message.resources.entries) {
+          for (final entry in kind.value.entries) {
+            if (allowed(kind.key, entry.key, entry.value)) continue;
+            if (message.draw != null ||
+                [entry.key, entry.value].any(
+                  (part) =>
+                      part.trim().isNotEmpty &&
+                      text.contains(part.trim().toLowerCase()),
+                )) {
+              return false;
+            }
+          }
+        }
+        return true;
+      }
+
+      final previousDraw = preceding.reversed
+          .where(canReplay)
+          .map((message) => message.draw)
+          .nonNulls
+          .firstOrNull;
+      final previousPositives = [
+        if (canvas) ...[
+          canvasPositive(g),
+          for (final c in g.characters) c.positive,
+          if (previousDraw != null) ...[
+            previousDraw.positive,
+            for (final c in previousDraw.characters) c.positive,
+          ],
+        ],
+      ];
+      final history = _history(
+        blocks.isEmpty && !strictScope
+            ? preceding
+            : preceding.where(canReplay).toList(),
+      );
       final tools = <ToolTrace>[];
 
       // 两条路([endpoint] 在上面取的)吐的是同一串事件、同一个 AgentResult,
@@ -825,10 +1330,15 @@ class AssistantNotifier extends Notifier<AssistantState> {
       // 同步取到的是 null,会悄悄当成「没自定义」发出去。
       final family = rulesFamilyOf(imageModel);
       List<PresetRule>? custom;
+      List<PresetRule> supplement = const [];
+      String? presetName;
       try {
-        custom = (await ref.read(
-          rulesLibraryProvider.future,
-        )).customRulesFor(family);
+        final library = await ref.read(rulesLibraryProvider.future);
+        custom = library.customRulesFor(family);
+        if (acceptsApiSupplement) {
+          supplement = library.supplementFor(family)?.rules ?? const [];
+        }
+        presetName = library.activeFor(family)?.name;
       } catch (_) {
         custom = null;
       }
@@ -847,16 +1357,19 @@ class AssistantNotifier extends Notifier<AssistantState> {
         if (!supported.contains(picked)) effective = AssistantMode.normal;
       }
       final modeKeys = assistantModeKeys(effective);
+      final useBlocks = semanticBlocksEnabled(custom, modeKeys);
       trace.settings.addAll({
         ..._modelSnapshot(endpoint),
         'image_model': imageModel,
-        'rules': '${family.name} · ${custom == null ? '默认' : '自定义'}',
+        'rules': plan
+            ? '${family.name} · ${presetName ?? (custom == null ? '默认' : '关闭')}'
+            : '${family.name} · ${custom == null ? '默认' : '自定义'}',
         'mode': effective.name,
         'mode_keys': modeKeys,
         'no_draw': noDraw,
         'library_scope': scope.name,
-        'oc_placeholders':
-            endpoint != null && assistantSettingsOf(ref).ocPlaceholders,
+        'library_sources': active,
+        'oc_placeholders': preferences.ocPlaceholders,
         'history_turns': assistantSettingsOf(ref).historyTurns,
         'history_entries': history.length,
         'with_canvas': canvas,
@@ -874,27 +1387,18 @@ class AssistantNotifier extends Notifier<AssistantState> {
         disabledTools: scope == LibraryScope.none
             ? const {'search_artist', 'search_oc'}
             : const {},
-        enabledOptions: settings.ocPlaceholders && endpoint != null
+        enabledOptions: settings.ocPlaceholders
             ? const {kOcPlaceholdersOption}
             : const {},
       );
-      final publicOcs = <TagEntry>[];
-      if (scope == LibraryScope.all) {
-        try {
-          publicOcs.addAll(
-            await ref.read(publicTagsProvider(TagCategory.character).future),
-          );
-        } catch (_) {}
-      }
-      if (!ref.mounted || seq != _seq) return;
-      final channelModel = ref.read(assistantModelKeyProvider);
+      final channelModel = plan ? '' : ref.read(assistantModelKeyProvider);
       final runtime = agentRuntimeFor(
         endpoint: endpoint,
         backendBase: base,
         sessionId: sid,
         backendModel: channelModel,
         imageModel: imageModel,
-        offline: ref.read(offlineTagsProvider),
+        offline: plan ? null : ref.read(offlineTagsProvider),
         online: base.isEmpty
             ? null
             : CompletionOnlineTags(
@@ -902,8 +1406,40 @@ class AssistantNotifier extends Notifier<AssistantState> {
                 sessionId: sid,
               ),
       );
+      final note = [
+        if (settings.allowEditNegative)
+          '画师库负面是初始参考。续改时以当前提议或引用画布的负面为准，保留未改动的权重与分块。删除时返回修改后的完整 negative，清空时返回空字符串。',
+        if (settings.allowEditNegative && useBlocks)
+          '续改负面时，每个块在 negative 中独占一行，blocks.negative 按非空行逐一列出「类别·短名」。只编辑点名的块，保留其它块的名称、顺序、内容和权重。同一画风的正负沿用相同类别和短名，独立新增的排除词另起一行标为「其它·额外排除」。',
+        if (!settings.allowEditNegative)
+          '画布全局负面提示词已锁定，nai_draw 的顶层 negative 请留空。',
+        if (settings.importTo == SectionImport.aiSection ||
+            settings.importTo == SectionImport.newSection)
+          '绘图时可在 nai_draw 顶层写 section（简短的中文分区名）。续改时输出本轮完整提示词和分块，按用户要求更新 section 和块短名。',
+        if (settings.importTo == SectionImport.appendMain)
+          '绘图时输出本对话负责部分的完整提示词和分块。续改可变更块短名，手写主体由客户端保留。',
+      ].join('\n');
+      final canvasBlocks = canvas
+          ? assistantCanvasBlockContext(
+              sourceState,
+              _binding(sourceCanvasId),
+              settings.importTo,
+            )
+          : null;
+      final blockSummary = canvasBlocks?.summary ?? '';
+      final sourceDraw = canvasBlocks?.source ?? previousDraw;
+      // Raw-mode OCs are not kept in the conversation's lookup ledger.
+      // A prior fold can still identify an unchanged entry in the active library.
+      final previousOcs = {
+        if (sourceDraw != null && (canvas || history.isNotEmpty))
+          for (final b in sourceDraw.blocks)
+            if (!b.negative && b.kind == PromptBlockKind.character)
+              if (b.libraryText case final text?)
+                if (ocs.containsResource(b.name, text)) b.name: text,
+      };
       final request = AgentTurnRequest(
         userText: trimmed,
+        importNote: note,
         imageModel: imageModel,
         images: images,
         history: history,
@@ -912,32 +1448,30 @@ class AssistantNotifier extends Notifier<AssistantState> {
                 positive: canvasPositive(g),
                 negative: canvasNegative(g),
                 characters: _charsForAgent(g),
+                blockSummary: blockSummary,
               )
             : null,
         customRules: custom,
+        apiSupplement: renderRules(supplement, modeKeys, chosen: modeKeys),
         modeKeys: modeKeys,
         tools: toolsConfig,
-        artists: [
-          for (final e in artistEntries)
-            if (e.positive.trim().isNotEmpty)
-              {'id': e.name, 'name': e.name, 'prompt': e.positive},
-        ],
-        ocs: [
-          ...lib.ocs,
-          for (final e in publicOcs)
-            {
-              'en_name': e.publicId ?? e.id,
-              'zh_name': e.name,
-              'zh_aliases': e.aliases,
-              'tag_group': e.positive,
-            },
-        ],
-        resources: scope == LibraryScope.none
-            ? const {}
-            : latestResources(preceding),
+        artists: artists.wire(includePublic: true),
+        ocs: ocs.wire(includePublic: true),
+        searchOcLibrary: repository == null
+            ? null
+            : (query) async => (await ocReferences(
+                query,
+                search: true,
+              )).wire(includePublic: true),
+        resources: {
+          ...resources,
+          if (previousOcs.isNotEmpty)
+            'oc': {...previousOcs, ...?resources['oc']},
+        },
         think: settings.thinkLevel,
         stream: settings.stream,
         retries: settings.retries,
+        retryStripImage: settings.retryStripImage,
         rerolls: settings.rerolls,
         refusalKeywords: settings.refusalKeywords,
       );
@@ -949,27 +1483,104 @@ class AssistantNotifier extends Notifier<AssistantState> {
         if (images.length > 1) {
           trace.settings['image_delivery'] = 'numbered_reference_sheet';
         }
+        // Legacy servers can expand "all" on their side. With an active
+        // blocklist, give them the already filtered snapshot as a local library.
+        final snapshotOnly =
+            strictScope || blocks.isNotEmpty || toolsConfig.ocPlaceholders;
+        final wireArtists = artists.wire(includePublic: snapshotOnly);
+        final legacyOcs = repository == null ? ocs : await ocReferences(null);
+        if (!ref.mounted || seq != _seq) return;
+        final wireOcs = legacyOcs.wire(includePublic: snapshotOnly);
+        final ctx = ToolContext(
+          userText: trimmed,
+          settings: toolsConfig,
+          texts: await PromptTexts.load(),
+          ocs: libOcsOf(legacyOcs.wire(includePublic: true)),
+          remembered: request.resources,
+        );
+        final ocTool = const SearchOcTool();
+        final ocBlock = scope == LibraryScope.none
+            ? null
+            : await ocTool.prefetch(ctx);
+        final matches = {
+          'artist': {
+            for (final (name, prompt) in matchArtists(
+              trimmed,
+              libArtistsOf(request.artists),
+            ))
+              name: prompt,
+          },
+          ...?ocBlock?.resources,
+        };
+        final tokens = toolsConfig.ocPlaceholders
+            ? ctx.ocPlan.tokens
+            : const <String, String>{};
+        String collapse(String value) => collapseArtistStrings(value, tokens);
+        if (!ref.mounted || seq != _seq) return;
+        final legacyScope = snapshotOnly && scope != LibraryScope.none
+            ? (wireArtists.isEmpty && wireOcs.isEmpty
+                  ? LibraryScope.none
+                  : LibraryScope.local)
+            : scope;
         yield* streamAgentPrompt(
           baseUrl: base,
           sessionId: sid,
-          userRequest: images.length > 1
-              ? assistantReferenceSheetPrompt(trimmed, images.length)
-              : trimmed,
+          userRequest: [
+            collapse(
+              images.length > 1
+                  ? assistantReferenceSheetPrompt(trimmed, images.length)
+                  : trimmed,
+            ),
+            if (note.isNotEmpty) note,
+            if (ocBlock != null) ...[
+              await ocTool.systemNote(ctx),
+              ocBlock.text,
+            ],
+            if (blockSummary.isNotEmpty) collapse(blockSummary),
+            if (request.apiSupplement.isNotEmpty) request.apiSupplement,
+          ].join('\n\n'),
           // 空串 = 用后端的全局默认。用户在顶栏选过才带 key 出去。
           model: channelModel,
           imageModel: imageModel,
+          decodeFinal: (wire) =>
+              legacyLibraryReply(wire, ctx, matches, useBlocks: useBlocks),
           imageB64: referenceSheet,
-          history: history,
+          history: [
+            for (final h in history)
+              {...h, 'content': collapse(h['content'] ?? '')},
+          ],
           historyTurns: settings.historyTurns,
-          currentPositive: canvas ? canvasPositive(g) : '',
-          currentNegative: canvas ? canvasNegative(g) : '',
-          currentCharacters: canvas ? _charsForAgent(g) : const [],
-          webArtists: lib.artists,
-          webOcs: lib.ocs,
+          currentPositive: canvas ? collapse(canvasPositive(g)) : '',
+          currentNegative: canvas ? collapse(canvasNegative(g)) : '',
+          currentCharacters: [
+            if (canvas)
+              for (final c in _charsForAgent(g))
+                {
+                  ...c,
+                  'positive': collapse(c['positive'] ?? ''),
+                  'negative': collapse(c['negative'] ?? ''),
+                },
+          ],
+          webArtists: wireArtists,
+          webOcs: [
+            for (final oc in wireOcs)
+              {
+                ...oc,
+                if (toolsConfig.ocPlaceholders)
+                  'tag_group': ctx.ocPlan.add(oc['zh_name'], oc['tag_group']),
+              },
+          ],
           // 沿用中的画风 / OC:预匹配逐条消息做,用户这轮没再提「A1」块就不出现,
           // 出处断在那儿。账本由服务端算、客户端存(这条链路没有服务端会话)。
-          resources: latestResources(preceding),
-          libraryScope: libraryScopeWire(scope),
+          resources: {
+            ...resources,
+            if (toolsConfig.ocPlaceholders && resources.containsKey('oc'))
+              'oc': {
+                for (final e in resources['oc']!.entries)
+                  e.key: ctx.ocPlan.add(e.key, e.value),
+              },
+          },
+          libraryScope: libraryScopeWire(legacyScope),
           // 没自定义就不发,服务端用它自己那份(自带工具说明,永远是最新的);
           // 自定义的预设只讲写提示词,挂上 app 的工具层再发 —— 服务端换掉的是
           // 整段规则主体,不挂的话它自己那份工具说明也跟着被换没了
@@ -1056,7 +1667,10 @@ class AssistantNotifier extends Notifier<AssistantState> {
                 noDraw,
                 sourceCanvasId,
                 scope,
-                artistEntries,
+                artists.entries,
+                previousPositives: previousPositives,
+                previousDraw: sourceDraw,
+                useBlocks: useBlocks,
               );
           }
         },
@@ -1198,6 +1812,7 @@ class AssistantNotifier extends Notifier<AssistantState> {
           );
         }
       }
+      _runningAsk = null;
       _set(state.copyWith(msgs: messages, running: false, stage: ''));
       unawaited(_drain());
     } catch (e) {
@@ -1247,6 +1862,7 @@ class AssistantNotifier extends Notifier<AssistantState> {
 
   /// 这一轮的调试记录收尾:[error] 为 null 是正常完成。
   void _finishTrace(String? error) {
+    _runningAsk = null;
     final t = _liveTrace;
     if (t == null) return;
     _liveTrace = null;
@@ -1317,8 +1933,11 @@ class AssistantNotifier extends Notifier<AssistantState> {
     bool noDraw,
     String sourceCanvasId,
     LibraryScope scope,
-    List<TagEntry> artistEntries,
-  ) {
+    List<TagEntry> artistEntries, {
+    required List<String> previousPositives,
+    required DrawProposal? previousDraw,
+    required bool useBlocks,
+  }) {
     _finishTrace(null);
     // **不写创作页**。AI 的产出先当成一份「提议」挂在这条消息上,用户在结果卡上
     // 点「导入」才落地(或者不导入、直接拿它生成)。
@@ -1332,8 +1951,17 @@ class AssistantNotifier extends Notifier<AssistantState> {
     // 但这儿一并过一道,将来它扩到角色也不用再想起这件事。
     final stripped = r.hasDraw
         ? DrawProposal(
+            section: r.section,
             positive: stripArtistMarkers(r.positive),
-            negative: r.negative,
+            negative: r.specifiedNegative || r.negative.isNotEmpty
+                ? r.negative
+                : canvas
+                ? ''
+                : previousDraw?.negative ?? '',
+            clearNegative:
+                r.specifiedNegative &&
+                r.negative.trim().isEmpty &&
+                (previousDraw != null || canvas),
             characters: [
               for (final c in r.characters)
                 AgentCharacter(
@@ -1345,12 +1973,21 @@ class AssistantNotifier extends Notifier<AssistantState> {
             ],
           )
         : null;
-    final draw = stripped == null || scope == LibraryScope.none
-        ? stripped
-        : DrawProposal(
-            positive: stripped.positive,
-            negative: withArtistNegatives(stripped, artistEntries),
-            characters: stripped.characters,
+    final annotated = stripped?.withValidatedBlocks(
+      r.blocks,
+      // Stripping server artist markup can move offsets in the editor.
+      knownResources: useBlocks && stripped.positive != r.positive
+          ? r.resources
+          : null,
+    );
+    final draw =
+        annotated == null || !assistantSettingsOf(ref).allowEditNegative
+        ? annotated
+        : proposalWithArtistNegatives(
+            annotated,
+            scope == LibraryScope.none ? const [] : artistEntries,
+            previousPositives: previousPositives,
+            previousDraw: previousDraw,
           );
     final text = r.replyText.trim().isNotEmpty
         ? r.replyText.trim()
@@ -1385,6 +2022,35 @@ class AssistantNotifier extends Notifier<AssistantState> {
     // 纯文本那种只给复制:不自动导入、不自动出图
     if (draw != null && !noDraw) _autoAfterDraw(id, sourceCanvasId);
     unawaited(_drain());
+  }
+
+  /// Recover a saved text reply on request. Only the chat card changes.
+  bool recoverDrawProposal(String id) {
+    final message = _msg(id);
+    if (_busy || message == null || !message.canRecoverDraw) return false;
+    try {
+      // No model will receive repair instructions for an archived reply.
+      final parsed = parseReply(message.text, const PromptTexts({}));
+      final draw = parsed.draw;
+      if (draw == null) return false;
+      final proposal = DrawProposal.fromJson(
+        draw,
+      ).withValidatedBlocks(PromptBlock.fromDraw(draw, draw, (line) => line));
+      _set(
+        state.copyWith(
+          msgs: [
+            for (final m in state.msgs)
+              if (m.id == id)
+                m.copyWith(text: parsed.reply, draw: proposal)
+              else
+                m,
+          ],
+        ),
+      );
+      return true;
+    } on OutputFailure {
+      return false;
+    }
   }
 
   /// 「总是读写创作页」/「出词后自动生成」这两个开关的落点。
@@ -1443,6 +2109,7 @@ class AssistantNotifier extends Notifier<AssistantState> {
       return;
     }
     if (msg?.promptAsText ?? false) return;
+    ref.read(editorSessionsProvider).flushPending();
     final sent = previewSendState(msgId, canvasId: canvasId);
     if (sent == null) return;
     final inline = assistantSettingsOf(ref).inlineImage;
@@ -1488,6 +2155,16 @@ class AssistantNotifier extends Notifier<AssistantState> {
   }
 
   /// 停:掐掉这一轮。服务端那次 LLM 已经在跑,掐不掉,但用户不用再干等。
+  QueuedAsk? stopAndRestore() {
+    final ask = _runningAsk;
+    final remove =
+        state.running && ask != null && state.msgs.lastOrNull?.id == ask.id;
+    stop();
+    if (!remove) return null;
+    _set(state.copyWith(msgs: state.msgs.take(state.msgs.length - 1).toList()));
+    return ask;
+  }
+
   void stop({bool keepImages = false}) {
     final image = _activeImage;
     if (image != null) {
@@ -1518,6 +2195,17 @@ class AssistantNotifier extends Notifier<AssistantState> {
 
   // ---- 写回 / 撤销 ----
 
+  PromptImportBinding _binding(String canvasId) =>
+      state.currentMeta?.bindings[canvasId] ?? const PromptImportBinding();
+
+  ConversationMeta _saveBinding(String canvasId, PromptImportBinding binding) {
+    final meta =
+        state.currentMeta ??
+        state.currentSession?.meta ??
+        ConversationMeta(id: DateTime.now().microsecondsSinceEpoch, at: _now);
+    return meta.copyWith(bindings: {...meta.bindings, canvasId: binding});
+  }
+
   PromptSnapshot _snapshot() {
     ref.read(editorSessionsProvider).flushPending();
     return PromptSnapshot.of(ref.read(generateProvider));
@@ -1547,19 +2235,31 @@ class AssistantNotifier extends Notifier<AssistantState> {
     final msg = state.msgs.where((m) => m.id == msgId).firstOrNull;
     final r = msg?.draw;
     if (r == null) return null;
+    final settings = assistantSettingsOf(ref);
+    final targetId = canvasId ?? workspace.activeId;
+    final change = msg!.change;
+    final alreadyApplied =
+        change != null &&
+        !change.undone &&
+        (change.canvasId ?? workspace.activeId) == targetId &&
+        PromptSnapshot.of(base).sameAs(change.after);
     var seq = 0;
-    final sent = proposalSendState(
-      base,
-      r,
-      assistantSettingsOf(ref).importTo,
-      newId: () => 'preview${seq++}',
-    );
+    final sent = alreadyApplied
+        ? base.copyWith(charRefs: const [], img2img: null, inpaint: null)
+        : proposalSendState(
+            base,
+            r,
+            settings.importTo,
+            binding: _binding(targetId),
+            allowEditNegative: settings.allowEditNegative,
+            newId: () => 'preview${seq++}',
+          );
     final mods =
         ref.read(genModulesProvider).value ?? const GenModuleSettings();
     return stripHiddenModules(sent, mods);
   }
 
-  /// 把某条 AI 消息的提议**导入**创作页。由用户在结果卡上点触发,不自动发生。
+  /// 手动「导入」和「自动写入创作页」共用的提交入口。
   ///
   /// 幂等:已经导入且没撤销过就直接返回 true。撤销之后可以再导入一次。
   ///
@@ -1571,12 +2271,14 @@ class AssistantNotifier extends Notifier<AssistantState> {
     final r = msg.draw;
     // 纯文本那种只给复制,不导入(同 [generateFrom] 那道)
     if (r == null || msg.promptAsText) return false;
-    if (msg.change != null && !msg.change!.undone) return true;
 
     final workspace = ref.read(canvasWorkspaceProvider);
     final targetId = canvasId ?? workspace.activeId;
     final target = workspace.find(targetId);
     if (target == null) return false;
+    if (msg.change != null && !msg.change!.undone) {
+      return (msg.change!.canvasId ?? targetId) == targetId;
+    }
     final before = _snapshotOf(targetId)!;
     final gen = ref.read(generateProvider.notifier);
     // Flushing the active editor may have updated the workspace draft.
@@ -1585,10 +2287,16 @@ class AssistantNotifier extends Notifier<AssistantState> {
         .find(targetId)!
         .prompts
         .applyTo(ref.read(generateProvider));
+    final settings = assistantSettingsOf(ref);
+    final binding = _binding(targetId);
+    var nextBinding = binding;
     final proposed = proposalSendState(
       base,
       r,
-      assistantSettingsOf(ref).importTo,
+      settings.importTo,
+      allowEditNegative: settings.allowEditNegative,
+      binding: binding,
+      onBinding: (value) => nextBinding = value,
       newId: gen.allocateItemId,
     );
     ref
@@ -1599,11 +2307,20 @@ class AssistantNotifier extends Notifier<AssistantState> {
       // 撤销过再导入:非空的 change 直接覆盖掉那条 undone 的记录。
       change: AssistantChange(
         before: before,
+        bindingBefore: binding,
+        writeOrder:
+            1 + msgs.fold<int>(0, (n, m) => max(n, m.change?.writeOrder ?? 0)),
         after: _snapshotOf(targetId)!,
         canvasId: targetId,
       ),
     );
-    _set(state.copyWith(msgs: msgs, changedUnseen: true));
+    _set(
+      state.copyWith(
+        msgs: msgs,
+        currentMeta: _saveBinding(targetId, nextBinding),
+        changedUnseen: true,
+      ),
+    );
     return true;
   }
 
@@ -1631,9 +2348,28 @@ class AssistantNotifier extends Notifier<AssistantState> {
         .read(canvasWorkspaceProvider.notifier)
         .updatePrompts(targetId, c.before.restoreTo);
 
+    // Restoring a previous canvas snapshot also rolls back subsequent imports
+    // made into that canvas, even if their cards appear earlier in the chat.
     final msgs = [...state.msgs];
-    msgs[i] = msgs[i].copyWith(change: c.copyWith(undone: true));
-    _set(state.copyWith(msgs: msgs));
+    for (final (index, msg) in state.msgs.indexed) {
+      final change = msg.change;
+      if (change == null || change.undone) continue;
+      final later =
+          c.writeOrder > 0 &&
+          change.writeOrder > c.writeOrder &&
+          change.canvasId == targetId;
+      if (index == i || later) {
+        msgs[index] = msg.copyWith(change: change.copyWith(undone: true));
+      }
+    }
+    _set(
+      state.copyWith(
+        msgs: msgs,
+        currentMeta: c.bindingBefore == null
+            ? state.currentMeta
+            : _saveBinding(targetId, c.bindingBefore!),
+      ),
+    );
     return true;
   }
 

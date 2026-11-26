@@ -695,6 +695,56 @@ Prompt shrinkWhile(Prompt p, bool Function(Prompt) fails) {
 String show(String s) => s.replaceAll('\n', r'\n');
 
 void main() {
+  test(
+    'bulk toggles and disabled output preserve the sequential edits byte for byte',
+    () {
+      String referenceOutput(String text) {
+        while (true) {
+          final t = parseToks(text).where((t) => t.disabled).firstOrNull;
+          if (t == null) break;
+          final next = deleteTok(text, t).$1;
+          if (next.length >= text.length) break;
+          text = next;
+        }
+        return stripFolds(text).replaceAll(kFoldZw, '').trim();
+      }
+
+      final gen = Gen(3948);
+      final random = Random(672);
+      for (final original in [
+        'a， <#图: ~a~，\t~b~\n ~c~#>,  b',
+        '1.2::a, 0.8::b::c, {d, e}',
+        ', [~x~，~::,<#a: ~a,#>~a,} x::,~x~，~~a,~a,',
+        '1.3::，,~x~，~}🐾😀::[0.2::::,',
+        for (var i = 0; i < 400; i++) gen.prompt().render(),
+      ]) {
+        expect(outputOf(original), referenceOutput(original), reason: original);
+        final count = parseToks(original).length;
+        if (count == 0) continue;
+        final start = random.nextInt(count),
+            end = start + random.nextInt(count - start);
+        for (final disabled in [true, false]) {
+          var sequential = original;
+          for (var i = end; i >= start; i--) {
+            final tokens = parseToks(sequential);
+            if (i < tokens.length && tokens[i].disabled != disabled) {
+              sequential = toggleTokDisabled(sequential, tokens[i]);
+            }
+          }
+          expect(
+            batchSetDisabled(original, start, end, disabled),
+            sequential,
+            reason: original,
+          );
+          expect(
+            outputOf(sequential),
+            referenceOutput(sequential),
+            reason: sequential,
+          );
+        }
+      }
+    },
+  );
   test('按语法随机生成的提示词:逐枚词对照预期权重', () {
     final g = Gen(20260914);
     for (var k = 0; k < 1500; k++) {

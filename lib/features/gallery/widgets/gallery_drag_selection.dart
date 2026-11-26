@@ -25,6 +25,8 @@ class GalleryDragSelection extends StatefulWidget {
     required this.onChanged,
     required this.child,
     this.handleEscape = true,
+    this.mouseOnly = false,
+    this.maxSelected,
   });
 
   final bool enabled;
@@ -37,6 +39,8 @@ class GalleryDragSelection extends StatefulWidget {
   /// A containing gallery can own Escape for its whole selection mode. Avoid
   /// a global drag handler competing with that route-scoped keyboard action.
   final bool handleEscape;
+  final bool mouseOnly;
+  final int? maxSelected;
 
   @override
   State<GalleryDragSelection> createState() => GalleryDragSelectionState();
@@ -89,7 +93,10 @@ class GalleryDragSelectionState extends State<GalleryDragSelection>
   void _down(PointerDownEvent event) {
     // Observe the first press even before selection mode is enabled. The
     // tile's hold recognizer can hand that same pointer to beginHold below.
-    if (event.buttons != kPrimaryButton) return;
+    if (event.buttons != kPrimaryButton ||
+        (widget.mouseOnly && event.kind != PointerDeviceKind.mouse)) {
+      return;
+    }
     if (_pointer != null) {
       cancel();
       return;
@@ -273,8 +280,17 @@ class GalleryDragSelectionState extends State<GalleryDragSelection>
     final adding = _adding;
     if (a == null || b == null || adding == null) return;
     final next = Set<String>.of(_base);
-    for (var i = math.min(a, b); i <= math.max(a, b); i++) {
-      adding ? next.add(_order[i]) : next.remove(_order[i]);
+    final limit = widget.maxSelected;
+    if (adding && limit != null) {
+      final step = a <= b ? 1 : -1;
+      for (var i = a; next.length < limit; i += step) {
+        next.add(_order[i]);
+        if (i == b) break;
+      }
+    } else {
+      for (var i = math.min(a, b); i <= math.max(a, b); i++) {
+        adding ? next.add(_order[i]) : next.remove(_order[i]);
+      }
     }
     // Multiple pointer updates can arrive before the parent rebuilds with
     // its new selection. Compare with what we emitted, not a stale widget.
@@ -364,25 +380,26 @@ class GalleryDragSelectionState extends State<GalleryDragSelection>
                   ..onCancel = _finish
                   ..onEnd = (_) => _finish();
               }),
-          HorizontalDragGestureRecognizer:
-              GestureRecognizerFactoryWithHandlers<
-                HorizontalDragGestureRecognizer
-              >(HorizontalDragGestureRecognizer.new, (recognizer) {
-                recognizer
-                  ..supportedDevices = {
-                    for (final kind in PointerDeviceKind.values)
-                      if (kind != PointerDeviceKind.mouse) kind,
-                  }
-                  ..dragStartBehavior = DragStartBehavior.down
-                  // Canceling a tile's tap/hold (wheel, second contact) can
-                  // leave this as the only arena member. That alone must not
-                  // begin selection without an actual horizontal movement.
-                  ..onlyAcceptDragOnThreshold = true
-                  ..onStart = _start
-                  ..onUpdate = _update
-                  ..onCancel = _finish;
-                recognizer.onEnd = (_) => _finish();
-              }),
+          if (!widget.mouseOnly)
+            HorizontalDragGestureRecognizer:
+                GestureRecognizerFactoryWithHandlers<
+                  HorizontalDragGestureRecognizer
+                >(HorizontalDragGestureRecognizer.new, (recognizer) {
+                  recognizer
+                    ..supportedDevices = {
+                      for (final kind in PointerDeviceKind.values)
+                        if (kind != PointerDeviceKind.mouse) kind,
+                    }
+                    ..dragStartBehavior = DragStartBehavior.down
+                    // Canceling a tile's tap/hold (wheel, second contact) can
+                    // leave this as the only arena member. That alone must not
+                    // begin selection without an actual horizontal movement.
+                    ..onlyAcceptDragOnThreshold = true
+                    ..onStart = _start
+                    ..onUpdate = _update
+                    ..onCancel = _finish;
+                  recognizer.onEnd = (_) => _finish();
+                }),
         },
       },
       child: widget.child,

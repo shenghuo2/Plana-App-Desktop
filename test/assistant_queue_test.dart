@@ -5,6 +5,7 @@ import 'dart:typed_data';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:image/image.dart' as img;
 import 'package:plana_app/core/auth/bot_session_store.dart';
 import 'package:plana_app/core/net/backend_config.dart';
@@ -17,6 +18,11 @@ import 'package:plana_app/features/assistant/custom_endpoint.dart';
 import 'package:plana_app/features/assistant/preset_rules.dart';
 import 'package:plana_app/features/generate/canvas_state.dart';
 import 'package:plana_app/features/generate/generate_state.dart';
+import 'package:plana_app/features/inspiration/public_tag_blocks.dart';
+import 'package:plana_app/features/inspiration/external/oc_sources.dart';
+import 'package:plana_app/features/inspiration/public_tags.dart';
+import 'package:plana_app/features/inspiration/tag_library.dart';
+import 'package:plana_app/features/inspiration/tag_models.dart';
 
 class _Session extends BotSessionNotifier {
   final ready = Completer<BotSession?>();
@@ -31,6 +37,11 @@ class _Settings extends AssistantSettingsNotifier {
     autoImport: true,
     introVersion: kAssistantIntroVersion,
   );
+}
+
+class _EmptyLibrary extends TagLibrary {
+  @override
+  Future<TagLibraryState> build() async => const TagLibraryState();
 }
 
 class _Rules extends RulesLibraryNotifier {
@@ -104,11 +115,13 @@ void main() {
   late HttpOverrides? originalHttp;
   CustomEndpoint? custom;
   final turns = <_Turn>[];
+  final catalog = <TagEntry>[];
 
   setUp(() async {
     originalHttp = HttpOverrides.current;
     HttpOverrides.global = _Http();
     turns.clear();
+    catalog.clear();
     custom = null;
     stores = AppStores.ephemeral();
     server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
@@ -137,6 +150,10 @@ void main() {
     c = ProviderContainer(
       overrides: [
         appStoresProvider.overrideWithValue(stores),
+        tagLibraryProvider.overrideWith(_EmptyLibrary.new),
+        publicTagsProvider.overrideWith(
+          (ref, cat) async => catalog.where((e) => e.category == cat).toList(),
+        ),
         botSessionProvider.overrideWith(() => session),
         backendBaseProvider.overrideWith(
           () => _Backend('http://127.0.0.1:${server.port}'),
@@ -172,6 +189,136 @@ void main() {
     await turns.last.finish();
     await until(() => !c.read(assistantProvider).running);
   }
+
+  test(
+    'legacy lookups honor external priority, source removal and paused choices on each send',
+    () async {
+      final file = File(
+        '${stores.prefs.supportDirectory.path}/assistant-fixture.json',
+      );
+      await file.writeAsString(
+        jsonEncode({
+          'characters': [
+            {'name': '星海', 'prompt': 'external costume'},
+          ],
+        }),
+      );
+      final source = await c.read(ocRepositoryProvider).connect(file.uri);
+      catalog.add(
+        const TagEntry(
+          id: 'pubStar',
+          publicId: 'C1',
+          name: '星海',
+          category: TagCategory.character,
+          positive: 'public costume',
+        ),
+      );
+      final prefs = c.read(assistantSettingsProvider.notifier);
+      final config = LibrarySelection(
+        order: [source.id, LibrarySelection.public, LibrarySelection.local],
+        enabled: {source.id, LibrarySelection.public},
+      );
+      await prefs.patch((s) => s.copyWith(sourceSelection: config));
+      await start();
+      expect(
+        turns.single.body['web_ocs'].single['tag_group'],
+        'external costume',
+      );
+      expect(turns.single.body['library_scope'], 'local');
+      await completeLast();
+      await prefs.patch(
+        (s) => s.copyWith(
+          sourceSelection: config.withOrder([
+            LibrarySelection.public,
+            source.id,
+            LibrarySelection.local,
+          ]),
+        ),
+      );
+      await n.send('next');
+      await until(() => turns.length == 2);
+      expect(turns.last.body['web_ocs'].single['tag_group'], 'public costume');
+      await completeLast();
+      await prefs.patch(
+        (s) => s.copyWith(sourceSelection: config.withPause(true)),
+      );
+      await n.send('paused');
+      await until(() => turns.length == 3);
+      expect(turns.last.body['web_ocs'], isEmpty);
+      expect(turns.last.body['library_scope'], 'none');
+      await completeLast();
+      final available = c.read(ocSourcesProvider).requireValue;
+      expect(available.single.id, source.id);
+      await prefs.patch(
+        (s) =>
+            s.copyWith(sourceSelection: LibrarySelection(enabled: {source.id})),
+      );
+      FlutterSecureStorage.setMockInitialValues({});
+      await c.read(ocRepositoryProvider).remove(source);
+      expect(await c.read(ocSourcesProvider.future), isEmpty);
+      expect(
+        c.read(assistantSettingsProvider).requireValue.libraries.enabled,
+        isEmpty,
+      );
+      await n.send('removed');
+      await until(() => turns.length == 4);
+      expect(turns.last.body['web_ocs'], isEmpty);
+      expect(turns.last.body['library_scope'], 'none');
+      await completeLast();
+    },
+  );
+
+  test('legacy public lookups use only the locally filtered catalog', () async {
+    catalog.addAll(const [
+      TagEntry(
+        id: 'remoteA',
+        publicId: 'A1',
+        category: TagCategory.artist,
+        name: '作者画风',
+        positive: 'retained brushwork',
+        createdBy: 'author',
+      ),
+      TagEntry(
+        id: 'remoteC',
+        publicId: 'C1',
+        category: TagCategory.character,
+        name: '作者角色',
+        positive: 'excluded costume',
+        createdBy: 'author',
+      ),
+    ]);
+    await c
+        .read(assistantSettingsProvider.notifier)
+        .patch((s) => s.copyWith(libraryScope: LibraryScope.all));
+    const byAuthor = PublicTagRule(authors: {'author': {}});
+    final blocks = c.read(publicTagBlocksProvider.notifier);
+    await blocks.save({TagCategory.character: byAuthor});
+    expect(
+      (await c.read(assistantSettingsProvider.future)).libraryScope,
+      LibraryScope.all,
+    );
+    expect(await c.read(publicTagsProvider(TagCategory.artist).future), [
+      catalog.first,
+    ]);
+    await start();
+    final request = turns.single.body;
+    await completeLast();
+    expect(request['library_scope'], 'local');
+    expect(request['web_ocs'], isEmpty);
+    expect((request['web_artists'] as List).single['id'], 'A1');
+    expect(jsonEncode(request), isNot(contains('excluded costume')));
+
+    await blocks.save({
+      TagCategory.character: byAuthor,
+      TagCategory.artist: byAuthor,
+    });
+    await n.send('second');
+    await until(() => turns.length == 2);
+    await completeLast();
+    expect(turns.last.body['library_scope'], 'none');
+    expect(turns.last.body['web_artists'], isEmpty);
+    expect(turns.last.body['web_ocs'], isEmpty);
+  });
 
   test(
     'opening and renaming preserve order; pin and accepted turns order each group',
@@ -300,11 +447,11 @@ void main() {
       expect(turns, hasLength(1));
       await turns.first.finish();
       await until(() => turns.length == 2);
-      expect(turns[1].body['user_request'], 'second');
+      expect(turns[1].body['user_request'].split('\n\n').first, 'second');
       expect(c.read(assistantProvider).msgs.last.id, ids[0]);
       await turns[1].finish();
       await until(() => turns.length == 3);
-      expect(turns[2].body['user_request'], 'third');
+      expect(turns[2].body['user_request'].split('\n\n').first, 'third');
       expect(c.read(assistantProvider).msgs.last.id, ids[1]);
       await turns[2].finish();
       await until(() => !c.read(assistantProvider).running);
@@ -394,6 +541,33 @@ void main() {
     },
   );
 
+  test(
+    'stopping restores only the active question and its original attachment',
+    () async {
+      await start();
+      await completeLast();
+      final before = c
+          .read(assistantProvider)
+          .msgs
+          .map((msg) => msg.id)
+          .toList();
+      final bytes = Uint8List.fromList(
+        img.encodePng(img.Image(width: 3, height: 4)),
+      );
+      await n.submit('edit this question', images: [bytes]);
+      await until(() => turns.length == 2);
+      await n.submit('queued follow-up');
+      final ask = n.stopAndRestore();
+      expect(ask?.text, 'edit this question');
+      expect(ask?.images.single, orderedEquals(bytes));
+      expect(c.read(assistantProvider).msgs.map((msg) => msg.id), before);
+      expect(c.read(assistantProvider).queue.single.text, 'queued follow-up');
+      expect(n.stopAndRestore(), isNull);
+      await turns.last.finish(positive: 'ignored after cancellation');
+      expect(c.read(assistantProvider).msgs.map((msg) => msg.id), before);
+    },
+  );
+
   for (final fail in [false, true]) {
     test(
       'stop/error pauses remaining queue; resume exactly once, error=$fail',
@@ -466,7 +640,13 @@ void main() {
           expect(c.read(canvasWorkspaceProvider).find(a), isNull);
         } else {
           expect(
-            c.read(canvasWorkspaceProvider).find(a)!.prompts.prompt,
+            c
+                .read(canvasWorkspaceProvider)
+                .find(a)!
+                .prompts
+                .sections
+                .last
+                .positive,
             'result for A',
           );
         }
@@ -486,7 +666,10 @@ void main() {
       expect(c.read(assistantProvider).msgs, isEmpty);
       await n.resumeQueue();
       await until(() => turns.isNotEmpty);
-      expect(turns.single.body['user_request'], 'keep second');
+      expect(
+        turns.single.body['user_request'].split('\n\n').first,
+        'keep second',
+      );
       await turns.single.finish();
       await until(() => !c.read(assistantProvider).running);
     },
@@ -522,7 +705,7 @@ void main() {
       expect(turns, isEmpty);
       await n.send('new');
       await until(() => turns.isNotEmpty);
-      expect(turns.single.body['user_request'], 'new');
+      expect(turns.single.body['user_request'].split('\n\n').first, 'new');
       await turns.single.finish();
       await until(() => !c.read(assistantProvider).running);
     },

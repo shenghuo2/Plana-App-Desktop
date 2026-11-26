@@ -163,6 +163,46 @@ void main() {
   );
 
   testWidgets(
+    'a held thumb and queued external reads resume only at the settled viewport',
+    (tester) async {
+      await prepare(tester);
+      await tester.pumpWidget(page());
+      await tester.pumpAndSettle();
+      final before = getStarts();
+      final bar = tester.getRect(keyed('codex-scrollbar'));
+      final gesture = await tester.startGesture(
+        Offset(bar.right - 6, bar.top + 9),
+        kind: PointerDeviceKind.mouse,
+      );
+      await gesture.moveBy(const Offset(0, 90));
+      await tester.pump();
+      var reads = 0;
+      final ticket = loading.ticket();
+      final read = ticket.run(() async => ++reads);
+      await tester.pump(const Duration(seconds: 2));
+      await gesture.moveBy(const Offset(0, 90));
+      await tester.pump(const Duration(milliseconds: 2999));
+      expect(reads, 0);
+      expect(getStarts(), before);
+      await tester.pump(const Duration(milliseconds: 2));
+      await tester.pumpAndSettle();
+      expect(await read, 1);
+      expect(scroll.position.isScrollingNotifier.value, isTrue);
+      expect(getStarts(), greaterThan(before));
+      final second = getStarts();
+      await gesture.moveBy(const Offset(0, 90));
+      await tester.pump(const Duration(seconds: 2));
+      expect(getStarts(), second);
+      await gesture.up();
+      await tester.pump(const Duration(milliseconds: 141));
+      await tester.pumpAndSettle();
+      expect(getStarts(), greaterThan(second));
+      ticket.cancel();
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
+  testWidgets(
     'wheel bursts and jumpTo postpone starts until the last quiet period',
     (tester) async {
       await prepare(tester);
@@ -345,6 +385,53 @@ void main() {
       await tester.pumpWidget(const SizedBox());
     },
   );
+
+  testWidgets('a slow offscreen decode keeps its slot until a frame or error', (
+    tester,
+  ) async {
+    await prepare(tester);
+    final pending = <int, Completer<ImageInfo>>{};
+    for (var i = 0; i < loading.maxConcurrent; i++) {
+      pending[i] = Completer<ImageInfo>();
+    }
+    final visible = Row(
+      children: [
+        for (final entry in pending.entries)
+          thumbnail(
+            'slow${entry.key}',
+            source: provider(
+              'slow${entry.key}',
+              frame: () => entry.value.future,
+            ),
+          ),
+      ],
+    );
+    await tester.pumpWidget(page(images: false, extra: visible));
+    await tester.pumpAndSettle();
+    expect(getStarts(), loading.maxConcurrent);
+    // All old cards unmount. Their actual decodes still occupy the slots.
+    await tester.pumpWidget(
+      page(
+        images: false,
+        extra: Row(children: [thumbnail('next'), thumbnail('after-error')]),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(starts['next'], isNull);
+    expect(loading.pendingCount, 2);
+    pending[0]!.completeError(StateError('offline fixture'));
+    // The fast replacements each finish in the slot released by the error.
+    await tester.pump();
+    await tester.pumpAndSettle();
+    expect(starts['next'], 1);
+    expect(starts['after-error'], 1);
+    for (final decode in pending.values.skip(1)) {
+      decode.complete(ImageInfo(image: pixels.clone()));
+    }
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+  });
 
   testWidgets(
     'late key callbacks and controller disposal cannot restart old work',

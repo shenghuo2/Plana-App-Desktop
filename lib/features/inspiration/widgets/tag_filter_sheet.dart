@@ -48,6 +48,13 @@ List<TagAuthor> collectTagAuthors(
     if (id == null || id.isEmpty) continue;
     count[id] = (count[id] ?? 0) + 1;
   }
+  return tagAuthorsFromCounts(count, names);
+}
+
+List<TagAuthor> tagAuthorsFromCounts(
+  Map<String, int> count,
+  Map<String, String> names,
+) {
   final out = [
     for (final e in count.entries)
       TagAuthor(id: e.key, nickname: names[e.key], count: e.value),
@@ -69,9 +76,11 @@ Future<TagFilters?> showTagFilterSheet(
   required TagFilters current,
   required bool hasModels,
   bool desktop = false,
+  Future<int> Function(String author)? loadCount,
 }) {
   Widget panel(BuildContext context) => _FilterSheet(
     authors: authors,
+    loadCount: loadCount,
     current: current,
     hasModels: hasModels,
     desktop: desktop,
@@ -95,12 +104,14 @@ Future<TagFilters?> showTagFilterSheet(
 class _FilterSheet extends StatefulWidget {
   const _FilterSheet({
     required this.authors,
+    required this.loadCount,
     required this.current,
     required this.hasModels,
     required this.desktop,
   });
 
   final List<TagAuthor> authors;
+  final Future<int> Function(String author)? loadCount;
   final TagFilters current;
   final bool hasModels;
   final bool desktop;
@@ -112,6 +123,37 @@ class _FilterSheet extends StatefulWidget {
 class _FilterSheetState extends State<_FilterSheet> {
   final _input = TextEditingController();
   String _q = '';
+  final _counts = <String, int>{};
+  bool _counting = true, _failed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadCounts();
+  }
+
+  Future<void> _loadCounts() async {
+    final resolve = widget.loadCount;
+    if (resolve == null) return;
+    var failed = false;
+    for (final author in widget.authors) {
+      if (!mounted) return;
+      if (_counts.containsKey(author.id)) continue;
+      try {
+        final count = await resolve(author.id);
+        if (!mounted) return;
+        setState(() => _counts[author.id] = count);
+      } catch (_) {
+        // An unavailable form leaves only its own author's count unknown.
+        failed = true;
+      }
+    }
+    if (!mounted) return;
+    setState(() {
+      _counting = false;
+      _failed = failed;
+    });
+  }
 
   /// 当前在看哪一维:0=作者,1=适用模型。开局落在已经筛着的那一维,
   /// 「刚才筛的是什么」不用自己去翻。
@@ -127,9 +169,19 @@ class _FilterSheetState extends State<_FilterSheet> {
 
   List<TagAuthor> get _hits {
     final q = _q.trim().toLowerCase();
-    if (q.isEmpty) return widget.authors;
+    final authors = widget.loadCount == null || _counting
+        ? widget.authors
+        : [
+            ...tagAuthorsFromCounts(
+              Map.fromEntries(_counts.entries.where((e) => e.value > 0)),
+              const {},
+            ),
+            for (final a in widget.authors)
+              if (!_counts.containsKey(a.id)) a,
+          ];
+    if (q.isEmpty) return authors;
     return [
-      for (final a in widget.authors)
+      for (final a in authors)
         if (a.matches(q)) a,
     ];
   }
@@ -302,6 +354,20 @@ class _FilterSheetState extends State<_FilterSheet> {
   List<Widget> _authorRows(BuildContext context) {
     final hits = _hits;
     return [
+      if (widget.loadCount != null && _counting)
+        const LinearProgressIndicator(minHeight: 2),
+      if (_failed)
+        TextButton.icon(
+          icon: const Icon(Icons.refresh),
+          label: Text(context.l10n.retry),
+          onPressed: () {
+            setState(() {
+              _counting = true;
+              _failed = false;
+            });
+            _loadCounts();
+          },
+        ),
       if (_q.trim().isEmpty)
         _row(
           context,
@@ -314,7 +380,7 @@ class _FilterSheetState extends State<_FilterSheet> {
           context,
           label: a.label,
           sub: a.nickname == null ? null : a.id,
-          count: a.count,
+          count: widget.loadCount == null ? a.count : _counts[a.id],
           selected: widget.current.author == a.id,
           onTap: () => _apply(author: a.id),
         ),
@@ -322,7 +388,7 @@ class _FilterSheetState extends State<_FilterSheet> {
         Padding(
           padding: const EdgeInsets.fromLTRB(18, 12, 18, 12),
           child: Text(
-            widget.authors.isEmpty
+            _q.trim().isEmpty
                 ? context.l10n.noSignedEntries
                 : context.l10n.noMatchingAuthors,
             style: context.texts.bodySmall!.copyWith(

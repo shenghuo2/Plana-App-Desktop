@@ -18,15 +18,16 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/platform/desktop.dart';
 import '../../../core/ui/setting_row.dart';
 import '../../../core/util/haptics.dart';
+import '../../generate/generate_state.dart' show generateProvider;
 import '../../generate/prompt_sections.dart' show SectionImport;
 import '../../generate/widgets/common.dart' show dropFocusSoon, hintSnack;
-import '../agent_model.dart'
-    show assistantBotAuthorizedProvider, assistantEndpointProvider;
+import '../agent_model.dart' show assistantBotAuthorizedProvider;
 import '../assistant_settings.dart';
 import '../assistant_state.dart';
 import '../preset_rules.dart';
 import '../rules_page.dart';
 import 'desktop_settings_dropdown.dart';
+import 'library_scope_picker.dart';
 
 Future<void> showAssistantSettings(BuildContext context) async {
   if (ProviderScope.containerOf(
@@ -282,13 +283,25 @@ class _DesktopSettingsPanel extends ConsumerWidget {
                                       ),
                                       SettingRow(
                                         icon: Icons.content_paste,
-                                        title: l10nNow.desktopPasteFromClipboard,
+                                        title:
+                                            l10nNow.desktopPasteFromClipboard,
                                         desc: '在创作页侧栏显示图片粘贴按钮',
                                         value: s.showSidebarClipboardButton,
                                         onChanged: (v) => n.patch(
                                           (o) => o.copyWith(
                                             showSidebarClipboardButton: v,
                                           ),
+                                        ),
+                                      ),
+                                    ]),
+                                    section('OC 引用', [
+                                      SettingRow(
+                                        icon: Icons.person_outline,
+                                        title: l10nNow.ocPlaceholder,
+                                        desc: l10nNow.ocPlaceholderDesc,
+                                        value: s.ocPlaceholders,
+                                        onChanged: (v) => n.patch(
+                                          (o) => o.copyWith(ocPlaceholders: v),
                                         ),
                                       ),
                                     ]),
@@ -331,6 +344,7 @@ class _DesktopSettingsPanel extends ConsumerWidget {
                                           (o) => o.copyWith(importTo: v),
                                         ),
                                       ),
+                                      _negativeSetting(s, n),
                                     ]),
                                     section('自动操作', [
                                       SettingRow(
@@ -356,7 +370,8 @@ class _DesktopSettingsPanel extends ConsumerWidget {
                                     ]),
                                     if (s.noDraw)
                                       Text(
-                                        l10nNow.desktopPlainTextIsOnAutomaticImportAndGeneration,
+                                        l10nNow
+                                            .desktopPlainTextIsOnAutomaticImportAndGeneration,
                                         style: TextStyle(
                                           fontSize: 12,
                                           height: 1.6,
@@ -381,39 +396,20 @@ class _DesktopSettingsPanel extends ConsumerWidget {
                                             ),
                                             const SizedBox(height: 6),
                                             Text(
-                                              l10nNow.desktopSourcesUsedToLookUpArtistPromptsAnd,
+                                              l10nNow
+                                                  .desktopSourcesUsedToLookUpArtistPromptsAnd,
                                               style: TextStyle(
                                                 fontSize: 11,
                                                 color: scheme.onSurfaceVariant,
                                               ),
                                             ),
                                             const SizedBox(height: 12),
-                                            DesktopSettingsDropdown<
-                                              LibraryScope
-                                            >(
-                                              id: 'assistant-library-dropdown',
-                                              label: l10nNow.libraryScope,
-                                              value: effectiveLibraryScope(
-                                                s.libraryScope,
-                                                botAuthorized: authorized,
-                                              ),
-                                              options: LibraryScope.values,
-                                              labelOf: libraryScopeLabel,
-                                              optionEnabled: (scope) =>
-                                                  libraryScopeAllowed(
-                                                    scope,
-                                                    botAuthorized: authorized,
-                                                  ),
-                                              optionNote: (scope) =>
-                                                  libraryScopeAllowed(
-                                                    scope,
-                                                    botAuthorized: authorized,
-                                                  )
-                                                  ? null
-                                                  : '需要 Bot 授权',
-                                              onChanged: (scope) => n.patch(
+                                            LibraryScopePicker(
+                                              selection: s.libraries,
+                                              botAuthorized: authorized,
+                                              onChanged: (v) => n.patch(
                                                 (o) => o.copyWith(
-                                                  libraryScope: scope,
+                                                  sourceSelection: v,
                                                 ),
                                               ),
                                             ),
@@ -475,6 +471,16 @@ class _DesktopSettingsPanel extends ConsumerWidget {
   }
 }
 
+Widget _negativeSetting(AssistantSettings s, AssistantSettingsNotifier n) =>
+    SettingRow(
+      icon: Icons.block_outlined,
+      title: '允许 AI 修改负面提示词',
+      desc: '允许导入和直接生成使用 AI 的全局负面提示词',
+      enabled: !s.noDraw,
+      value: s.allowEditNegative,
+      onChanged: (v) => n.patch((o) => o.copyWith(allowEditNegative: v)),
+    );
+
 /// Give the explanation and the full-width selection field separate space.
 class _DesktopImportChoice extends StatelessWidget {
   const _DesktopImportChoice({
@@ -511,7 +517,7 @@ class _DesktopImportChoice extends StatelessWidget {
                 Expanded(
                   child: SettingRowTexts(
                     title: l10nNow.importMode,
-                    desc: '提示词写入主提示词的位置',
+                    desc: '手动导入和自动写入使用同一位置',
                   ),
                 ),
               ],
@@ -544,7 +550,6 @@ class _SettingsSheet extends ConsumerWidget {
     final s = ref.watch(assistantSettingsProvider).value;
     final n = ref.read(assistantSettingsProvider.notifier);
     final authorized = ref.watch(assistantBotAuthorizedProvider);
-    final customEndpoint = ref.watch(assistantEndpointProvider) != null;
     return SettingSheet(
       title: l10nNow.assistantSettings,
       children: [
@@ -584,13 +589,14 @@ class _SettingsSheet extends ConsumerWidget {
           SettingChoiceRow<SectionImport>(
             icon: Icons.splitscreen_outlined,
             title: l10nNow.importMode,
-            desc: '提示词写入创作页主提示词的位置',
+            desc: '手动导入和自动写入使用同一位置',
             enabled: !s.noDraw,
             value: s.importTo,
             options: SectionImport.values,
             labelOf: sectionImportLabel,
             onChanged: (v) => n.patch((o) => o.copyWith(importTo: v)),
           ),
+          _negativeSetting(s, n),
           settingSection(context, l10nNow.aiChoice),
           // 纯文本格式开着时这两项不会发生,淡显
           SettingRow(
@@ -631,31 +637,19 @@ class _SettingsSheet extends ConsumerWidget {
                 n.patch((o) => o.copyWith(historyTurns: v.round())),
           ),
           settingSection(context, l10nNow.settingLibrary),
-          SettingChoiceRow<LibraryScope>(
-            icon: Icons.library_books_outlined,
-            title: l10nNow.libraryScope,
-            desc: '查询画师串与角色时使用的资料来源',
-            value: effectiveLibraryScope(
-              s.libraryScope,
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+            child: LibraryScopePicker(
+              selection: s.libraries,
               botAuthorized: authorized,
+              onChanged: (v) => n.patch((o) => o.copyWith(sourceSelection: v)),
             ),
-            options: LibraryScope.values,
-            labelOf: libraryScopeLabel,
-            optionEnabled: (o) =>
-                libraryScopeAllowed(o, botAuthorized: authorized),
-            optionNote: (o) => libraryScopeAllowed(o, botAuthorized: authorized)
-                ? libraryScopeDesc(o)
-                : '需要 Bot 授权',
-            onChanged: (v) => n.patch((o) => o.copyWith(libraryScope: v)),
           ),
           SettingRow(
             icon: Icons.person_outline,
             title: l10nNow.ocPlaceholder,
-            desc: customEndpoint
-                ? '本地与公共 OC 只给 AI 占位符，出图时还原；调整原设时请关闭'
-                : '仅自定义接口渠道可用',
-            value: customEndpoint && s.ocPlaceholders,
-            enabled: customEndpoint,
+            desc: l10nNow.ocPlaceholderDesc,
+            value: s.ocPlaceholders,
             onChanged: (v) => n.patch((o) => o.copyWith(ocPlaceholders: v)),
           ),
           settingSection(context, l10nNow.settingRules),
@@ -702,7 +696,11 @@ Future<void> _exportTrace(BuildContext context, WidgetRef ref) async {
       bytes: utf8.encode(ref.read(assistantProvider.notifier).exportTrace()),
     );
     if (path != null && context.mounted) {
-      hintSnack(context, l10nNow.chatLogExported, icon: Icons.check_circle_outline);
+      hintSnack(
+        context,
+        l10nNow.chatLogExported,
+        icon: Icons.check_circle_outline,
+      );
     }
   } catch (e) {
     if (context.mounted) {
@@ -711,28 +709,60 @@ Future<void> _exportTrace(BuildContext context, WidgetRef ref) async {
   }
 }
 
-/// 规则那一行右边的状态:两个模型都用默认规则就是「默认」;都用同一份导入的预设
-/// 就报它的名字;两边各用各的只说「自定义」,名字留给点进去的那一页。
+/// 与助手生成提示词时使用同一个画布模型。
 String _rulesValue(WidgetRef ref) {
   final lib = ref.watch(rulesLibraryProvider).value;
+  final model = ref.watch(generateProvider.select((g) => g.params.model));
   if (lib == null) return '';
-  final used = [for (final f in RulesFamily.values) lib.activeFor(f)];
-  if (used.every((p) => p.isDefault)) return '默认';
-  if (used.every((p) => p.id == used.first.id)) return used.first.name;
-  return '自定义';
+  return lib.activeFor(rulesFamilyOf(agentImageModel(model)))?.settingsLabel ??
+      l10nNow.notEnabled;
 }
 
-List<Widget> _retrySettings(BuildContext context, AssistantSettings s, AssistantSettingsNotifier n) {
+List<Widget> _retrySettings(
+  BuildContext context,
+  AssistantSettings s,
+  AssistantSettingsNotifier n,
+) {
   final l = context.l10n;
   return [
-    SettingStepperRow(icon:Icons.refresh,title:l.failRetries,desc:l.failRetriesDesc,value:s.retries.toDouble(),
-      min:0,max:AssistantSettings.retriesMax.toDouble(),step:1,format:(v)=>v.toInt().toString(),
-      onChanged:(v)=>n.patch((old)=>old.copyWith(retries:v.toInt()))),
-    SettingStepperRow(icon:Icons.replay,title:l.refusalRetries,desc:l.refusalRetriesDesc,value:s.rerolls.toDouble(),
-      min:0,max:AssistantSettings.retriesMax.toDouble(),step:1,format:(v)=>v.toInt().toString(),
-      onChanged:(v)=>n.patch((old)=>old.copyWith(rerolls:v.toInt()))),
-    SettingNavRow(icon:Icons.text_fields,title:l.refusalKeywords,desc:l.refusalKeywordsDesc,
-      value:s.refusalKeywords.length.toString(),
-      onTap:()=>Navigator.of(context).push(MaterialPageRoute<void>(builder:(_)=>const RefusalKeywordsPage()))),
+    SettingStepperRow(
+      icon: Icons.refresh,
+      title: l.failRetries,
+      desc: l.failRetriesDesc,
+      value: s.retries.toDouble(),
+      min: 0,
+      max: AssistantSettings.retriesMax.toDouble(),
+      step: 1,
+      format: (v) => v.toInt().toString(),
+      onChanged: (v) => n.patch((old) => old.copyWith(retries: v.toInt())),
+    ),
+    SettingRow(
+      icon: Icons.hide_image_outlined,
+      title: l.retryStripImage,
+      desc: l.retryStripImageDesc,
+      enabled: s.retries > 0,
+      value: s.retryStripImage,
+      onChanged: (v) => n.patch((old) => old.copyWith(retryStripImage: v)),
+    ),
+    SettingStepperRow(
+      icon: Icons.replay,
+      title: l.refusalRetries,
+      desc: l.refusalRetriesDesc,
+      value: s.rerolls.toDouble(),
+      min: 0,
+      max: AssistantSettings.retriesMax.toDouble(),
+      step: 1,
+      format: (v) => v.toInt().toString(),
+      onChanged: (v) => n.patch((old) => old.copyWith(rerolls: v.toInt())),
+    ),
+    SettingNavRow(
+      icon: Icons.text_fields,
+      title: l.refusalKeywords,
+      desc: l.refusalKeywordsDesc,
+      value: s.refusalKeywords.length.toString(),
+      onTap: () => Navigator.of(context).push(
+        MaterialPageRoute<void>(builder: (_) => const RefusalKeywordsPage()),
+      ),
+    ),
   ];
 }

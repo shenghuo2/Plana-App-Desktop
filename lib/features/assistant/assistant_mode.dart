@@ -17,6 +17,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/auth/bot_session_store.dart';
 import '../../core/net/backend_config.dart';
 import 'preset_rules.dart';
+import 'agent_model.dart' show assistantEndpointProvider;
+import 'subscription/plan_runtime.dart' show PlanEndpoint, planDrawingRules;
 
 /// 顺序就是弹层里的顺序。`normal` 就是「无」:什么都不加。
 enum AssistantMode { normal, comic, natural }
@@ -50,7 +52,10 @@ bool modeNeedsPresetSection(AssistantMode m) =>
 
 /// 这份规则能选哪几个模式。
 Set<AssistantMode> supportedModes(List<PresetRule> rules) {
-  final whens = {for (final r in rules) r.when};
+  final whens = {
+    for (final r in rules)
+      if (r.enabled) r.when,
+  };
   return {
     for (final m in AssistantMode.values)
       if (!modeNeedsPresetSection(m) || whens.contains(assistantModeWhen(m))) m,
@@ -66,11 +71,14 @@ Set<AssistantMode> supportedModes(List<PresetRule> rules) {
 /// [refreshAssistantModes] 拿最新的核一遍。
 final assistantModesProvider =
     FutureProvider.family<Set<AssistantMode>, RulesFamily>((ref, f) async {
+      final plan = ref.watch(
+        assistantEndpointProvider.select((e) => e is PlanEndpoint),
+      );
       final lib = await ref.watch(rulesLibraryProvider.future);
       final rules =
           lib.customRulesFor(f) ??
           (await ref.watch(defaultRulesProvider(f).future)).rules;
-      return supportedModes(rules);
+      return supportedModes(plan ? planDrawingRules(rules) : rules);
     });
 
 /// 重新向服务端要一份默认规则,再算一遍能选哪几个模式;[assistantModesProvider] 跟着更新。
@@ -87,6 +95,9 @@ Future<Set<AssistantMode>?> refreshAssistantModes(
     rulesLibraryProvider.future,
   )).customRulesFor(f);
   if (!context.mounted) return null;
+  if (ref.read(assistantEndpointProvider) is PlanEndpoint) {
+    return supportedModes(planDrawingRules(custom ?? await bundledRules(f)));
+  }
   if (custom != null) return supportedModes(custom);
   final base = ref.read(backendBaseProvider).value ?? '';
   final sid = (await ref.read(botSessionProvider.future))?.sessionId ?? '';

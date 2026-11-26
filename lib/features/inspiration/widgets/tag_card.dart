@@ -23,11 +23,14 @@ class TagCardPreview extends StatelessWidget {
     required this.url,
     required this.name,
     this.decodeWidth,
+    this.alignment = Alignment.center,
+    this.fit = BoxFit.cover,
     this.placeholder,
     this.mosaic = false,
     this.overlay,
     this.hold = false,
     this.onShown,
+    this.providerDecorator,
   });
 
   final String? url;
@@ -37,6 +40,9 @@ class TagCardPreview extends StatelessWidget {
   /// 图像缓存存的是解码后的位图:角色卡头像只画 46dp,整张 832×1216 解出来
   /// 要占 4MB,所以本机图也按这个宽解。
   final double? decodeWidth;
+
+  final AlignmentGeometry alignment;
+  final BoxFit fit;
 
   /// 无图 / 读图失败时的占位;null = 名称定色相的斜纹。
   final Widget? placeholder;
@@ -52,6 +58,21 @@ class TagCardPreview extends StatelessWidget {
 
   /// 图头一回出帧(见 [FadeInOnce.onShown])。
   final VoidCallback? onShown;
+  final RemoteImageProviderDecorator? providerDecorator;
+
+  ImageProvider<Object> localProvider(String path, double dpr) {
+    final width = mosaic
+        ? _kMosaicCells
+        : decodeWidth == null
+        ? null
+        : (decodeWidth! * dpr).round();
+    final provider = ResizeImage.resizeIfNeeded(
+      width,
+      null,
+      FileImage(File(path)),
+    );
+    return providerDecorator?.call(provider) ?? provider;
+  }
 
   Widget get _empty => _over(placeholder ?? _HueStripes(name: name));
 
@@ -79,22 +100,19 @@ class TagCardPreview extends StatelessWidget {
           return u.startsWith('http')
               ? RemoteImage(
                   u,
-                  fit: BoxFit.cover,
+                  fit: fit,
+                  alignment: alignment,
+                  providerDecorator: providerDecorator,
                   decodeWidth: mosaic ? _kMosaicCells / dpr : decodeWidth,
                   filterQuality: quality,
                   gaplessPlayback: true,
                   frameBuilder: frame,
                   errorBuilder: _stripes,
                 )
-              : Image.file(
-                  File(u),
-                  fit: BoxFit.cover,
-                  cacheWidth: mosaic
-                      ? _kMosaicCells
-                      : switch (decodeWidth) {
-                          null => null,
-                          final w => (w * dpr).round(),
-                        },
+              : Image(
+                  image: localProvider(u, dpr),
+                  fit: fit,
+                  alignment: alignment,
                   filterQuality: quality,
                   gaplessPlayback: true,
                   frameBuilder: frame,
@@ -322,11 +340,13 @@ class TagCardArtwork extends StatelessWidget {
     this.mosaic = false,
     this.compact = false,
     this.centered = false,
+    this.alignment = Alignment.center,
   });
   final TagEntry entry;
   final String? url;
   final double? decodeWidth;
   final bool selected, mosaic, compact, centered;
+  final AlignmentGeometry alignment;
 
   @override
   Widget build(BuildContext context) {
@@ -341,6 +361,7 @@ class TagCardArtwork extends StatelessWidget {
     }
     return _TonedPreview(
       url: url,
+      alignment: alignment,
       name: entry.name,
       decodeWidth: decodeWidth,
       mosaic: mosaic,
@@ -381,6 +402,7 @@ class _TonedPreview extends StatefulWidget {
     required this.decodeWidth,
     required this.mosaic,
     required this.left,
+    required this.alignment,
     required this.overlay,
   });
 
@@ -391,6 +413,7 @@ class _TonedPreview extends StatefulWidget {
 
   /// 胶囊靠左(否则居中),量亮度的取样区跟着换。
   final bool left;
+  final AlignmentGeometry alignment;
 
   /// 胶囊;dark = 底下是亮图,该用深色胶囊。
   final Widget Function(bool dark) overlay;
@@ -462,6 +485,7 @@ class _TonedPreviewState extends State<_TonedPreview> {
   @override
   Widget build(BuildContext context) => TagCardPreview(
     url: widget.url,
+    alignment: widget.alignment,
     name: widget.name,
     decodeWidth: widget.decodeWidth,
     mosaic: widget.mosaic,
@@ -659,14 +683,19 @@ class _HueStripePainter extends CustomPainter {
 
 /// Text categories reserve their card body for prompts, with no image placeholder.
 class TagTextPreview extends StatelessWidget {
-  const TagTextPreview({super.key, required this.text});
+  const TagTextPreview({
+    super.key,
+    required this.text,
+    this.padding = const EdgeInsets.fromLTRB(14, 50, 14, 38),
+  });
   final String text;
+  final EdgeInsetsGeometry padding;
 
   @override
   Widget build(BuildContext context) => ColoredBox(
     color: context.scheme.surfaceContainerLow,
     child: Padding(
-      padding: const EdgeInsets.fromLTRB(14, 50, 14, 38),
+      padding: padding,
       child: Text(
         text,
         maxLines: 8,

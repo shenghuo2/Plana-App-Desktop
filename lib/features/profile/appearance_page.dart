@@ -8,6 +8,7 @@ import '../../core/theme/app_theme.dart';
 import '../../core/platform/desktop.dart';
 import '../../core/theme/theme_settings.dart';
 import 'widgets/settings_ui.dart';
+import '../inspiration/inspiration_page.dart';
 
 class AppearancePage extends ConsumerWidget {
   const AppearancePage({super.key});
@@ -218,21 +219,127 @@ class AppearancePage extends ConsumerWidget {
                       : x.copyWith(compactCharCards: v),
                 ),
               ),
+              if (desktop)
+                _SwitchRow(
+                  key: const ValueKey('appearance-fold-after-inspiration-save'),
+                  icon: Icons.view_module_outlined,
+                  title: context.l10n.foldAfterInspirationSave,
+                  subtitle: context.l10n.foldAfterInspirationSaveHint,
+                  value: ts.foldAfterInspirationSave,
+                  onChanged: (enabled) => notifier.patch(
+                    (settings) =>
+                        settings.copyWith(foldAfterInspirationSave: enabled),
+                  ),
+                ),
             ],
           ),
           if (desktop) ...[
+            const SizedBox(height: 16),
+            SettingsLabel(context.l10n.gallery),
+            SettingsCard(
+              children: [
+                LayoutBuilder(
+                  builder: (context, bounds) {
+                    final choices = SegmentedButton<GalleryDragFeel>(
+                      key: const ValueKey('gallery-drag-feel'),
+                      showSelectedIcon: false,
+                      segments: [
+                        ButtonSegment(
+                          value: GalleryDragFeel.crisp,
+                          label: Text(context.l10n.galleryDragCrisp),
+                        ),
+                        ButtonSegment(
+                          value: GalleryDragFeel.smooth,
+                          label: Text(context.l10n.galleryDragSmooth),
+                        ),
+                        ButtonSegment(
+                          value: GalleryDragFeel.bouncy,
+                          label: Text(context.l10n.galleryDragBouncy),
+                        ),
+                      ],
+                      selected: {ts.galleryDragFeel},
+                      onSelectionChanged: (v) => notifier.patch(
+                        (s) => s.copyWith(galleryDragFeel: v.single),
+                      ),
+                    );
+                    return _AppearanceRow(
+                      icon: Icons.open_with,
+                      title: context.l10n.galleryDragFeel,
+                      subtitle: context.l10n.galleryDragFeelHint,
+                      control: choices,
+                      controlBelow:
+                          bounds.maxWidth <
+                          440 * MediaQuery.textScalerOf(context).scale(14) / 14,
+                    );
+                  },
+                ),
+              ],
+            ),
             const SizedBox(height: 16),
             const SettingsLabel('灵感'),
             SettingsCard(
               children: [
                 _SwitchRow(
                   key: const ValueKey('appearance-codex-hover-preview'),
-                  icon: Icons.preview_outlined,
+                  icon: Icons.photo_outlined,
                   title: l10nNow.desktopCodexHoverPreview,
-                  subtitle: l10nNow.desktopHoverForAbout15SecondsToPreview,
+                  subtitle: l10nNow.desktopCodexImageHoverHint,
                   value: ts.codexHoverPreview,
                   onChanged: (value) => notifier.patch(
                     (settings) => settings.copyWith(codexHoverPreview: value),
+                  ),
+                ),
+                _SwitchRow(
+                  key: const ValueKey('appearance-inspiration-row-snap'),
+                  icon: Icons.view_stream_outlined,
+                  title: context.l10n.inspirationRowSnap,
+                  subtitle: context.l10n.inspirationRowSnapHint,
+                  value: ts.inspirationRowSnap,
+                  onChanged: (value) => notifier.patch(
+                    (settings) => settings.copyWith(inspirationRowSnap: value),
+                  ),
+                ),
+                LayoutBuilder(
+                  builder: (context, bounds) => _AppearanceRow(
+                    icon: Icons.sell_outlined,
+                    title: context.l10n.inspirationTagMatch,
+                    subtitle: context.l10n.inspirationTagMatchHint,
+                    controlBelow:
+                        bounds.maxWidth <
+                        440 * MediaQuery.textScalerOf(context).scale(14) / 14,
+                    control: SegmentedButton<bool>(
+                      key: const ValueKey('appearance-tag-match'),
+                      showSelectedIcon: false,
+                      segments: [
+                        ButtonSegment(
+                          value: false,
+                          label: Text(context.l10n.tagIntersection),
+                        ),
+                        ButtonSegment(
+                          value: true,
+                          label: Text(context.l10n.tagUnion),
+                        ),
+                      ],
+                      selected: {ts.inspirationMatchAnyTag},
+                      onSelectionChanged: (v) => notifier.patch(
+                        (s) => s.copyWith(inspirationMatchAnyTag: v.single),
+                      ),
+                    ),
+                  ),
+                ),
+                SettingsRowTextTheme(
+                  child: ListTile(
+                    key: const ValueKey('appearance-public-blocklist'),
+                    leading: const Icon(Icons.block_outlined),
+                    title: Text(context.l10n.publicLibraryBlocklist),
+                    subtitle: Text(context.l10n.publicLibraryBlocklistHint),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () =>
+                        Navigator.of(context, rootNavigator: true).push<void>(
+                          MaterialPageRoute(
+                            builder: (_) => const InspirationPage.blocklist(),
+                          ),
+                        ),
                   ),
                 ),
               ],
@@ -329,45 +436,68 @@ class _SwitchRow extends StatelessWidget {
   final ValueChanged<bool> onChanged;
 
   @override
+  Widget build(BuildContext context) => InkWell(
+    onTap: () => onChanged(!value),
+    child: _AppearanceRow(
+      icon: icon,
+      title: title,
+      subtitle: subtitle,
+      control: Switch(value: value, onChanged: onChanged),
+    ),
+  );
+}
+
+class _AppearanceRow extends StatelessWidget {
+  const _AppearanceRow({
+    required this.icon,
+    required this.title,
+    required this.control,
+    this.subtitle,
+    this.controlBelow = false,
+  });
+
+  final IconData icon;
+  final String title;
+  final String? subtitle;
+  final Widget control;
+  final bool controlBelow;
+
+  @override
   Widget build(BuildContext context) {
     final scheme = context.scheme;
-    final sub = subtitle;
-    return InkWell(
-      onTap: () => onChanged(!value),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 8, 8, 8),
-        child: Row(
-          children: [
-            Icon(icon, size: 20, color: scheme.onSurfaceVariant),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: context.texts.bodyMedium!.copyWith(
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  if (sub != null) ...[
-                    const SizedBox(height: 2),
-                    Text(
-                      sub,
-                      style: context.texts.labelSmall!.copyWith(
-                        color: scheme.outline,
-                        height: 1.5,
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-            const SizedBox(width: 8),
-            Switch(value: value, onChanged: onChanged),
-          ],
+    final row = Row(
+      children: [
+        Icon(icon, size: 20, color: scheme.onSurfaceVariant),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(title, style: SettingsRowTextTheme.titleStyle(context)),
+              if (subtitle case final sub?) ...[
+                const SizedBox(height: 2),
+                Text(sub, style: SettingsRowTextTheme.subtitleStyle(context)),
+              ],
+            ],
+          ),
         ),
-      ),
+        if (!controlBelow) ...[const SizedBox(width: 8), control],
+      ],
+    );
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 8, 8),
+      child: controlBelow
+          ? Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                row,
+                Padding(
+                  padding: const EdgeInsets.only(left: 32, top: 8),
+                  child: control,
+                ),
+              ],
+            )
+          : row,
     );
   }
 }

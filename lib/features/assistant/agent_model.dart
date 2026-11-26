@@ -21,6 +21,9 @@ import '../../core/net/backend_client.dart';
 import '../../core/store/app_stores.dart';
 import '../../core/store/prefs_store.dart';
 import 'custom_endpoint.dart';
+import 'assistant_settings.dart' show ThinkLevel;
+import 'subscription/plan_accounts.dart';
+import 'subscription/plan_runtime.dart';
 import 'image_gen/image_models.dart' show assistantImageModelProvider;
 import 'llm/http_provider.dart' show llmProviderFor;
 import 'llm/llm_provider.dart' show LlmCapabilities;
@@ -29,12 +32,16 @@ import 'llm/plana_channel_provider.dart' show kChannelCapabilities;
 /// label 里括号那段(线路/渠道说明)。中英文括号都收。
 final _paren = RegExp(r'[（(].*?[)）]');
 
+/// 渠道近况:后端按最近 10 分钟的真实请求算(`health`)。老后端不带、窗口内没人用都是 unknown。
+enum ModelHealth { unknown, ok, degraded, down }
+
 class AgentModelChoice {
   const AgentModelChoice({
     required this.key,
     required this.name,
     this.recommended = false,
     this.free = false,
+    this.health = ModelHealth.unknown,
   });
 
   /// 发给后端的 `model`(MODEL_CHOICES 的 key)。
@@ -49,6 +56,8 @@ class AgentModelChoice {
 
   /// 后端标了免费:没有 Bot 授权也能用。
   final bool free;
+
+  final ModelHealth health;
 }
 
 class AgentModelList {
@@ -115,7 +124,7 @@ String modelDisplayName(String key, Map<String, dynamic> choice) {
 /// `GET /api/agent/models` 的响应 → 选项列表。
 ///
 /// 后端那张表是给 bot 和 web 一起用的,字段比 app 需要的多(别名、registry key、
-/// 预设变体),这里只挑四样。缺字段一律 fail-soft:少一条选项好过整页打不开。
+/// 预设变体),这里只挑五样。缺字段一律 fail-soft:少一条选项好过整页打不开。
 AgentModelList parseAgentModels(Map<String, dynamic> j) {
   final raw = j['choices'];
   if (raw is! Map) return const AgentModelList();
@@ -140,6 +149,9 @@ List<AgentModelChoice> _parseChoices(Map raw, {bool free = false}) {
         name: modelDisplayName(key, choice),
         recommended: choice['recommended'] == true,
         free: free || choice['free'] == true,
+        health:
+            ModelHealth.values.asNameMap()[choice['health']] ??
+            ModelHealth.unknown,
       ),
     );
   });
@@ -199,7 +211,7 @@ String? customModelOf(String key) {
 
 /// [key] 落在 [e] 上就给出用哪个模型发的那份,模型不在了的按第一个算;不是它为 null。
 CustomEndpoint? resolveCustomChoice(CustomEndpoint e, String key) {
-  if (customEndpointIdOf(key) != e.id) return null;
+  if (!e.usable || customEndpointIdOf(key) != e.id) return null;
   final m = customModelOf(key);
   return m != null && e.allModels.contains(m) ? e.forModel(m) : e;
 }
@@ -228,6 +240,9 @@ class AssistantModelPrefNotifier extends AsyncNotifier<String> {
   }
 
   Future<void> set(String key) async {
+    // A selection made during startup must win over the pending disk read.
+    if (state.isLoading) await future;
+    if (!ref.mounted) return;
     state = AsyncData(key);
     try {
       await _storage.write(key: _key, value: key);
@@ -237,14 +252,73 @@ class AssistantModelPrefNotifier extends AsyncNotifier<String> {
   }
 }
 
+/// Resolve pre-classification selections and never dispatch to a disabled endpoint.
+String availableEndpointModel(String key, List<CustomEndpoint> endpoints) {
+  final inner = imageChoiceKeyOf(key) ?? key;
+  final id = customEndpointIdOf(inner);
+  if (id == null) return key;
+  final wanted = customModelOf(inner);
+  final same = endpoints.where((e) => e.id == id).firstOrNull;
+  String? firstChoice(CustomEndpoint e) {
+    if (e.usable) return customModelKey(e.id, e.allModels.first);
+    if (e.canDraw) {
+      return '$kImageKeyPrefix${customModelKey(e.id, e.imageModels.first)}';
+    }
+    return null;
+  }
+
+  if (same != null && same.enabled) {
+    if (imageChoiceKeyOf(key) != null &&
+        same.canDraw &&
+        same.imageModels.contains(wanted)) {
+      return key;
+    }
+    if (same.usable && same.allModels.contains(wanted)) {
+      return customModelKey(id, wanted!);
+    }
+    if (same.canDraw && same.imageModels.contains(wanted)) {
+      return '$kImageKeyPrefix${customModelKey(id, wanted!)}';
+    }
+    final first = firstChoice(same);
+    if (first != null) return first;
+  }
+  for (final e in endpoints) {
+    final first = firstChoice(e);
+    if (first != null) return first;
+  }
+  return '';
+}
+
+final effectiveAssistantModelKeyProvider = Provider<String>((ref) {
+  final key = ref.watch(assistantModelPrefProvider).value ?? '';
+  if (planChoiceOf(key) case final choice?) {
+    final accounts = ref.watch(planAccountsProvider).value;
+    final profile = accounts?.active;
+    if (profile != null && profile.id == choice.client && profile.connected) {
+      final selected = profile.selectedModels;
+      if (accounts!.enabled && selected.containsKey(choice.model)) return key;
+      return planModelKey(
+        choice.client,
+        accounts.enabled ? selected.keys.firstOrNull ?? '' : '',
+      );
+    }
+    return key;
+  }
+  if (customEndpointIdOf(imageChoiceKeyOf(key) ?? key) == null) return key;
+  final endpoints = ref.watch(customEndpointsProvider).value;
+  return endpoints == null ? key : availableEndpointModel(key, endpoints);
+});
+
 /// 这一轮实际要发的 `model`。没选过就发空串,让后端用它的全局默认。
 /// 选的是自定义接口时后端渠道用不上,发空串即可(那条根本不打后端出词)。
 ///
 /// 没有 Bot 授权时发界面上显示的那条免费模型,不发空串:后端的全局默认未必免费。
 final assistantModelKeyProvider = Provider<String>((ref) {
-  final k = ref.watch(assistantModelPrefProvider).value ?? '';
+  final k = ref.watch(effectiveAssistantModelKeyProvider);
   bool backend(String key) =>
-      customEndpointIdOf(key) == null && imageChoiceKeyOf(key) == null;
+      customEndpointIdOf(key) == null &&
+      imageChoiceKeyOf(key) == null &&
+      planChoiceOf(key) == null;
   if (ref.watch(assistantBotAuthorizedProvider)) return backend(k) ? k : '';
   final shown = ref.watch(assistantModelProvider);
   return shown == null || !backend(shown.key) ? '' : shown.key;
@@ -268,7 +342,14 @@ final assistantBackendAvailableProvider = Provider<bool>((ref) {
 /// 没有 Bot 授权时只认免费的(见 [AgentModelList.pick]),选着的那条不免费也不改存档,
 /// 授权回来就还是它。
 final assistantModelProvider = Provider<AgentModelChoice?>((ref) {
-  final pinned = ref.watch(assistantModelPrefProvider).value ?? '';
+  final pinned = ref.watch(effectiveAssistantModelKeyProvider);
+  if (planChoiceOf(pinned) case final p?) {
+    final profile = ref.watch(planAccountsProvider).value?.find(p.client);
+    return AgentModelChoice(
+      key: pinned,
+      name: profile?.models[p.model] ?? (p.model.isEmpty ? 'ChatGPT' : p.model),
+    );
+  }
   // 图像模型用不了(授权没了、接口删了)时回落到对话模型那边照常显示
   if (ref.watch(assistantImageModelProvider) case final m?) {
     return AgentModelChoice(key: pinned, name: m.name);
@@ -292,7 +373,17 @@ final assistantModelProvider = Provider<AgentModelChoice?>((ref) {
 
 /// 这一轮该走哪条路:非 null = 直连这个自定义接口,null = 走 Plana 后端。
 final assistantEndpointProvider = Provider<CustomEndpoint?>((ref) {
-  final key = ref.watch(assistantModelPrefProvider).value ?? '';
+  final key = ref.watch(effectiveAssistantModelKeyProvider);
+  if (planChoiceOf(key) case final p?) {
+    final account = ref.watch(planAccountsProvider).value?.active;
+    return PlanEndpoint(
+      ref.watch(planStoreProvider),
+      p,
+      efforts: account?.id == p.client
+          ? account?.reasoning[p.model] ?? const {}
+          : const {},
+    );
+  }
   if (customEndpointIdOf(key) == null) return null;
   for (final e in ref.watch(customEndpointsProvider).value ?? const []) {
     // 填不全的不算数:发出去必然失败,不如当没选,回落后端那条
@@ -304,5 +395,16 @@ final assistantEndpointProvider = Provider<CustomEndpoint?>((ref) {
 /// 当前选的模型支持什么。界面据此置灰思考等级、逐字显示。
 final assistantCapabilitiesProvider = Provider<LlmCapabilities>((ref) {
   final e = ref.watch(assistantEndpointProvider);
+  if (e is PlanEndpoint) {
+    return LlmCapabilities(streaming: true, thinking: e.thinkLevels.length > 1);
+  }
   return e == null ? kChannelCapabilities : llmProviderFor(e).capabilities;
+});
+
+final assistantThinkLevelsProvider = Provider<List<ThinkLevel>>((ref) {
+  final endpoint = ref.watch(assistantEndpointProvider);
+  if (endpoint is PlanEndpoint) return endpoint.thinkLevels;
+  return ref.watch(assistantCapabilitiesProvider).thinking
+      ? ThinkLevel.values
+      : const [];
 });

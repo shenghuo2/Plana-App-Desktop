@@ -34,9 +34,14 @@ class ResultThumb extends ConsumerWidget {
       // Fresh results still hold the original bytes. Bound their decoded size
       // to the same budget as disk thumbnails, without upscaling small images.
       int? decodeWidth;
-      if (result.bytes != null && result.width > 0 && result.height > 0) {
+      if (result.width > 0 && result.height > 0) {
+        final dpr = MediaQuery.devicePixelRatioOf(context);
+        final display =
+            width.isFinite && height.isFinite && width > 0 && height > 0
+            ? math.max(width / result.width, height / result.height) * dpr
+            : 1.0;
         final scale = math.min(
-          1.0,
+          math.min(1.0, display),
           math.min(
             kThumbShortSide / math.min(result.width, result.height),
             kThumbShortSide * 3 / math.max(result.width, result.height),

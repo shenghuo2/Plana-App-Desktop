@@ -2,7 +2,7 @@
 /// 模型经 [LlmProvider]:自定义接口直连,后端模型经后端的模型通道。工具的联网来源
 /// (语义搜词、Wiki 摘要、角色候选筛选)请求后端的公开接口。
 ///
-/// 出错后按设置重发几次,重发时剥掉附图。
+/// 出错后按设置重发几次;开启时最后一次重发剥掉附图。
 /// 一次尝试里,工具结果和写坏的出图块回灌给模型接着跑;回复像拒绝就原地重掷。
 library;
 
@@ -22,6 +22,7 @@ import '../presets/default_rules.dart';
 import '../presets/preset_rule.dart';
 import '../protocol/fenced_protocol.dart';
 import '../protocol/reply_parser.dart';
+import '../protocol/native_tool_markup.dart';
 import '../protocol/tool_protocol.dart';
 import '../tools/agent_tool.dart';
 import '../tools/my_library.dart';
@@ -29,6 +30,7 @@ import '../tools/tool_context.dart';
 import '../tools/tool_registry.dart';
 import 'agent_runtime.dart';
 import 'ledger.dart';
+import 'library_reply.dart';
 import 'placeholders.dart';
 import 'prompt_assets.dart';
 import 'prompt_composer.dart';
@@ -83,6 +85,9 @@ class LocalAgentRuntime implements AgentRuntime {
         texts: texts,
         artists: artists,
         ocs: libOcsOf(req.ocs),
+        searchOcLibrary: req.searchOcLibrary == null
+            ? null
+            : (q) async => libOcsOf(await req.searchOcLibrary!(q)),
         remembered: remembered,
         offline: offline,
         online: online,
@@ -111,10 +116,15 @@ class LocalAgentRuntime implements AgentRuntime {
         toolLayer: active.isEmpty ? '' : await protocol.conventions(),
         outputFormat: await outputFormatText(),
         toolList: await protocol.toolList(active),
-        notes: [for (final t in active) await t.systemNote(ctx)],
+        notes: [
+          req.importNote,
+          for (final t in active) await t.systemNote(ctx),
+        ],
       );
       final artistTokens = ctx.artistPlan.tokens;
-      final ocTokens = ctx.ocPlan.tokens;
+      final ocTokens = placeholders
+          ? ctx.ocPlan.tokens
+          : const <String, String>{};
       trace
         ?..prequery = {
           'tools': [for (final t in active) t.name],
@@ -148,9 +158,13 @@ class LocalAgentRuntime implements AgentRuntime {
         collapse(canvasBlock),
       ].where((s) => s.isNotEmpty);
 
-      // 本轮这条用户消息。重发时剥掉图,末尾补一句说明
+      // 本轮这条用户消息。剥图重发时去掉附图,末尾补一句说明
       List<LlmMessage> messagesFor({required bool noImage}) {
-        final parts = [...asked, if (block.isNotEmpty) block];
+        final parts = [
+          ...asked,
+          if (block.isNotEmpty) block,
+          if (req.apiSupplement.isNotEmpty) req.apiSupplement,
+        ];
         if (noImage) {
           if (parts.isEmpty) parts.add(texts.get('retry_image_only'));
           parts.add(texts.get('retry_no_image'));
@@ -178,13 +192,16 @@ class LocalAgentRuntime implements AgentRuntime {
         active: active,
         ctx: ctx,
         system: system,
-        artists: artists,
-        remembered: remembered,
         thisTurn: thisTurn,
       );
       final attempts = req.retries + 1;
+      bool stripOn(int attempt) =>
+          req.retryStripImage &&
+          imgs.isNotEmpty &&
+          attempt > 0 &&
+          attempt == attempts - 1;
       for (var attempt = 0; ; attempt++) {
-        final msgs = messagesFor(noImage: attempt > 0 && imgs.isNotEmpty);
+        final msgs = messagesFor(noImage: stripOn(attempt));
         if (attempt == 0) {
           trace?.messages = [
             for (final m in msgs)
@@ -211,7 +228,10 @@ class LocalAgentRuntime implements AgentRuntime {
           );
         } catch (e) {
           if (attempt + 1 >= attempts || !_retryable(e)) rethrow;
-          trace?.event('retry', {'error': '$e', 'no_image': imgs.isNotEmpty});
+          trace?.event('retry', {
+            'error': '$e',
+            'no_image': stripOn(attempt + 1),
+          });
           if (live) yield const AgentDelta();
         }
       }
@@ -257,8 +277,6 @@ class _Turn {
     required this.active,
     required this.ctx,
     required this.system,
-    required this.artists,
-    required this.remembered,
     required this.thisTurn,
   });
 
@@ -274,8 +292,6 @@ class _Turn {
   final List<AgentTool> active;
   final ToolContext ctx;
   final String system;
-  final List<LibArtist> artists;
-  final Map<String, Map<String, String>> remembered;
 
   /// 本轮命中的资源(预取块 + 工具结果)。
   final Map<String, Map<String, String>> thisTurn;
@@ -348,7 +364,9 @@ class _Turn {
       } on OutputFailure catch (e) {
         if (fixes >= _maxFixes) {
           throw AgentFailure(
-            _clip('${l10nNow.modelBadDraw('$_maxFixes')}\n${raw.trim()}'),
+            _clip(
+              '${l10nNow.modelBadDraw('$_maxFixes')}\n${nativeToolProse(raw).trim()}',
+            ),
           );
         }
         fixes++;
@@ -449,27 +467,13 @@ class _Turn {
       ..add((role: 'user', content: instruction, images: const []));
   }
 
-  AgentResult _finish(ParsedReply parsed) {
-    final placeholders = req.tools.ocPlaceholders;
-    final resolve = artistResolver(ctx.artistPlan, artists);
-    final expanded = expandDraw(parsed.draw, resolve);
-    final draw = placeholders ? expandOcDraw(expanded, ctx.ocPlan) : expanded;
-    final named = namesInReply(parsed.reply, resolve);
-    final reply = placeholders ? namesInOcReply(named, ctx.ocPlan) : named;
-    final ledger = mergeLedger(
-      remembered,
-      thisTurn,
-      draw,
-      rememberOcs: placeholders,
-    );
-    trace?.event('final', {
-      'reply': reply,
-      'draw': parsed.draw,
-      if (draw != parsed.draw) 'draw_expanded': draw,
-      'resources': ledger,
-    });
-    return _resultOf(reply, draw, ledger);
-  }
+  AgentResult _finish(ParsedReply parsed) => libraryReply(
+    parsed,
+    ctx,
+    thisTurn,
+    useBlocks: semanticBlocksEnabled(req.customRules, req.modeKeys),
+    trace: trace,
+  );
 }
 
 /// 同工具同参数的认法:参数按键排好再编码,键序不同也算同一次。
@@ -496,23 +500,3 @@ void _mergeResources(
 String _clip(String s) => s.length > AgentFailure.kMaxBody
     ? '${s.substring(0, AgentFailure.kMaxBody)}…'
     : s;
-
-AgentResult _resultOf(
-  String reply,
-  Map<String, dynamic>? draw,
-  Map<String, Map<String, String>> resources,
-) {
-  final d = draw ?? const <String, dynamic>{};
-  return AgentResult(
-    // 只有出图块没有正文时空着,界面按有没有出图补一句
-    replyText: reply,
-    positive: d['positive']?.toString() ?? '',
-    negative: d['negative']?.toString() ?? '',
-    characters: [
-      for (final c in (d['characters'] as List? ?? const []))
-        if (c is Map<String, dynamic>) AgentCharacter.fromJson(c),
-    ],
-    // 并好的账本原样带出去。不能回空:下一轮拿最新那条 AI 消息的账本发,回空等于冲掉记着的画风
-    resources: resources,
-  );
-}

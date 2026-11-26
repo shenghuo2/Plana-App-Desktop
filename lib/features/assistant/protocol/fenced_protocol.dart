@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import '../runtime/prompt_assets.dart';
 import '../tools/agent_tool.dart';
+import 'native_tool_markup.dart';
 import 'tool_protocol.dart';
 
 /// ```tool_call 围栏,块内一行 JSON `{"name": ..., "arguments": {...}}`。
@@ -44,29 +45,43 @@ class FencedToolProtocol implements ToolProtocol {
   ParsedToolCalls parse(String reply) {
     final calls = <ToolCall>[];
     final broken = <BrokenToolCall>[];
-    for (final m in toolFence.allMatches(reply)) {
-      final body = m[1]!.trim();
-      Object? j;
-      try {
-        j = jsonDecode(body);
-      } on FormatException catch (e) {
-        broken.add(BrokenToolCall(body, e.message));
-        continue;
-      }
-      if (j is! Map) {
-        broken.add(BrokenToolCall(body, '顶层不是对象'));
-        continue;
-      }
-      final name = '${j['name'] ?? ''}'.trim();
-      final args = j['arguments'] ?? const <String, dynamic>{};
-      if (name.isEmpty) {
-        broken.add(BrokenToolCall(body, '缺 name'));
-      } else if (args is! Map<String, dynamic>) {
-        broken.add(BrokenToolCall(body, 'arguments 不是对象'));
-      } else {
-        calls.add(ToolCall(name, args));
+    void readFences(String text) {
+      for (final m in toolFence.allMatches(text)) {
+        final body = m[1]!.trim();
+        Object? j;
+        try {
+          j = jsonDecode(body);
+        } on FormatException catch (e) {
+          broken.add(BrokenToolCall(body, e.message));
+          continue;
+        }
+        if (j is! Map) {
+          broken.add(BrokenToolCall(body, '顶层不是对象'));
+          continue;
+        }
+        final name = '${j['name'] ?? ''}'.trim();
+        final args = j['arguments'] ?? const <String, dynamic>{};
+        if (name.isEmpty) {
+          broken.add(BrokenToolCall(body, '缺 name'));
+        } else if (args is! Map<String, dynamic>) {
+          broken.add(BrokenToolCall(body, 'arguments 不是对象'));
+        } else {
+          calls.add(ToolCall(name, args));
+        }
       }
     }
+
+    var cursor = 0;
+    for (final block in nativeToolBlocks(reply)) {
+      readFences(reply.substring(cursor, block.start));
+      try {
+        calls.addAll(block.decode());
+      } on FormatException catch (e) {
+        broken.add(BrokenToolCall(block.body, e.message));
+      }
+      cursor = block.end;
+    }
+    readFences(reply.substring(cursor));
     return ParsedToolCalls(calls, broken: broken);
   }
 

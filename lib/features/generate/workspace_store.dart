@@ -81,6 +81,14 @@ class WorkspaceStore {
       if (lacksPreset(j['state'])) presetFilled = true;
       // 同一张图在几张画布里各读一次也只留一份字节
       final images = <String, Future<Uint8List?>>{};
+      // 各画布引用的图一起开读,别一张张排着等
+      if (j['refs'] is List) {
+        for (final r in j['refs'] as List) {
+          if (r is String && r.isNotEmpty) {
+            images.putIfAbsent(r, () => _blobs.get(r));
+          }
+        }
+      }
       var full = j['state'] is Map<String, dynamic>
           ? await decodeGenerateState(
               j['state'] as Map<String, dynamic>,
@@ -139,6 +147,10 @@ class WorkspaceStore {
                 id: id,
                 name: name.isEmpty ? '画布 ${canvases.length + 1}' : name,
                 prompts: prompts,
+                collapsedPromptCards: {
+                  if (raw['collapsedPromptCards'] case final List cards)
+                    ...cards.whereType<String>(),
+                },
               ),
             );
             final m = _canvasNumRe.firstMatch(id);
@@ -272,7 +284,13 @@ class WorkspaceStore {
         for (final c in w.canvases) {
           final p = await _encodePrompts(c.prompts);
           refs.addAll(p.refs);
-          canvases.add({'id': c.id, 'name': c.name, 'prompts': p.json});
+          canvases.add({
+            'id': c.id,
+            'name': c.name,
+            'prompts': p.json,
+            if (c.collapsedPromptCards.isNotEmpty)
+              'collapsedPromptCards': c.collapsedPromptCards.toList(),
+          });
         }
         // 原子写:落盘时机就是退后台,不能留半截 JSON(见 atomic_file.dart)
         await writeStringAtomic(

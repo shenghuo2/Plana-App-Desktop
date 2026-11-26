@@ -78,10 +78,17 @@ void main() {
       );
     });
 
-    test('角色参考每张 +5,且只在 4.5 系模型上计', () {
+    test('启用的精确参考每张 +5', () {
       final refs = [CharRefItem(id: 'r0'), CharRefItem(id: 'r1')];
       expect(estimateCost(_s(charRefs: refs), isOpus: true), 10);
-      // 非 4.5 模型不会下发角色参考,故不计费
+      expect(
+        estimateCost(
+          _s(model: 'NAI 5.0 Curated', charRefs: refs),
+          isOpus: true,
+        ),
+        10,
+      );
+      // 4.0 不支持角色参考
       expect(
         estimateCost(_s(model: 'NAI 4.0 Full', charRefs: refs), isOpus: true),
         0,
