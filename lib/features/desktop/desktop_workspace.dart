@@ -23,6 +23,7 @@ import '../generate/widgets/common.dart';
 import '../generate/widgets/top_bar.dart';
 import '../generate/widgets/desktop_canvas_tabs.dart';
 import '../generate/widgets/prompt_card.dart';
+import '../generate/widgets/resolution_sheet.dart';
 import '../inspiration/inspiration_page.dart';
 import '../inspiration/codex/codex_view.dart';
 import '../import/desktop_image_drop.dart';
@@ -80,6 +81,28 @@ class _DesktopWorkspaceState extends ConsumerState<DesktopWorkspace>
     final prefs = ref.read(prefsStoreProvider);
     _leftCollapsed = prefs.get(_leftCollapsedKey) == 'true';
     _rightCollapsed = prefs.get(_rightCollapsedKey) == 'true';
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _syncFocusMode();
+    });
+  }
+
+  void _syncFocusMode() {
+    ref
+        .read(desktopFocusModeProvider.notifier)
+        .set(_leftCollapsed && _rightCollapsed);
+  }
+
+  void _toggleFocusCanvas() {
+    shortcutFocus.requestFocus();
+    final collapse = !(_leftCollapsed && _rightCollapsed);
+    setState(() {
+      _leftCollapsed = collapse;
+      _rightCollapsed = collapse;
+    });
+    final prefs = ref.read(prefsStoreProvider);
+    unawaited(prefs.write(key: _leftCollapsedKey, value: collapse.toString()));
+    unawaited(prefs.write(key: _rightCollapsedKey, value: collapse.toString()));
+    _syncFocusMode();
   }
 
   void _saveWidth({required bool left}) {
@@ -168,59 +191,69 @@ class _DesktopWorkspaceState extends ConsumerState<DesktopWorkspace>
   }
 
   Widget _tabs({bool compact = false}) => SizedBox(
-    height: 46,
+    height: 40,
     width: double.infinity,
     child: Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 10),
-      child: ScrollConfiguration(
-        behavior: ScrollConfiguration.of(context).copyWith(
-          dragDevices: {
-            ...ScrollConfiguration.of(context).dragDevices,
-            PointerDeviceKind.mouse,
-          },
-          scrollbars: false,
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      child: Container(
+        padding: const EdgeInsets.all(2),
+        decoration: BoxDecoration(
+          color: context.scheme.surfaceContainer,
+          borderRadius: BorderRadius.circular(9),
+          border: Border.all(
+            color: context.scheme.outlineVariant.withValues(alpha: .7),
+          ),
         ),
-        child: SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: Row(
-            children: [
-              if (compact) ...[
+        child: ScrollConfiguration(
+          behavior: ScrollConfiguration.of(context).copyWith(
+            dragDevices: {
+              ...ScrollConfiguration.of(context).dragDevices,
+              PointerDeviceKind.mouse,
+            },
+            scrollbars: false,
+          ),
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                if (compact) ...[
+                  _tab(
+                    context.l10n.desktopImagesAndHistory,
+                    Icons.image_outlined,
+                    !compactTool,
+                    () {
+                      shortcutFocus.requestFocus();
+                      setState(() => compactTool = false);
+                    },
+                    'desktop-canvas-tab',
+                  ),
+                  const SizedBox(width: 2),
+                ],
                 _tab(
-                  context.l10n.desktopImagesAndHistory,
-                  Icons.image_outlined,
-                  !compactTool,
-                  () {
-                    shortcutFocus.requestFocus();
-                    setState(() => compactTool = false);
-                  },
-                  'desktop-canvas-tab',
+                  context.l10n.aiAssistant,
+                  Icons.auto_awesome_outlined,
+                  (!compact || compactTool) && tool == 0,
+                  () => _tool(0),
+                  'desktop-ai-tab',
                 ),
-                const SizedBox(width: 5),
+                const SizedBox(width: 2),
+                _tab(
+                  context.l10n.tabInspiration,
+                  Icons.lightbulb_outline,
+                  (!compact || compactTool) && tool == 1,
+                  () => _tool(1),
+                  'desktop-inspiration-tab',
+                ),
+                const SizedBox(width: 2),
+                _tab(
+                  context.l10n.sectionCodex,
+                  Icons.menu_book_outlined,
+                  (!compact || compactTool) && tool == 2,
+                  () => _tool(2),
+                  'desktop-codex-tab',
+                ),
               ],
-              _tab(
-                context.l10n.aiAssistant,
-                Icons.auto_awesome_outlined,
-                (!compact || compactTool) && tool == 0,
-                () => _tool(0),
-                'desktop-ai-tab',
-              ),
-              const SizedBox(width: 5),
-              _tab(
-                context.l10n.tabInspiration,
-                Icons.lightbulb_outline,
-                (!compact || compactTool) && tool == 1,
-                () => _tool(1),
-                'desktop-inspiration-tab',
-              ),
-              const SizedBox(width: 5),
-              _tab(
-                context.l10n.sectionCodex,
-                Icons.menu_book_outlined,
-                (!compact || compactTool) && tool == 2,
-                () => _tool(2),
-                'desktop-codex-tab',
-              ),
-            ],
+            ),
           ),
         ),
       ),
@@ -233,19 +266,49 @@ class _DesktopWorkspaceState extends ConsumerState<DesktopWorkspace>
     bool selected,
     VoidCallback action,
     String id,
-  ) => TextButton.icon(
-    key: ValueKey(id),
-    onPressed: action,
-    style: TextButton.styleFrom(
-      backgroundColor: selected ? context.scheme.primaryContainer : null,
-      foregroundColor: selected
-          ? context.scheme.primary
-          : context.scheme.onSurfaceVariant,
-      padding: const EdgeInsets.symmetric(horizontal: 10),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+  ) => Material(
+    color: selected
+        ? context.scheme.surfaceContainerLowest
+        : Colors.transparent,
+    shape: RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(7),
+      side: BorderSide(
+        color: selected
+            ? context.scheme.outlineVariant.withValues(alpha: .8)
+            : Colors.transparent,
+      ),
     ),
-    icon: Icon(icon, size: 16),
-    label: Text(text, style: const TextStyle(fontSize: 12)),
+    child: InkWell(
+      key: ValueKey(id),
+      borderRadius: BorderRadius.circular(7),
+      onTap: action,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              icon,
+              size: 15,
+              color: selected
+                  ? context.scheme.primary
+                  : context.scheme.onSurfaceVariant,
+            ),
+            const SizedBox(width: 5),
+            Text(
+              text,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                color: selected
+                    ? context.scheme.primary
+                    : context.scheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ),
+      ),
+    ),
   );
 
   Widget _tools() => LayoutBuilder(
@@ -289,13 +352,14 @@ class _DesktopWorkspaceState extends ConsumerState<DesktopWorkspace>
             value: (left ? _leftCollapsed : _rightCollapsed).toString(),
           ),
     );
+    _syncFocusMode();
   }
 
   Widget _collapseButton({required bool left}) {
     final collapsed = left ? _leftCollapsed : _rightCollapsed;
     return SizedBox(
       width: _collapsedWidth,
-      height: 44,
+      height: 40,
       child: IconButton(
         key: ValueKey(
           'desktop-${left ? 'left' : 'right'}-${collapsed ? 'expand' : 'collapse'}',
@@ -370,12 +434,25 @@ class _DesktopWorkspaceState extends ConsumerState<DesktopWorkspace>
   @override
   Widget build(BuildContext context) {
     super.build(context);
+    ref.listen<int?>(desktopFocusRequestProvider, (_, req) {
+      if (req != null) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          ref.read(desktopFocusRequestProvider.notifier).handled(req);
+          _toggleFocusCanvas();
+        });
+      }
+    });
     return CallbackShortcuts(
       bindings: {
         const SingleActivator(LogicalKeyboardKey.keyA, alt: true): () =>
             _tool(0),
         const SingleActivator(LogicalKeyboardKey.keyI, alt: true): () =>
             _tool(1),
+        const SingleActivator(LogicalKeyboardKey.backslash, control: true):
+            _toggleFocusCanvas,
+        const SingleActivator(LogicalKeyboardKey.backslash, meta: true):
+            _toggleFocusCanvas,
         const SingleActivator(LogicalKeyboardKey.enter, control: true):
             _generateFromShortcut,
         const SingleActivator(LogicalKeyboardKey.enter, meta: true):

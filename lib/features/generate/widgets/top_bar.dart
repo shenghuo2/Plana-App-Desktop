@@ -74,7 +74,7 @@ class GenerateTopBar extends ConsumerWidget {
     final state = ref.watch(generateProvider);
     final rentalActive = ref.watch(gpuRentalProvider).active;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(14, 10, 14, 8),
+      padding: const EdgeInsets.fromLTRB(12, 6, 12, 6),
       // 右边那枚胶囊撑到多宽由它自己说了算(NAI 5 时点数+额度两个数并排),
       // 所以让模型名这边先让步:spaceBetween 把右胶囊钉在右边,模型胶囊拿余量
       // 且只在真放不下时才打省略号 —— 换成 Spacer 会跟 Flexible 对半分余量。
@@ -99,10 +99,10 @@ class GenerateTopBar extends ConsumerWidget {
             // 让 NAI 之外的路径**不订阅** gpuRentalProvider —— 那样冷启动时
             // 没人把它建起来,也就不会去问「我上次那台还在不在跑」。
             if (m.isModalModel(state.params.model) || rentalActive)
-              const RentalSourceChip(height: 42)
+              const RentalSourceChip(height: 36)
             else
               // 余额 / NAI 5 额度(点开是「点数与额度」弹层)
-              AnlasChip(height: 42, budget: constraints.maxWidth * .5),
+              AnlasChip(height: 36, budget: constraints.maxWidth * .5),
           ],
         ),
       ),
@@ -539,16 +539,21 @@ class _DesktopModelDropdown extends ConsumerWidget {
         ],
       ],
       builder: (context, controller, _) => Material(
-        color: context.scheme.surfaceContainerHigh,
-        borderRadius: BorderRadius.circular(19),
+        color: context.scheme.surfaceContainer,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(10),
+          side: BorderSide(
+            color: context.scheme.outlineVariant.withValues(alpha: .75),
+          ),
+        ),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
           onTap: () =>
               controller.isOpen ? controller.close() : controller.open(),
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12),
+            padding: const EdgeInsets.symmetric(horizontal: 10),
             child: SizedBox(
-              height: 42,
+              height: 36,
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -558,13 +563,13 @@ class _DesktopModelDropdown extends ConsumerWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
-                        fontSize: 13,
+                        fontSize: 12.5,
                         fontWeight: FontWeight.w600,
                       ),
                     ),
                   ),
-                  const SizedBox(width: 3),
-                  const Icon(Icons.expand_more, size: 18),
+                  const SizedBox(width: 4),
+                  const Icon(Icons.expand_more, size: 17),
                 ],
               ),
             ),

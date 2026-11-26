@@ -168,6 +168,14 @@ class _DesktopParametersState extends ConsumerState<_DesktopParameters> {
               padding: const EdgeInsets.fromLTRB(12, 4, 12, 14),
               child: Column(
                 children: [
+                  _QuickRatioBar(
+                    width: p.width,
+                    height: p.height,
+                    onPick: (w, h) => apply(p.copyWith(width: w, height: h)),
+                    onSwap: () =>
+                        apply(p.copyWith(width: p.height, height: p.width)),
+                  ),
+                  const SizedBox(height: 12),
                   if (!medium) ...[
                     _setting(
                       GenerationSettingTarget.steps,
@@ -385,6 +393,170 @@ class _DesktopParametersState extends ConsumerState<_DesktopParameters> {
               ),
             ),
         ],
+      ),
+    );
+  }
+}
+
+class _QuickRatioBar extends StatelessWidget {
+  const _QuickRatioBar({
+    required this.width,
+    required this.height,
+    required this.onPick,
+    required this.onSwap,
+  });
+
+  final int width;
+  final int height;
+  final void Function(int width, int height) onPick;
+  final VoidCallback onSwap;
+
+  static const _presets = <(String, int, int)>[
+    ('竖图', 832, 1216),
+    ('横图', 1216, 832),
+    ('方图', 1024, 1024),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = context.scheme;
+    final texts = context.texts;
+    return Column(
+      key: const ValueKey('desktop-quick-ratios'),
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            Text(
+              '画幅比例',
+              style: texts.labelMedium!.copyWith(
+                color: scheme.onSurfaceVariant,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const Spacer(),
+            Text(
+              '$width×$height',
+              style: mono(
+                context,
+                size: 11,
+                weight: FontWeight.w600,
+              ).copyWith(color: scheme.onSurfaceVariant),
+            ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        Row(
+          children: [
+            for (final (label, pw, ph) in _presets) ...[
+              Expanded(
+                child: _RatioChip(
+                  label: label,
+                  selected: width == pw && height == ph,
+                  onTap: () => onPick(pw, ph),
+                ),
+              ),
+              const SizedBox(width: 5),
+            ],
+            Tooltip(
+              message: '互换宽高',
+              child: InkWell(
+                key: const ValueKey('desktop-swap-resolution'),
+                onTap: onSwap,
+                borderRadius: BorderRadius.circular(8),
+                child: Container(
+                  width: 30,
+                  height: 28,
+                  decoration: BoxDecoration(
+                    color: scheme.surfaceContainerHigh,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: scheme.outlineVariant.withValues(alpha: .75),
+                    ),
+                  ),
+                  child: Icon(
+                    Icons.swap_horiz_rounded,
+                    size: 15,
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 5),
+            Tooltip(
+              message: '自定义分辨率',
+              child: InkWell(
+                onTap: () => showResolutionSheet(context),
+                borderRadius: BorderRadius.circular(8),
+                child: Container(
+                  height: 28,
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  decoration: BoxDecoration(
+                    color: scheme.surfaceContainerHigh,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: scheme.outlineVariant.withValues(alpha: .75),
+                    ),
+                  ),
+                  alignment: Alignment.center,
+                  child: Text(
+                    '更多',
+                    style: texts.labelSmall!.copyWith(
+                      fontWeight: FontWeight.w600,
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _RatioChip extends StatelessWidget {
+  const _RatioChip({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = context.scheme;
+    return Material(
+      color: selected ? scheme.primaryContainer : scheme.surfaceContainerHigh,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(8),
+        side: BorderSide(
+          color: selected
+              ? scheme.primary.withValues(alpha: .6)
+              : scheme.outlineVariant.withValues(alpha: .7),
+        ),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: SizedBox(
+          height: 28,
+          child: Center(
+            child: Text(
+              label,
+              maxLines: 1,
+              softWrap: false,
+              style: context.texts.labelSmall!.copyWith(
+                fontWeight: FontWeight.w600,
+                color: selected ? scheme.onPrimaryContainer : scheme.onSurface,
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }

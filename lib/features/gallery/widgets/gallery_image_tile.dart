@@ -15,7 +15,7 @@ const gallerySelectionHold = Duration(milliseconds: 200);
 /// The gallery and history picker share the same thumbnail, selection ring,
 /// checked marker, and pointer gestures. Selecting by hold or mouse drag
 /// consumes the eventual tap.
-class GalleryImageTile extends StatelessWidget {
+class GalleryImageTile extends StatefulWidget {
   const GalleryImageTile({
     super.key,
     required this.result,
@@ -47,6 +47,13 @@ class GalleryImageTile extends StatelessWidget {
   final bool mouseDragSelect;
   final Duration longPressDuration;
 
+  @override
+  State<GalleryImageTile> createState() => _GalleryImageTileState();
+}
+
+class _GalleryImageTileState extends State<GalleryImageTile> {
+  bool _hovered = false;
+
   void _fromImage(BuildContext context, ValueChanged<Rect>? callback) {
     final box = context.findRenderObject() as RenderBox?;
     if (callback != null && box != null && box.hasSize) {
@@ -56,6 +63,18 @@ class GalleryImageTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final result = widget.result;
+    final onTap = widget.onTap;
+    final selected = widget.selected;
+    final picked = widget.picked;
+    final selecting = widget.selecting;
+    final onLongPress = widget.onLongPress;
+    final onSecondaryTap = widget.onSecondaryTap;
+    final onFavorite = widget.onFavorite;
+    final mouseDragSelect = widget.mouseDragSelect;
+    final longPressDuration = widget.longPressDuration;
+    final fit = widget.fit;
+    final showTime = widget.showTime;
     final scheme = context.scheme;
     final ring = selecting ? picked : selected;
     final tile = Semantics(
@@ -66,215 +85,232 @@ class GalleryImageTile extends StatelessWidget {
       onLongPress: onLongPress == null
           ? null
           : () => _fromImage(context, onLongPress),
-      child: GalleryTileGestures(
-        onTap: onTap,
-        onLongPress: onLongPress == null
-            ? null
-            : () => _fromImage(context, onLongPress),
-        onSecondaryTap: onSecondaryTap == null
-            ? null
-            : () => _fromImage(context, onSecondaryTap),
-        onMouseDragStart: mouseDragSelect && onLongPress != null
-            ? () => _fromImage(context, onLongPress)
-            : null,
-        duration: longPressDuration,
-        child: AnimatedContainer(
-          duration: Motion.fast,
-          curve: Motion.standard,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(
-              color: ring ? scheme.primary : Colors.transparent,
-              width: 2.5,
+      child: MouseRegion(
+        onEnter: (_) => setState(() => _hovered = true),
+        onExit: (_) => setState(() => _hovered = false),
+        child: GalleryTileGestures(
+          onTap: onTap,
+          onLongPress: onLongPress == null
+              ? null
+              : () => _fromImage(context, onLongPress),
+          onSecondaryTap: onSecondaryTap == null
+              ? null
+              : () => _fromImage(context, onSecondaryTap),
+          onMouseDragStart: mouseDragSelect && onLongPress != null
+              ? () => _fromImage(context, onLongPress)
+              : null,
+          duration: longPressDuration,
+          child: AnimatedContainer(
+            duration: Motion.fast,
+            curve: Motion.standard,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(
+                color: ring
+                    ? scheme.primary
+                    : _hovered
+                    ? scheme.outlineVariant
+                    : Colors.transparent,
+                width: 2.5,
+              ),
             ),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(2.5),
-            child: LayoutBuilder(
-              builder: (_, c) {
-                final size = Size(
-                  c.maxWidth,
-                  c.hasBoundedHeight ? c.maxHeight : c.maxWidth,
-                );
-                final fitted = result.width > 0 && result.height > 0
-                    ? applyBoxFit(
-                        fit,
-                        Size(result.width.toDouble(), result.height.toDouble()),
-                        size,
-                      ).destination
-                    : size;
-                final imageRect = Alignment.center.inscribe(
-                  fitted,
-                  Offset.zero & size,
-                );
-                // Selection and favorite controls belong to the tile. Image
-                // badges follow the pixels, moving below selection if needed.
-                final badgeTop =
-                    selecting && imageRect.left < 22 && imageRect.top < 22
-                    ? 33 - imageRect.top
-                    : 5.0;
-                return SizedBox.fromSize(
-                  size: size,
-                  child: Stack(
-                    children: [
-                      Positioned.fromRect(
-                        rect: imageRect,
-                        child: SizedBox(
-                          key: ValueKey('gallery-image-content-${result.id}'),
-                          child: Stack(
-                            fit: StackFit.expand,
-                            children: [
-                              ResultThumb(
-                                result: result,
-                                width: imageRect.width,
-                                height: imageRect.height,
-                                radius: 10,
-                                fit: fit,
-                              ),
-                              if (result.badge != ResultBadge.none)
-                                Positioned(
-                                  left: 5,
-                                  right: 5,
-                                  top: badgeTop,
-                                  child: Align(
-                                    alignment: Alignment.topLeft,
-                                    child: FittedBox(
-                                      fit: BoxFit.scaleDown,
-                                      child: ResultBadgeChip(
-                                        badge: result.badge,
+            child: Padding(
+              padding: const EdgeInsets.all(2.5),
+              child: LayoutBuilder(
+                builder: (_, c) {
+                  final size = Size(
+                    c.maxWidth,
+                    c.hasBoundedHeight ? c.maxHeight : c.maxWidth,
+                  );
+                  final fitted = result.width > 0 && result.height > 0
+                      ? applyBoxFit(
+                          fit,
+                          Size(
+                            result.width.toDouble(),
+                            result.height.toDouble(),
+                          ),
+                          size,
+                        ).destination
+                      : size;
+                  final imageRect = Alignment.center.inscribe(
+                    fitted,
+                    Offset.zero & size,
+                  );
+                  // Selection and favorite controls belong to the tile. Image
+                  // badges follow the pixels, moving below selection if needed.
+                  final badgeTop =
+                      selecting && imageRect.left < 22 && imageRect.top < 22
+                      ? 33 - imageRect.top
+                      : 5.0;
+                  return SizedBox.fromSize(
+                    size: size,
+                    child: Stack(
+                      children: [
+                        Positioned.fromRect(
+                          rect: imageRect,
+                          child: SizedBox(
+                            key: ValueKey('gallery-image-content-${result.id}'),
+                            child: Stack(
+                              fit: StackFit.expand,
+                              children: [
+                                ResultThumb(
+                                  result: result,
+                                  width: imageRect.width,
+                                  height: imageRect.height,
+                                  radius: 10,
+                                  fit: fit,
+                                ),
+                                if (result.badge != ResultBadge.none)
+                                  Positioned(
+                                    left: 5,
+                                    right: 5,
+                                    top: badgeTop,
+                                    child: Align(
+                                      alignment: Alignment.topLeft,
+                                      child: FittedBox(
+                                        fit: BoxFit.scaleDown,
+                                        child: ResultBadgeChip(
+                                          badge: result.badge,
+                                        ),
                                       ),
                                     ),
                                   ),
-                                ),
-                              if (showTime
-                                      ? galleryTimeBadge(result.createdAt)
-                                      : ''
-                                  case final String t when t.isNotEmpty)
-                                Positioned(
-                                  left: 5,
-                                  right: 5,
-                                  bottom: 5,
-                                  child: Align(
-                                    alignment: Alignment.bottomRight,
-                                    child: FittedBox(
-                                      fit: BoxFit.scaleDown,
-                                      child: Container(
-                                        key: ValueKey(
-                                          'gallery-time-badge-${result.id}',
-                                        ),
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 5,
-                                          vertical: 2,
-                                        ),
-                                        decoration: BoxDecoration(
-                                          color: Colors.black.withValues(
-                                            alpha: .45,
+                                if (showTime
+                                        ? galleryTimeBadge(result.createdAt)
+                                        : ''
+                                    case final String t when t.isNotEmpty)
+                                  Positioned(
+                                    left: 5,
+                                    right: 5,
+                                    bottom: 5,
+                                    child: Align(
+                                      alignment: Alignment.bottomRight,
+                                      child: FittedBox(
+                                        fit: BoxFit.scaleDown,
+                                        child: Container(
+                                          key: ValueKey(
+                                            'gallery-time-badge-${result.id}',
                                           ),
-                                          borderRadius: BorderRadius.circular(
-                                            7,
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 5,
+                                            vertical: 2,
                                           ),
-                                        ),
-                                        child: Text(
-                                          t,
-                                          style:
-                                              mono(
-                                                context,
-                                                size: 9,
-                                                weight: FontWeight.w600,
-                                              ).copyWith(
-                                                color: Colors.white.withValues(
-                                                  alpha: .92,
+                                          decoration: BoxDecoration(
+                                            color: Colors.black.withValues(
+                                              alpha: .45,
+                                            ),
+                                            borderRadius: BorderRadius.circular(
+                                              7,
+                                            ),
+                                          ),
+                                          child: Text(
+                                            t,
+                                            style:
+                                                mono(
+                                                  context,
+                                                  size: 9,
+                                                  weight: FontWeight.w600,
+                                                ).copyWith(
+                                                  color: Colors.white
+                                                      .withValues(alpha: .92),
+                                                  height: 1,
                                                 ),
-                                                height: 1,
-                                              ),
+                                          ),
                                         ),
                                       ),
                                     ),
                                   ),
-                                ),
-                            ],
-                          ),
-                        ),
-                      ),
-                      if (onFavorite != null)
-                        Positioned(
-                          top: 4,
-                          right: 4,
-                          child: GestureDetector(
-                            // A drag starting on the star must not turn into
-                            // a range selection behind it.
-                            onPanUpdate: (_) {},
-                            child: Material(
-                              color: scheme.surfaceContainerHigh.withValues(
-                                alpha: .95,
-                              ),
-                              shape: const CircleBorder(),
-                              child: GalleryTileGestures(
-                                key: ValueKey('gallery-favorite-${result.id}'),
-                                duration: gallerySelectionHold,
-                                onTap: onFavorite!,
-                                onLongPress: () {},
-                                onSecondaryTap: () {},
-                                onMouseDragStart: () {},
-                                child: IconButton(
-                                  tooltip: result.favorite ? '取消收藏' : '收藏',
-                                  onPressed: onFavorite,
-                                  constraints: const BoxConstraints.tightFor(
-                                    width: 30,
-                                    height: 30,
-                                  ),
-                                  padding: const EdgeInsets.all(5),
-                                  icon: Icon(
-                                    result.favorite
-                                        ? Icons.star_rounded
-                                        : Icons.star_border_rounded,
-                                    size: 20,
-                                    color: result.favorite
-                                        ? (scheme.brightness == Brightness.dark
-                                              ? Colors.amber.shade300
-                                              : Colors.amber.shade800)
-                                        : scheme.onSurfaceVariant,
-                                  ),
-                                ),
-                              ),
+                              ],
                             ),
                           ),
                         ),
-                      if (selecting)
-                        Positioned(
-                          left: 5,
-                          top: 5,
-                          child: AnimatedContainer(
-                            duration: Motion.fast,
-                            width: 22,
-                            height: 22,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              color: picked
-                                  ? scheme.primary
-                                  : Colors.black.withValues(alpha: .35),
-                              border: picked
-                                  ? null
-                                  : Border.all(
-                                      color: Colors.white.withValues(
-                                        alpha: .85,
-                                      ),
-                                      width: 1.5,
+                        if (onFavorite != null)
+                          Positioned(
+                            top: 4,
+                            right: 4,
+                            child: AnimatedOpacity(
+                              duration: Motion.fast,
+                              opacity: result.favorite || _hovered ? 1.0 : .32,
+                              child: GestureDetector(
+                                // A drag starting on the star must not turn into
+                                // a range selection behind it.
+                                onPanUpdate: (_) {},
+                                child: Material(
+                                  color: result.favorite
+                                      ? const Color(0xCC10141E)
+                                      : const Color(0x8810141E),
+                                  shape: const CircleBorder(),
+                                  child: GalleryTileGestures(
+                                    key: ValueKey(
+                                      'gallery-favorite-${result.id}',
                                     ),
+                                    duration: gallerySelectionHold,
+                                    onTap: onFavorite,
+                                    onLongPress: () {},
+                                    onSecondaryTap: () {},
+                                    onMouseDragStart: () {},
+                                    child: IconButton(
+                                      tooltip: result.favorite ? '取消收藏' : '收藏',
+                                      onPressed: onFavorite,
+                                      constraints:
+                                          const BoxConstraints.tightFor(
+                                            width: 28,
+                                            height: 28,
+                                          ),
+                                      padding: const EdgeInsets.all(4),
+                                      icon: Icon(
+                                        result.favorite
+                                            ? Icons.star_rounded
+                                            : Icons.star_border_rounded,
+                                        size: 18,
+                                        color: result.favorite
+                                            ? Colors.amber.shade300
+                                            : Colors.white.withValues(
+                                                alpha: .9,
+                                              ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
                             ),
-                            child: picked
-                                ? Icon(
-                                    Icons.check,
-                                    size: 15,
-                                    color: scheme.onPrimary,
-                                  )
-                                : null,
                           ),
-                        ),
-                    ],
-                  ),
-                );
-              },
+                        if (selecting)
+                          Positioned(
+                            left: 5,
+                            top: 5,
+                            child: AnimatedContainer(
+                              duration: Motion.fast,
+                              width: 22,
+                              height: 22,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: picked
+                                    ? scheme.primary
+                                    : Colors.black.withValues(alpha: .35),
+                                border: picked
+                                    ? null
+                                    : Border.all(
+                                        color: Colors.white.withValues(
+                                          alpha: .85,
+                                        ),
+                                        width: 1.5,
+                                      ),
+                              ),
+                              child: picked
+                                  ? Icon(
+                                      Icons.check,
+                                      size: 15,
+                                      color: scheme.onPrimary,
+                                    )
+                                  : null,
+                            ),
+                          ),
+                      ],
+                    ),
+                  );
+                },
+              ),
             ),
           ),
         ),

@@ -1530,10 +1530,12 @@ class _AssistantPageState extends ConsumerState<AssistantPage> {
             Material(
               key: const ValueKey('assistant-composer'),
               color: scheme.surfaceContainerLowest,
+              elevation: scheme.brightness == Brightness.dark ? 0 : 1,
+              shadowColor: Colors.black.withValues(alpha: .06),
               shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(24),
+                borderRadius: BorderRadius.circular(16),
                 side: BorderSide(
-                  color: scheme.outlineVariant.withValues(alpha: .5),
+                  color: scheme.outlineVariant.withValues(alpha: .85),
                 ),
               ),
               clipBehavior: Clip.antiAlias,

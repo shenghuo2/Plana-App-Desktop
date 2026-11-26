@@ -1083,7 +1083,11 @@ class _DesktopEmptyCanvas extends ConsumerWidget {
                 const SizedBox(height: 20),
                 Text(
                   l10nNow.desktopReadyToCreate,
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w600,
+                    color: context.scheme.onSurface,
+                  ),
                 ),
                 const SizedBox(height: 10),
                 Text(

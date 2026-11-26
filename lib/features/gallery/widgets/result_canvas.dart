@@ -69,16 +69,39 @@ class GalleryImageLayer extends StatelessWidget {
     final scheme = context.scheme;
     if (bytes != null) {
       return ColoredBox(
-        color: scheme.surfaceContainerHigh,
-        child: Center(
-          child: Image.memory(
-            bytes!,
-            fit: BoxFit.contain,
-            gaplessPlayback: true,
-            errorBuilder: (_, _, _) => Center(
-              child: Tooltip(
-                message: l10nNow.desktopCouldNotReadImage,
-                child: Icon(Icons.broken_image_outlined),
+        color: scheme.surface,
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Center(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(
+                  color: scheme.outlineVariant.withValues(alpha: .55),
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(
+                      alpha: scheme.brightness == Brightness.dark ? .42 : .10,
+                    ),
+                    blurRadius: 18,
+                    offset: const Offset(0, 6),
+                  ),
+                ],
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(9),
+                child: Image.memory(
+                  bytes!,
+                  fit: BoxFit.contain,
+                  gaplessPlayback: true,
+                  errorBuilder: (_, _, _) => Center(
+                    child: Tooltip(
+                      message: l10nNow.desktopCouldNotReadImage,
+                      child: const Icon(Icons.broken_image_outlined),
+                    ),
+                  ),
+                ),
               ),
             ),
           ),
@@ -88,7 +111,7 @@ class GalleryImageLayer extends StatelessWidget {
     // 空画框按目标宽高比撑到最大,落点与出图后 BoxFit.contain 的位置一致 ——
     // 图一到就在原地替换,不会跳位。尺寸未知(width/height 为 0)时只留底色。
     return ColoredBox(
-      color: scheme.surfaceContainerHigh,
+      color: scheme.surface,
       child: (width > 0 && height > 0)
           ? Padding(
               padding: const EdgeInsets.all(28),
@@ -97,23 +120,36 @@ class GalleryImageLayer extends StatelessWidget {
                   aspectRatio: width / height,
                   child: DecoratedBox(
                     decoration: BoxDecoration(
-                      color: scheme.surfaceContainerHighest.withValues(
-                        alpha: .55,
-                      ),
-                      borderRadius: BorderRadius.circular(16),
+                      color: scheme.surfaceContainerLow.withValues(alpha: .7),
+                      borderRadius: BorderRadius.circular(14),
                       border: Border.all(
-                        color: scheme.outlineVariant.withValues(alpha: .8),
+                        color: scheme.outlineVariant.withValues(alpha: .85),
                       ),
                     ),
                     child: Center(
-                      child: Text(
-                        '$width × $height',
-                        style: mono(
-                          context,
-                          size: 20,
-                          weight: FontWeight.w600,
-                          color: scheme.onSurfaceVariant.withValues(alpha: .55),
-                        ),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.auto_awesome_outlined,
+                            size: 26,
+                            color: scheme.onSurfaceVariant.withValues(
+                              alpha: .45,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            '$width × $height',
+                            style: mono(
+                              context,
+                              size: 18,
+                              weight: FontWeight.w600,
+                              color: scheme.onSurfaceVariant.withValues(
+                                alpha: .62,
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ),
@@ -690,72 +726,118 @@ class _ActionRailState extends ConsumerState<ResultActions> {
       key: ValueKey(top ? 'canvas-top-actions' : 'canvas-bottom-actions'),
       color: context.scheme.surface,
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        padding: EdgeInsets.symmetric(horizontal: 12, vertical: top ? 6 : 6),
         child: top
             ? Center(
-                child: Wrap(
-                  key: const ValueKey('canvas-primary-tools'),
-                  alignment: WrapAlignment.center,
-                  spacing: 4,
-                  runSpacing: 2,
-                  children: [
-                    TextButton.icon(
-                      key: const ValueKey('canvas-inpaint'),
-                      style: style,
-                      onPressed: canAct ? () => _inpaint(context, ref) : null,
-                      icon: const Icon(Icons.brush_outlined, size: 18),
-                      label: Text(l10nNow.inpaint),
-                    ),
-                    TextButton.icon(
-                      key: const ValueKey('canvas-upscale'),
-                      style: style,
-                      onPressed: canAct && !_upscaling
-                          ? () => _upscale(
-                              context,
-                              ref,
-                              requestedMethod: UpscaleMethod.redraw,
-                            )
-                          : null,
-                      icon: const Icon(Icons.open_in_full, size: 18),
-                      label: Text(l10nNow.img2imgUpscale),
-                    ),
-                    Tooltip(
-                      message: _superResolutionTooltip,
-                      child: TextButton.icon(
-                        key: const ValueKey('canvas-super-resolution'),
-                        style: style,
-                        onPressed: canAct && !_upscaling
-                            ? () => _upscale(
-                                context,
-                                ref,
-                                requestedMethod: UpscaleMethod.naiV5,
-                              )
-                            : null,
-                        icon: const Icon(
-                          Icons.photo_size_select_large,
-                          size: 18,
-                        ),
-                        label: Text(l10nNow.upscaleResolution),
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: context.scheme.surfaceContainerLowest,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: context.scheme.outlineVariant.withValues(
+                        alpha: .8,
                       ),
                     ),
-                    TextButton.icon(
-                      key: const ValueKey('canvas-import'),
-                      style: style,
-                      onPressed: canAct ? () => _import(context, ref) : null,
-                      icon: const Icon(Icons.input, size: 18),
-                      label: Text(l10nNow.importLabel),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(
+                          alpha: context.scheme.brightness == Brightness.dark
+                              ? .24
+                              : .05,
+                        ),
+                        blurRadius: 10,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 4,
                     ),
-                    TextButton.icon(
-                      key: const ValueKey('canvas-director-tools'),
-                      style: style,
-                      onPressed: canAct
-                          ? () => openDirectorTools(context, ref, result)
-                          : null,
-                      icon: const Icon(Icons.movie_filter_outlined, size: 18),
-                      label: Text(l10nNow.desktopDirectorTools),
+                    child: Wrap(
+                      key: const ValueKey('canvas-primary-tools'),
+                      alignment: WrapAlignment.center,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      spacing: 2,
+                      runSpacing: 2,
+                      children: [
+                        TextButton.icon(
+                          key: const ValueKey('canvas-inpaint'),
+                          style: style,
+                          onPressed: canAct
+                              ? () => _inpaint(context, ref)
+                              : null,
+                          icon: const Icon(Icons.brush_outlined, size: 17),
+                          label: Text(l10nNow.inpaint),
+                        ),
+                        TextButton.icon(
+                          key: const ValueKey('canvas-upscale'),
+                          style: style,
+                          onPressed: canAct && !_upscaling
+                              ? () => _upscale(
+                                  context,
+                                  ref,
+                                  requestedMethod: UpscaleMethod.redraw,
+                                )
+                              : null,
+                          icon: const Icon(Icons.open_in_full, size: 17),
+                          label: Text(l10nNow.img2imgUpscale),
+                        ),
+                        Tooltip(
+                          message: _superResolutionTooltip,
+                          child: TextButton.icon(
+                            key: const ValueKey('canvas-super-resolution'),
+                            style: style,
+                            onPressed: canAct && !_upscaling
+                                ? () => _upscale(
+                                    context,
+                                    ref,
+                                    requestedMethod: UpscaleMethod.naiV5,
+                                  )
+                                : null,
+                            icon: const Icon(
+                              Icons.photo_size_select_large,
+                              size: 17,
+                            ),
+                            label: Text(l10nNow.upscaleResolution),
+                          ),
+                        ),
+                        SizedBox(
+                          height: 18,
+                          child: VerticalDivider(
+                            width: 10,
+                            thickness: 1,
+                            color: context.scheme.outlineVariant.withValues(
+                              alpha: .8,
+                            ),
+                          ),
+                        ),
+                        TextButton.icon(
+                          key: const ValueKey('canvas-import'),
+                          style: style,
+                          onPressed: canAct
+                              ? () => _import(context, ref)
+                              : null,
+                          icon: const Icon(Icons.input, size: 17),
+                          label: Text(l10nNow.importLabel),
+                        ),
+                        TextButton.icon(
+                          key: const ValueKey('canvas-director-tools'),
+                          style: style,
+                          onPressed: canAct
+                              ? () => openDirectorTools(context, ref, result)
+                              : null,
+                          icon: const Icon(
+                            Icons.movie_filter_outlined,
+                            size: 17,
+                          ),
+                          label: Text(l10nNow.desktopDirectorTools),
+                        ),
+                        _baseImageButton(style: style, enabled: canAct),
+                      ],
                     ),
-                    _baseImageButton(style: style, enabled: canAct),
-                  ],
+                  ),
                 ),
               )
             : Row(
@@ -1707,14 +1789,22 @@ class _ResolutionChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Tooltip(
     message: l10nNow.desktopImageResolution,
-    child: Material(
-      color: context.scheme.surfaceContainerHighest,
-      elevation: 1.5,
-      shadowColor: context.scheme.shadow,
-      borderRadius: BorderRadius.circular(12),
+    child: DecoratedBox(
+      decoration: BoxDecoration(
+        color: const Color(0xB810141E),
+        borderRadius: BorderRadius.circular(9),
+        border: Border.all(color: Colors.white.withValues(alpha: .16)),
+      ),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        child: Text('$width × $height', style: mono(context, size: 13)),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        child: Text(
+          '$width × $height',
+          style: mono(
+            context,
+            size: 12,
+            color: Colors.white.withValues(alpha: .94),
+          ),
+        ),
       ),
     ),
   );
@@ -1728,14 +1818,14 @@ class _SeedChip extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final scheme = context.scheme;
     return Tooltip(
       message: l10nNow.desktopApplyAndCopySeed,
       child: Material(
-        color: scheme.surfaceContainerHighest,
-        elevation: 1.5,
-        shadowColor: scheme.shadow,
-        borderRadius: BorderRadius.circular(12),
+        color: const Color(0xB810141E),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(9),
+          side: BorderSide(color: Colors.white.withValues(alpha: .16)),
+        ),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
           onTap: !enabled
@@ -1764,13 +1854,24 @@ class _SeedChip extends ConsumerWidget {
                   );
                 },
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(Icons.grain, size: 16, color: scheme.onSurfaceVariant),
-                const SizedBox(width: 7),
-                Text('$seed', style: mono(context, size: 13)),
+                Icon(
+                  Icons.grain,
+                  size: 15,
+                  color: Colors.white.withValues(alpha: .78),
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  '$seed',
+                  style: mono(
+                    context,
+                    size: 12,
+                    color: Colors.white.withValues(alpha: .94),
+                  ),
+                ),
               ],
             ),
           ),
