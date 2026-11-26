@@ -94,12 +94,12 @@ Plana App Desktop 将 [Plana App](https://github.com/mc5024/Plana-App) 带到桌
 
 ## 下载与安装
 
-当前公开预发布为 **1.2.5-desktop（构建 74）**。请前往 [发布页](https://github.com/shenghuo2/Plana-App-Desktop/releases/tag/v1.2.5-desktop) 下载（无需登录 GitHub；完整历史版本与更新日志见 [Releases](https://github.com/shenghuo2/Plana-App-Desktop/releases)）：
+当前公开预发布为 **1.2.5-desktop.1（构建 75）**。请前往 [发布页](https://github.com/shenghuo2/Plana-App-Desktop/releases/tag/v1.2.5-desktop.1) 下载（无需登录 GitHub；完整历史版本与更新日志见 [Releases](https://github.com/shenghuo2/Plana-App-Desktop/releases)）：
 
 | 平台 | 安装包 | 选择建议 |
 |---|---|---|
-| Windows x64 | [安装程序 EXE](https://github.com/shenghuo2/Plana-App-Desktop/releases/download/v1.2.5-desktop/Plana-App-Desktop-Windows-1.2.5-desktop-x64-setup.exe) · [便携 ZIP](https://github.com/shenghuo2/Plana-App-Desktop/releases/download/v1.2.5-desktop/Plana-App-Desktop-Windows-1.2.5-desktop-x64.zip) | 安装版带中文向导与开始菜单入口；ZIP 适合便携使用 |
-| macOS 14+ · Apple Silicon | [标准版 DMG](https://github.com/shenghuo2/Plana-App-Desktop/releases/download/v1.2.5-desktop/Plana-App-Desktop-macOS-arm64.dmg) | 日常绘图与本地作品管理 |
+| Windows x64 | [安装程序 EXE](https://github.com/shenghuo2/Plana-App-Desktop/releases/download/v1.2.5-desktop.1/Plana-App-Desktop-Windows-1.2.5-desktop.1-x64-setup.exe) · [便携 ZIP](https://github.com/shenghuo2/Plana-App-Desktop/releases/download/v1.2.5-desktop.1/Plana-App-Desktop-Windows-1.2.5-desktop.1-x64.zip) | 安装版带中文向导与开始菜单入口；ZIP 适合便携使用 |
+| macOS 14+ · Apple Silicon | [标准版 DMG](https://github.com/shenghuo2/Plana-App-Desktop/releases/download/v1.2.5-desktop.1/Plana-App-Desktop-macOS-arm64.dmg) | 日常绘图与本地作品管理 |
 
 - **Windows**：运行 `-setup.exe` 按中文向导安装到可写目录（默认当前用户目录，无需管理员权限）；便携版解压 ZIP 后运行 `plana_app_for_windows.exe`，迁移时连同 `output` 目录一起移动。两种包均已内置所需运行库。
 - **macOS**：退出旧版应用，打开 DMG 将 `Plana App Desktop.app` 拖入「应用程序」后启动。
