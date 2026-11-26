@@ -526,10 +526,10 @@ class _GenerateButton extends StatelessWidget {
     final scheme = context.scheme;
     final busy = runningCount > 0;
     return SizedBox(
-      height: 46,
+      height: 44,
       child: Material(
         color: scheme.primary,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(10),
         clipBehavior: Clip.antiAlias,
         // stretch:两段都要撑满 52 的高度。默认的 center 会让 InkWell 只拿到
         // 内容那点自然高度(≈28),按钮看着一大颗、实际只有中间一条窄带能点 ——

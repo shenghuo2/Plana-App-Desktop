@@ -410,26 +410,26 @@ abstract final class AppTheme {
   ) {
     return brightness == Brightness.dark
         ? s.copyWith(
-            surface: const Color(0xFF0B0D13),
-            surfaceContainerLowest: const Color(0xFF10131B),
-            surfaceContainerLow: const Color(0xFF141821),
-            surfaceContainer: const Color(0xFF191E2A),
-            surfaceContainerHigh: const Color(0xFF202636),
-            surfaceContainerHighest: const Color(0xFF272E40),
-            outlineVariant: const Color(0xFF262E40),
-            onSurface: const Color(0xFFEEF2F9),
-            onSurfaceVariant: const Color(0xFF96A3BA),
+            surface: const Color(0xFF111214),
+            surfaceContainerLowest: const Color(0xFF16171A),
+            surfaceContainerLow: const Color(0xFF1A1B1F),
+            surfaceContainer: const Color(0xFF212227),
+            surfaceContainerHigh: const Color(0xFF282A30),
+            surfaceContainerHighest: const Color(0xFF31333B),
+            outlineVariant: const Color(0xFF2F313A),
+            onSurface: const Color(0xFFF2F3F5),
+            onSurfaceVariant: const Color(0xFF9CA0AB),
           )
         : s.copyWith(
-            surface: const Color(0xFFEBEEF3),
+            surface: const Color(0xFFF4F4F6),
             surfaceContainerLowest: const Color(0xFFFFFFFF),
             surfaceContainerLow: const Color(0xFFFFFFFF),
-            surfaceContainer: const Color(0xFFF3F5F8),
-            surfaceContainerHigh: const Color(0xFFE9EDF3),
-            surfaceContainerHighest: const Color(0xFFE1E6EE),
-            outlineVariant: const Color(0xFFDCE1EA),
-            onSurface: const Color(0xFF111827),
-            onSurfaceVariant: const Color(0xFF525D6E),
+            surfaceContainer: const Color(0xFFF7F7F8),
+            surfaceContainerHigh: const Color(0xFFEFEFF1),
+            surfaceContainerHighest: const Color(0xFFE6E6EA),
+            outlineVariant: const Color(0xFFE2E2E6),
+            onSurface: const Color(0xFF18181B),
+            onSurfaceVariant: const Color(0xFF63636E),
           );
   }
 }

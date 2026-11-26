@@ -212,10 +212,10 @@ class _DesktopCanvasTabsState extends ConsumerState<DesktopCanvasTabs> {
     return DecoratedBox(
       key: const ValueKey('desktop-canvas-tabs'),
       decoration: BoxDecoration(
-        color: context.scheme.surfaceContainer,
+        color: context.scheme.surfaceContainerLow,
         border: Border(
           bottom: BorderSide(
-            color: context.scheme.outlineVariant.withValues(alpha: .7),
+            color: context.scheme.outlineVariant.withValues(alpha: .8),
           ),
         ),
       ),
@@ -378,11 +378,11 @@ class _CanvasTab extends StatelessWidget {
           fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
         ),
         foregroundColor: selected
-            ? context.scheme.primary
+            ? context.scheme.onSurface
             : context.scheme.onSurfaceVariant,
         minimumSize: const Size(0, 32),
         padding: const EdgeInsets.symmetric(horizontal: 10),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(7)),
       ),
       child: Text(name, maxLines: 1, overflow: TextOverflow.ellipsis),
     );
@@ -404,16 +404,9 @@ class _CanvasTab extends StatelessWidget {
             : (details) => onSecondaryTap!(details.globalPosition),
         child: Material(
           color: selected
-              ? context.scheme.surfaceContainerLowest
+              ? context.scheme.surfaceContainerHigh
               : Colors.transparent,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(8),
-            side: BorderSide(
-              color: selected
-                  ? context.scheme.outlineVariant.withValues(alpha: .85)
-                  : Colors.transparent,
-            ),
-          ),
+          borderRadius: BorderRadius.circular(7),
           child: Row(
             children: [
               Expanded(

@@ -21,7 +21,6 @@ import '../../core/theme/app_theme.dart';
 import '../../core/theme/theme_settings.dart';
 import '../assistant/assistant_page.dart';
 import '../assistant/assistant_state.dart';
-import '../desktop/desktop_canvas_state.dart';
 import '../desktop/desktop_workspace.dart';
 import '../desktop/desktop_gallery_page.dart';
 import '../desktop/desktop_profile_page.dart';
@@ -494,8 +493,6 @@ class _AppShellState extends ConsumerState<AppShell>
         Icons.person_outline,
         Icons.handyman_outlined,
       ];
-      final focusMode = ref.watch(desktopFocusModeProvider);
-      final wideHeader = MediaQuery.sizeOf(context).width >= 1080;
       return Scaffold(
         body: Column(
           children: [
@@ -526,181 +523,85 @@ class _AppShellState extends ConsumerState<AppShell>
                           color: context.scheme.onSurface,
                         ),
                       ),
-                      if (wideHeader) ...[
-                        const SizedBox(width: 6),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 5.5,
-                            vertical: 1.5,
-                          ),
-                          decoration: BoxDecoration(
-                            color: context.scheme.primary.withValues(
-                              alpha: .12,
-                            ),
-                            borderRadius: BorderRadius.circular(5),
-                          ),
-                          child: Text(
-                            'STUDIO',
-                            style: TextStyle(
-                              fontSize: 9,
-                              fontWeight: FontWeight.w800,
-                              letterSpacing: .6,
-                              height: 1.2,
-                              color: context.scheme.primary,
-                            ),
-                          ),
-                        ),
-                      ],
-                      SizedBox(width: wideHeader ? 16 : 12),
+                      const SizedBox(width: 16),
                       Expanded(
-                        child: Align(
-                          alignment: Alignment.centerLeft,
-                          child: Container(
-                            padding: const EdgeInsets.all(2),
-                            decoration: BoxDecoration(
-                              color: context.scheme.surfaceContainer,
-                              borderRadius: BorderRadius.circular(10),
-                              border: Border.all(
-                                color: context.scheme.outlineVariant.withValues(
-                                  alpha: .7,
-                                ),
-                              ),
-                            ),
-                            child: SingleChildScrollView(
-                              scrollDirection: Axis.horizontal,
-                              primary: false,
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  for (final tab in tabs)
-                                    Padding(
-                                      padding: const EdgeInsets.only(right: 2),
-                                      child: Material(
-                                        color: index == tab
-                                            ? context
-                                                  .scheme
-                                                  .surfaceContainerLowest
-                                            : Colors.transparent,
-                                        shape: RoundedRectangleBorder(
-                                          borderRadius: BorderRadius.circular(
-                                            7,
-                                          ),
-                                          side: BorderSide(
-                                            color: index == tab
-                                                ? context.scheme.outlineVariant
-                                                      .withValues(alpha: .75)
-                                                : Colors.transparent,
-                                          ),
+                        child: SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          primary: false,
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              for (final tab in tabs)
+                                Padding(
+                                  padding: const EdgeInsets.only(right: 4),
+                                  child: Material(
+                                    color: index == tab
+                                        ? context.scheme.surfaceContainerHigh
+                                        : Colors.transparent,
+                                    borderRadius: BorderRadius.circular(8),
+                                    clipBehavior: Clip.antiAlias,
+                                    child: InkWell(
+                                      key: ValueKey('desktop-nav-$tab'),
+                                      borderRadius: BorderRadius.circular(8),
+                                      onTap: () {
+                                        if (tab == kTabGallery) {
+                                          openDesktopGallery(ref);
+                                        } else {
+                                          ref
+                                              .read(shellIndexProvider.notifier)
+                                              .select(tab);
+                                        }
+                                        if (tab == kTabCreate) _onEnterCreate();
+                                      },
+                                      child: ConstrainedBox(
+                                        constraints: const BoxConstraints(
+                                          minHeight: 40,
                                         ),
-                                        child: InkWell(
-                                          key: ValueKey('desktop-nav-$tab'),
-                                          borderRadius: BorderRadius.circular(
-                                            7,
+                                        child: Padding(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 12,
+                                            vertical: 4,
                                           ),
-                                          onTap: () {
-                                            if (tab == kTabGallery) {
-                                              openDesktopGallery(ref);
-                                            } else {
-                                              ref
-                                                  .read(
-                                                    shellIndexProvider.notifier,
-                                                  )
-                                                  .select(tab);
-                                            }
-                                            if (tab == kTabCreate) {
-                                              _onEnterCreate();
-                                            }
-                                          },
-                                          child: ConstrainedBox(
-                                            constraints: const BoxConstraints(
-                                              minHeight: 40,
-                                            ),
-                                            child: Padding(
-                                              padding:
-                                                  const EdgeInsets.symmetric(
-                                                    horizontal: 11,
-                                                    vertical: 4,
-                                                  ),
-                                              child: Row(
-                                                mainAxisSize: MainAxisSize.min,
-                                                children: [
-                                                  Icon(
-                                                    icons[tab],
-                                                    size: 16,
-                                                    color: index == tab
-                                                        ? context.scheme.primary
-                                                        : context
-                                                              .scheme
-                                                              .onSurfaceVariant,
-                                                  ),
-                                                  const SizedBox(width: 6),
-                                                  Text(
-                                                    labels[tab],
-                                                    maxLines: 1,
-                                                    softWrap: false,
-                                                    style: TextStyle(
-                                                      fontSize: 12.5,
-                                                      fontWeight: index == tab
-                                                          ? FontWeight.w700
-                                                          : FontWeight.w500,
-                                                      color: index == tab
-                                                          ? context
-                                                                .scheme
-                                                                .primary
-                                                          : context
-                                                                .scheme
-                                                                .onSurfaceVariant,
-                                                    ),
-                                                  ),
-                                                ],
+                                          child: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Icon(
+                                                icons[tab],
+                                                size: 16,
+                                                color: index == tab
+                                                    ? context.scheme.primary
+                                                    : context
+                                                          .scheme
+                                                          .onSurfaceVariant,
                                               ),
-                                            ),
+                                              const SizedBox(width: 6),
+                                              Text(
+                                                labels[tab],
+                                                maxLines: 1,
+                                                softWrap: false,
+                                                style: TextStyle(
+                                                  fontSize: 13,
+                                                  fontWeight: index == tab
+                                                      ? FontWeight.w600
+                                                      : FontWeight.w500,
+                                                  color: index == tab
+                                                      ? context.scheme.onSurface
+                                                      : context
+                                                            .scheme
+                                                            .onSurfaceVariant,
+                                                ),
+                                              ),
+                                            ],
                                           ),
                                         ),
                                       ),
                                     ),
-                                ],
-                              ),
-                            ),
+                                  ),
+                                ),
+                            ],
                           ),
                         ),
                       ),
-                      if (index == kTabCreate)
-                        Padding(
-                          padding: const EdgeInsets.only(right: 4),
-                          child: Tooltip(
-                            message: focusMode
-                                ? '恢复双栏布局（Ctrl+\\ / ⌘\\）'
-                                : '专注画布（Ctrl+\\ / ⌘\\）',
-                            child: IconButton(
-                              key: const ValueKey(
-                                'desktop-focus-canvas-toggle',
-                              ),
-                              onPressed: () => ref
-                                  .read(desktopFocusRequestProvider.notifier)
-                                  .toggle(),
-                              visualDensity: VisualDensity.compact,
-                              style: IconButton.styleFrom(
-                                minimumSize: const Size(34, 34),
-                                fixedSize: const Size(34, 34),
-                                padding: EdgeInsets.zero,
-                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                                backgroundColor: focusMode
-                                    ? context.scheme.primaryContainer
-                                    : null,
-                                foregroundColor: focusMode
-                                    ? context.scheme.primary
-                                    : context.scheme.onSurfaceVariant,
-                              ),
-                              icon: Icon(
-                                focusMode
-                                    ? Icons.view_sidebar_outlined
-                                    : Icons.fit_screen_outlined,
-                                size: 18,
-                              ),
-                            ),
-                          ),
-                        ),
                       const DesktopTaskStatusButton(),
                       const DesktopVersionButton(),
                     ],

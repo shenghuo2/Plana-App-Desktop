@@ -531,13 +531,13 @@ class _RatioChip extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = context.scheme;
     return Material(
-      color: selected ? scheme.primaryContainer : scheme.surfaceContainerHigh,
+      color: selected ? scheme.surfaceContainerLowest : scheme.surfaceContainer,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(8),
         side: BorderSide(
           color: selected
-              ? scheme.primary.withValues(alpha: .6)
-              : scheme.outlineVariant.withValues(alpha: .7),
+              ? scheme.primary.withValues(alpha: .65)
+              : scheme.outlineVariant,
         ),
       ),
       clipBehavior: Clip.antiAlias,
@@ -552,7 +552,7 @@ class _RatioChip extends StatelessWidget {
               softWrap: false,
               style: context.texts.labelSmall!.copyWith(
                 fontWeight: FontWeight.w600,
-                color: selected ? scheme.onPrimaryContainer : scheme.onSurface,
+                color: scheme.onSurface,
               ),
             ),
           ),

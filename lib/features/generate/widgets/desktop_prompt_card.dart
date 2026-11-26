@@ -54,7 +54,7 @@ class _DesktopPromptCardState extends State<DesktopPromptCard>
       return editor;
     }
     return Material(
-      color: context.scheme.surface,
+      color: context.scheme.surfaceContainerLowest,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(14),
         side: BorderSide(color: context.scheme.outlineVariant),

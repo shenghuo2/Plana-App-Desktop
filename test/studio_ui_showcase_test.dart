@@ -318,19 +318,7 @@ void main() {
           .patch((s) => s.copyWith(mode: ThemeMode.dark));
       await _capture(tester, captureKey, 'studio_workspace_dark');
 
-      // 3. Studio Workspace - Focus Canvas Mode (Dark)
-      await tester.tap(
-        find.byKey(const ValueKey('desktop-focus-canvas-toggle')),
-      );
-      await _capture(tester, captureKey, 'studio_workspace_focus_dark');
-
-      // Restore panes before opening Gallery view.
-      await tester.tap(
-        find.byKey(const ValueKey('desktop-focus-canvas-toggle')),
-      );
-      await _settleFrame(tester);
-
-      // 4. Studio Gallery Grid - Light
+      // 3. Studio Gallery Grid - Light
       container
           .read(themeSettingsProvider.notifier)
           .patch((s) => s.copyWith(mode: ThemeMode.light));
@@ -340,7 +328,7 @@ void main() {
       container.read(shellIndexProvider.notifier).select(kTabGallery);
       await _capture(tester, captureKey, 'studio_gallery_light');
 
-      // 5. Studio Gallery Grid - Dark
+      // 4. Studio Gallery Grid - Dark
       container
           .read(themeSettingsProvider.notifier)
           .patch((s) => s.copyWith(mode: ThemeMode.dark));

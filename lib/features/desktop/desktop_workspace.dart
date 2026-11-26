@@ -28,8 +28,8 @@ import '../inspiration/inspiration_page.dart';
 import '../inspiration/codex/codex_view.dart';
 import '../import/desktop_image_drop.dart';
 import '../shell/shell_state.dart';
-import 'desktop_gallery_page.dart';
 import 'desktop_canvas_state.dart';
+import 'desktop_gallery_page.dart';
 import 'desktop_pane_divider.dart';
 
 part 'desktop_controls.dart';
@@ -81,28 +81,6 @@ class _DesktopWorkspaceState extends ConsumerState<DesktopWorkspace>
     final prefs = ref.read(prefsStoreProvider);
     _leftCollapsed = prefs.get(_leftCollapsedKey) == 'true';
     _rightCollapsed = prefs.get(_rightCollapsedKey) == 'true';
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _syncFocusMode();
-    });
-  }
-
-  void _syncFocusMode() {
-    ref
-        .read(desktopFocusModeProvider.notifier)
-        .set(_leftCollapsed && _rightCollapsed);
-  }
-
-  void _toggleFocusCanvas() {
-    shortcutFocus.requestFocus();
-    final collapse = !(_leftCollapsed && _rightCollapsed);
-    setState(() {
-      _leftCollapsed = collapse;
-      _rightCollapsed = collapse;
-    });
-    final prefs = ref.read(prefsStoreProvider);
-    unawaited(prefs.write(key: _leftCollapsedKey, value: collapse.toString()));
-    unawaited(prefs.write(key: _rightCollapsedKey, value: collapse.toString()));
-    _syncFocusMode();
   }
 
   void _saveWidth({required bool left}) {
@@ -193,68 +171,56 @@ class _DesktopWorkspaceState extends ConsumerState<DesktopWorkspace>
   Widget _tabs({bool compact = false}) => SizedBox(
     height: 40,
     width: double.infinity,
-    child: Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      child: Container(
-        padding: const EdgeInsets.all(2),
-        decoration: BoxDecoration(
-          color: context.scheme.surfaceContainer,
-          borderRadius: BorderRadius.circular(9),
-          border: Border.all(
-            color: context.scheme.outlineVariant.withValues(alpha: .7),
-          ),
-        ),
-        child: ScrollConfiguration(
-          behavior: ScrollConfiguration.of(context).copyWith(
-            dragDevices: {
-              ...ScrollConfiguration.of(context).dragDevices,
-              PointerDeviceKind.mouse,
-            },
-            scrollbars: false,
-          ),
-          child: SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              children: [
-                if (compact) ...[
-                  _tab(
-                    context.l10n.desktopImagesAndHistory,
-                    Icons.image_outlined,
-                    !compactTool,
-                    () {
-                      shortcutFocus.requestFocus();
-                      setState(() => compactTool = false);
-                    },
-                    'desktop-canvas-tab',
-                  ),
-                  const SizedBox(width: 2),
-                ],
-                _tab(
-                  context.l10n.aiAssistant,
-                  Icons.auto_awesome_outlined,
-                  (!compact || compactTool) && tool == 0,
-                  () => _tool(0),
-                  'desktop-ai-tab',
-                ),
-                const SizedBox(width: 2),
-                _tab(
-                  context.l10n.tabInspiration,
-                  Icons.lightbulb_outline,
-                  (!compact || compactTool) && tool == 1,
-                  () => _tool(1),
-                  'desktop-inspiration-tab',
-                ),
-                const SizedBox(width: 2),
-                _tab(
-                  context.l10n.sectionCodex,
-                  Icons.menu_book_outlined,
-                  (!compact || compactTool) && tool == 2,
-                  () => _tool(2),
-                  'desktop-codex-tab',
-                ),
-              ],
+    child: ScrollConfiguration(
+      behavior: ScrollConfiguration.of(context).copyWith(
+        dragDevices: {
+          ...ScrollConfiguration.of(context).dragDevices,
+          PointerDeviceKind.mouse,
+        },
+        scrollbars: false,
+      ),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 4),
+        child: Row(
+          children: [
+            if (compact) ...[
+              _tab(
+                context.l10n.desktopImagesAndHistory,
+                Icons.image_outlined,
+                !compactTool,
+                () {
+                  shortcutFocus.requestFocus();
+                  setState(() => compactTool = false);
+                },
+                'desktop-canvas-tab',
+              ),
+              const SizedBox(width: 2),
+            ],
+            _tab(
+              context.l10n.aiAssistant,
+              Icons.auto_awesome_outlined,
+              (!compact || compactTool) && tool == 0,
+              () => _tool(0),
+              'desktop-ai-tab',
             ),
-          ),
+            const SizedBox(width: 2),
+            _tab(
+              context.l10n.tabInspiration,
+              Icons.lightbulb_outline,
+              (!compact || compactTool) && tool == 1,
+              () => _tool(1),
+              'desktop-inspiration-tab',
+            ),
+            const SizedBox(width: 2),
+            _tab(
+              context.l10n.sectionCodex,
+              Icons.menu_book_outlined,
+              (!compact || compactTool) && tool == 2,
+              () => _tool(2),
+              'desktop-codex-tab',
+            ),
+          ],
         ),
       ),
     ),
@@ -266,48 +232,56 @@ class _DesktopWorkspaceState extends ConsumerState<DesktopWorkspace>
     bool selected,
     VoidCallback action,
     String id,
-  ) => Material(
-    color: selected
-        ? context.scheme.surfaceContainerLowest
-        : Colors.transparent,
-    shape: RoundedRectangleBorder(
-      borderRadius: BorderRadius.circular(7),
-      side: BorderSide(
-        color: selected
-            ? context.scheme.outlineVariant.withValues(alpha: .8)
-            : Colors.transparent,
-      ),
-    ),
-    child: InkWell(
-      key: ValueKey(id),
-      borderRadius: BorderRadius.circular(7),
-      onTap: action,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              icon,
-              size: 15,
-              color: selected
-                  ? context.scheme.primary
-                  : context.scheme.onSurfaceVariant,
+  ) => InkWell(
+    key: ValueKey(id),
+    borderRadius: BorderRadius.circular(6),
+    onTap: action,
+    child: Stack(
+      alignment: Alignment.center,
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          child: SizedBox(
+            height: 40,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  icon,
+                  size: 15,
+                  color: selected
+                      ? context.scheme.primary
+                      : context.scheme.onSurfaceVariant,
+                ),
+                const SizedBox(width: 5),
+                Text(
+                  text,
+                  style: TextStyle(
+                    fontSize: 12.5,
+                    fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
+                    color: selected
+                        ? context.scheme.onSurface
+                        : context.scheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(width: 5),
-            Text(
-              text,
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-                color: selected
-                    ? context.scheme.primary
-                    : context.scheme.onSurfaceVariant,
-              ),
-            ),
-          ],
+          ),
         ),
-      ),
+        Positioned(
+          left: 10,
+          right: 10,
+          bottom: 0,
+          child: AnimatedContainer(
+            duration: Motion.fast,
+            height: 2,
+            decoration: BoxDecoration(
+              color: selected ? context.scheme.primary : Colors.transparent,
+              borderRadius: BorderRadius.circular(1),
+            ),
+          ),
+        ),
+      ],
     ),
   );
 
@@ -352,7 +326,6 @@ class _DesktopWorkspaceState extends ConsumerState<DesktopWorkspace>
             value: (left ? _leftCollapsed : _rightCollapsed).toString(),
           ),
     );
-    _syncFocusMode();
   }
 
   Widget _collapseButton({required bool left}) {
@@ -434,25 +407,12 @@ class _DesktopWorkspaceState extends ConsumerState<DesktopWorkspace>
   @override
   Widget build(BuildContext context) {
     super.build(context);
-    ref.listen<int?>(desktopFocusRequestProvider, (_, req) {
-      if (req != null) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (!mounted) return;
-          ref.read(desktopFocusRequestProvider.notifier).handled(req);
-          _toggleFocusCanvas();
-        });
-      }
-    });
     return CallbackShortcuts(
       bindings: {
         const SingleActivator(LogicalKeyboardKey.keyA, alt: true): () =>
             _tool(0),
         const SingleActivator(LogicalKeyboardKey.keyI, alt: true): () =>
             _tool(1),
-        const SingleActivator(LogicalKeyboardKey.backslash, control: true):
-            _toggleFocusCanvas,
-        const SingleActivator(LogicalKeyboardKey.backslash, meta: true):
-            _toggleFocusCanvas,
         const SingleActivator(LogicalKeyboardKey.enter, control: true):
             _generateFromShortcut,
         const SingleActivator(LogicalKeyboardKey.enter, meta: true):
