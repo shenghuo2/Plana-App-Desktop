@@ -17,6 +17,7 @@ import 'package:plana_app/features/gallery/models.dart';
 import 'package:plana_app/features/gallery/widgets/result_canvas.dart';
 import 'package:plana_app/features/profile/cloud_storage_page.dart';
 import 'package:plana_app/features/shell/desktop_task_status.dart';
+import 'support/pump_until.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -103,39 +104,25 @@ void main() {
         ),
       );
     });
-    final deadline = DateTime.now().add(const Duration(seconds: 5));
-    while (container
-        .read(externalImagePushUploadsProvider)
-        .pending
-        .contains(image.id)) {
-      if (DateTime.now().isAfter(deadline)) fail('Upload did not settle');
-      await tester.runAsync(
-        () => Future<void>.delayed(const Duration(milliseconds: 1)),
-      );
-      await tester.pump();
-    }
+    await pumpUntil(
+      tester,
+      () => !container
+          .read(externalImagePushUploadsProvider)
+          .pending
+          .contains(image.id),
+      reason: 'Upload did not settle',
+    );
     await tester.pump();
   }
 
   Future<void> finish(WidgetTester tester) async {
     await tester.pumpWidget(const SizedBox.shrink());
     container.dispose();
-    var flushed = false;
-    await tester.runAsync(() async {
-      unawaited(
-        stores.flushForExit().then((_) {
-          flushed = true;
-        }),
-      );
-    });
-    final deadline = DateTime.now().add(const Duration(seconds: 5));
-    while (!flushed) {
-      if (DateTime.now().isAfter(deadline)) fail('Stores did not settle');
-      await tester.runAsync(
-        () => Future<void>.delayed(const Duration(milliseconds: 1)),
-      );
-      await tester.pump();
-    }
+    await pumpUntilComplete(
+      tester,
+      stores.flushForExit(),
+      reason: 'Stores did not settle',
+    );
   }
 
   testWidgets('画布按钮默认远端上传,开启后替换为收藏且收藏状态实时变化', (tester) async {
