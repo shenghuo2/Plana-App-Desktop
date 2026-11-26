@@ -135,4 +135,54 @@ void main() {
     }
     expect(PrefsStore.migrateKeys, contains('auth_mode'));
   });
+
+  test('一次性迁移完成后不再探测 secure storage，失败项仍会在下次启动重试', () async {
+    final root = tmp();
+    var reads = 0;
+    await PrefsStore.open(
+      root,
+      legacyRead: (k) async {
+        reads++;
+        return null;
+      },
+      legacyDelete: (_) async {},
+    );
+    expect(reads, PrefsStore.migrateKeys.length);
+
+    var secondReads = 0;
+    await PrefsStore.open(
+      root,
+      legacyRead: (k) async {
+        secondReads++;
+        return null;
+      },
+      legacyDelete: (_) async {},
+    );
+    expect(secondReads, 0, reason: 'clean migration marks prefs_migrated_v1');
+
+    final failRoot = tmp();
+    var attempt = 0;
+    final partial = await PrefsStore.open(
+      failRoot,
+      legacyRead: (k) async {
+        attempt++;
+        if (k == 'gen_settings') throw StateError('keychain denied');
+        return null;
+      },
+      legacyDelete: (_) async {},
+    );
+    expect(partial.get(PrefsStore.migratedKey), isNull);
+    final firstReads = attempt;
+    expect(firstReads, PrefsStore.migrateKeys.length);
+
+    await PrefsStore.open(
+      failRoot,
+      legacyRead: (k) async {
+        attempt++;
+        return k == 'gen_settings' ? '{"steps":20}' : null;
+      },
+      legacyDelete: (_) async {},
+    );
+    expect(attempt, greaterThan(firstReads));
+  });
 }

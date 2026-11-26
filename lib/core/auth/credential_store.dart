@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
@@ -25,9 +26,20 @@ import 'secure_storage.dart';
 /// 继承 [FlutterSecureStorage] 只为让各读写点(都经 [secureStorageProvider])
 /// 一行不改。加密档原样转给 [_secure];各读写点从不传平台参数,这里也不往下传。
 class CredentialStore extends FlutterSecureStorage {
-  CredentialStore._(this._secure, this._file, {this._lost = false});
+  CredentialStore._(
+    this._secure,
+    this._file, {
+    this._prefs,
+    this._lost = false,
+    this._singleVault = false,
+  });
 
   final FlutterSecureStorage _secure;
+  final PrefsStore? _prefs;
+  final bool _singleVault;
+  Map<String, String>? _vaultCache;
+  bool _vaultPersisted = false;
+  Future<void> _vaultQueue = Future.value();
 
   /// 非空 = 已改存文件(复用 [PrefsStore] 的整表读写:原子落盘、串行写)。
   final PrefsStore? _file;
@@ -42,7 +54,14 @@ class CredentialStore extends FlutterSecureStorage {
 
   static const fileName = 'credentials.json';
 
+  /// Single Keychain item holding all macOS credentials so ad-hoc updates
+  /// trigger at most one Keychain authorization prompt.
+  static const macOsVaultKey = 'plana_desktop_vault_v1';
+  static const macOsVaultMigratedKey = 'macos_vault_migrated_v1';
+  static const _smokeTestKey = '__plana_macos_keychain_smoke_test__';
+
   bool get usesFile => _file != null;
+  bool get usesSingleVault => _singleVault;
 
   /// 本次启动认定「加密存储被清过,且什么都没救回来」时为真;取一次就清掉,
   /// 只提示一次。
@@ -59,10 +78,29 @@ class CredentialStore extends FlutterSecureStorage {
     Directory? root,
     FlutterSecureStorage secure = kSecureStorage,
     bool? allowFileFallback,
+    bool? useSingleVault,
   }) async {
     // Desktop credentials stay in the platform's encrypted store. Android's
     // Keystore recovery must never turn a desktop key into a plaintext file.
     if (!(allowFileFallback ?? Platform.isAndroid)) {
+      if (useSingleVault ?? Platform.isMacOS) {
+        final store = CredentialStore._(
+          secure,
+          null,
+          prefs: prefs,
+          singleVault: true,
+        );
+        try {
+          await store._warmSingleVault();
+        } catch (e) {
+          // Allow startup even if Keychain access is canceled or denied;
+          // _vaultCache stays null so subsequent writes cannot clobber data.
+          logi(
+            '[cred] macOS single vault startup load deferred: ${e.runtimeType}',
+          );
+        }
+        return store;
+      }
       return CredentialStore._(secure, null);
     }
     try {
@@ -165,7 +203,95 @@ class CredentialStore extends FlutterSecureStorage {
     WebOptions? webOptions,
     AppleOptions? mOptions,
     WindowsOptions? wOptions,
-  }) => _file?.read(key: key) ?? _secure.read(key: key);
+  }) => _runVaultOrDirect(
+    () async => (await _loadSingleVaultLocked())[key],
+    () => _file?.read(key: key) ?? _secure.read(key: key),
+  );
+
+  String _encodeVault(Map<String, String> entries) =>
+      jsonEncode({'v': 1, 'entries': entries});
+
+  Map<String, String> _decodeVault(String raw) {
+    final decoded = jsonDecode(raw);
+    if (decoded is! Map || decoded['entries'] is! Map) {
+      throw const FormatException('corrupt macOS credential vault');
+    }
+    final out = <String, String>{};
+    for (final e in (decoded['entries'] as Map).entries) {
+      if (e.key is String && e.value is String) {
+        out[e.key as String] = e.value as String;
+      }
+    }
+    return out;
+  }
+
+  Future<T> _runVaultOp<T>(Future<T> Function() action) {
+    final next = _vaultQueue.then((_) => action());
+    _vaultQueue = next.then<void>((_) {}, onError: (Object _, StackTrace _) {});
+    return next;
+  }
+
+  Future<T> _runVaultOrDirect<T>(
+    Future<T> Function() vaultAction,
+    Future<T> Function() directAction,
+  ) => _singleVault ? _runVaultOp(vaultAction) : directAction();
+
+  Future<void> _warmSingleVault() => _runVaultOp(_loadSingleVaultLocked);
+
+  Future<Map<String, String>> _loadSingleVaultLocked() async {
+    if (_vaultCache != null) return _vaultCache!;
+    final rawVault = await _secure.read(key: macOsVaultKey);
+    final entries = rawVault == null
+        ? <String, String>{}
+        : _decodeVault(rawVault);
+    if (rawVault != null) _vaultPersisted = true;
+
+    if (_prefs?.get(macOsVaultMigratedKey) != '1') {
+      final all = await _secure.readAll();
+      final legacySecretKeys = <String>[];
+      final legacyPrefKeys = <String>[];
+      for (final e in all.entries) {
+        final k = e.key;
+        if (k == macOsVaultKey || k == canaryKey || k == _smokeTestKey) {
+          continue;
+        }
+        if (PrefsStore.migrateKeys.contains(k)) {
+          legacyPrefKeys.add(k);
+          if (_prefs != null && _prefs.get(k) == null && e.value.isNotEmpty) {
+            await _prefs.write(key: k, value: e.value);
+          }
+          continue;
+        }
+        legacySecretKeys.add(k);
+        // Existing vault entries take precedence over leftover legacy items.
+        entries.putIfAbsent(k, () => e.value);
+      }
+
+      if (legacySecretKeys.isNotEmpty) {
+        final encoded = _encodeVault(entries);
+        await _secure.write(key: macOsVaultKey, value: encoded);
+        final verify = await _secure.read(key: macOsVaultKey);
+        if (verify != encoded) {
+          throw StateError('vault verification mismatch');
+        }
+        _vaultPersisted = true;
+      }
+
+      var allDeleted = true;
+      for (final k in [...legacySecretKeys, ...legacyPrefKeys]) {
+        try {
+          await _secure.delete(key: k);
+        } catch (_) {
+          allDeleted = false;
+        }
+      }
+      if (allDeleted && _prefs != null) {
+        await _prefs.write(key: macOsVaultMigratedKey, value: '1');
+      }
+    }
+
+    return _vaultCache = entries;
+  }
 
   @override
   Future<void> write({
@@ -177,9 +303,22 @@ class CredentialStore extends FlutterSecureStorage {
     WebOptions? webOptions,
     AppleOptions? mOptions,
     WindowsOptions? wOptions,
-  }) =>
-      _file?.write(key: key, value: value) ??
-      _secure.write(key: key, value: value);
+  }) {
+    if (value == null) return delete(key: key);
+    return _runVaultOrDirect(
+      () async {
+        final current = await _loadSingleVaultLocked();
+        if (current[key] == value && _vaultPersisted) return;
+        final next = Map<String, String>.of(current)..[key] = value;
+        await _secure.write(key: macOsVaultKey, value: _encodeVault(next));
+        _vaultCache = next;
+        _vaultPersisted = true;
+      },
+      () =>
+          _file?.write(key: key, value: value) ??
+          _secure.write(key: key, value: value),
+    );
+  }
 
   @override
   Future<void> delete({
@@ -190,7 +329,17 @@ class CredentialStore extends FlutterSecureStorage {
     WebOptions? webOptions,
     AppleOptions? mOptions,
     WindowsOptions? wOptions,
-  }) => _file?.delete(key: key) ?? _secure.delete(key: key);
+  }) => _runVaultOrDirect(() async {
+    final current = await _loadSingleVaultLocked();
+    if (!current.containsKey(key)) return;
+    final next = Map<String, String>.of(current)..remove(key);
+    // Keep the empty vault item so macOS Keychain retains the Always Allow ACL.
+    if (_vaultPersisted || next.isNotEmpty) {
+      await _secure.write(key: macOsVaultKey, value: _encodeVault(next));
+      _vaultPersisted = true;
+    }
+    _vaultCache = next;
+  }, () => _file?.delete(key: key) ?? _secure.delete(key: key));
 
   @override
   Future<bool> containsKey({
@@ -201,11 +350,14 @@ class CredentialStore extends FlutterSecureStorage {
     WebOptions? webOptions,
     AppleOptions? mOptions,
     WindowsOptions? wOptions,
-  }) async {
-    final f = _file;
-    if (f != null) return f.get(key) != null;
-    return _secure.containsKey(key: key);
-  }
+  }) => _runVaultOrDirect(
+    () async => (await _loadSingleVaultLocked()).containsKey(key),
+    () async {
+      final f = _file;
+      if (f != null) return f.get(key) != null;
+      return _secure.containsKey(key: key);
+    },
+  );
 
   @override
   Future<Map<String, String>> readAll({
@@ -215,11 +367,14 @@ class CredentialStore extends FlutterSecureStorage {
     WebOptions? webOptions,
     AppleOptions? mOptions,
     WindowsOptions? wOptions,
-  }) async {
-    final f = _file;
-    if (f != null) return f.snapshot();
-    return {...await _secure.readAll()}..remove(canaryKey);
-  }
+  }) => _runVaultOrDirect(
+    () async => Map<String, String>.of(await _loadSingleVaultLocked()),
+    () async {
+      final f = _file;
+      if (f != null) return f.snapshot();
+      return {...await _secure.readAll()}..remove(canaryKey);
+    },
+  );
 
   /// 加密档逐条删、留下暗号 —— 整份清掉的话,下次启动会被当成「被系统清过」。
   @override
@@ -230,11 +385,22 @@ class CredentialStore extends FlutterSecureStorage {
     WebOptions? webOptions,
     AppleOptions? mOptions,
     WindowsOptions? wOptions,
-  }) async {
-    final f = _file;
-    if (f != null) return f.clear();
-    for (final k in [...(await _secure.readAll()).keys]) {
-      if (k != canaryKey) await _secure.delete(key: k);
-    }
-  }
+  }) => _runVaultOrDirect(
+    () async {
+      final current = await _loadSingleVaultLocked();
+      if (current.isEmpty) return;
+      final next = <String, String>{};
+      if (_vaultPersisted) {
+        await _secure.write(key: macOsVaultKey, value: _encodeVault(next));
+      }
+      _vaultCache = next;
+    },
+    () async {
+      final f = _file;
+      if (f != null) return f.clear();
+      for (final k in [...(await _secure.readAll()).keys]) {
+        if (k != canaryKey) await _secure.delete(key: k);
+      }
+    },
+  );
 }
