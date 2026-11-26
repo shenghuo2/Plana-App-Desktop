@@ -1308,4 +1308,76 @@ void main() {
       expect(button().onPressed, isNotNull);
     },
   );
+
+  test(
+    'refreshModels throws PlanAuthException on non-JSON HTTP 200 payload',
+    () async {
+      final badClient = MockClient(
+        (req) async => http.Response('<html>bad gateway</html>', 200),
+      );
+      final badStore = PlanStore(
+        store.storage,
+        PlanOAuth(badClient),
+        directory: () async => temp,
+      );
+      final id = (await store.signIn())!;
+      await expectLater(
+        badStore.refreshModels(id),
+        throwsA(isA<PlanAuthException>()),
+      );
+    },
+  );
+
+  test(
+    'corrupted profile missing email or label loads safely without TypeError',
+    () async {
+      const key = 'chatgpt_plan_profiles_v1';
+      await store.storage.write(
+        key: key,
+        value: jsonEncode({
+          'active': 'p1',
+          'profiles': {
+            'p1': {
+              'models': {'m1': 'Model 1'},
+              'selected': ['m1'],
+            },
+          },
+        }),
+      );
+      final snapshot = await store.accounts();
+      expect(snapshot.active, isNotNull);
+      expect(snapshot.active!.email, isEmpty);
+      expect(snapshot.active!.displayLabel, isEmpty);
+    },
+  );
+
+  test(
+    'PlanRuntime skips malformed SSE JSON frames instead of crashing stream',
+    () async {
+      final runtime = PlanRuntime(
+        PlanEndpoint(store, (client: 'personal', model: 'visible')),
+      );
+      final done =
+          await runtime
+                  .respond(
+                    AgentTurnRequest(userText: 'hello', imageModel: 'nai'),
+                    MockClient((_) async {
+                      return http.Response(
+                        'data: {truncated-json\n\n'
+                        'data: {"type":"response.output_text.delta","delta":"普通回复。"}\n\n'
+                        'data: {"type":"response.completed","response":{"status":"completed"}}\n\n',
+                        200,
+                        headers: {
+                          'content-type': 'text/event-stream; charset=utf-8',
+                        },
+                      );
+                    }),
+                    'fixture',
+                  )
+                  .where((e) => e is AgentDone)
+                  .single
+              as AgentDone;
+      expect(done.result.replyText, '普通回复。');
+    },
+  );
 }

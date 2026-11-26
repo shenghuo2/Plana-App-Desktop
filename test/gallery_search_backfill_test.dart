@@ -124,4 +124,24 @@ void main() {
     await g.clearSearch();
     expect(await g.readSearchIndex(), isEmpty);
   });
+
+  test('检索索引写入或并回失败时记录日志但不抛出未捕获异步异常', () async {
+    final root = _tempRoot();
+    final stores = await AppStores.open(rootOverride: root);
+    final g = stores.gallery;
+    // Block search log creation with a directory at the log file path.
+    Directory('${root.path}/gallery/search.v3.log').createSync(recursive: true);
+
+    g.appendSearch({
+      'gen-fail': (
+        model: 'm',
+        text: 'fail',
+        ids: const [],
+        cards: const [],
+        folds: const [],
+      ),
+    });
+    await expectLater(g.compactSearch(), completes);
+    await expectLater(g.idle, completes);
+  });
 }

@@ -59,8 +59,16 @@ class _UserManualEntryState extends State<UserManualEntry> {
     _library = null;
     try {
       await _host.invokeMethod<void>('close');
+    } on PlatformException {
+      // Ignore host channel teardown failures when the window/plugin is already gone.
+    } on MissingPluginException {
+      // Non-Windows tests or headless environments may not register this channel.
     } finally {
-      await library?.close();
+      try {
+        await library?.close();
+      } on Exception {
+        // Ignore cleanup failures during widget disposal.
+      }
     }
   }
 
@@ -90,19 +98,26 @@ class _UserManualEntryState extends State<UserManualEntry> {
       return null;
     }
     if (call.method != 'request') throw MissingPluginException();
-    final message =
-        jsonDecode(call.arguments as String) as Map<String, dynamic>;
-    final library = _library!;
+    Object? id;
     Object? value;
     try {
-      switch (message['method']) {
+      final raw = call.arguments;
+      if (raw is! String) throw const FormatException('无法识别手册请求。');
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map<String, dynamic>) {
+        throw const FormatException('无法识别手册请求。');
+      }
+      id = decoded['id'];
+      final library = _library;
+      if (library == null) throw const FormatException('手册已关闭。');
+      switch (decoded['method']) {
         case 'load':
           value = {...await library.load(), 'version': kAppVersion};
         case 'save':
           if (_saving) throw const FormatException('正在保存上一份修改。');
           _saving = true;
           try {
-            value = await library.save(message['page'] as Map<String, dynamic>);
+            value = await library.save(decoded['page'] as Map<String, dynamic>);
           } finally {
             _saving = false;
           }
@@ -112,7 +127,7 @@ class _UserManualEntryState extends State<UserManualEntry> {
             type: FileType.custom,
             allowedExtensions: [...manualImageTypes, ...manualVideoTypes],
           );
-          final path = result?.files.single.path;
+          final path = result?.files.firstOrNull?.path;
           if (mounted && path != null) value = await library.stage(File(path));
         case 'discard':
           await library.discardStaged();
@@ -126,10 +141,10 @@ class _UserManualEntryState extends State<UserManualEntry> {
         default:
           throw const FormatException('无法识别手册操作。');
       }
-      return jsonEncode({'id': message['id'], 'value': value});
+      return jsonEncode({'id': id, 'value': value});
     } catch (e) {
       return jsonEncode({
-        'id': message['id'],
+        'id': id,
         'error': e is FormatException ? e.message : e.toString(),
       });
     }

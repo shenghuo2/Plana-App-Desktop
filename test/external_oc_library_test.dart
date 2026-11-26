@@ -725,4 +725,31 @@ void main() {
       throwsFormatException,
     );
   });
+
+  test(
+    'malformed character image URI is skipped without failing character load',
+    () async {
+      final file = File('${dir.path}/bad-img.json');
+      await file.writeAsString(
+        jsonEncode({
+          'characters': [
+            {
+              'name': 'Mina',
+              'author': 'Alice',
+              'prompt': 'mina prompt',
+              'images': ['https://[::1/bad', 'https://example.com/ok.png'],
+            },
+          ],
+        }),
+      );
+      final source = await repo.connect(file.uri);
+      final entries = await repo.character(
+        source,
+        source.catalog.characters.single,
+      );
+      expect(entries, hasLength(1));
+      expect(entries.single.positive, 'mina prompt');
+      expect(entries.single.previews, ['https://example.com/ok.png']);
+    },
+  );
 }
