@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -242,6 +243,8 @@ class _SpySecureStorage extends FlutterSecureStorage {
   bool failRead = false;
   bool failWrite = false;
   bool failDelete = false;
+  bool forbidReadAll = false;
+  String? failReadKey;
 
   void resetCounts() {
     readCalls.clear();
@@ -261,7 +264,7 @@ class _SpySecureStorage extends FlutterSecureStorage {
     WindowsOptions? wOptions,
   }) async {
     readCalls.add(key);
-    if (failRead) throw StateError('keychain denied');
+    if (failRead || key == failReadKey) throw StateError('keychain denied');
     return data[key];
   }
 
@@ -311,7 +314,6 @@ class _SpySecureStorage extends FlutterSecureStorage {
     WindowsOptions? wOptions,
   }) async {
     readCalls.add(key);
-    if (failRead) throw StateError('keychain denied');
     return data.containsKey(key);
   }
 
@@ -325,6 +327,9 @@ class _SpySecureStorage extends FlutterSecureStorage {
     WindowsOptions? wOptions,
   }) async {
     readAllCalls++;
+    if (forbidReadAll) {
+      throw StateError('macOS classic Keychain forbids readAll');
+    }
     if (failRead) throw StateError('keychain denied');
     return Map<String, String>.of(data);
   }
@@ -336,7 +341,7 @@ void registerMacOsVaultTests(
 ) {
   group('macOS 单条目钥匙串合并存储', () {
     test('全新安装写入多项凭据仅存单条目，重启后仅一次底层读取且不落明文文件', () async {
-      final spy = _SpySecureStorage();
+      final spy = _SpySecureStorage()..forbidReadAll = true;
       final p1 = await boot();
       final c1 = await CredentialStore.open(
         p1,
@@ -344,9 +349,12 @@ void registerMacOsVaultTests(
         secure: spy,
         allowFileFallback: false,
         useSingleVault: true,
+        listKeys: () async => spy.data.keys.toList(),
       );
       expect(c1.usesSingleVault, isTrue);
       expect(c1.usesFile, isFalse);
+      expect(c1.needsAuthorization, isFalse);
+      expect(spy.readAllCalls, 0);
       expect(spy.writeCalls, isEmpty);
       expect(p1.get(CredentialStore.macOsVaultMigratedKey), '1');
 
@@ -370,6 +378,7 @@ void registerMacOsVaultTests(
         secure: spy,
         allowFileFallback: false,
         useSingleVault: true,
+        listKeys: () async => spy.data.keys.toList(),
       );
       expect(spy.readAllCalls, 0);
       expect(spy.readCalls, [CredentialStore.macOsVaultKey]);
@@ -382,7 +391,7 @@ void registerMacOsVaultTests(
       expect(spy.readCalls, [CredentialStore.macOsVaultKey]);
     });
 
-    test('老版本多条目钥匙串一次性迁入单条目、清除旧条目，重启只读 1 次', () async {
+    test('老版本多条目钥匙串经属性枚举迁入单条目、清除旧条目且绝不调用 readAll', () async {
       final spy = _SpySecureStorage({
         'nai_access_keys': '["k1"]',
         'bot_session': '{"sessionId":"b2"}',
@@ -390,7 +399,7 @@ void registerMacOsVaultTests(
         'drive_tokens': '{"access":"tok"}',
         'theme_settings': '{"mode":"dark"}',
         '__plana_macos_keychain_smoke_test__': 'smoke',
-      });
+      })..forbidReadAll = true;
       final p1 = await boot();
       final c1 = await CredentialStore.open(
         p1,
@@ -398,9 +407,10 @@ void registerMacOsVaultTests(
         secure: spy,
         allowFileFallback: false,
         useSingleVault: true,
+        listKeys: () async => spy.data.keys.toList(),
       );
 
-      expect(spy.readAllCalls, 1);
+      expect(spy.readAllCalls, 0);
       expect(p1.get('theme_settings'), '{"mode":"dark"}');
       expect(p1.get(CredentialStore.macOsVaultMigratedKey), '1');
       expect(spy.data.keys.toSet(), {
@@ -420,19 +430,22 @@ void registerMacOsVaultTests(
         secure: spy,
         allowFileFallback: false,
         useSingleVault: true,
+        listKeys: () async => spy.data.keys.toList(),
       );
       expect(spy.readAllCalls, 0);
       expect(spy.readCalls, [CredentialStore.macOsVaultKey]);
       expect(await c2.read(key: 'drive_tokens'), '{"access":"tok"}');
     });
 
-    test('启动读取钥匙串被拒绝或报错时不阻塞启动且后续写入不覆盖原库', () async {
+    test('属性枚举不可用时回退 containsKey 探测迁移已知旧键及外置角色库密钥', () async {
+      await Directory(
+        '${getRoot().path}/external_oc/oc123',
+      ).create(recursive: true);
       final spy = _SpySecureStorage({
-        CredentialStore.macOsVaultKey: jsonEncode({
-          'v': 1,
-          'entries': {'nai_access_keys': 'existing'},
-        }),
-      })..failRead = true;
+        'nai_access_keys': '["k_fallback"]',
+        'external_oc_oc123': 'oc-secret',
+        'external_oc_session_oc123': 'cookie-1',
+      })..forbidReadAll = true;
       final p = await boot();
       final c = await CredentialStore.open(
         p,
@@ -440,46 +453,178 @@ void registerMacOsVaultTests(
         secure: spy,
         allowFileFallback: false,
         useSingleVault: true,
+        listKeys: () async => null,
       );
 
+      expect(spy.readAllCalls, 0);
+      expect(c.needsAuthorization, isFalse);
+      expect(await c.read(key: 'nai_access_keys'), '["k_fallback"]');
+      expect(await c.read(key: 'external_oc_oc123'), 'oc-secret');
+      expect(await c.read(key: 'external_oc_session_oc123'), 'cookie-1');
+      expect(spy.data.keys.toList(), [CredentialStore.macOsVaultKey]);
+    });
+
+    test('启动读取钥匙串被拒绝后标记需要授权，主动申请授权后可解锁并恢复全部凭据', () async {
+      var activated = 0;
+      final spy =
+          _SpySecureStorage({
+              CredentialStore.macOsVaultKey: jsonEncode({
+                'v': 1,
+                'entries': {'nai_access_keys': 'existing'},
+              }),
+            })
+            ..forbidReadAll = true
+            ..failRead = true;
+      final p = await boot();
+      final c = await CredentialStore.open(
+        p,
+        root: getRoot(),
+        secure: spy,
+        allowFileFallback: false,
+        useSingleVault: true,
+        listKeys: () async => spy.data.keys.toList(),
+        activateForPrompt: () async {
+          activated++;
+        },
+      );
+
+      expect(c.needsAuthorization, isTrue);
+      expect(c.isVaultUnlocked, isFalse);
       expect(p.get(CredentialStore.macOsVaultMigratedKey), isNull);
       await expectLater(
         c.write(key: 'nai_access_keys', value: 'new'),
         throwsStateError,
       );
       expect(spy.writeCalls, isEmpty);
+
       spy.failRead = false;
+      final unlock = await c.requestKeychainAccess();
+      expect(activated, 1);
+      expect(unlock.ok, isTrue);
+      expect(unlock.entryCount, 1);
+      expect(c.needsAuthorization, isFalse);
+      expect(c.isVaultUnlocked, isTrue);
       expect(await c.read(key: 'nai_access_keys'), 'existing');
     });
 
-    test('迁移写入失败时不删除旧钥匙串条目也不标记已迁移', () async {
-      final spy = _SpySecureStorage({
-        'nai_access_keys': '["k1"]',
-        'bot_session': '{"sessionId":"b1"}',
-      })..failWrite = true;
+    test('部分老条目读取被拒绝时保留未完成迁移标记，授权完成后补迁全部旧条目', () async {
+      final spy =
+          _SpySecureStorage({
+              'nai_access_keys': '["k1"]',
+              'bot_session': '{"sessionId":"b1"}',
+            })
+            ..forbidReadAll = true
+            ..failReadKey = 'bot_session';
       final p = await boot();
-      await CredentialStore.open(
+      final c = await CredentialStore.open(
         p,
         root: getRoot(),
         secure: spy,
         allowFileFallback: false,
         useSingleVault: true,
+        listKeys: () async => spy.data.keys.toList(),
       );
 
+      expect(c.needsAuthorization, isTrue);
+      expect(p.get(CredentialStore.macOsVaultMigratedKey), isNull);
+      expect(spy.data.containsKey('bot_session'), isTrue);
+      expect(spy.data.containsKey(CredentialStore.macOsVaultKey), isTrue);
+
+      spy.failReadKey = null;
+      final unlock = await c.requestKeychainAccess();
+      expect(unlock.ok, isTrue);
+      expect(unlock.entryCount, 2);
+      expect(c.needsAuthorization, isFalse);
+      expect(p.get(CredentialStore.macOsVaultMigratedKey), '1');
+      expect(spy.data.keys.toList(), [CredentialStore.macOsVaultKey]);
+      expect(await c.read(key: 'nai_access_keys'), '["k1"]');
+      expect(await c.read(key: 'bot_session'), '{"sessionId":"b1"}');
+    });
+
+    test('全新安装调用 requestKeychainAccess 会落盘校验单条目以预申请读写授权', () async {
+      final spy = _SpySecureStorage()..forbidReadAll = true;
+      final p = await boot();
+      final c = await CredentialStore.open(
+        p,
+        root: getRoot(),
+        secure: spy,
+        allowFileFallback: false,
+        useSingleVault: true,
+        listKeys: () async => spy.data.keys.toList(),
+      );
+
+      final result = await c.requestKeychainAccess();
+      expect(result.ok, isTrue);
+      expect(result.entryCount, 0);
+      expect(spy.data.containsKey(CredentialStore.macOsVaultKey), isTrue);
+      expect(c.isVaultUnlocked, isTrue);
+      expect(c.needsAuthorization, isFalse);
+    });
+
+    test('迁移写入失败时不删除旧钥匙串条目也不标记已迁移', () async {
+      final spy =
+          _SpySecureStorage({
+              'nai_access_keys': '["k1"]',
+              'bot_session': '{"sessionId":"b1"}',
+            })
+            ..forbidReadAll = true
+            ..failWrite = true;
+      final p = await boot();
+      final c = await CredentialStore.open(
+        p,
+        root: getRoot(),
+        secure: spy,
+        allowFileFallback: false,
+        useSingleVault: true,
+        listKeys: () async => spy.data.keys.toList(),
+      );
+
+      expect(c.needsAuthorization, isTrue);
       expect(spy.deleteCalls, isEmpty);
       expect(p.get(CredentialStore.macOsVaultMigratedKey), isNull);
       expect(spy.data['nai_access_keys'], '["k1"]');
       expect(spy.data['bot_session'], '{"sessionId":"b1"}');
     });
 
+    test('describeKeychainError 准确映射常见 macOS 钥匙串错误码', () {
+      expect(
+        CredentialStore.describeKeychainError(
+          PlatformException(
+            code: 'Unexpected security result code',
+            details: -25293,
+          ),
+        ),
+        contains('始终允许'),
+      );
+      expect(
+        CredentialStore.describeKeychainError(
+          PlatformException(
+            code: 'Unexpected security result code',
+            details: -128,
+          ),
+        ),
+        contains('取消'),
+      );
+      expect(
+        CredentialStore.describeKeychainError(
+          PlatformException(
+            code: 'Unexpected security result code',
+            details: -25308,
+          ),
+        ),
+        contains('锁定'),
+      );
+    });
+
     test('并发写入多项凭据均完整落入同一单条目', () async {
-      final spy = _SpySecureStorage();
+      final spy = _SpySecureStorage()..forbidReadAll = true;
       final c = await CredentialStore.open(
         await boot(),
         root: getRoot(),
         secure: spy,
         allowFileFallback: false,
         useSingleVault: true,
+        listKeys: () async => spy.data.keys.toList(),
       );
 
       await Future.wait([
@@ -495,13 +640,14 @@ void registerMacOsVaultTests(
     });
 
     test('delete 与 deleteAll 清空条目后保留单条目外壳以维持授权', () async {
-      final spy = _SpySecureStorage();
+      final spy = _SpySecureStorage()..forbidReadAll = true;
       final c = await CredentialStore.open(
         await boot(),
         root: getRoot(),
         secure: spy,
         allowFileFallback: false,
         useSingleVault: true,
+        listKeys: () async => spy.data.keys.toList(),
       );
       await c.write(key: 'a', value: '1');
       await c.write(key: 'b', value: '2');

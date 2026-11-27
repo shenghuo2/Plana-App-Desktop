@@ -43,6 +43,7 @@ class BotSessionNotifier extends AsyncNotifier<BotSession?> {
 
   @override
   Future<BotSession?> build() async {
+    ref.watch(credentialRevisionProvider);
     try {
       final raw = await _storage.read(key: _botSessionKey);
       if (raw == null || raw.isEmpty) return null;

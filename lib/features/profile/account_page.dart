@@ -4,7 +4,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/auth/auth_mode.dart';
 import '../../core/auth/bot_session_store.dart';
+import '../../core/auth/credential_store.dart';
 import '../../core/auth/nai_keys.dart';
+import '../../core/auth/secure_storage.dart'
+    show requestMacOsKeychainAccess, secureStorageProvider;
 import '../../core/net/backend_config.dart';
 import '../../core/net/nai_client.dart';
 import '../../core/net/nai_key_status.dart';
@@ -94,6 +97,7 @@ class _AccountPageState extends ConsumerState<AccountPage> {
     final session = ref.watch(botSessionProvider).value;
     final backendUrl = ref.watch(backendBaseProvider).value ?? '';
     final compSource = ref.watch(effectiveCompletionSourceProvider);
+    final storage = ref.watch(secureStorageProvider);
 
     return SettingsScaffold(
       appBar: AppBar(title: Text(l10nNow.accountAccess)),
@@ -101,6 +105,10 @@ class _AccountPageState extends ConsumerState<AccountPage> {
         padding: const EdgeInsets.fromLTRB(14, 8, 14, 24),
         children: [
           const SettingsPageHeader(),
+          if (storage is CredentialStore && storage.usesSingleVault) ...[
+            _MacOsKeychainCard(store: storage),
+            const SizedBox(height: 12),
+          ],
           // 两者不是二选一:Token 与 Bot 授权各自独立配置,都可以同时存在。
           // 顶部这张只决定「付费操作走哪条路」,不再决定下面显示哪张卡。
           _RouteCard(
@@ -780,6 +788,149 @@ class _BotCard extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// macOS 钥匙串授权卡:更新后若未授权读取、或需重新触发系统授权弹窗时提供显式入口。
+class _MacOsKeychainCard extends ConsumerStatefulWidget {
+  const _MacOsKeychainCard({required this.store});
+
+  final CredentialStore store;
+
+  @override
+  ConsumerState<_MacOsKeychainCard> createState() => _MacOsKeychainCardState();
+}
+
+class _MacOsKeychainCardState extends ConsumerState<_MacOsKeychainCard> {
+  bool _requesting = false;
+
+  Future<void> _authorize() async {
+    if (_requesting) return;
+    setState(() => _requesting = true);
+    try {
+      final result = await requestMacOsKeychainAccess(ref);
+      if (!mounted) return;
+      if (result.ok) {
+        Haptics.selection();
+        hintSnack(
+          context,
+          result.entryCount > 0
+              ? '钥匙串已授权，已重新加载凭据（${result.entryCount} 项）'
+              : '钥匙串读写权限已就绪',
+          icon: Icons.check_circle_outline,
+        );
+      } else {
+        hintSnack(
+          context,
+          '钥匙串授权未完成：${result.error ?? '请重试'}',
+          icon: Icons.error_outline,
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _requesting = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = context.scheme;
+    return ValueListenableBuilder<CredentialVaultStatus>(
+      valueListenable: widget.store.vaultStatus,
+      builder: (context, status, _) {
+        final needsAuth = status.needsAuthorization;
+        final subtitle = needsAuth
+            ? (status.lastError?.isNotEmpty == true
+                  ? '${status.lastError!}。点击下方按钮重新申请系统钥匙串访问授权（建议在系统弹窗中选择「始终允许」）。'
+                  : '当前尚未取得系统钥匙串读取权限，已保存的令牌、接口与账号凭据暂时无法加载。')
+            : '单条目钥匙串保险箱已解锁，应用重启或更新后可在弹窗中选择「始终允许」以减少重复询问。';
+        final buttonLabel = _requesting
+            ? '正在申请…'
+            : needsAuth
+            ? '申请钥匙串权限'
+            : '重新验证权限';
+        final buttonIcon = _requesting
+            ? const SizedBox(
+                width: 15,
+                height: 15,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : Icon(
+                needsAuth
+                    ? Icons.vpn_key_outlined
+                    : Icons.verified_user_outlined,
+                size: 17,
+              );
+
+        return Material(
+          color: needsAuth
+              ? scheme.errorContainer.withValues(alpha: .32)
+              : scheme.surfaceContainerLow,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+            side: needsAuth
+                ? BorderSide(color: scheme.error.withValues(alpha: .45))
+                : BorderSide.none,
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 15, 16, 14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(
+                      needsAuth ? Icons.lock_outline : Icons.vpn_key_outlined,
+                      size: 17,
+                      color: needsAuth ? scheme.error : scheme.onSurfaceVariant,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      'macOS 钥匙串权限',
+                      style: context.texts.labelMedium!.copyWith(
+                        color: scheme.onSurfaceVariant,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const Spacer(),
+                    _StatusChip(
+                      saved: !needsAuth,
+                      onLabel: status.entryCount > 0
+                          ? '已授权 · ${status.entryCount} 项'
+                          : '已授权',
+                      offLabel: '需要授权',
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  subtitle,
+                  style: context.texts.bodySmall!.copyWith(
+                    color: needsAuth ? scheme.onSurface : scheme.outline,
+                    height: 1.45,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                if (needsAuth)
+                  FilledButton.icon(
+                    key: const ValueKey('macos-keychain-authorize'),
+                    onPressed: _requesting ? null : _authorize,
+                    icon: buttonIcon,
+                    label: Text(buttonLabel),
+                  )
+                else
+                  OutlinedButton.icon(
+                    key: const ValueKey('macos-keychain-authorize'),
+                    onPressed: _requesting ? null : _authorize,
+                    icon: buttonIcon,
+                    label: Text(buttonLabel),
+                  ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 }
