@@ -499,68 +499,102 @@ class _AppShellState extends ConsumerState<AppShell>
             Material(
               color: context.scheme.surfaceContainerLow,
               child: SizedBox(
-                height: 60,
+                height: 50,
                 child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 14),
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
                   child: Row(
                     children: [
-                      Icon(
-                        Icons.auto_awesome,
-                        size: 23,
-                        color: context.scheme.primary,
-                      ),
-                      const SizedBox(width: 9),
-                      const Text(
-                        'Plana',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w700,
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(6),
+                        child: Image.asset(
+                          'assets/app_icon.png',
+                          width: 22,
+                          height: 22,
+                          fit: BoxFit.cover,
                         ),
                       ),
-                      const SizedBox(width: 24),
+                      const SizedBox(width: 8),
+                      Text(
+                        'Plana',
+                        style: TextStyle(
+                          fontSize: 15.5,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: -0.2,
+                          color: context.scheme.onSurface,
+                        ),
+                      ),
+                      const SizedBox(width: 16),
                       Expanded(
                         child: SingleChildScrollView(
                           scrollDirection: Axis.horizontal,
                           primary: false,
                           child: Row(
+                            mainAxisSize: MainAxisSize.min,
                             children: [
                               for (final tab in tabs)
                                 Padding(
-                                  padding: const EdgeInsets.only(right: 5),
-                                  child: TextButton.icon(
-                                    key: ValueKey('desktop-nav-$tab'),
-                                    onPressed: () {
-                                      if (tab == kTabGallery) {
-                                        openDesktopGallery(ref);
-                                      } else {
-                                        ref
-                                            .read(shellIndexProvider.notifier)
-                                            .select(tab);
-                                      }
-                                      if (tab == kTabCreate) _onEnterCreate();
-                                    },
-                                    style: TextButton.styleFrom(
-                                      minimumSize: const Size(0, 40),
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 16,
-                                        vertical: 10,
+                                  padding: const EdgeInsets.only(right: 4),
+                                  child: Material(
+                                    color: index == tab
+                                        ? context.scheme.surfaceContainerHigh
+                                        : Colors.transparent,
+                                    borderRadius: BorderRadius.circular(8),
+                                    clipBehavior: Clip.antiAlias,
+                                    child: InkWell(
+                                      key: ValueKey('desktop-nav-$tab'),
+                                      borderRadius: BorderRadius.circular(8),
+                                      onTap: () {
+                                        if (tab == kTabGallery) {
+                                          openDesktopGallery(ref);
+                                        } else {
+                                          ref
+                                              .read(shellIndexProvider.notifier)
+                                              .select(tab);
+                                        }
+                                        if (tab == kTabCreate) _onEnterCreate();
+                                      },
+                                      child: ConstrainedBox(
+                                        constraints: const BoxConstraints(
+                                          minHeight: 40,
+                                        ),
+                                        child: Padding(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 12,
+                                            vertical: 4,
+                                          ),
+                                          child: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Icon(
+                                                icons[tab],
+                                                size: 16,
+                                                color: index == tab
+                                                    ? context.scheme.primary
+                                                    : context
+                                                          .scheme
+                                                          .onSurfaceVariant,
+                                              ),
+                                              const SizedBox(width: 6),
+                                              Text(
+                                                labels[tab],
+                                                maxLines: 1,
+                                                softWrap: false,
+                                                style: TextStyle(
+                                                  fontSize: 13,
+                                                  fontWeight: index == tab
+                                                      ? FontWeight.w600
+                                                      : FontWeight.w500,
+                                                  color: index == tab
+                                                      ? context.scheme.onSurface
+                                                      : context
+                                                            .scheme
+                                                            .onSurfaceVariant,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
                                       ),
-                                      visualDensity: VisualDensity.standard,
-                                      backgroundColor: index == tab
-                                          ? context.scheme.primaryContainer
-                                          : null,
-                                      foregroundColor: index == tab
-                                          ? context.scheme.primary
-                                          : context.scheme.onSurfaceVariant,
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(8),
-                                      ),
-                                    ),
-                                    icon: Icon(icons[tab], size: 20),
-                                    label: Text(
-                                      labels[tab],
-                                      maxLines: 1,
-                                      softWrap: false,
                                     ),
                                   ),
                                 ),

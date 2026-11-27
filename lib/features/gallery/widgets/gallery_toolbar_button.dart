@@ -27,18 +27,24 @@ class GalleryToolbarButton extends StatelessWidget {
       child: TextButton(
         onPressed: onPressed,
         style: TextButton.styleFrom(
-          foregroundColor: active
-              ? scheme.onSecondaryContainer
-              : scheme.onSurfaceVariant,
+          foregroundColor: active ? scheme.primary : scheme.onSurfaceVariant,
           backgroundColor: active
-              ? scheme.secondaryContainer
+              ? scheme.primaryContainer.withValues(alpha: .7)
               : scheme.surfaceContainer,
-          shape: const StadiumBorder(),
-          minimumSize: const Size(0, 40),
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          side: BorderSide(
+            color: active
+                ? scheme.primary.withValues(alpha: .35)
+                : scheme.outlineVariant.withValues(alpha: .75),
+          ),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
+          minimumSize: const Size(0, 36),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
           visualDensity: VisualDensity.standard,
           tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-          textStyle: context.texts.bodyMedium!.copyWith(
+          textStyle: context.texts.labelLarge!.copyWith(
+            fontSize: 12.5,
             fontWeight: FontWeight.w600,
           ),
         ),

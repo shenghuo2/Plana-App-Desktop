@@ -162,79 +162,99 @@ class _BottomActionBarState extends ConsumerState<BottomActionBar> {
               Container(
                 key: const ValueKey('desktop-generation-summary'),
                 decoration: BoxDecoration(
-                  color: scheme.surfaceContainerLowest,
-                  border: Border.all(color: scheme.outlineVariant),
-                  borderRadius: BorderRadius.circular(12),
+                  color: scheme.surfaceContainer,
+                  border: Border.all(
+                    color: scheme.outlineVariant.withValues(alpha: .75),
+                  ),
+                  borderRadius: BorderRadius.circular(10),
                 ),
-                padding: const EdgeInsets.all(4),
-                child: Row(
-                  children: [
-                    for (final item in [
-                      (
-                        GenerationSettingTarget.steps,
-                        context.l10n.steps,
-                        '${p.activeSteps}',
+                padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 3),
+                child: IntrinsicHeight(
+                  child: Row(
+                    children: [
+                      for (final (idx, item) in [
+                        (
+                          GenerationSettingTarget.steps,
+                          context.l10n.steps,
+                          '${p.activeSteps}',
+                        ),
+                        (
+                          GenerationSettingTarget.guidance,
+                          context.l10n.guidanceShort,
+                          cfg.toStringAsFixed(1),
+                        ),
+                        (
+                          GenerationSettingTarget.seed,
+                          context.l10n.desktopSeed,
+                          p.seed.isEmpty ? context.l10n.randomShort : p.seed,
+                        ),
+                      ].indexed) ...[
+                        if (idx > 0)
+                          VerticalDivider(
+                            width: 1,
+                            thickness: 1,
+                            indent: 6,
+                            endIndent: 6,
+                            color: scheme.outlineVariant.withValues(alpha: .6),
+                          ),
+                        Expanded(
+                          flex: item.$1 == GenerationSettingTarget.seed ? 3 : 2,
+                          child: _DesktopReadout(
+                            key: ValueKey('desktop-summary-${item.$1.name}'),
+                            label: item.$2,
+                            value: item.$3,
+                            muted:
+                                p.isNaiMedium &&
+                                item.$1 == GenerationSettingTarget.steps,
+                            tooltip:
+                                p.isNaiMedium &&
+                                    item.$1 == GenerationSettingTarget.steps
+                                ? 'Medium 步数固定为 ${p.activeSteps}'
+                                : item.$1 == GenerationSettingTarget.seed
+                                ? '清空种子，改为每次随机'
+                                : null,
+                            onTap:
+                                p.isNaiMedium &&
+                                    item.$1 == GenerationSettingTarget.steps
+                                ? () => hintSnack(
+                                    context,
+                                    'Medium 步数固定为 ${p.activeSteps}',
+                                  )
+                                : item.$1 == GenerationSettingTarget.seed
+                                ? () => ref
+                                      .read(generateProvider.notifier)
+                                      .applyParams(
+                                        ref
+                                            .read(generateProvider)
+                                            .params
+                                            .copyWith(seed: ''),
+                                      )
+                                : widget.onSettingTap == null
+                                ? null
+                                : () => widget.onSettingTap!(item.$1),
+                          ),
+                        ),
+                      ],
+                      VerticalDivider(
+                        width: 1,
+                        thickness: 1,
+                        indent: 6,
+                        endIndent: 6,
+                        color: scheme.outlineVariant.withValues(alpha: .6),
                       ),
-                      (
-                        GenerationSettingTarget.guidance,
-                        context.l10n.guidanceShort,
-                        cfg.toStringAsFixed(1),
-                      ),
-                      (
-                        GenerationSettingTarget.seed,
-                        context.l10n.desktopSeed,
-                        p.seed.isEmpty ? context.l10n.randomShort : p.seed,
-                      ),
-                    ])
                       Expanded(
-                        flex: item.$1 == GenerationSettingTarget.seed ? 3 : 2,
-                        child: _DesktopReadout(
-                          key: ValueKey('desktop-summary-${item.$1.name}'),
-                          label: item.$2,
-                          value: item.$3,
-                          muted:
-                              p.isNaiMedium &&
-                              item.$1 == GenerationSettingTarget.steps,
-                          tooltip:
-                              p.isNaiMedium &&
-                                  item.$1 == GenerationSettingTarget.steps
-                              ? 'Medium 步数固定为 ${p.activeSteps}'
-                              : item.$1 == GenerationSettingTarget.seed
-                              ? '清空种子，改为每次随机'
-                              : null,
-                          onTap:
-                              p.isNaiMedium &&
-                                  item.$1 == GenerationSettingTarget.steps
-                              ? () => hintSnack(
-                                  context,
-                                  'Medium 步数固定为 ${p.activeSteps}',
-                                )
-                              : item.$1 == GenerationSettingTarget.seed
-                              ? () => ref
-                                    .read(generateProvider.notifier)
-                                    .applyParams(
-                                      ref
-                                          .read(generateProvider)
-                                          .params
-                                          .copyWith(seed: ''),
-                                    )
-                              : widget.onSettingTap == null
-                              ? null
-                              : () => widget.onSettingTap!(item.$1),
+                        flex: 3,
+                        child: Builder(
+                          builder: (anchor) => _DesktopReadout(
+                            key: const ValueKey('desktop-summary-resolution'),
+                            label: context.l10n.ratioShort,
+                            value: '${p.width}×${p.height}',
+                            onTap: () => showResolutionSheet(anchor),
+                          ),
                         ),
                       ),
-                    Expanded(
-                      flex: 3,
-                      child: Builder(
-                        builder: (anchor) => _DesktopReadout(
-                          key: const ValueKey('desktop-summary-resolution'),
-                          label: context.l10n.ratioShort,
-                          value: '${p.width}×${p.height}',
-                          onTap: () => showResolutionSheet(anchor),
-                        ),
-                      ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
               const SizedBox(height: 8),
@@ -431,23 +451,25 @@ class _DesktopReadout extends StatelessWidget {
       onTap: onTap,
       borderRadius: BorderRadius.circular(8),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 7),
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 5),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
               label,
-              style: context.texts.bodySmall!.copyWith(
+              style: context.texts.labelSmall!.copyWith(
+                fontSize: 10.5,
                 color: context.scheme.onSurfaceVariant,
               ),
             ),
-            const SizedBox(height: 4),
+            const SizedBox(height: 2),
             Text(
               value,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: context.texts.labelLarge!.copyWith(
-                fontSize: 13,
+                fontSize: 12.5,
+                fontFeatures: const [FontFeature.tabularFigures()],
                 color: muted ? context.scheme.outline : null,
                 fontWeight: FontWeight.w700,
               ),
@@ -504,10 +526,10 @@ class _GenerateButton extends StatelessWidget {
     final scheme = context.scheme;
     final busy = runningCount > 0;
     return SizedBox(
-      height: 52,
+      height: 44,
       child: Material(
         color: scheme.primary,
-        borderRadius: BorderRadius.circular(26),
+        borderRadius: BorderRadius.circular(10),
         clipBehavior: Clip.antiAlias,
         // stretch:两段都要撑满 52 的高度。默认的 center 会让 InkWell 只拿到
         // 内容那点自然高度(≈28),按钮看着一大颗、实际只有中间一条窄带能点 ——

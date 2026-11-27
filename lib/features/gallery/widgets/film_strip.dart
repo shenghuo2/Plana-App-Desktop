@@ -554,6 +554,7 @@ class _FilmStripState extends State<FilmStrip>
       vacant: entry.vacant,
       result: r,
       desktop: widget.desktop,
+      armed: _armedDelete == r.id,
       selected:
           !entry.ghost &&
           r.id == widget.selectedId &&
@@ -572,16 +573,18 @@ class _FilmStripState extends State<FilmStrip>
                 key: ValueKey('history-delete-${r.id}'),
                 style: IconButton.styleFrom(
                   padding: EdgeInsets.zero,
-                  minimumSize: const Size(24, 24),
-                  maximumSize: const Size(24, 24),
+                  minimumSize: const Size(22, 22),
+                  maximumSize: const Size(22, 22),
                   tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  backgroundColor: scheme.surface.withValues(alpha: .94),
+                  backgroundColor: _armedDelete == r.id
+                      ? scheme.errorContainer
+                      : const Color(0xB810141E),
                   foregroundColor: _armedDelete == r.id
                       ? scheme.error
-                      : scheme.onSurfaceVariant,
+                      : Colors.white.withValues(alpha: .94),
                 ),
                 onPressed: () => _deleteClick(r.id),
-                icon: const Icon(Icons.close, size: 16),
+                icon: const Icon(Icons.close, size: 14),
               ),
             )
           : null,
@@ -941,6 +944,7 @@ class _FilmThumb extends StatefulWidget {
     super.key,
     required this.result,
     this.desktop = false,
+    this.armed = false,
     required this.selected,
     required this.onTap,
     required this.onDragStart,
@@ -952,6 +956,7 @@ class _FilmThumb extends StatefulWidget {
 
   final ResultImage result;
   final bool desktop;
+  final bool armed;
   final bool selected;
   final VoidCallback onTap;
   final VoidCallback onDragStart;
@@ -966,6 +971,7 @@ class _FilmThumb extends StatefulWidget {
 
 class _FilmThumbState extends State<_FilmThumb> {
   double _dragY = 0;
+  bool _hovered = false;
   ResultImage get result => widget.result;
 
   @override
@@ -1036,11 +1042,24 @@ class _FilmThumbState extends State<_FilmThumb> {
           )
         : draggable;
     if (widget.deleteButton == null) return image;
-    return Stack(
-      children: [
-        image,
-        Positioned(top: 3, right: 3, child: widget.deleteButton!),
-      ],
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      child: Stack(
+        children: [
+          image,
+          // Keep widget hit-testable for automated taps while hiding visual noise at rest.
+          Positioned(
+            top: 4,
+            right: 4,
+            child: AnimatedOpacity(
+              duration: Motion.fast,
+              opacity: _hovered || widget.armed ? 1.0 : 0.0,
+              child: widget.deleteButton!,
+            ),
+          ),
+        ],
+      ),
     );
   }
 

@@ -69,13 +69,17 @@ class DesktopLibraryButton extends ConsumerWidget {
       mainAxisSize: MainAxisSize.min,
       children: [
         Flexible(
-          child: TextButton.icon(
+          child: OutlinedButton.icon(
             key: const ValueKey('desktop-library-picker'),
-            style: TextButton.styleFrom(
-              backgroundColor: context.scheme.primary.withValues(alpha: .08),
-              shape: const StadiumBorder(),
-              padding: const EdgeInsets.symmetric(horizontal: 14),
-              minimumSize: const Size(0, 36),
+            style: OutlinedButton.styleFrom(
+              backgroundColor: context.scheme.surfaceContainerLowest,
+              foregroundColor: context.scheme.onSurfaceVariant,
+              side: BorderSide(color: context.scheme.outlineVariant),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
+              padding: const EdgeInsets.symmetric(horizontal: 10),
+              minimumSize: const Size(0, 30),
               visualDensity: VisualDensity.compact,
             ),
             onPressed: () => showDesktopLibraryPicker(context, ref),
@@ -83,14 +87,14 @@ class DesktopLibraryButton extends ConsumerWidget {
               selection.automatic
                   ? Icons.calendar_month_outlined
                   : Icons.photo_library_outlined,
-              size: 16,
+              size: 15,
             ),
             label: Text(
               l10nNow.desktopSwitchGallery,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: context.texts.labelMedium!.copyWith(
-                color: context.scheme.primary,
+                color: context.scheme.onSurfaceVariant,
               ),
             ),
           ),

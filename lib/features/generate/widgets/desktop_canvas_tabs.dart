@@ -209,125 +209,140 @@ class _DesktopCanvasTabsState extends ConsumerState<DesktopCanvasTabs> {
       _extents = extents;
       _scheduleReveal();
     }
-    return SizedBox(
+    return DecoratedBox(
       key: const ValueKey('desktop-canvas-tabs'),
-      height: 44,
-      child: Row(
-        children: [
-          Expanded(
-            child: NotificationListener<ScrollMetricsNotification>(
-              onNotification: (notification) {
-                if (_viewportWidth != notification.metrics.viewportDimension) {
-                  _viewportWidth = notification.metrics.viewportDimension;
-                  _scheduleReveal();
-                }
-                return false;
-              },
-              child: Listener(
-                onPointerSignal: _wheel,
-                child: ScrollConfiguration(
-                  behavior: ScrollConfiguration.of(context).copyWith(
-                    scrollbars: false,
-                    dragDevices: {
-                      ...ScrollConfiguration.of(context).dragDevices,
-                      PointerDeviceKind.mouse,
-                    },
-                  ),
-                  child: Scrollbar(
-                    controller: _scroll,
-                    thumbVisibility: true,
-                    interactive: true,
-                    thickness: 3,
-                    radius: const Radius.circular(2),
-                    scrollbarOrientation: ScrollbarOrientation.bottom,
-                    child: ReorderableListView.builder(
-                      scrollController: _scroll,
-                      scrollDirection: Axis.horizontal,
-                      buildDefaultDragHandles: false,
-                      padding: const EdgeInsets.symmetric(horizontal: 10),
-                      itemExtentBuilder: (index, _) => extents[index],
-                      // Build an inert preview: moving a visible Tooltip's
-                      // OverlayPortal into the drag overlay can mutate layout.
-                      proxyDecorator: (_, index, animation) => dragProxy(
-                        IgnorePointer(
-                          key: const ValueKey('desktop-canvas-drag-preview'),
-                          child: _CanvasTab(
-                            name: workspace.canvases[index].name,
-                            selected:
-                                workspace.canvases[index].id ==
-                                workspace.activeId,
+      decoration: BoxDecoration(
+        color: context.scheme.surfaceContainerLow,
+        border: Border(
+          bottom: BorderSide(
+            color: context.scheme.outlineVariant.withValues(alpha: .8),
+          ),
+        ),
+      ),
+      child: SizedBox(
+        height: 40,
+        child: Row(
+          children: [
+            Expanded(
+              child: NotificationListener<ScrollMetricsNotification>(
+                onNotification: (notification) {
+                  if (_viewportWidth !=
+                      notification.metrics.viewportDimension) {
+                    _viewportWidth = notification.metrics.viewportDimension;
+                    _scheduleReveal();
+                  }
+                  return false;
+                },
+                child: Listener(
+                  onPointerSignal: _wheel,
+                  child: ScrollConfiguration(
+                    behavior: ScrollConfiguration.of(context).copyWith(
+                      scrollbars: false,
+                      dragDevices: {
+                        ...ScrollConfiguration.of(context).dragDevices,
+                        PointerDeviceKind.mouse,
+                      },
+                    ),
+                    child: Scrollbar(
+                      controller: _scroll,
+                      thumbVisibility: true,
+                      interactive: true,
+                      thickness: 3,
+                      radius: const Radius.circular(2),
+                      scrollbarOrientation: ScrollbarOrientation.bottom,
+                      child: ReorderableListView.builder(
+                        scrollController: _scroll,
+                        scrollDirection: Axis.horizontal,
+                        buildDefaultDragHandles: false,
+                        padding: const EdgeInsets.symmetric(horizontal: 10),
+                        itemExtentBuilder: (index, _) => extents[index],
+                        // Build an inert preview: moving a visible Tooltip's
+                        // OverlayPortal into the drag overlay can mutate layout.
+                        proxyDecorator: (_, index, animation) => dragProxy(
+                          IgnorePointer(
+                            key: const ValueKey('desktop-canvas-drag-preview'),
+                            child: _CanvasTab(
+                              name: workspace.canvases[index].name,
+                              selected:
+                                  workspace.canvases[index].id ==
+                                  workspace.activeId,
+                              index: index,
+                              labelStyle: labelStyle,
+                              onSelect: () {},
+                              preview: true,
+                            ),
+                          ),
+                          index,
+                          animation,
+                        ),
+                        onReorderItem: canvases.reorder,
+                        itemCount: workspace.canvases.length,
+                        itemBuilder: (context, index) {
+                          final canvas = workspace.canvases[index];
+                          return _CanvasTab(
+                            key: ValueKey('desktop-canvas-${canvas.id}'),
+                            name: canvas.name,
+                            selected: canvas.id == workspace.activeId,
                             index: index,
                             labelStyle: labelStyle,
-                            onSelect: () {},
-                            preview: true,
-                          ),
-                        ),
-                        index,
-                        animation,
+                            onSelect: () => _select(canvas.id),
+                            onSecondaryTap: (pos) => _showContextMenu(
+                              pos,
+                              canvas,
+                              workspace,
+                              canvases,
+                            ),
+                          );
+                        },
                       ),
-                      onReorderItem: canvases.reorder,
-                      itemCount: workspace.canvases.length,
-                      itemBuilder: (context, index) {
-                        final canvas = workspace.canvases[index];
-                        return _CanvasTab(
-                          key: ValueKey('desktop-canvas-${canvas.id}'),
-                          name: canvas.name,
-                          selected: canvas.id == workspace.activeId,
-                          index: index,
-                          labelStyle: labelStyle,
-                          onSelect: () => _select(canvas.id),
-                          onSecondaryTap: (pos) => _showContextMenu(
-                            pos,
-                            canvas,
-                            workspace,
-                            canvases,
-                          ),
-                        );
-                      },
                     ),
                   ),
                 ),
               ),
             ),
-          ),
-          if (workspace.canvases.length > 1)
+            if (workspace.canvases.length > 1)
+              SizedBox(
+                width: 36,
+                child: PopupMenuButton<String>(
+                  key: const ValueKey('desktop-canvas-picker'),
+                  tooltip: l10nNow.switchCanvas,
+                  padding: EdgeInsets.zero,
+                  icon: const Icon(Icons.expand_more, size: 20),
+                  initialValue: workspace.activeId,
+                  onSelected: _select,
+                  itemBuilder: (_) => [
+                    for (final canvas in workspace.canvases)
+                      CheckedPopupMenuItem(
+                        value: canvas.id,
+                        checked: canvas.id == workspace.activeId,
+                        child: Text(
+                          canvas.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
             SizedBox(
               width: 36,
               child: PopupMenuButton<String>(
-                key: const ValueKey('desktop-canvas-picker'),
-                tooltip: l10nNow.switchCanvas,
+                key: const ValueKey('desktop-canvas-actions'),
+                tooltip: '画布操作',
                 padding: EdgeInsets.zero,
-                icon: const Icon(Icons.expand_more, size: 20),
-                initialValue: workspace.activeId,
-                onSelected: _select,
-                itemBuilder: (_) => [
-                  for (final canvas in workspace.canvases)
-                    CheckedPopupMenuItem(
-                      value: canvas.id,
-                      checked: canvas.id == workspace.activeId,
-                      child: Text(
-                        canvas.name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                ],
+                icon: const Icon(Icons.add, size: 20),
+                onSelected: (action) => _handleAction(
+                  action,
+                  workspace.active,
+                  workspace,
+                  canvases,
+                ),
+                itemBuilder: (_) => _menuItems(workspace, workspace.active),
               ),
             ),
-          SizedBox(
-            width: 36,
-            child: PopupMenuButton<String>(
-              key: const ValueKey('desktop-canvas-actions'),
-              tooltip: '画布操作',
-              padding: EdgeInsets.zero,
-              icon: const Icon(Icons.add, size: 20),
-              onSelected: (action) =>
-                  _handleAction(action, workspace.active, workspace, canvases),
-              itemBuilder: (_) => _menuItems(workspace, workspace.active),
-            ),
-          ),
-          if (widget.trailing != null) widget.trailing!,
-        ],
+            if (widget.trailing != null) widget.trailing!,
+          ],
+        ),
       ),
     );
   }
@@ -358,22 +373,25 @@ class _CanvasTab extends StatelessWidget {
     final label = TextButton(
       onPressed: onSelect,
       style: TextButton.styleFrom(
-        textStyle: labelStyle,
+        textStyle: labelStyle.copyWith(
+          fontSize: 12.5,
+          fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+        ),
         foregroundColor: selected
-            ? context.scheme.primary
+            ? context.scheme.onSurface
             : context.scheme.onSurfaceVariant,
-        minimumSize: const Size(0, 36),
+        minimumSize: const Size(0, 32),
         padding: const EdgeInsets.symmetric(horizontal: 10),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(7)),
       ),
       child: Text(name, maxLines: 1, overflow: TextOverflow.ellipsis),
     );
     final handle = SizedBox(
-      width: 24,
-      height: 36,
+      width: 22,
+      height: 32,
       child: Icon(
         Icons.drag_indicator,
-        size: 17,
+        size: 15,
         color: context.scheme.outline,
       ),
     );
@@ -386,9 +404,9 @@ class _CanvasTab extends StatelessWidget {
             : (details) => onSecondaryTap!(details.globalPosition),
         child: Material(
           color: selected
-              ? context.scheme.primaryContainer
-              : context.scheme.surfaceContainerLow,
-          borderRadius: BorderRadius.circular(8),
+              ? context.scheme.surfaceContainerHigh
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(7),
           child: Row(
             children: [
               Expanded(

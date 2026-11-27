@@ -147,13 +147,19 @@ class _DesktopGalleryBrowserState extends ConsumerState<DesktopGalleryBrowser>
             : albums.name(location.albumId));
     if (!location.overview) {
       return Padding(
-        padding: const EdgeInsets.fromLTRB(20, 18, 20, 18),
+        padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
         child: Material(
           key: const ValueKey('desktop-gallery-grid'),
           color: context.scheme.surfaceContainerLow,
-          borderRadius: BorderRadius.circular(16),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+            side: BorderSide(
+              color: context.scheme.outlineVariant.withValues(alpha: .75),
+            ),
+          ),
+          clipBehavior: Clip.antiAlias,
           child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 4),
+            padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 4),
             child: location.albumId == trashId
                 ? GalleryTrashContent(
                     onBack: () => ref
@@ -224,11 +230,17 @@ class _DesktopGalleryBrowserState extends ConsumerState<DesktopGalleryBrowser>
     final byId = {for (final entry in libraries) entry.id: entry};
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 18, 20, 18),
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
       child: Material(
         key: const ValueKey('desktop-gallery-libraries'),
         color: context.scheme.surfaceContainerLow,
-        borderRadius: BorderRadius.circular(16),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14),
+          side: BorderSide(
+            color: context.scheme.outlineVariant.withValues(alpha: .75),
+          ),
+        ),
+        clipBehavior: Clip.antiAlias,
         child: Padding(
           padding: const EdgeInsets.all(20),
           child: Column(
@@ -238,48 +250,68 @@ class _DesktopGalleryBrowserState extends ConsumerState<DesktopGalleryBrowser>
                 children: [
                   Text(
                     l10nNow.gallery,
-                    style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700),
+                    style: const TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: -0.2,
+                    ),
                   ),
-                  const SizedBox(width: 12),
-                  Text(
-                    context.l10n.desktopGalleryCount(libraries.length),
-                    style: TextStyle(
-                      color: context.scheme.outline,
-                      fontSize: 12,
+                  const SizedBox(width: 10),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 2,
+                    ),
+                    decoration: BoxDecoration(
+                      color: context.scheme.surfaceContainer,
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(
+                        color: context.scheme.outlineVariant.withValues(
+                          alpha: .65,
+                        ),
+                      ),
+                    ),
+                    child: Text(
+                      context.l10n.desktopGalleryCount(libraries.length),
+                      style: mono(
+                        context,
+                        size: 11,
+                        color: context.scheme.onSurfaceVariant,
+                      ),
                     ),
                   ),
                 ],
               ),
-              const SizedBox(height: 18),
+              const SizedBox(height: 14),
               LayoutBuilder(
                 builder: (context, constraints) => Wrap(
-                  spacing: 12,
+                  spacing: 10,
                   runSpacing: 10,
                   crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
                     SizedBox(
-                      width: math.min(440, constraints.maxWidth),
+                      width: math.min(400, constraints.maxWidth),
                       child: TextField(
                         key: const ValueKey('desktop-gallery-search'),
                         controller: _search,
                         onChanged: (_) => setState(() {}),
                         decoration: InputDecoration(
                           isDense: true,
-                          prefixIcon: const Icon(Icons.search, size: 20),
+                          prefixIcon: const Icon(Icons.search, size: 18),
                           hintText: l10nNow.desktopSearchGalleries,
                           suffixIcon: _search.text.isEmpty
                               ? null
                               : IconButton(
                                   tooltip: l10nNow.desktopClearSearchLabel,
                                   onPressed: () => setState(_search.clear),
-                                  icon: const Icon(Icons.close, size: 18),
+                                  icon: const Icon(Icons.close, size: 17),
                                 ),
                         ),
                       ),
                     ),
                     Wrap(
-                      spacing: 12,
-                      runSpacing: 10,
+                      spacing: 8,
+                      runSpacing: 8,
                       crossAxisAlignment: WrapCrossAlignment.center,
                       children: [
                         SizedBox(
@@ -305,7 +337,9 @@ class _DesktopGalleryBrowserState extends ConsumerState<DesktopGalleryBrowser>
                   ],
                 ),
               ),
-              const SizedBox(height: 22),
+              const SizedBox(height: 16),
+              const Divider(height: 1),
+              const SizedBox(height: 16),
               Expanded(
                 child: libraries.isEmpty
                     ? Center(

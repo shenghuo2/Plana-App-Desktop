@@ -1,7 +1,7 @@
 import 'package:flutter/foundation.dart' show defaultTargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:material_color_utilities/material_color_utilities.dart'
-    show Hct, SchemeTonalSpot;
+    show Hct;
 
 import '../ui/slide_back_transitions.dart';
 import 'app_skin.dart';
@@ -313,6 +313,69 @@ abstract final class AppTheme {
       scaffoldBackgroundColor: scheme.surface,
       splashFactory: InkSparkle.splashFactory,
       visualDensity: VisualDensity.standard,
+      dividerTheme: DividerThemeData(
+        thickness: 1,
+        space: 1,
+        color: scheme.outlineVariant.withValues(alpha: .7),
+      ),
+      sliderTheme: SliderThemeData(
+        trackHeight: 3.5,
+        thumbShape: const RoundSliderThumbShape(
+          enabledThumbRadius: 6.5,
+          elevation: 1.5,
+        ),
+        overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
+        inactiveTrackColor: scheme.surfaceContainerHighest,
+      ),
+      inputDecorationTheme: InputDecorationTheme(
+        filled: true,
+        fillColor: scheme.surfaceContainer,
+        isDense: true,
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 12,
+          vertical: 10,
+        ),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: BorderSide(
+            color: scheme.outlineVariant.withValues(alpha: .75),
+          ),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: BorderSide(
+            color: scheme.outlineVariant.withValues(alpha: .75),
+          ),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: BorderSide(color: scheme.primary, width: 1.4),
+        ),
+      ),
+      tooltipTheme: TooltipThemeData(
+        decoration: BoxDecoration(
+          color: scheme.inverseSurface,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        textStyle: TextStyle(
+          fontSize: 12,
+          color: scheme.onInverseSurface,
+          fontWeight: FontWeight.w500,
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        waitDuration: const Duration(milliseconds: 420),
+      ),
+      scrollbarTheme: ScrollbarThemeData(
+        thickness: const WidgetStatePropertyAll(6),
+        radius: const Radius.circular(6),
+        thumbColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.dragged) ||
+              states.contains(WidgetState.hovered)) {
+            return scheme.onSurfaceVariant.withValues(alpha: .48);
+          }
+          return scheme.onSurfaceVariant.withValues(alpha: .26);
+        }),
+      ),
       navigationBarTheme: NavigationBarThemeData(
         height: 68,
         backgroundColor: scheme.surfaceContainer,
@@ -338,36 +401,35 @@ abstract final class AppTheme {
   }
 
   /// M3 默认 surface 阶梯太贴(暗色 背景N6/卡片N10,亮色 背景N98/卡片N96),
-  /// 层级观感弱。用种子的中性调色板重排一条间距更大的阶梯:
+  /// 层级观感弱。重排一条对比更分明的工作台中性阶梯:
   /// 暗色 背景压深、容器逐级提亮;亮色改「灰底白卡」,容器逐级压灰。
   static ColorScheme _widenSurfaces(
     ColorScheme s,
     Color seedColor,
     Brightness brightness,
   ) {
-    // 与 fromSeed 同源:默认变体 tonalSpot 的中性调色板
-    final neutral = SchemeTonalSpot(
-      sourceColorHct: Hct.fromInt(seedColor.toARGB32()),
-      isDark: brightness == Brightness.dark,
-      contrastLevel: 0.0,
-    ).neutralPalette;
-    Color t(int tone) => Color(neutral.get(tone));
     return brightness == Brightness.dark
         ? s.copyWith(
-            surface: t(4),
-            surfaceContainerLowest: t(2),
-            surfaceContainerLow: t(12),
-            surfaceContainer: t(18),
-            surfaceContainerHigh: t(24),
-            surfaceContainerHighest: t(30),
+            surface: const Color(0xFF111214),
+            surfaceContainerLowest: const Color(0xFF16171A),
+            surfaceContainerLow: const Color(0xFF1A1B1F),
+            surfaceContainer: const Color(0xFF212227),
+            surfaceContainerHigh: const Color(0xFF282A30),
+            surfaceContainerHighest: const Color(0xFF31333B),
+            outlineVariant: const Color(0xFF2F313A),
+            onSurface: const Color(0xFFF2F3F5),
+            onSurfaceVariant: const Color(0xFF9CA0AB),
           )
         : s.copyWith(
-            surface: t(96),
-            surfaceContainerLowest: t(100),
-            surfaceContainerLow: t(100),
-            surfaceContainer: t(92),
-            surfaceContainerHigh: t(89),
-            surfaceContainerHighest: t(86),
+            surface: const Color(0xFFF4F4F6),
+            surfaceContainerLowest: const Color(0xFFFFFFFF),
+            surfaceContainerLow: const Color(0xFFFFFFFF),
+            surfaceContainer: const Color(0xFFF7F7F8),
+            surfaceContainerHigh: const Color(0xFFEFEFF1),
+            surfaceContainerHighest: const Color(0xFFE6E6EA),
+            outlineVariant: const Color(0xFFE2E2E6),
+            onSurface: const Color(0xFF18181B),
+            onSurfaceVariant: const Color(0xFF63636E),
           );
   }
 }

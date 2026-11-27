@@ -23,12 +23,13 @@ import '../generate/widgets/common.dart';
 import '../generate/widgets/top_bar.dart';
 import '../generate/widgets/desktop_canvas_tabs.dart';
 import '../generate/widgets/prompt_card.dart';
+import '../generate/widgets/resolution_sheet.dart';
 import '../inspiration/inspiration_page.dart';
 import '../inspiration/codex/codex_view.dart';
 import '../import/desktop_image_drop.dart';
 import '../shell/shell_state.dart';
-import 'desktop_gallery_page.dart';
 import 'desktop_canvas_state.dart';
+import 'desktop_gallery_page.dart';
 import 'desktop_pane_divider.dart';
 
 part 'desktop_controls.dart';
@@ -168,60 +169,58 @@ class _DesktopWorkspaceState extends ConsumerState<DesktopWorkspace>
   }
 
   Widget _tabs({bool compact = false}) => SizedBox(
-    height: 46,
+    height: 40,
     width: double.infinity,
-    child: Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 10),
-      child: ScrollConfiguration(
-        behavior: ScrollConfiguration.of(context).copyWith(
-          dragDevices: {
-            ...ScrollConfiguration.of(context).dragDevices,
-            PointerDeviceKind.mouse,
-          },
-          scrollbars: false,
-        ),
-        child: SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: Row(
-            children: [
-              if (compact) ...[
-                _tab(
-                  context.l10n.desktopImagesAndHistory,
-                  Icons.image_outlined,
-                  !compactTool,
-                  () {
-                    shortcutFocus.requestFocus();
-                    setState(() => compactTool = false);
-                  },
-                  'desktop-canvas-tab',
-                ),
-                const SizedBox(width: 5),
-              ],
+    child: ScrollConfiguration(
+      behavior: ScrollConfiguration.of(context).copyWith(
+        dragDevices: {
+          ...ScrollConfiguration.of(context).dragDevices,
+          PointerDeviceKind.mouse,
+        },
+        scrollbars: false,
+      ),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 4),
+        child: Row(
+          children: [
+            if (compact) ...[
               _tab(
-                context.l10n.aiAssistant,
-                Icons.auto_awesome_outlined,
-                (!compact || compactTool) && tool == 0,
-                () => _tool(0),
-                'desktop-ai-tab',
+                context.l10n.desktopImagesAndHistory,
+                Icons.image_outlined,
+                !compactTool,
+                () {
+                  shortcutFocus.requestFocus();
+                  setState(() => compactTool = false);
+                },
+                'desktop-canvas-tab',
               ),
-              const SizedBox(width: 5),
-              _tab(
-                context.l10n.tabInspiration,
-                Icons.lightbulb_outline,
-                (!compact || compactTool) && tool == 1,
-                () => _tool(1),
-                'desktop-inspiration-tab',
-              ),
-              const SizedBox(width: 5),
-              _tab(
-                context.l10n.sectionCodex,
-                Icons.menu_book_outlined,
-                (!compact || compactTool) && tool == 2,
-                () => _tool(2),
-                'desktop-codex-tab',
-              ),
+              const SizedBox(width: 2),
             ],
-          ),
+            _tab(
+              context.l10n.aiAssistant,
+              Icons.auto_awesome_outlined,
+              (!compact || compactTool) && tool == 0,
+              () => _tool(0),
+              'desktop-ai-tab',
+            ),
+            const SizedBox(width: 2),
+            _tab(
+              context.l10n.tabInspiration,
+              Icons.lightbulb_outline,
+              (!compact || compactTool) && tool == 1,
+              () => _tool(1),
+              'desktop-inspiration-tab',
+            ),
+            const SizedBox(width: 2),
+            _tab(
+              context.l10n.sectionCodex,
+              Icons.menu_book_outlined,
+              (!compact || compactTool) && tool == 2,
+              () => _tool(2),
+              'desktop-codex-tab',
+            ),
+          ],
         ),
       ),
     ),
@@ -233,19 +232,57 @@ class _DesktopWorkspaceState extends ConsumerState<DesktopWorkspace>
     bool selected,
     VoidCallback action,
     String id,
-  ) => TextButton.icon(
+  ) => InkWell(
     key: ValueKey(id),
-    onPressed: action,
-    style: TextButton.styleFrom(
-      backgroundColor: selected ? context.scheme.primaryContainer : null,
-      foregroundColor: selected
-          ? context.scheme.primary
-          : context.scheme.onSurfaceVariant,
-      padding: const EdgeInsets.symmetric(horizontal: 10),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+    borderRadius: BorderRadius.circular(6),
+    onTap: action,
+    child: Stack(
+      alignment: Alignment.center,
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          child: SizedBox(
+            height: 40,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  icon,
+                  size: 15,
+                  color: selected
+                      ? context.scheme.primary
+                      : context.scheme.onSurfaceVariant,
+                ),
+                const SizedBox(width: 5),
+                Text(
+                  text,
+                  style: TextStyle(
+                    fontSize: 12.5,
+                    fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
+                    color: selected
+                        ? context.scheme.onSurface
+                        : context.scheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        Positioned(
+          left: 10,
+          right: 10,
+          bottom: 0,
+          child: AnimatedContainer(
+            duration: Motion.fast,
+            height: 2,
+            decoration: BoxDecoration(
+              color: selected ? context.scheme.primary : Colors.transparent,
+              borderRadius: BorderRadius.circular(1),
+            ),
+          ),
+        ),
+      ],
     ),
-    icon: Icon(icon, size: 16),
-    label: Text(text, style: const TextStyle(fontSize: 12)),
   );
 
   Widget _tools() => LayoutBuilder(
@@ -295,7 +332,7 @@ class _DesktopWorkspaceState extends ConsumerState<DesktopWorkspace>
     final collapsed = left ? _leftCollapsed : _rightCollapsed;
     return SizedBox(
       width: _collapsedWidth,
-      height: 44,
+      height: 40,
       child: IconButton(
         key: ValueKey(
           'desktop-${left ? 'left' : 'right'}-${collapsed ? 'expand' : 'collapse'}',

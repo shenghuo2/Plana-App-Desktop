@@ -66,6 +66,26 @@ class RoundIconBtn extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final compact = ref.watch(desktopModeProvider);
+    if (compact) {
+      final btn = Material(
+        color: background ?? Colors.transparent,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(7)),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          child: SizedBox(
+            width: 28,
+            height: 28,
+            child: Icon(
+              icon,
+              size: iconSize > 18 ? 18 : iconSize,
+              color: color ?? context.scheme.onSurfaceVariant,
+            ),
+          ),
+        ),
+      );
+      return tooltip == null ? btn : Tooltip(message: tooltip!, child: btn);
+    }
     final btn = Material(
       color: background ?? context.scheme.surfaceContainerHigh,
       shape: const CircleBorder(),
@@ -73,8 +93,8 @@ class RoundIconBtn extends ConsumerWidget {
       child: InkWell(
         onTap: onTap,
         child: SizedBox(
-          width: compact ? size.clamp(0, 30) : size,
-          height: compact ? size.clamp(0, 30) : size,
+          width: size,
+          height: size,
           child: Icon(
             icon,
             size: iconSize,
