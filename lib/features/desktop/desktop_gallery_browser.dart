@@ -147,7 +147,7 @@ class _DesktopGalleryBrowserState extends ConsumerState<DesktopGalleryBrowser>
             : albums.name(location.albumId));
     if (!location.overview) {
       return Padding(
-        padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+        padding: const EdgeInsets.fromLTRB(16, 14, 16, 18),
         child: Material(
           key: const ValueKey('desktop-gallery-grid'),
           color: context.scheme.surfaceContainerLow,
@@ -159,7 +159,7 @@ class _DesktopGalleryBrowserState extends ConsumerState<DesktopGalleryBrowser>
           ),
           clipBehavior: Clip.antiAlias,
           child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 4),
+            padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 4),
             child: location.albumId == trashId
                 ? GalleryTrashContent(
                     onBack: () => ref

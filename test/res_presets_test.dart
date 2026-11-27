@@ -48,6 +48,8 @@ void main() {
   test(
     'failed settings write retains preset and blocks exit until retry succeeds',
     () async {
+      final existing = File('${root.path}/settings.json');
+      if (await existing.exists()) await existing.delete();
       final blocker = Directory('${root.path}/settings.json');
       await blocker.create();
       await expectLater(

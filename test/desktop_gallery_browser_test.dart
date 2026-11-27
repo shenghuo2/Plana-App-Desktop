@@ -521,7 +521,11 @@ void main() {
             .style!
             .shape!
             .resolve({}),
-        isA<StadiumBorder>(),
+        isA<RoundedRectangleBorder>().having(
+          (shape) => shape.borderRadius,
+          'borderRadius',
+          BorderRadius.circular(10),
+        ),
       );
       await tester.enterText(key('desktop-gallery-search'), '已有');
       await tester.tap(key('desktop-gallery-date'));
