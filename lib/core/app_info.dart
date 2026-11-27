@@ -10,8 +10,8 @@ import '../l10n/l10n.dart';
 /// 存储标识独立于显示名,改名不迁移用户配置、图库或加密令牌。
 const kAppName = 'Plana App Desktop';
 const kAppTagline = 'NovelAI 桌面创作端';
-const kAppVersion = '1.2.5-desktop.1';
-const kAppBuild = '75';
+const kAppVersion = '1.2.5-desktop.2';
+const kAppBuild = '76';
 
 /// 预发布版(版号带 `-`):关于页加内测标,免得测试反馈回来分不清版本。
 bool get kIsPrerelease => kAppVersion.contains('-');
