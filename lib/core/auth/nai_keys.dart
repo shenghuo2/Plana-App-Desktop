@@ -218,6 +218,7 @@ class NaiKeysNotifier extends AsyncNotifier<List<NaiKey>> {
 
   @override
   Future<List<NaiKey>> build() async {
+    ref.watch(credentialRevisionProvider);
     try {
       final raw = await _storage.read(key: _keysKey);
       // 读出来也过一遍 normalize:老数据里主账号可能带着关掉的开关。

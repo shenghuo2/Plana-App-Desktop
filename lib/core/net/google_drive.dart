@@ -62,6 +62,7 @@ class GoogleDriveAuth extends Notifier<String?> {
 
   @override
   String? build() {
+    ref.watch(credentialRevisionProvider);
     final prefs = ref.read(prefsStoreProvider);
     final selected =
         prefs.get(_personalClientIdKey) ??

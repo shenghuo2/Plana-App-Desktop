@@ -87,9 +87,10 @@ final planStoreProvider = Provider<PlanStore>((ref) {
 });
 
 final FutureProvider<PlanAccounts> planAccountsProvider =
-    FutureProvider<PlanAccounts>(
-      (ref) => ref.watch(planStoreProvider).accounts(refreshOldCatalog: true),
-    );
+    FutureProvider<PlanAccounts>((ref) {
+      ref.watch(credentialRevisionProvider);
+      return ref.watch(planStoreProvider).accounts(refreshOldCatalog: true);
+    });
 
 class PlanStore {
   PlanStore(

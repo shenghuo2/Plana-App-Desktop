@@ -99,6 +99,7 @@ class ExternalImagePushSettingsNotifier
 
   @override
   Future<ExternalImagePushSettings> build() async {
+    ref.watch(credentialRevisionProvider);
     final prefs = _prefs;
     final secure = _secureStorage;
     final endpoint = (await prefs.read(key: _endpointKey))?.trim() ?? '';

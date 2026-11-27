@@ -11,7 +11,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/auth/auth_mode.dart';
 import '../../core/auth/bot_session_store.dart';
+import '../../core/auth/credential_store.dart';
 import '../../core/auth/nai_credential_login.dart';
+import '../../core/auth/secure_storage.dart'
+    show requestMacOsKeychainAccess, secureStorageProvider;
 import '../../core/auth/token_store.dart';
 import '../../core/net/backend_config.dart';
 import '../../core/platform/desktop.dart';
@@ -610,6 +613,10 @@ class _AppShellState extends ConsumerState<AppShell>
               ),
             ),
             const Divider(height: 1),
+            if (ref.watch(secureStorageProvider)
+                case final CredentialStore credStore
+                when credStore.usesSingleVault)
+              _MacOsKeychainAuthBanner(store: credStore),
             Expanded(
               child: IndexedStack(
                 index: index,
@@ -693,6 +700,106 @@ class _AppShellState extends ConsumerState<AppShell>
           ),
         ],
       ),
+    );
+  }
+}
+
+class _MacOsKeychainAuthBanner extends ConsumerStatefulWidget {
+  const _MacOsKeychainAuthBanner({required this.store});
+
+  final CredentialStore store;
+
+  @override
+  ConsumerState<_MacOsKeychainAuthBanner> createState() =>
+      _MacOsKeychainAuthBannerState();
+}
+
+class _MacOsKeychainAuthBannerState
+    extends ConsumerState<_MacOsKeychainAuthBanner> {
+  bool _requesting = false;
+
+  Future<void> _authorize() async {
+    if (_requesting) return;
+    setState(() => _requesting = true);
+    try {
+      final result = await requestMacOsKeychainAccess(ref);
+      if (!mounted) return;
+      if (result.ok) {
+        hintSnack(
+          context,
+          result.entryCount > 0
+              ? '钥匙串已授权，已重新加载凭据（${result.entryCount} 项）'
+              : '钥匙串读写权限已就绪',
+          icon: Icons.check_circle_outline,
+        );
+      } else {
+        hintSnack(
+          context,
+          '钥匙串授权未完成：${result.error ?? '请重试'}',
+          icon: Icons.error_outline,
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _requesting = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = context.scheme;
+    return ValueListenableBuilder<CredentialVaultStatus>(
+      valueListenable: widget.store.vaultStatus,
+      builder: (context, status, _) {
+        if (!status.needsAuthorization) return const SizedBox.shrink();
+        final detail = status.lastError?.trim();
+        return Material(
+          key: const ValueKey('macos-keychain-banner'),
+          color: scheme.errorContainer.withValues(alpha: .42),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 8,
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.vpn_key_outlined, size: 17, color: scheme.error),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        detail == null || detail.isEmpty
+                            ? 'macOS 钥匙串未授权，已保存的令牌、接口与账号凭据暂时无法读取'
+                            : 'macOS 钥匙串未授权，已保存的令牌、接口与账号凭据暂时无法读取（$detail）',
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: context.texts.bodySmall!.copyWith(
+                          color: scheme.onSurface,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    FilledButton.tonalIcon(
+                      key: const ValueKey('macos-keychain-banner-authorize'),
+                      onPressed: _requesting ? null : _authorize,
+                      icon: _requesting
+                          ? const SizedBox(
+                              width: 14,
+                              height: 14,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.lock_open_outlined, size: 16),
+                      label: Text(_requesting ? '正在申请…' : '申请钥匙串权限'),
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(height: 1),
+            ],
+          ),
+        );
+      },
     );
   }
 }

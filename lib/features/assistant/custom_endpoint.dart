@@ -546,6 +546,7 @@ class CustomEndpointsNotifier extends AsyncNotifier<List<CustomEndpoint>> {
 
   @override
   Future<List<CustomEndpoint>> build() async {
+    ref.watch(credentialRevisionProvider);
     final raw = await _storage.read(key: _key);
     if (raw == null || raw.isEmpty) return const [];
     final j = jsonDecode(raw);

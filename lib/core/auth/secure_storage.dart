@@ -1,5 +1,11 @@
+import 'dart:io';
+
+import 'package:flutter/services.dart' show MethodChannel;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+
+import '../store/prefs_store.dart';
+import 'credential_store.dart';
 
 /// 全局唯一的加密存储**配置**(令牌 / bot 会话 / 后端地址 等设置共用)。
 ///
@@ -27,16 +33,101 @@ const kMacOsKeychainSmokeTestEnvironment = 'PLANA_MACOS_KEYCHAIN_SMOKE_TEST';
 
 Future<void> runMacOsKeychainSmokeTest() async {
   const key = '__plana_macos_keychain_smoke_test__';
+  const legacyKey = '__plana_macos_keychain_smoke_legacy__';
+  const vaultKey = '__plana_macos_keychain_smoke_vault__';
   final value = DateTime.now().microsecondsSinceEpoch.toString();
-  await kSecureStorage.write(key: key, value: value);
+  final legacyValue = 'legacy_$value';
+  final secondValue = 'second_$value';
+  final tempDir = await Directory.systemTemp.createTemp('plana_kc_smoke_');
   try {
+    await kSecureStorage.write(key: key, value: value);
     final stored = await kSecureStorage.read(key: key);
     if (stored != value) {
       throw StateError('macOS Keychain returned an unexpected value');
     }
+
+    // Verify attribute-only enumeration (`plana/macos_keychain` `listKeys`)
+    // and single-vault migration/cold-reload without touching user credentials.
+    await kSecureStorage.write(key: legacyKey, value: legacyValue);
+    const channel = MethodChannel(CredentialStore.macOsKeychainChannelName);
+    final listed = await channel.invokeListMethod<String>('listKeys', {
+      'service': kMacOsSecureStorageService,
+    });
+    if (listed == null || !listed.contains(legacyKey)) {
+      throw StateError('macOS Keychain listKeys did not return smoke legacy');
+    }
+
+    final prefs1 = await PrefsStore.open(
+      tempDir,
+      legacyRead: (_) async => null,
+      legacyDelete: (_) async {},
+    );
+    final store1 = await CredentialStore.open(
+      prefs1,
+      useSingleVault: true,
+      vaultKeyOverride: vaultKey,
+      listKeys: () async => [legacyKey],
+    );
+    if (await store1.read(key: legacyKey) != legacyValue) {
+      throw StateError('macOS single-vault migration read mismatch');
+    }
+    await store1.write(key: '${legacyKey}_extra', value: secondValue);
+
+    final prefs2 = await PrefsStore.open(
+      tempDir,
+      legacyRead: (_) async => null,
+      legacyDelete: (_) async {},
+    );
+    final store2 = await CredentialStore.open(
+      prefs2,
+      useSingleVault: true,
+      vaultKeyOverride: vaultKey,
+      listKeys: () async => [legacyKey],
+    );
+    if (await store2.read(key: legacyKey) != legacyValue ||
+        await store2.read(key: '${legacyKey}_extra') != secondValue) {
+      throw StateError('macOS single-vault cold reload mismatch');
+    }
   } finally {
-    await kSecureStorage.delete(key: key);
+    for (final k in [key, legacyKey, vaultKey]) {
+      try {
+        await kSecureStorage.delete(key: k);
+      } catch (_) {}
+    }
+    try {
+      await tempDir.delete(recursive: true);
+    } catch (_) {}
   }
+}
+
+class CredentialRevisionNotifier extends Notifier<int> {
+  @override
+  int build() => 0;
+
+  void bump() => state++;
+}
+
+/// Increments after macOS Keychain authorization succeeds so credential-backed
+/// providers reload without restarting the app.
+final credentialRevisionProvider =
+    NotifierProvider<CredentialRevisionNotifier, int>(
+      CredentialRevisionNotifier.new,
+    );
+
+/// Explicitly prompts for macOS Keychain access if needed, reloads the single
+/// credential vault, and invalidates dependent providers on success.
+Future<CredentialVaultUnlockResult> requestMacOsKeychainAccess(
+  WidgetRef ref,
+) async {
+  final creds = ref.read(secureStorageProvider);
+  if (creds is CredentialStore && creds.usesSingleVault) {
+    final result = await creds.requestKeychainAccess();
+    if (result.ok && ref.context.mounted) {
+      ref.read(credentialRevisionProvider.notifier).bump();
+    }
+    return result;
+  }
+  return const CredentialVaultUnlockResult(ok: true);
 }
 
 /// ProviderScope 内的凭据读写统一走这里。`main()` 把它换成 `CredentialStore`:
