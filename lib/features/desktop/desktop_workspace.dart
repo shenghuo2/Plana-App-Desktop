@@ -181,7 +181,7 @@ class _DesktopWorkspaceState extends ConsumerState<DesktopWorkspace>
       ),
       child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 4),
+        padding: const EdgeInsets.fromLTRB(10, 0, 6, 0),
         child: Row(
           children: [
             if (compact) ...[
